@@ -52,3 +52,52 @@ async fn openapi_spec_served_correctly() {
         "missing ProblemDetails schema"
     );
 }
+
+use std::path::PathBuf;
+
+use joinedcontext_portal::openapi::ApiDoc;
+use utoipa::OpenApi;
+
+fn spec_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ui/openapi.json")
+}
+
+fn rendered() -> String {
+    let mut json = serde_json::to_string_pretty(&ApiDoc::openapi()).expect("serialise the spec");
+    json.push('\n');
+    json
+}
+
+/// The UI generates its types from the committed spec, so CI never needs a running server.
+/// Regenerate with `cargo test --test openapi_tests -- --ignored write_openapi_json`,
+/// then `pnpm generate:api` in `ui/`.
+#[test]
+fn committed_openapi_spec_is_current() {
+    let committed = std::fs::read_to_string(spec_path()).expect("ui/openapi.json is committed");
+    assert_eq!(
+        committed,
+        rendered(),
+        "ui/openapi.json is stale — rerun the writer test and `pnpm generate:api`"
+    );
+}
+
+#[test]
+#[ignore = "writes ui/openapi.json; run explicitly after changing the API surface"]
+fn write_openapi_json() {
+    std::fs::write(spec_path(), rendered()).expect("write ui/openapi.json");
+}
+
+#[test]
+fn every_documented_path_is_versioned_and_not_a_kubernetes_apis_path() {
+    let spec = ApiDoc::openapi();
+    for path in spec.paths.paths.keys() {
+        assert!(
+            path.starts_with("/api/v1/"),
+            "path {path} is not under /api/v1/"
+        );
+        assert!(
+            !path.starts_with("/apis/"),
+            "path {path} uses the k8s shape"
+        );
+    }
+}

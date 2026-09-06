@@ -34,6 +34,7 @@
     "cancel": "Cancel",
     "required": "This field is required",
     "invalid": "Invalid value",
+    "noResults": "No results",
     "errors": "{count, plural, =0 {No errors} one {# error} other {# errors}}",
     "type": "Invalid type",
     "minLength": "Value is too short",

@@ -34,6 +34,7 @@
     "cancel": "Zrušiť",
     "required": "Toto pole je povinné",
     "invalid": "Neplatná hodnota",
+    "noResults": "Žiadne výsledky",
     "errors": "{count, plural, =0 {Bez chýb} one {# chyba} few {# chyby} other {# chýb}}",
     "type": "Nesprávny typ hodnoty",
     "minLength": "Hodnota je príliš krátka",
