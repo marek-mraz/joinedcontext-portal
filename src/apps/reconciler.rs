@@ -8,7 +8,10 @@
 //! generated application carries no authentication code at all (AP-26, ADR-N-017).
 //!
 //! Rendering is a pure function of the manifest, the installation settings, the image CI built
-//! and the reconciler-owned [`Credentials`]. Nothing here reaches a cluster: `render` returns the
+//! and the reconciler-owned [`crate::apps::reconciler::Credentials`] — spelled out because
+//! `apps/mod.rs` also documents `pub mod reconciler;` from the outside, and rustdoc resolves
+//! the two doc blocks merged, in the parent scope, where a bare name here is not an item.
+//! Nothing here reaches a cluster: `render` returns the
 //! objects, and applying them is the caller's business.
 
 use std::collections::BTreeSet;
