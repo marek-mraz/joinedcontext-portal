@@ -26,6 +26,10 @@ pub const SECRET_KEYS: &[&str] = &[
     "apiKey",
     "client_secret",
     "api_key",
+    // A CKAN instance is named by `apiTokenRef`; a pasted `apiToken` is the same mistake as
+    // a pasted password and is refused the same way (EP-67).
+    "apiToken",
+    "api_token",
 ];
 
 /// Detects string-valued literal secrets in manifest payloads (MF-24).

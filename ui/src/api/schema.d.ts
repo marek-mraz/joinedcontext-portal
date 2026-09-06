@@ -58,6 +58,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/branding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_branding"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/branding/{asset}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The logo or the favicon, read from beside the branding file (UI-30).
+         * @description The file name comes from the branding block, which already refused anything but a
+         *     same-origin file name, and it is joined to the branding file's own directory: the two
+         *     assets a ConfigMap carries are the only files this route can ever reach. Served as an
+         *     image, which is the only way the UI uses it, so an SVG cannot run script.
+         */
+        get: operations["get_asset"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -148,6 +187,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["reject_change"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/ckan/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_status"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -410,6 +465,93 @@ export interface components {
             owl?: string | null;
             shacl?: string | null;
         };
+        /** @description Everything the Portal shows that names or themes an installation. */
+        Branding: {
+            /**
+             * @description The city or region this installation serves.
+             * @default
+             */
+            city: string;
+            /**
+             * @default {
+             *       "accent": "#f59e0b",
+             *       "background": "#ffffff",
+             *       "primary": "#1d4ed8",
+             *       "secondary": "#0f766e",
+             *       "text": "#0f172a"
+             *     }
+             */
+            colours: components["schemas"]["Colours"];
+            /**
+             * @description The DCAT-AP contact point and the footer's address.
+             * @default
+             */
+            contactEmail: string;
+            /**
+             * @description The platform host.
+             * @default
+             */
+            domain: string;
+            /**
+             * @description Favicon file, served from the platform's own origin.
+             * @default
+             */
+            favicon: string;
+            /**
+             * @default {
+             *       "body": "system-ui, sans-serif",
+             *       "heading": "system-ui, sans-serif"
+             *     }
+             */
+            fonts: components["schemas"]["Fonts"];
+            /**
+             * @description Full name: page titles and the login page.
+             * @default joinedcontext
+             */
+            instanceName: string;
+            /**
+             * @default {
+             *       "default": "en",
+             *       "offered": [
+             *         "en"
+             *       ]
+             *     }
+             */
+            languages: components["schemas"]["Languages"];
+            /**
+             * @description The default dataset licence.
+             * @default CC-BY-4.0
+             */
+            licenseDefault: string;
+            /**
+             * @description Logo file, served from the platform's own origin.
+             * @default
+             */
+            logo: string;
+            /**
+             * @description The organization's domain: URN segment, realm display name, `did:web`.
+             * @default
+             */
+            orgDomain: string;
+            /**
+             * @description The legal publisher, which is also the DCAT-AP `dcterms:publisher`.
+             * @default
+             */
+            organisation: string;
+            /**
+             * @description Readable text on top of the primary colour. Always computed from that colour, never
+             *     taken from the file: the block names a primary colour but no foreground, and white on
+             *     a light primary is unreadable (WCAG 1.4.3). A value in the file is overwritten.
+             * @default #ffffff
+             */
+            primaryForeground: string;
+            /**
+             * @description Short name: sidebars, tabs, e-mail subjects. A block that omits it gets the full name,
+             *     so the field default is empty rather than the struct's.
+             * @default joinedcontext
+             */
+            shortName: string;
+        };
         /** @description The catalogue index Model Tools caches and refreshes daily (DM-12). */
         Catalogue: {
             /** @description When the cache was last filled from the catalogue. */
@@ -492,6 +634,45 @@ export interface components {
             key: string;
             params: Record<string, never>;
         };
+        /** @description The CKAN picture of one project. */
+        CkanStatus: {
+            /** @description Every catalogue this project can publish to. */
+            instances: components["schemas"]["InstanceSummary"][];
+            /** @description One entry per endpoint that declares `spec.publish.ckan`. */
+            publications: components["schemas"]["PublicationStatus"][];
+        };
+        /**
+         * @description The five colours a page is built from. Each is validated as a hex triplet or sextet before
+         *     it is served, because the UI writes it into a CSS custom property and a value that is not a
+         *     colour is a way into the page (OPS-46).
+         */
+        Colours: {
+            /**
+             * @description Highlight colour.
+             * @default #f59e0b
+             */
+            accent: string;
+            /**
+             * @description Page background.
+             * @default #ffffff
+             */
+            background: string;
+            /**
+             * @description Primary action colour.
+             * @default #1d4ed8
+             */
+            primary: string;
+            /**
+             * @description Secondary accent used for links and focus.
+             * @default #0f766e
+             */
+            secondary: string;
+            /**
+             * @description Body text.
+             * @default #0f172a
+             */
+            text: string;
+        };
         /**
          * Condition
          * @description Status condition entry.
@@ -510,6 +691,13 @@ export interface components {
             status: string;
             /** @description Type of condition (e.g. Reconciled, Ready). */
             type: string;
+        };
+        /** @description The declared row mirror. */
+        DataStoreStatus: {
+            /** @description How the mirror is kept current. */
+            refresh: string;
+            /** @description The tabular representation the rows are read through. */
+            representation: string;
         };
         /** @description Reviewer-facing validation and diff result returned on `?dryRun=All` (MF-13, R17). */
         DryRunResult: {
@@ -540,6 +728,22 @@ export interface components {
              *     expansion against a schema the user never saw (CC-26).
              */
             version: string;
+        };
+        /**
+         * @description Heading and body font stacks. Self-hosted or system families only: nothing on a page
+         *     fetches from a third-party origin at runtime.
+         */
+        Fonts: {
+            /**
+             * @description Font stack for body text.
+             * @default system-ui, sans-serif
+             */
+            body: string;
+            /**
+             * @description Font stack for headings.
+             * @default system-ui, sans-serif
+             */
+            heading: string;
         };
         /** @description A LinkML source to compile. */
         GenerateRequest: {
@@ -574,6 +778,17 @@ export interface components {
              */
             model: string;
         };
+        /** @description One `CkanInstance`, without anything secret about it. */
+        InstanceSummary: {
+            /** @description The name of the secret holding the API token. Never its value (EP-67). */
+            apiTokenRef: string;
+            /** @description Manifest name. */
+            name: string;
+            /** @description The organization a dataset lands in when the endpoint names none. */
+            organizationDefault?: string | null;
+            /** @description Base URL of the catalogue. */
+            url: string;
+        };
         /**
          * @description One key as everyone else ever sees it: what an operator decides on, and nothing that opens
          *     a door.
@@ -595,6 +810,21 @@ export interface components {
          * @enum {string}
          */
         Lane: "green" | "yellow" | "red";
+        /** @description The locale the UI starts in and the ones it offers. */
+        Languages: {
+            /**
+             * @description The locale a first-time visitor gets.
+             * @default en
+             */
+            default: string;
+            /**
+             * @description Every locale the switcher lists; always contains the default.
+             * @default [
+             *       "en"
+             *     ]
+             */
+            offered: string[];
+        };
         ListMeta: {
             continue?: string | null;
             remainingItemCount?: number | null;
@@ -701,12 +931,41 @@ export interface components {
             title: string;
             type: string;
         };
+        /** @description What one endpoint publishes, and where. */
+        PublicationStatus: {
+            /** @description The CKAN dataset name. */
+            dataset: string;
+            /** @description Where the dataset is in the catalogue, once it is published. */
+            datasetUrl?: string | null;
+            datastore?: null | components["schemas"]["DataStoreStatus"];
+            /** @description The endpoint that declares the publication. */
+            endpoint: string;
+            /** @description The `CkanInstance` it publishes to. */
+            instance: string;
+            /** @description `true` when that instance is missing from the project, which is why nothing publishes. */
+            instanceMissing: boolean;
+            /** @description The CKAN organization the dataset lands in. */
+            organization?: string | null;
+            /** @description The endpoint's lifecycle phase, as the mirror reports it. */
+            phase?: string | null;
+            /** @description One resource per enabled representation, plus the schema index (EP-64). */
+            resources: components["schemas"]["ResourceLink"][];
+        };
         ResourceEnvelope: {
             apiVersion: string;
             kind: string;
             metadata: components["schemas"]["ObjectMeta"];
             spec?: Record<string, never>;
             status?: null | components["schemas"]["Status"];
+        };
+        /** @description One CKAN resource of a dataset. */
+        ResourceLink: {
+            /** @description The CKAN format string. */
+            format: string;
+            /** @description What the resource is called in CKAN. */
+            name: string;
+            /** @description The URL a citizen clicks, always under the endpoint (EP-66). */
+            url: string;
         };
         ResourceList: {
             apiVersion: string;
@@ -843,6 +1102,58 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_branding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branding of this installation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Branding"];
+                };
+            };
+        };
+    };
+    get_asset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `logo` or `favicon` */
+                asset: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/svg+xml": unknown;
+                };
+            };
+            /** @description No such asset is configured */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1213,6 +1524,38 @@ export interface operations {
             };
             /** @description Git forge unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Catalogues and publications of this project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CkanStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

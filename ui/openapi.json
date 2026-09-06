@@ -103,6 +103,65 @@
         }
       }
     },
+    "/api/v1/branding": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "get_branding",
+        "responses": {
+          "200": {
+            "description": "The branding of this installation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Branding"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/branding/{asset}": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The logo or the favicon, read from beside the branding file (UI-30).",
+        "description": "The file name comes from the branding block, which already refused anything but a\nsame-origin file name, and it is joined to the branding file's own directory: the two\nassets a ConfigMap carries are the only files this route can ever reach. Served as an\nimage, which is the only way the UI uses it, so an SVG cannot run script.",
+        "operationId": "get_asset",
+        "parameters": [
+          {
+            "name": "asset",
+            "in": "path",
+            "description": "`logo` or `favicon`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The image",
+            "content": {
+              "image/svg+xml": {}
+            }
+          },
+          "404": {
+            "description": "No such asset is configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -565,6 +624,47 @@
           },
           "503": {
             "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/ckan/status": {
+      "get": {
+        "tags": [
+          "ckan"
+        ],
+        "operationId": "get_status",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalogues and publications of this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CkanStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -2232,6 +2332,108 @@
           }
         }
       },
+      "Branding": {
+        "type": "object",
+        "description": "Everything the Portal shows that names or themes an installation.",
+        "properties": {
+          "city": {
+            "type": "string",
+            "description": "The city or region this installation serves.",
+            "default": ""
+          },
+          "colours": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Colours",
+                "description": "The colour tokens the UI writes as CSS custom properties."
+              }
+            ],
+            "default": {
+              "accent": "#f59e0b",
+              "background": "#ffffff",
+              "primary": "#1d4ed8",
+              "secondary": "#0f766e",
+              "text": "#0f172a"
+            }
+          },
+          "contactEmail": {
+            "type": "string",
+            "description": "The DCAT-AP contact point and the footer's address.",
+            "default": ""
+          },
+          "domain": {
+            "type": "string",
+            "description": "The platform host.",
+            "default": ""
+          },
+          "favicon": {
+            "type": "string",
+            "description": "Favicon file, served from the platform's own origin.",
+            "default": ""
+          },
+          "fonts": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Fonts",
+                "description": "The font stacks the UI writes as CSS custom properties."
+              }
+            ],
+            "default": {
+              "body": "system-ui, sans-serif",
+              "heading": "system-ui, sans-serif"
+            }
+          },
+          "instanceName": {
+            "type": "string",
+            "description": "Full name: page titles and the login page.",
+            "default": "joinedcontext"
+          },
+          "languages": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Languages",
+                "description": "The locales the language switcher offers."
+              }
+            ],
+            "default": {
+              "default": "en",
+              "offered": [
+                "en"
+              ]
+            }
+          },
+          "licenseDefault": {
+            "type": "string",
+            "description": "The default dataset licence.",
+            "default": "CC-BY-4.0"
+          },
+          "logo": {
+            "type": "string",
+            "description": "Logo file, served from the platform's own origin.",
+            "default": ""
+          },
+          "orgDomain": {
+            "type": "string",
+            "description": "The organization's domain: URN segment, realm display name, `did:web`.",
+            "default": ""
+          },
+          "organisation": {
+            "type": "string",
+            "description": "The legal publisher, which is also the DCAT-AP `dcterms:publisher`.",
+            "default": ""
+          },
+          "primaryForeground": {
+            "type": "string",
+            "description": "Readable text on top of the primary colour. Always computed from that colour, never\ntaken from the file: the block names a primary colour but no foreground, and white on\na light primary is unreadable (WCAG 1.4.3). A value in the file is overwritten.",
+            "default": "#ffffff"
+          },
+          "shortName": {
+            "type": "string",
+            "description": "Short name: sidebars, tabs, e-mail subjects. A block that omits it gets the full name,\nso the field default is empty rather than the struct's.",
+            "default": "joinedcontext"
+          }
+        }
+      },
       "Catalogue": {
         "type": "object",
         "description": "The catalogue index Model Tools caches and refreshes daily (DM-12).",
@@ -2490,6 +2692,61 @@
           }
         }
       },
+      "CkanStatus": {
+        "type": "object",
+        "description": "The CKAN picture of one project.",
+        "required": [
+          "instances",
+          "publications"
+        ],
+        "properties": {
+          "instances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceSummary"
+            },
+            "description": "Every catalogue this project can publish to."
+          },
+          "publications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicationStatus"
+            },
+            "description": "One entry per endpoint that declares `spec.publish.ckan`."
+          }
+        }
+      },
+      "Colours": {
+        "type": "object",
+        "description": "The five colours a page is built from. Each is validated as a hex triplet or sextet before\nit is served, because the UI writes it into a CSS custom property and a value that is not a\ncolour is a way into the page (OPS-46).",
+        "properties": {
+          "accent": {
+            "type": "string",
+            "description": "Highlight colour.",
+            "default": "#f59e0b"
+          },
+          "background": {
+            "type": "string",
+            "description": "Page background.",
+            "default": "#ffffff"
+          },
+          "primary": {
+            "type": "string",
+            "description": "Primary action colour.",
+            "default": "#1d4ed8"
+          },
+          "secondary": {
+            "type": "string",
+            "description": "Secondary accent used for links and focus.",
+            "default": "#0f766e"
+          },
+          "text": {
+            "type": "string",
+            "description": "Body text.",
+            "default": "#0f172a"
+          }
+        }
+      },
       "Condition": {
         "type": "object",
         "title": "Condition",
@@ -2531,6 +2788,24 @@
           }
         },
         "additionalProperties": false
+      },
+      "DataStoreStatus": {
+        "type": "object",
+        "description": "The declared row mirror.",
+        "required": [
+          "representation",
+          "refresh"
+        ],
+        "properties": {
+          "refresh": {
+            "type": "string",
+            "description": "How the mirror is kept current."
+          },
+          "representation": {
+            "type": "string",
+            "description": "The tabular representation the rows are read through."
+          }
+        }
       },
       "DryRunResult": {
         "type": "object",
@@ -2592,6 +2867,22 @@
           }
         },
         "additionalProperties": false
+      },
+      "Fonts": {
+        "type": "object",
+        "description": "Heading and body font stacks. Self-hosted or system families only: nothing on a page\nfetches from a third-party origin at runtime.",
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "Font stack for body text.",
+            "default": "system-ui, sans-serif"
+          },
+          "heading": {
+            "type": "string",
+            "description": "Font stack for headings.",
+            "default": "system-ui, sans-serif"
+          }
+        }
       },
       "GenerateRequest": {
         "type": "object",
@@ -2674,6 +2965,36 @@
           }
         }
       },
+      "InstanceSummary": {
+        "type": "object",
+        "description": "One `CkanInstance`, without anything secret about it.",
+        "required": [
+          "name",
+          "url",
+          "apiTokenRef"
+        ],
+        "properties": {
+          "apiTokenRef": {
+            "type": "string",
+            "description": "The name of the secret holding the API token. Never its value (EP-67)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Manifest name."
+          },
+          "organizationDefault": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The organization a dataset lands in when the endpoint names none."
+          },
+          "url": {
+            "type": "string",
+            "description": "Base URL of the catalogue."
+          }
+        }
+      },
       "KeyInfo": {
         "type": "object",
         "description": "One key as everyone else ever sees it: what an operator decides on, and nothing that opens\na door.",
@@ -2738,6 +3059,27 @@
           "yellow",
           "red"
         ]
+      },
+      "Languages": {
+        "type": "object",
+        "description": "The locale the UI starts in and the ones it offers.",
+        "properties": {
+          "default": {
+            "type": "string",
+            "description": "The locale a first-time visitor gets.",
+            "default": "en"
+          },
+          "offered": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every locale the switcher lists; always contains the default.",
+            "default": [
+              "en"
+            ]
+          }
+        }
       },
       "ListMeta": {
         "type": "object",
@@ -3070,6 +3412,74 @@
           }
         }
       },
+      "PublicationStatus": {
+        "type": "object",
+        "description": "What one endpoint publishes, and where.",
+        "required": [
+          "endpoint",
+          "instance",
+          "instanceMissing",
+          "dataset",
+          "resources"
+        ],
+        "properties": {
+          "dataset": {
+            "type": "string",
+            "description": "The CKAN dataset name."
+          },
+          "datasetUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the dataset is in the catalogue, once it is published."
+          },
+          "datastore": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DataStoreStatus",
+                "description": "The row mirror, when the endpoint asks for one (EP-65)."
+              }
+            ]
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "The endpoint that declares the publication."
+          },
+          "instance": {
+            "type": "string",
+            "description": "The `CkanInstance` it publishes to."
+          },
+          "instanceMissing": {
+            "type": "boolean",
+            "description": "`true` when that instance is missing from the project, which is why nothing publishes."
+          },
+          "organization": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The CKAN organization the dataset lands in."
+          },
+          "phase": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The endpoint's lifecycle phase, as the mirror reports it."
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceLink"
+            },
+            "description": "One resource per enabled representation, plus the schema index (EP-64)."
+          }
+        }
+      },
       "ResourceEnvelope": {
         "type": "object",
         "required": [
@@ -3103,6 +3513,29 @@
           }
         },
         "additionalProperties": false
+      },
+      "ResourceLink": {
+        "type": "object",
+        "description": "One CKAN resource of a dataset.",
+        "required": [
+          "name",
+          "url",
+          "format"
+        ],
+        "properties": {
+          "format": {
+            "type": "string",
+            "description": "The CKAN format string."
+          },
+          "name": {
+            "type": "string",
+            "description": "What the resource is called in CKAN."
+          },
+          "url": {
+            "type": "string",
+            "description": "The URL a citizen clicks, always under the endpoint (EP-66)."
+          }
+        }
       },
       "ResourceList": {
         "type": "object",

@@ -26,6 +26,10 @@ pub struct Config {
     /// Root of the built app bundles, one directory per app. `None` leaves every
     /// `/apps/{name}/` path answering 404 rather than reading a guessed directory (AP-14).
     pub apps_dir: Option<String>,
+    /// The file the deployment renders `global.branding` into (UI-30, OPS-46). `None` serves
+    /// neutral joinedcontext defaults, which is what an installation without branding looks
+    /// like; it is never an error.
+    pub branding_file: Option<String>,
     /// PostgreSQL connection string of the preferences tier (UI-09). Carries a password, so it
     /// is redacted in `Debug`. `None` runs the Portal without preferences: those routes answer
     /// 503, everything else works.
@@ -47,6 +51,7 @@ impl std::fmt::Debug for Config {
             .field("pipeline_runner_url", &self.pipeline_runner_url)
             .field("model_tools_url", &self.model_tools_url)
             .field("apps_dir", &self.apps_dir)
+            .field("branding_file", &self.branding_file)
             .field(
                 "database_url",
                 &self.database_url.as_ref().map(|_| "[redacted]"),
@@ -228,6 +233,7 @@ impl Config {
         };
 
         let apps_dir = lookup("JC_PORTAL_APPS_DIR");
+        let branding_file = lookup("JC_BRANDING_FILE").filter(|path| !path.trim().is_empty());
         let database_url = lookup("JC_PORTAL_DATABASE_URL").filter(|url| !url.trim().is_empty());
 
         Ok(Self {
@@ -240,6 +246,7 @@ impl Config {
             pipeline_runner_url,
             model_tools_url,
             apps_dir,
+            branding_file,
             database_url,
         })
     }
@@ -256,6 +263,7 @@ impl Config {
             pipeline_runner_url: None,
             model_tools_url: None,
             apps_dir: None,
+            branding_file: None,
             database_url: None,
         }
     }

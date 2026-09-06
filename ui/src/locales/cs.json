@@ -22,7 +22,8 @@
     "breadcrumb": "Drobečková navigace",
     "playground": "Hřiště",
     "flows": "Toky",
-    "models": "Datové modely"
+    "models": "Datové modely",
+    "ckan": "Otevřená data"
   },
   "auth": {
     "signIn": "Přihlásit se",
@@ -519,5 +520,26 @@
     "publishedHelp": "Navázaná na reálný prostor a dostupná svému publiku.",
     "retired": "Stažená",
     "retiredHelp": "Stažená; zdroj zůstává v repozitáři."
+  },
+  "ckan": {
+    "title": "Katalog otevřených dat",
+    "intro": "Endpoint, který deklaruje publikaci, se stane jedním datasetem v CKAN a každá jeho reprezentace jedním zdrojem. Metadata jsou záznam DCAT-AP samotného endpointu, katalog a endpoint si tedy nemohou odporovat.",
+    "instances": {
+      "title": "Katalogy",
+      "empty": "Pro tento projekt zatím není nastaven žádný katalog.",
+      "name": "Název",
+      "url": "URL",
+      "organization": "Výchozí organizace",
+      "tokenRef": "Tajemství s API tokenem",
+      "tokenHelp": "Samotný API token se sem nikdy nezadává a nikdy se neukládá do Gitu: uveďte název tajemství, které operátor nahrál do úložiště tajemství, a rekonciliátor jej vyřeší při publikování.",
+      "propose": "Navrhnout katalog"
+    },
+    "publications": {
+      "title": "Publikované endpointy",
+      "empty": "Žádný endpoint tohoto projektu nepublikuje do katalogu.",
+      "datastore": "Kopie řádků v DataStore z {representation}, obnovovaná {refresh}.",
+      "publishedTo": "publikováno do {instance}",
+      "missingInstance": "katalog {instance} chybí"
+    }
   }
 }

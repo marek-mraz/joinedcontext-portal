@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../auth/AuthProvider";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
+import { BrandMark } from "../components/layout/Shell";
 
 export function LoginPage(): React.JSX.Element {
   const { t } = useTranslation();
@@ -10,7 +11,9 @@ export function LoginPage(): React.JSX.Element {
     <main className="flex min-h-screen items-center justify-center bg-surface font-sans text-surface-fg">
       <div className="w-full max-w-sm rounded border border-border p-6">
         <div className="flex items-start justify-between gap-4">
-          <h1 className="text-xl font-bold">{t("app.title")}</h1>
+          <h1 className="text-xl font-bold">
+            <BrandMark />
+          </h1>
           <LanguageSwitcher />
         </div>
         <button

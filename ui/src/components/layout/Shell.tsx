@@ -6,6 +6,7 @@ import { clsx } from "clsx";
 import { LanguageSwitcher } from "../LanguageSwitcher";
 import { ExportButton } from "../export/ExportButton";
 import { useAuth } from "../../auth/AuthProvider";
+import { logoUrl, useBranding } from "../../branding";
 
 /** The plural segments of `/api/v1/projects/{project}/{plural}`, in sidebar order. */
 export const NAV_SECTIONS = [
@@ -96,6 +97,19 @@ function UserMenu() {
   );
 }
 
+/** The instance name and its logo, which is what every page is titled with (UI-30). */
+export function BrandMark({ short = false }: { short?: boolean }): React.JSX.Element {
+  const branding = useBranding();
+  const logo = logoUrl(branding);
+  const name = short ? (branding.shortName ?? branding.instanceName) : branding.instanceName;
+  return (
+    <span className="inline-flex items-center gap-2">
+      {logo ? <img src={logo} alt="" aria-hidden="true" className="h-6 w-auto" /> : null}
+      <span className="font-heading">{name}</span>
+    </span>
+  );
+}
+
 export function Shell({
   project,
   projects,
@@ -106,6 +120,7 @@ export function Shell({
   children: ReactNode;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const branding = useBranding();
   const matchRoute = useMatchRoute();
 
   // Approvals has its own routes, so the generic `$plural` match never fires for it.
@@ -114,6 +129,7 @@ export function Shell({
 
   const playgroundActive = Boolean(matchRoute({ to: "/playground" }));
   const modelsActive = Boolean(matchRoute({ to: "/projects/$project/models", params: { project } }));
+  const ckanActive = Boolean(matchRoute({ to: "/projects/$project/ckan", params: { project } }));
 
   const activeSection = NAV_SECTIONS.find((section) =>
     section.plural === "approvals"
@@ -135,7 +151,9 @@ export function Shell({
         {t("nav.skipToContent")}
       </a>
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
-        <h1 className="text-lg font-bold">{t("app.title")}</h1>
+        <h1 className="text-lg font-bold">
+          <BrandMark short />
+        </h1>
         <div className="flex items-center gap-2">
           {/* One click from anywhere in the project, which is the whole of CC-49. */}
           <ExportButton project={project} target={{}} label={t("export.project")} />
@@ -199,6 +217,19 @@ export function Shell({
             </li>
             <li>
               <Link
+                to="/projects/$project/ckan"
+                params={{ project }}
+                aria-current={ckanActive ? "page" : undefined}
+                className={clsx(
+                  "block rounded px-2 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus",
+                  ckanActive && "bg-surface-subtle font-semibold",
+                )}
+              >
+                {t("nav.ckan")}
+              </Link>
+            </li>
+            <li>
+              <Link
                 to="/playground"
                 aria-current={playgroundActive ? "page" : undefined}
                 className={clsx(
@@ -252,6 +283,22 @@ export function Shell({
           {children}
         </main>
       </div>
+      {branding.organisation || branding.contactEmail ? (
+        <footer className="border-t border-border px-4 py-3 text-sm">
+          {branding.organisation ? <span>{branding.organisation}</span> : null}
+          {branding.organisation && branding.contactEmail ? (
+            <span aria-hidden="true"> · </span>
+          ) : null}
+          {branding.contactEmail ? (
+            <a
+              href={`mailto:${branding.contactEmail}`}
+              className="rounded underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+            >
+              {branding.contactEmail}
+            </a>
+          ) : null}
+        </footer>
+      ) : null}
     </div>
   );
 }

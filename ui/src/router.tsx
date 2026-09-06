@@ -12,6 +12,7 @@ import { ApprovalsPage } from "./routes/ApprovalsPage";
 import { ApprovalDetailPage } from "./routes/ApprovalDetailPage";
 import { FederationPlayground } from "./components/visualization/FederationPlayground";
 import { ModelsPage } from "./pages/models/ModelsPage";
+import { CkanPage } from "./pages/ckan/CkanPage";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -105,6 +106,19 @@ const modelsRoute = createRoute({
   },
 });
 
+const ckanRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/ckan",
+  component: function CkanRoute() {
+    const { project } = ckanRoute.useParams();
+    return (
+      <Shell project={project} projects={KNOWN_PROJECTS}>
+        <CkanPage project={project} />
+      </Shell>
+    );
+  },
+});
+
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
@@ -126,6 +140,7 @@ export const routeTree = rootRoute.addChildren([
     approvalDetailRoute,
     playgroundRoute,
     modelsRoute,
+    ckanRoute,
     resourceListRoute,
   ]),
 ]);

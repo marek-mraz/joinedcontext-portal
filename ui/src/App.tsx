@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { RouterProvider } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
+import { BrandingProvider } from "./branding";
 import { createPortalRouter } from "./router";
 
 function RoutedApp({ router }: { router: ReturnType<typeof createPortalRouter> }) {
@@ -25,9 +26,11 @@ function RoutedApp({ router }: { router: ReturnType<typeof createPortalRouter> }
 export function App(): React.JSX.Element {
   const router = useMemo(() => createPortalRouter(), []);
   return (
-    <AuthProvider>
-      <RoutedApp router={router} />
-    </AuthProvider>
+    <BrandingProvider>
+      <AuthProvider>
+        <RoutedApp router={router} />
+      </AuthProvider>
+    </BrandingProvider>
   );
 }
 

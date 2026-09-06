@@ -10,6 +10,10 @@
   --portal-color-border-focus: #1d4ed8;
   --portal-color-danger: #b91c1c;
   --portal-color-danger-fg: #ffffff;
+  /* Branding sets these two at runtime; the defaults keep an unbranded instance readable. */
+  --portal-color-secondary: #0f766e;
+  --portal-color-accent: #f59e0b;
+  --portal-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --portal-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --portal-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -38,6 +42,9 @@
   --color-border-focus: var(--portal-color-border-focus);
   --color-danger: var(--portal-color-danger);
   --color-danger-fg: var(--portal-color-danger-fg);
+  --color-secondary: var(--portal-color-secondary);
+  --color-accent: var(--portal-color-accent);
+  --font-heading: var(--portal-font-heading);
   --font-sans: var(--portal-font-sans);
   --font-mono: var(--portal-font-mono);
 }

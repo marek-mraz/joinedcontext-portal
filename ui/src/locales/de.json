@@ -22,7 +22,8 @@
     "breadcrumb": "Navigationspfad",
     "playground": "Spielwiese",
     "flows": "Abläufe",
-    "models": "Datenmodelle"
+    "models": "Datenmodelle",
+    "ckan": "Offene Daten"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -519,5 +520,26 @@
     "publishedHelp": "An den echten Raum gebunden und für sein Publikum erreichbar.",
     "retired": "Zurückgezogen",
     "retiredHelp": "Zurückgezogen; die Quelle bleibt im Repository."
+  },
+  "ckan": {
+    "title": "Open-Data-Katalog",
+    "intro": "Ein Endpunkt mit einer Veröffentlichung wird zu einem Datensatz in CKAN, mit einer Ressource je Repräsentation, die er ohnehin ausliefert. Die Metadaten sind der DCAT-AP-Eintrag des Endpunkts selbst, Katalog und Endpunkt können also nicht auseinanderlaufen.",
+    "instances": {
+      "title": "Kataloge",
+      "empty": "Für dieses Projekt ist noch kein Katalog konfiguriert.",
+      "name": "Name",
+      "url": "URL",
+      "organization": "Standardorganisation",
+      "tokenRef": "Secret mit dem API-Token",
+      "tokenHelp": "Das API-Token selbst wird hier nie eingegeben und nie in Git gespeichert: Nennen Sie das Secret, das die Betreiberin im Secret-Store hinterlegt hat; der Reconciler löst es beim Veröffentlichen auf.",
+      "propose": "Katalog vorschlagen"
+    },
+    "publications": {
+      "title": "Veröffentlichte Endpunkte",
+      "empty": "Kein Endpunkt dieses Projekts veröffentlicht in einen Katalog.",
+      "datastore": "DataStore-Spiegel aus {representation}, aktualisiert {refresh}.",
+      "publishedTo": "veröffentlicht in {instance}",
+      "missingInstance": "Katalog {instance} fehlt"
+    }
   }
 }

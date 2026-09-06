@@ -59,7 +59,10 @@ pub fn app(state: AppState) -> Router {
 }
 
 async fn api_cache_control_middleware(request: Request, next: Next) -> Response {
-    let is_api = request.uri().path().starts_with("/api/");
+    // The branding block is public and holds no secret, and every page load needs it before
+    // the session is known, so it is the one API answer a browser may keep (UI-30).
+    let is_api =
+        request.uri().path().starts_with("/api/") && request.uri().path() != "/api/v1/branding";
     let mut response = next.run(request).await;
     if is_api {
         response

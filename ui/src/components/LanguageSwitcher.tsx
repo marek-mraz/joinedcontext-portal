@@ -2,11 +2,20 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useTranslation } from "react-i18next";
 import { SUPPORTED_LOCALES } from "../i18n";
 import type { Locale } from "../i18n";
+import { offeredLocales, useBranding } from "../branding";
 
 export function LanguageSwitcher(): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const branding = useBranding();
   const resolved = i18n.resolvedLanguage ?? i18n.language ?? "sk";
   const currentLang = (SUPPORTED_LOCALES.includes(resolved as Locale) ? resolved : "sk") as Locale;
+  // The installation says which languages it speaks; the bundle says which it can. A locale
+  // the bundle has no strings for would switch the page to keys, so the list is the overlap,
+  // and an installation that names none keeps every language the bundle carries.
+  const offered = offeredLocales(branding).filter((locale): locale is Locale =>
+    SUPPORTED_LOCALES.includes(locale as Locale),
+  );
+  const locales = offered.length > 0 ? offered : [...SUPPORTED_LOCALES];
 
   return (
     <DropdownMenu.Root>
@@ -24,7 +33,7 @@ export function LanguageSwitcher(): React.JSX.Element {
           align="end"
           className="z-50 min-w-[8rem] rounded border border-border bg-surface p-1 text-surface-fg shadow-md focus:outline-none"
         >
-          {SUPPORTED_LOCALES.map((locale) => {
+          {locales.map((locale) => {
             const isCurrent = locale === currentLang;
             return (
               <DropdownMenu.Item

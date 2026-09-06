@@ -5,6 +5,7 @@ pub mod api;
 pub mod apps;
 pub mod assets;
 pub mod auth;
+pub mod branding;
 pub mod change;
 pub mod config;
 pub mod db;

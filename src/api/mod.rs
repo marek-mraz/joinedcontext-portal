@@ -1,5 +1,7 @@
 pub mod blueprints;
+pub mod branding;
 pub mod changes;
+pub mod ckan;
 pub mod delete;
 pub mod dry_run;
 pub mod export;
@@ -26,7 +28,9 @@ pub fn router() -> Router<AppState> {
         .merge(health::router())
         .merge(auth::oidc::router())
         .merge(blueprints::router())
+        .merge(branding::router())
         .merge(changes::router())
+        .merge(ckan::router())
         .merge(export::router())
         .merge(resources::router())
         .merge(pipelines::router())

@@ -7,6 +7,9 @@ use utoipa::{Modify, OpenApi};
 
 use crate::api::blueprints::FlowRequest;
 use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
+use crate::api::ckan::{
+    CkanStatus, DataStoreStatus, InstanceSummary, PublicationStatus, ResourceLink,
+};
 use crate::api::dry_run::DryRunResult;
 use crate::api::export::{Revision, RevisionList};
 use crate::api::health::Health;
@@ -16,6 +19,7 @@ use crate::api::resources::{ListMeta, ResourceList};
 use crate::api::service_accounts::{KeyInfo, KeyList, MintedKey};
 use crate::auth::oidc::LogoutTarget;
 use crate::auth::Identity;
+use crate::branding::{Branding, Colours, Fonts, Languages};
 use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSummary};
 use crate::error::ProblemDetails;
 use crate::plan::{FieldChange, PlanDiff};
@@ -30,6 +34,8 @@ use crate::tools::model_tools::{
 #[openapi(
     paths(
         crate::api::health::health,
+        crate::api::branding::get_branding,
+        crate::api::branding::get_asset,
         crate::auth::oidc::me,
         crate::auth::oidc::logout,
         crate::api::resources::list,
@@ -49,6 +55,7 @@ use crate::tools::model_tools::{
         crate::api::mutate::replace,
         crate::api::mutate::patch,
         crate::api::changes::list_changes,
+        crate::api::ckan::get_status,
         crate::api::changes::get_change,
         crate::api::changes::approve_change,
         crate::api::changes::reject_change,
@@ -61,6 +68,15 @@ use crate::tools::model_tools::{
     ),
     components(schemas(
         Health,
+        Branding,
+        Colours,
+        Fonts,
+        Languages,
+        CkanStatus,
+        InstanceSummary,
+        PublicationStatus,
+        ResourceLink,
+        DataStoreStatus,
         Identity,
         LogoutTarget,
         ProblemDetails,

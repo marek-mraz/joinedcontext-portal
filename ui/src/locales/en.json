@@ -22,7 +22,8 @@
     "breadcrumb": "Breadcrumb",
     "playground": "Playground",
     "flows": "Flows",
-    "models": "Data models"
+    "models": "Data models",
+    "ckan": "Open data"
   },
   "auth": {
     "signIn": "Sign in",
@@ -519,5 +520,26 @@
     "publishedHelp": "Bound to the real space and reachable by its audience.",
     "retired": "Retired",
     "retiredHelp": "Withdrawn; the source stays in the repository."
+  },
+  "ckan": {
+    "title": "Open-data catalogue",
+    "intro": "An endpoint that declares a publication becomes one dataset in CKAN, with one resource per representation it already serves. The metadata is the endpoint's own DCAT-AP record, so the catalogue and the endpoint cannot disagree.",
+    "instances": {
+      "title": "Catalogues",
+      "empty": "No catalogue is configured for this project yet.",
+      "name": "Name",
+      "url": "URL",
+      "organization": "Default organization",
+      "tokenRef": "API token secret",
+      "tokenHelp": "The API token itself is never entered here and never stored in Git: name the secret the operator loaded into the secret store, and the reconciler resolves it at publication time.",
+      "propose": "Propose catalogue"
+    },
+    "publications": {
+      "title": "Published endpoints",
+      "empty": "No endpoint in this project publishes to a catalogue.",
+      "datastore": "DataStore mirror from {representation}, refreshed {refresh}.",
+      "publishedTo": "published to {instance}",
+      "missingInstance": "catalogue {instance} is missing"
+    }
   }
 }
