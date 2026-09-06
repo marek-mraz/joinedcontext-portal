@@ -25,6 +25,6 @@ pub async fn health() -> Json<Health> {
     })
 }
 
-pub fn router() -> axum::Router {
+pub fn router() -> axum::Router<crate::state::AppState> {
     axum::Router::new().route("/health", axum::routing::get(health))
 }

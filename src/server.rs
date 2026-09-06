@@ -9,8 +9,9 @@ use crate::api;
 use crate::assets;
 use crate::config::Config;
 use crate::openapi;
+use crate::state::AppState;
 
-pub fn app(_config: &Config) -> Router {
+pub fn app(state: AppState) -> Router {
     let content_security_policy = HeaderValue::from_static(
         "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; \
          form-action 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; \
@@ -21,6 +22,7 @@ pub fn app(_config: &Config) -> Router {
         .nest("/api/v1", api::router())
         .merge(openapi::router())
         .fallback(assets::static_handler)
+        .with_state(state)
         .layer(from_fn(api_cache_control_middleware))
         .layer(SetResponseHeaderLayer::overriding(
             HeaderName::from_static("x-content-type-options"),
@@ -63,7 +65,10 @@ pub async fn serve(config: Config) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     let local_addr = listener.local_addr()?;
     tracing::info!(bind = %local_addr, public_url = %config.public_base_url, "portal server listening");
-    let router = app(&config);
+    let state = AppState::from_config(config)
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let router = app(state);
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
         .await

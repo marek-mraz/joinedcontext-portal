@@ -1,11 +1,52 @@
+use axum_extra::extract::cookie::Key;
 use std::net::SocketAddr;
 use url::Url;
 
-/// Portal server configuration.
-#[derive(Debug, Clone)]
+/// Portal server configuration. Secrets are redacted in `Debug` so a config dump
+/// never puts a client secret or a cookie key into the log (CC-40).
+#[derive(Clone)]
 pub struct Config {
     pub bind: SocketAddr,
     pub public_base_url: Url,
+    /// `None` disables login: no session can be minted, so every protected route
+    /// answers 401. Configuration is fail-closed, never fail-open.
+    pub oidc: Option<OidcConfig>,
+    pub cookie_key: Key,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("bind", &self.bind)
+            .field("public_base_url", &self.public_base_url.as_str())
+            .field("oidc", &self.oidc)
+            .field("cookie_key", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Keycloak realm the portal authenticates humans against (CC-40).
+#[derive(Clone)]
+pub struct OidcConfig {
+    pub issuer: Url,
+    pub client_id: String,
+    client_secret: String,
+}
+
+impl OidcConfig {
+    pub fn client_secret(&self) -> &str {
+        &self.client_secret
+    }
+}
+
+impl std::fmt::Debug for OidcConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcConfig")
+            .field("issuer", &self.issuer.as_str())
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[redacted]")
+            .finish()
+    }
 }
 
 /// Errors raised when parsing configuration parameters.
@@ -18,6 +59,8 @@ pub enum ConfigError {
 impl Config {
     pub const DEFAULT_BIND: &'static str = "0.0.0.0:8080";
     pub const DEFAULT_PUBLIC_URL: &'static str = "http://localhost:8080";
+    /// `Key::from` panics below 64 bytes, so the length is checked before it is called.
+    pub const MIN_COOKIE_KEY_LEN: usize = 64;
 
     pub fn from_env() -> Result<Self, ConfigError> {
         Self::from_vars(|k| std::env::var(k).ok())
@@ -43,9 +86,56 @@ impl Config {
                     reason: e.to_string(),
                 })?;
 
+        let oidc = match (
+            lookup("JC_OIDC_ISSUER"),
+            lookup("JC_OIDC_CLIENT_ID"),
+            lookup("JC_OIDC_CLIENT_SECRET"),
+        ) {
+            (None, None, None) => None,
+            (Some(issuer), Some(client_id), Some(client_secret)) => Some(OidcConfig {
+                issuer: issuer
+                    .parse()
+                    .map_err(|e: url::ParseError| ConfigError::Invalid {
+                        var: "JC_OIDC_ISSUER",
+                        reason: e.to_string(),
+                    })?,
+                client_id,
+                client_secret,
+            }),
+            _ => {
+                return Err(ConfigError::Invalid {
+                    var: "JC_OIDC_ISSUER",
+                    reason: "JC_OIDC_ISSUER, JC_OIDC_CLIENT_ID and JC_OIDC_CLIENT_SECRET must be \
+                             set together"
+                        .to_string(),
+                })
+            }
+        };
+
+        let cookie_key = match lookup("JC_PORTAL_COOKIE_KEY") {
+            Some(material) if material.len() >= Self::MIN_COOKIE_KEY_LEN => {
+                Key::from(material.as_bytes())
+            }
+            Some(_) => {
+                return Err(ConfigError::Invalid {
+                    var: "JC_PORTAL_COOKIE_KEY",
+                    reason: format!("at least {} bytes required", Self::MIN_COOKIE_KEY_LEN),
+                })
+            }
+            None => {
+                tracing::warn!(
+                    "JC_PORTAL_COOKIE_KEY is unset: using an ephemeral key, sessions do not \
+                     survive a restart"
+                );
+                Key::generate()
+            }
+        };
+
         Ok(Self {
             bind,
             public_base_url,
+            oidc,
+            cookie_key,
         })
     }
 
@@ -54,7 +144,17 @@ impl Config {
             bind: SocketAddr::from(([127, 0, 0, 1], 0)),
             public_base_url: Url::parse("http://localhost:8080")
                 .unwrap_or_else(|_| unreachable!("valid test url")),
+            oidc: None,
+            cookie_key: Key::generate(),
         }
+    }
+
+    /// Redirect URI registered for this portal in the Keycloak client (CC-40).
+    pub fn redirect_uri(&self) -> String {
+        format!(
+            "{}/api/v1/auth/callback",
+            self.public_base_url.as_str().trim_end_matches('/')
+        )
     }
 }
 
@@ -114,6 +214,63 @@ mod tests {
         match err {
             ConfigError::Invalid { var, .. } => assert_eq!(var, "JC_PORTAL_PUBLIC_URL"),
         }
+    }
+
+    #[test]
+    fn partial_oidc_configuration_is_rejected() {
+        let err = Config::from_vars(|k| match k {
+            "JC_OIDC_ISSUER" => Some("https://idm.example.sk/realms/bb".to_string()),
+            _ => None,
+        })
+        .expect_err("partial oidc config must fail closed");
+        match err {
+            ConfigError::Invalid { var, .. } => assert_eq!(var, "JC_OIDC_ISSUER"),
+        }
+    }
+
+    #[test]
+    fn complete_oidc_configuration_is_accepted_and_redacts_the_secret() {
+        let config = Config::from_vars(|k| match k {
+            "JC_OIDC_ISSUER" => Some("https://idm.example.sk/realms/bb".to_string()),
+            "JC_OIDC_CLIENT_ID" => Some("portal".to_string()),
+            "JC_OIDC_CLIENT_SECRET" => Some("s3cr3t".to_string()),
+            _ => None,
+        })
+        .expect("oidc config");
+        let oidc = config.oidc.as_ref().expect("oidc present");
+        assert_eq!(oidc.client_id, "portal");
+        assert_eq!(oidc.client_secret(), "s3cr3t");
+        let dumped = format!("{config:?}");
+        assert!(
+            !dumped.contains("s3cr3t"),
+            "client secret leaked into Debug: {dumped}"
+        );
+        assert!(dumped.contains("[redacted]"));
+    }
+
+    #[test]
+    fn short_cookie_key_is_rejected() {
+        let err = Config::from_vars(|k| match k {
+            "JC_PORTAL_COOKIE_KEY" => Some("too-short".to_string()),
+            _ => None,
+        })
+        .expect_err("short cookie key must fail");
+        match err {
+            ConfigError::Invalid { var, .. } => assert_eq!(var, "JC_PORTAL_COOKIE_KEY"),
+        }
+    }
+
+    #[test]
+    fn redirect_uri_is_derived_from_the_public_base_url() {
+        let config = Config::from_vars(|k| match k {
+            "JC_PORTAL_PUBLIC_URL" => Some("https://portal.example.sk".to_string()),
+            _ => None,
+        })
+        .expect("config");
+        assert_eq!(
+            config.redirect_uri(),
+            "https://portal.example.sk/api/v1/auth/callback"
+        );
     }
 
     #[test]

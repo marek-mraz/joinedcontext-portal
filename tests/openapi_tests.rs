@@ -3,11 +3,12 @@ use axum::http::{header, Request, StatusCode};
 use http_body_util::BodyExt;
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::server;
+use joinedcontext_portal::state::AppState;
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn openapi_spec_served_correctly() {
-    let app = server::app(&Config::for_tests());
+    let app = server::app(AppState::new(Config::for_tests(), None));
     let response = app
         .oneshot(
             Request::builder()

@@ -3,11 +3,12 @@ use axum::http::{header, Request, StatusCode};
 use http_body_util::BodyExt;
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::server;
+use joinedcontext_portal::state::AppState;
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn root_serves_placeholder_html() {
-    let app = server::app(&Config::for_tests());
+    let app = server::app(AppState::new(Config::for_tests(), None));
     let response = app
         .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
         .await
@@ -29,7 +30,7 @@ async fn root_serves_placeholder_html() {
 
 #[tokio::test]
 async fn api_health_returns_status_and_cache_control() {
-    let app = server::app(&Config::for_tests());
+    let app = server::app(AppState::new(Config::for_tests(), None));
     let response = app
         .oneshot(
             Request::builder()
@@ -57,7 +58,7 @@ async fn api_health_returns_status_and_cache_control() {
 
 #[tokio::test]
 async fn spa_route_falls_back_to_index() {
-    let app = server::app(&Config::for_tests());
+    let app = server::app(AppState::new(Config::for_tests(), None));
     let response = app
         .oneshot(
             Request::builder()
@@ -84,7 +85,7 @@ async fn spa_route_falls_back_to_index() {
 
 #[tokio::test]
 async fn missing_asset_returns_404_problem_json() {
-    let app = server::app(&Config::for_tests());
+    let app = server::app(AppState::new(Config::for_tests(), None));
     let response = app
         .oneshot(
             Request::builder()
@@ -115,7 +116,7 @@ async fn missing_asset_returns_404_problem_json() {
 
 #[tokio::test]
 async fn unknown_api_endpoint_returns_404_problem_json() {
-    let app = server::app(&Config::for_tests());
+    let app = server::app(AppState::new(Config::for_tests(), None));
     let response = app
         .oneshot(
             Request::builder()
@@ -150,7 +151,7 @@ async fn unknown_api_endpoint_returns_404_problem_json() {
 #[tokio::test]
 async fn security_headers_present_on_endpoints() {
     for path in ["/", "/api/v1/health"] {
-        let app = server::app(&Config::for_tests());
+        let app = server::app(AppState::new(Config::for_tests(), None));
         let response = app
             .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
             .await
