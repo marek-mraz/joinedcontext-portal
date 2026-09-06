@@ -97,6 +97,7 @@ pub fn clear(jar: PrivateCookieJar) -> PrivateCookieJar {
 }
 
 /// Extractor for a protected route: 401 problem+json when there is no live session.
+#[derive(Clone)]
 pub struct CurrentUser(pub Session);
 
 impl FromRequestParts<AppState> for CurrentUser {

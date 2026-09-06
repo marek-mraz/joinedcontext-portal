@@ -68,6 +68,11 @@ impl Mirror {
         self.len() == 0
     }
 
+    pub fn count_matching(&self, mut predicate: impl FnMut(&ResourceEnvelope) -> bool) -> usize {
+        let lock = self.resources.read().unwrap_or_else(|p| p.into_inner());
+        lock.values().filter(|env| predicate(env)).count()
+    }
+
     pub fn get(&self, namespace: &str, kind: &str, name: &str) -> Option<ResourceEnvelope> {
         let lock = self.resources.read().unwrap_or_else(|p| p.into_inner());
         let key = ResourceKey {

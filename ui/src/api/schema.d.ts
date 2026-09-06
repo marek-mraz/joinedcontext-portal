@@ -67,7 +67,7 @@ export interface paths {
         };
         get: operations["list"];
         put?: never;
-        post?: never;
+        post: operations["create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -82,23 +82,69 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_resource"];
-        put?: never;
+        put: operations["replace"];
         post?: never;
-        delete?: never;
+        delete: operations["delete_resource"];
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["patch"];
         trace?: never;
     };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The `Change` resource describing a proposed configuration update. */
+        Change: {
+            apiVersion: string;
+            kind: string;
+            metadata: components["schemas"]["ChangeMeta"];
+            status: components["schemas"]["ChangeStatus"];
+        };
+        /** @description Metadata identifying the change. */
+        ChangeMeta: {
+            /**
+             * @description Identifier formatted as `chg-` plus eight lowercase hex characters derived
+             *     from the merge request.
+             */
+            name: string;
+            namespace: string;
+        };
+        /**
+         * @description Lifecycle phase of a change.
+         * @enum {string}
+         */
+        ChangePhase: "PendingApproval" | "Merged" | "Applied" | "Rejected";
+        /** @description Approval and reconciliation status of a change. */
+        ChangeStatus: {
+            lane: components["schemas"]["Lane"];
+            mergeRequest?: string | null;
+            phase: components["schemas"]["ChangePhase"];
+            plan: components["schemas"]["PlanSummary"];
+        };
         Condition: {
             lastTransitionTime: string;
             reason: string;
             status: string;
             type: string;
+        };
+        /** @description Reviewer-facing validation and diff result returned on `?dryRun=All` (MF-13, R17). */
+        DryRunResult: {
+            lane: components["schemas"]["Lane"];
+            plan: components["schemas"]["PlanDiff"];
+            valid: boolean;
+        };
+        /**
+         * @description A single leaf field modification in a plan diff.
+         *
+         *     Paths are dotted strings rooted at `metadata` or `spec` (e.g. `spec.audience`,
+         *     `spec.representations[1]`, `metadata.labels.joinedcontext.com/domain`).
+         *     Keys containing dots (such as reverse-DNS label names) are deliberately not escaped.
+         */
+        FieldChange: {
+            from?: Record<string, never>;
+            path: string;
+            to?: Record<string, never>;
         };
         Health: {
             name: string;
@@ -119,6 +165,11 @@ export interface components {
             subject: string;
             username: string;
         };
+        /**
+         * @description Change risk classification lane (CC-63).
+         * @enum {string}
+         */
+        Lane: "green" | "yellow" | "red";
         ListMeta: {
             continue?: string | null;
             remainingItemCount?: number | null;
@@ -149,6 +200,17 @@ export interface components {
         };
         /** @enum {string} */
         Phase: "Draft" | "Pending" | "Deploying" | "Live" | "Error";
+        /** @description Summary and field-level changes between two resource revisions. */
+        PlanDiff: {
+            fields: components["schemas"]["FieldChange"][];
+            summary: components["schemas"]["PlanSummary"];
+        };
+        /** @description Counts of planned resource mutations. */
+        PlanSummary: {
+            create?: number;
+            delete?: number;
+            update?: number;
+        };
         /** @description RFC 7807 Problem Details representation. */
         ProblemDetails: {
             detail?: string | null;
@@ -317,6 +379,92 @@ export interface operations {
             };
         };
     };
+    create: {
+        parameters: {
+            query?: {
+                /** @description Set to 'All' for dry run */
+                dryRun?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Resource kind plural */
+                plural: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResourceEnvelope"];
+            };
+        };
+        responses: {
+            /** @description Dry run validation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DryRunResult"];
+                };
+            };
+            /** @description Change proposal accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     get_resource: {
         parameters: {
             query?: never;
@@ -353,6 +501,267 @@ export interface operations {
             };
             /** @description Resource not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    replace: {
+        parameters: {
+            query?: {
+                /** @description Set to 'All' for dry run */
+                dryRun?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Resource kind plural */
+                plural: string;
+                /** @description Resource name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResourceEnvelope"];
+            };
+        };
+        responses: {
+            /** @description Dry run validation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DryRunResult"];
+                };
+            };
+            /** @description Change proposal accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    delete_resource: {
+        parameters: {
+            query?: {
+                /** @description Set to 'All' for dry run */
+                dryRun?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Resource kind plural */
+                plural: string;
+                /** @description Resource name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dry run validation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DryRunResult"];
+                };
+            };
+            /** @description Change proposal accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict - blocking dependents */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    patch: {
+        parameters: {
+            query?: {
+                /** @description Set to 'All' for dry run */
+                dryRun?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Resource kind plural */
+                plural: string;
+                /** @description Resource name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        /** @description RFC 7386 merge patch, as JSON or as the YAML apply-patch document */
+        requestBody: {
+            content: {
+                "application/merge-patch+json": string;
+            };
+        };
+        responses: {
+            /** @description Dry run validation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DryRunResult"];
+                };
+            };
+            /** @description Change proposal accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

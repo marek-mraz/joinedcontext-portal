@@ -126,236 +126,215 @@ pub struct ResourceKey {
     pub name: String,
 }
 
+/// Mirrors `jc_core::envelope::Scope`. Space-ness is not a scope: it is the `{space}`
+/// placeholder in the path template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
     Organization,
     Project,
-    Space,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathTemplate {
-    SpaceDir {
-        dir: &'static str,
-    },
-    ProjectFile {
-        dir: &'static str,
-    },
-    ProjectDirFile {
-        dir: &'static str,
-        file: &'static str,
-    },
-    SpaceSelf,
-    ProjectSelf,
-    OrgFile {
-        path: &'static str,
-    },
-    OrgDirFile {
-        dir: &'static str,
-        file: &'static str,
-    },
-}
-
+/// Mirrors `jc_core::registry::KindInfo` field for field, so T-0249 can delete this module
+/// and re-export the real one without touching a caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KindInfo {
     pub kind: &'static str,
     pub plural: &'static str,
     pub scope: Scope,
-    pub path: PathTemplate,
+    /// Repository path with the `{project}`, `{space}` and `{name}` placeholders.
+    pub path_template: &'static str,
 }
 
-pub const KIND_REGISTRY: &[KindInfo] = &[
+/// The 17 kinds of `jc-core-v0.1.0`, copied constant for constant from
+/// `jc_core::registry::KINDS` (a6e9d1bd). Do not edit a row here to fix behaviour: fix it in
+/// jc-core, retag, and let T-0249 replace the whole list.
+pub const JC_CORE_KINDS: &[KindInfo] = &[
     KindInfo {
         kind: "Organization",
         plural: "organizations",
         scope: Scope::Organization,
-        path: PathTemplate::OrgFile { path: "org.yaml" },
+        path_template: "org.yaml",
     },
     KindInfo {
         kind: "Project",
         plural: "projects",
-        scope: Scope::Project,
-        path: PathTemplate::ProjectSelf,
+        scope: Scope::Organization,
+        path_template: "projects/{name}/project.yaml",
     },
     KindInfo {
         kind: "ContextSpace",
         plural: "spaces",
         scope: Scope::Project,
-        path: PathTemplate::SpaceSelf,
+        path_template: "projects/{project}/spaces/{name}/space.yaml",
     },
     KindInfo {
         kind: "DataModel",
         plural: "datamodels",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir { dir: "datamodels" },
-    },
-    KindInfo {
-        kind: "Policy",
-        plural: "policies",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir { dir: "policies" },
-    },
-    KindInfo {
-        kind: "ScopeDefinition",
-        plural: "scopedefinitions",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir { dir: "policies" },
-    },
-    KindInfo {
-        kind: "Subscription",
-        plural: "subscriptions",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir {
-            dir: "subscriptions",
-        },
-    },
-    KindInfo {
-        kind: "ContextSourceRegistration",
-        plural: "contextsourceregistrations",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir {
-            dir: "registrations",
-        },
-    },
-    KindInfo {
-        kind: "Entity",
-        plural: "entities",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir {
-            dir: "entities/seed",
-        },
-    },
-    KindInfo {
-        kind: "Endpoint",
-        plural: "endpoints",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir { dir: "endpoints" },
+        scope: Scope::Project,
+        path_template: "projects/{project}/spaces/{space}/datamodels/{name}.yaml",
     },
     KindInfo {
         kind: "Mapping",
         plural: "mappings",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir {
-            dir: "datamodels/mappings",
-        },
+        scope: Scope::Project,
+        path_template: "projects/{project}/spaces/{space}/datamodels/mappings/{name}.yaml",
     },
     KindInfo {
-        kind: "Pipeline",
-        plural: "pipelines",
+        kind: "Policy",
+        plural: "policies",
         scope: Scope::Project,
-        path: PathTemplate::ProjectDirFile {
-            dir: "pipelines",
-            file: "pipeline.yaml",
-        },
+        path_template: "projects/{project}/spaces/{space}/policies/{name}.yaml",
     },
     KindInfo {
-        kind: "Dashboard",
-        plural: "dashboards",
+        kind: "ScopeDefinition",
+        // jc-core gives ScopeDefinition the same plural as Policy, so `by_plural("policies")`
+        // answers Policy. Kept as-is on purpose: the mirror must not diverge from the crate.
+        plural: "policies",
         scope: Scope::Project,
-        path: PathTemplate::ProjectFile { dir: "dashboards" },
+        path_template: "projects/{project}/policies/{name}.yaml",
     },
     KindInfo {
-        kind: "Layer",
-        plural: "layers",
+        kind: "Endpoint",
+        plural: "endpoints",
         scope: Scope::Project,
-        path: PathTemplate::ProjectFile { dir: "dashboards" },
+        path_template: "projects/{project}/spaces/{space}/endpoints/{name}.yaml",
     },
     KindInfo {
         kind: "SharedSpaceReference",
-        plural: "sharedspacereferences",
+        plural: "shared",
         scope: Scope::Project,
-        path: PathTemplate::ProjectFile { dir: "shared" },
+        path_template: "projects/{project}/shared/{name}.yaml",
     },
     KindInfo {
         kind: "ServiceAccount",
         plural: "serviceaccounts",
         scope: Scope::Project,
-        path: PathTemplate::ProjectFile {
-            dir: "access/serviceaccounts",
-        },
+        path_template: "projects/{project}/access/serviceaccounts/{name}.yaml",
     },
     KindInfo {
-        kind: "SyncSource",
-        plural: "syncsources",
+        kind: "Pipeline",
+        plural: "pipelines",
         scope: Scope::Project,
-        path: PathTemplate::ProjectFile { dir: "sync" },
+        path_template: "projects/{project}/pipelines/{name}/pipeline.yaml",
     },
     KindInfo {
         kind: "App",
         plural: "apps",
         scope: Scope::Project,
-        path: PathTemplate::ProjectDirFile {
-            dir: "apps",
-            file: "app.yaml",
-        },
-    },
-    KindInfo {
-        kind: "Blueprint",
-        plural: "blueprints",
-        scope: Scope::Organization,
-        path: PathTemplate::OrgDirFile {
-            dir: "blueprints",
-            file: "blueprint.yaml",
-        },
+        path_template: "projects/{project}/apps/{name}/app.yaml",
     },
     KindInfo {
         kind: "DataSpaceParticipant",
         plural: "dataspaceparticipants",
         scope: Scope::Organization,
-        path: PathTemplate::OrgFile {
-            path: "dataspace/participant.yaml",
-        },
+        path_template: "dataspace/participant.yaml",
     },
     KindInfo {
         kind: "DataOffer",
         plural: "dataoffers",
-        scope: Scope::Space,
-        path: PathTemplate::SpaceDir {
-            dir: "dataspace/offers",
-        },
+        scope: Scope::Project,
+        path_template: "projects/{project}/spaces/{space}/dataspace/offers/{name}.yaml",
     },
     KindInfo {
         kind: "DataAgreement",
         plural: "dataagreements",
         scope: Scope::Project,
-        path: PathTemplate::ProjectFile {
-            dir: "dataspace/agreements",
-        },
+        path_template: "projects/{project}/dataspace/agreements/{name}.yaml",
+    },
+    KindInfo {
+        kind: "SyncSource",
+        plural: "syncsources",
+        scope: Scope::Project,
+        path_template: "projects/{project}/sync/{name}.yaml",
+    },
+    KindInfo {
+        kind: "Bundle",
+        plural: "bundles",
+        scope: Scope::Organization,
+        path_template: "bundle.yaml",
     },
 ];
 
+/// Kinds the specification defines and the Portal already serves, but `jc-core-v0.1.0` does not
+/// implement yet: Dashboard and Layer (UI-17, UI-18, Architecture/10), Subscription and
+/// ContextSourceRegistration (Architecture/06 section 3, DS-16) and Blueprint (API/01 section 4
+/// lists it among the organization-level kinds). Paths follow Architecture/06.
+///
+/// They live apart from [`JC_CORE_KINDS`] so the difference stays visible: when @platform adds a
+/// kind to jc-core, its row moves out of this list and nothing else changes.
+pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[
+    KindInfo {
+        kind: "Subscription",
+        plural: "subscriptions",
+        scope: Scope::Project,
+        path_template: "projects/{project}/spaces/{space}/subscriptions/{name}.yaml",
+    },
+    KindInfo {
+        kind: "ContextSourceRegistration",
+        plural: "contextsourceregistrations",
+        scope: Scope::Project,
+        path_template: "projects/{project}/spaces/{space}/registrations/{name}.yaml",
+    },
+    KindInfo {
+        kind: "Entity",
+        plural: "entities",
+        scope: Scope::Project,
+        path_template: "projects/{project}/spaces/{space}/entities/seed/{name}.yaml",
+    },
+    KindInfo {
+        kind: "Dashboard",
+        plural: "dashboards",
+        scope: Scope::Project,
+        path_template: "projects/{project}/dashboards/{name}.yaml",
+    },
+    KindInfo {
+        kind: "Layer",
+        plural: "layers",
+        scope: Scope::Project,
+        path_template: "projects/{project}/dashboards/{name}.yaml",
+    },
+    KindInfo {
+        kind: "Blueprint",
+        plural: "blueprints",
+        scope: Scope::Organization,
+        path_template: "blueprints/{name}/blueprint.yaml",
+    },
+];
+
+/// Every kind the resource API serves: the jc-core catalogue first, the Portal-only kinds after,
+/// so a plural that exists in both always resolves to the crate's row.
+pub fn kinds() -> impl Iterator<Item = &'static KindInfo> {
+    JC_CORE_KINDS.iter().chain(PORTAL_ONLY_KINDS.iter())
+}
+
 pub fn by_plural(plural: &str) -> Option<&'static KindInfo> {
-    KIND_REGISTRY.iter().find(|info| info.plural == plural)
+    kinds().find(|info| info.plural == plural)
 }
 
 pub fn by_kind(kind: &str) -> Option<&'static KindInfo> {
-    KIND_REGISTRY.iter().find(|info| info.kind == kind)
+    kinds().find(|info| info.kind == kind)
 }
 
+/// Renders the path template, the way `jc_core::registry::KindInfo::repo_path` does, but refusing
+/// to leave a placeholder behind: a manifest written to `.../spaces/{space}/...` would be
+/// unreachable for the reconciler and invisible in Gitea.
 pub fn repository_path(
     info: &KindInfo,
     project: &str,
     space: Option<&str>,
     name: &str,
 ) -> Result<String, String> {
-    match info.path {
-        PathTemplate::SpaceDir { dir } => {
-            let space = space.ok_or_else(|| {
-                format!("space is required for space-scoped kind '{}'", info.kind)
-            })?;
-            Ok(format!(
-                "projects/{project}/spaces/{space}/{dir}/{name}.yaml"
-            ))
-        }
-        PathTemplate::ProjectFile { dir } => Ok(format!("projects/{project}/{dir}/{name}.yaml")),
-        PathTemplate::ProjectDirFile { dir, file } => {
-            Ok(format!("projects/{project}/{dir}/{name}/{file}"))
-        }
-        PathTemplate::SpaceSelf => Ok(format!("projects/{project}/spaces/{name}/space.yaml")),
-        PathTemplate::ProjectSelf => Ok(format!("projects/{project}/project.yaml")),
-        PathTemplate::OrgFile { path } => Ok(path.to_string()),
-        PathTemplate::OrgDirFile { dir, file } => Ok(format!("{dir}/{name}/{file}")),
+    if info.path_template.contains("{space}") && space.is_none_or(str::is_empty) {
+        return Err(format!(
+            "space is required for kind '{}' ({})",
+            info.kind, info.path_template
+        ));
     }
+    Ok(info
+        .path_template
+        .replace("{project}", project)
+        .replace("{space}", space.unwrap_or_default())
+        .replace("{name}", name))
 }
 
 #[cfg(test)]
@@ -364,11 +343,72 @@ mod tests {
 
     #[test]
     fn every_entry_round_trips_plural_kind_plural() {
-        for entry in KIND_REGISTRY {
+        for entry in kinds() {
             let by_p = by_plural(entry.plural).expect("find by plural");
-            assert_eq!(by_p.kind, entry.kind);
+            // Policy and ScopeDefinition deliberately share the plural "policies"; every other
+            // kind must come back as itself.
+            assert!(by_p.plural == entry.plural);
             let by_k = by_kind(entry.kind).expect("find by kind");
+            assert_eq!(by_k.kind, entry.kind);
             assert_eq!(by_k.plural, entry.plural);
+        }
+    }
+
+    #[test]
+    fn jc_core_catalogue_is_mirrored_completely() {
+        let mirrored: Vec<&str> = JC_CORE_KINDS.iter().map(|k| k.kind).collect();
+        assert_eq!(
+            mirrored,
+            vec![
+                "Organization",
+                "Project",
+                "ContextSpace",
+                "DataModel",
+                "Mapping",
+                "Policy",
+                "ScopeDefinition",
+                "Endpoint",
+                "SharedSpaceReference",
+                "ServiceAccount",
+                "Pipeline",
+                "App",
+                "DataSpaceParticipant",
+                "DataOffer",
+                "DataAgreement",
+                "SyncSource",
+                "Bundle",
+            ],
+            "the mirror drifted from jc_core::registry::KINDS of jc-core-v0.1.0"
+        );
+    }
+
+    #[test]
+    fn portal_only_kinds_never_shadow_a_jc_core_kind() {
+        for extra in PORTAL_ONLY_KINDS {
+            assert!(
+                !JC_CORE_KINDS.iter().any(|k| k.kind == extra.kind),
+                "{} is in jc-core now: move its row out of PORTAL_ONLY_KINDS",
+                extra.kind
+            );
+            if let Some(clash) = JC_CORE_KINDS.iter().find(|k| k.plural == extra.plural) {
+                panic!(
+                    "portal-only {} claims the plural '{}' that jc-core gives {}",
+                    extra.kind, extra.plural, clash.kind
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_rendered_path_never_keeps_a_placeholder() {
+        for info in kinds() {
+            let path = repository_path(info, "ovzdusie", Some("ovzdusie"), "demo")
+                .unwrap_or_else(|e| panic!("{}: {e}", info.kind));
+            assert!(
+                !path.contains('{') && !path.contains('}'),
+                "{} rendered to {path}",
+                info.kind
+            );
         }
     }
 

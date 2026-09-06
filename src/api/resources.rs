@@ -165,6 +165,15 @@ pub async fn get_resource(
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/projects/{project}/{plural}", get(list))
-        .route("/projects/{project}/{plural}/{name}", get(get_resource))
+        .route(
+            "/projects/{project}/{plural}",
+            get(list).post(crate::api::mutate::create),
+        )
+        .route(
+            "/projects/{project}/{plural}/{name}",
+            get(get_resource)
+                .put(crate::api::mutate::replace)
+                .patch(crate::api::mutate::patch)
+                .delete(crate::api::delete::delete_resource),
+        )
 }

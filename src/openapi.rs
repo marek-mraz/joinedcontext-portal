@@ -3,11 +3,14 @@ use axum::routing::get;
 use axum::{Json, Router};
 use utoipa::OpenApi;
 
+use crate::api::dry_run::DryRunResult;
 use crate::api::health::Health;
 use crate::api::resources::{ListMeta, ResourceList};
 use crate::auth::oidc::LogoutTarget;
 use crate::auth::Identity;
+use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSummary};
 use crate::error::ProblemDetails;
+use crate::plan::{FieldChange, PlanDiff};
 use crate::resource::{Condition, ObjectMeta, Phase, ResourceEnvelope, Status};
 use crate::state::AppState;
 
@@ -19,6 +22,10 @@ use crate::state::AppState;
         crate::auth::oidc::logout,
         crate::api::resources::list,
         crate::api::resources::get_resource,
+        crate::api::mutate::create,
+        crate::api::mutate::replace,
+        crate::api::mutate::patch,
+        crate::api::delete::delete_resource,
     ),
     components(schemas(
         Health,
@@ -32,6 +39,15 @@ use crate::state::AppState;
         Condition,
         ResourceList,
         ListMeta,
+        Change,
+        ChangeMeta,
+        ChangeStatus,
+        ChangePhase,
+        Lane,
+        PlanSummary,
+        PlanDiff,
+        FieldChange,
+        DryRunResult,
     )),
     info(
         title = "joinedcontext Portal API",

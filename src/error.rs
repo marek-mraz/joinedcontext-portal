@@ -29,6 +29,8 @@ pub enum ApiError {
     Forbidden,
     #[error("conflict: {0}")]
     Conflict(String),
+    #[error("unsupported media type: {0}")]
+    UnsupportedMediaType(String),
     #[error("service unavailable: {0}")]
     Unavailable(String),
     #[error("not implemented: {0}")]
@@ -60,6 +62,12 @@ impl IntoResponse for ApiError {
             ),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden", "Forbidden", None),
             Self::Conflict(msg) => (StatusCode::CONFLICT, "conflict", "Conflict", Some(msg)),
+            Self::UnsupportedMediaType(msg) => (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported-media-type",
+                "Unsupported Media Type",
+                Some(msg),
+            ),
             Self::Unavailable(msg) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "service-unavailable",
@@ -116,6 +124,10 @@ mod tests {
             (ApiError::Unauthorized, StatusCode::UNAUTHORIZED),
             (ApiError::Forbidden, StatusCode::FORBIDDEN),
             (ApiError::Conflict("test".into()), StatusCode::CONFLICT),
+            (
+                ApiError::UnsupportedMediaType("test".into()),
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ),
             (
                 ApiError::Unavailable("test".into()),
                 StatusCode::SERVICE_UNAVAILABLE,

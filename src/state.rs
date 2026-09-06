@@ -10,6 +10,7 @@ use axum_extra::extract::cookie::Key;
 use crate::auth::oidc::OidcClient;
 use crate::auth::session::Session;
 use crate::config::Config;
+use crate::git::GiteaClient;
 use crate::store::Mirror;
 
 #[derive(Clone)]
@@ -19,6 +20,9 @@ pub struct AppState {
     /// route answers 401. Fail closed.
     pub oidc: Option<Arc<OidcClient>>,
     pub mirror: Arc<Mirror>,
+    /// `None` when no forge is configured: every write answers 503. A Portal that cannot
+    /// open a merge request must not fall back to a local write (CC-03).
+    pub gitea: Option<Arc<GiteaClient>>,
     /// `sub` → unix second of the last back-channel logout for that user. Sessions issued
     /// at or before the mark are refused.
     /// ponytail: per-replica map; move it to the preferences database when the portal
@@ -32,6 +36,7 @@ impl AppState {
             config: Arc::new(config),
             oidc: oidc.map(Arc::new),
             mirror: Arc::new(Mirror::new()),
+            gitea: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -41,15 +46,29 @@ impl AppState {
         self
     }
 
-    /// Builds the state for a configuration, discovering the Keycloak realm when one is set.
-    pub async fn from_config(config: Config) -> Result<Self, crate::auth::oidc::OidcError> {
+    pub fn with_gitea(mut self, gitea: Arc<GiteaClient>) -> Self {
+        self.gitea = Some(gitea);
+        self
+    }
+
+    /// Builds the state for a configuration, discovering the Keycloak realm when one is set and
+    /// picking up the forge from the environment. Both failures are fatal at startup: the caller
+    /// only prints them, so one boxed error is enough for the two kinds.
+    pub async fn from_config(
+        config: Config,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let oidc = match config.oidc.as_ref() {
             Some(oidc_config) => {
                 Some(OidcClient::discover(oidc_config, &config.redirect_uri()).await?)
             }
             None => None,
         };
-        Ok(Self::new(config, oidc))
+        // A half-configured forge is a configuration error, not a reason to run without one:
+        // `from_env` answers `Ok(None)` only when all four variables are absent.
+        let gitea = GiteaClient::from_env(|key| std::env::var(key).ok())?;
+        let mut state = Self::new(config, oidc);
+        state.gitea = gitea.map(Arc::new);
+        Ok(state)
     }
 
     /// Marks every session of a subject as logged out (OIDC back-channel logout).

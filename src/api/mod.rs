@@ -1,4 +1,7 @@
+pub mod delete;
+pub mod dry_run;
 pub mod health;
+pub mod mutate;
 pub mod resources;
 
 use axum::http::Uri;

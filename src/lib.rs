@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod git;
 pub mod openapi;
+pub mod plan;
 pub mod resource;
 pub mod server;
 pub mod state;

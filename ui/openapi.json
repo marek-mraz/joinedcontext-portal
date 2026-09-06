@@ -197,6 +197,123 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "create",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "plural",
+            "in": "path",
+            "description": "Resource kind plural",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dryRun",
+            "in": "query",
+            "description": "Set to 'All' for dry run",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceEnvelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Dry run validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Change proposal accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/projects/{project}/{plural}/{name}": {
@@ -266,11 +383,457 @@
             }
           }
         }
+      },
+      "put": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "replace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "plural",
+            "in": "path",
+            "description": "Resource kind plural",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Resource name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dryRun",
+            "in": "query",
+            "description": "Set to 'All' for dry run",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceEnvelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Dry run validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Change proposal accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "delete_resource",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "plural",
+            "in": "path",
+            "description": "Resource kind plural",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Resource name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dryRun",
+            "in": "query",
+            "description": "Set to 'All' for dry run",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dry run validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Change proposal accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict - blocking dependents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "patch",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "plural",
+            "in": "path",
+            "description": "Resource kind plural",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Resource name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dryRun",
+            "in": "query",
+            "description": "Set to 'All' for dry run",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "RFC 7386 merge patch, as JSON or as the YAML apply-patch document",
+          "content": {
+            "application/merge-patch+json": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Dry run validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Change proposal accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
   "components": {
     "schemas": {
+      "Change": {
+        "type": "object",
+        "description": "The `Change` resource describing a proposed configuration update.",
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "status"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ChangeMeta"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChangeStatus"
+          }
+        }
+      },
+      "ChangeMeta": {
+        "type": "object",
+        "description": "Metadata identifying the change.",
+        "required": [
+          "name",
+          "namespace"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Identifier formatted as `chg-` plus eight lowercase hex characters derived\nfrom the merge request."
+          },
+          "namespace": {
+            "type": "string"
+          }
+        }
+      },
+      "ChangePhase": {
+        "type": "string",
+        "description": "Lifecycle phase of a change.",
+        "enum": [
+          "PendingApproval",
+          "Merged",
+          "Applied",
+          "Rejected"
+        ]
+      },
+      "ChangeStatus": {
+        "type": "object",
+        "description": "Approval and reconciliation status of a change.",
+        "required": [
+          "lane",
+          "plan",
+          "phase"
+        ],
+        "properties": {
+          "lane": {
+            "$ref": "#/components/schemas/Lane"
+          },
+          "mergeRequest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/ChangePhase"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanSummary"
+          }
+        }
+      },
       "Condition": {
         "type": "object",
         "required": [
@@ -294,6 +857,44 @@
           }
         },
         "additionalProperties": false
+      },
+      "DryRunResult": {
+        "type": "object",
+        "description": "Reviewer-facing validation and diff result returned on `?dryRun=All` (MF-13, R17).",
+        "required": [
+          "valid",
+          "lane",
+          "plan"
+        ],
+        "properties": {
+          "lane": {
+            "$ref": "#/components/schemas/Lane"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanDiff"
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FieldChange": {
+        "type": "object",
+        "description": "A single leaf field modification in a plan diff.\n\nPaths are dotted strings rooted at `metadata` or `spec` (e.g. `spec.audience`,\n`spec.representations[1]`, `metadata.labels.joinedcontext.com/domain`).\nKeys containing dots (such as reverse-DNS label names) are deliberately not escaped.",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "from": {
+            "type": "object"
+          },
+          "path": {
+            "type": "string"
+          },
+          "to": {
+            "type": "object"
+          }
+        }
       },
       "Health": {
         "type": "object",
@@ -349,6 +950,15 @@
             "type": "string"
           }
         }
+      },
+      "Lane": {
+        "type": "string",
+        "description": "Change risk classification lane (CC-63).",
+        "enum": [
+          "green",
+          "yellow",
+          "red"
+        ]
       },
       "ListMeta": {
         "type": "object",
@@ -450,6 +1060,43 @@
           "Live",
           "Error"
         ]
+      },
+      "PlanDiff": {
+        "type": "object",
+        "description": "Summary and field-level changes between two resource revisions.",
+        "required": [
+          "summary",
+          "fields"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldChange"
+            }
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PlanSummary"
+          }
+        }
+      },
+      "PlanSummary": {
+        "type": "object",
+        "description": "Counts of planned resource mutations.",
+        "properties": {
+          "create": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "delete": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "update": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       },
       "ProblemDetails": {
         "type": "object",

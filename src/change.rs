@@ -154,7 +154,7 @@ impl PlanSummary {
 }
 
 /// Resource mutation operation type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "PascalCase")]
 pub enum Operation {
     Create,
