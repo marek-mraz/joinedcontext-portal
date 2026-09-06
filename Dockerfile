@@ -18,6 +18,11 @@ FROM rust:1.97-slim-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
+# The repository is a cargo workspace whose members are the reference apps (AP-34). Cargo
+# loads every member manifest before it builds anything, so `apps/` is a build input even
+# though none of it reaches the image: without it the build dies on `failed to load
+# manifest for workspace member /src/apps/*`.
+COPY apps ./apps
 # sqlx::migrate!("./migrations") reads the folder at COMPILE time, so it is a build input,
 # not a runtime one: without it cargo fails with "error canonicalizing migration directory".
 COPY migrations ./migrations

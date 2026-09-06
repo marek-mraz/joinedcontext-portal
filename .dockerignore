@@ -3,3 +3,5 @@ target/
 .git/
 .github/
 .secrets/
+apps/*/ui/node_modules/
+apps/*/ui/dist/
