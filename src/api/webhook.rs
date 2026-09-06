@@ -24,7 +24,7 @@ fn decode_hex(hex: &str) -> Option<Vec<u8>> {
         return None;
     }
     let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for chunk in hex.as_bytes().chunks_exact(2) {
+    for chunk in hex.as_bytes().as_chunks::<2>().0 {
         let high = (chunk[0] as char).to_digit(16)? as u8;
         let low = (chunk[1] as char).to_digit(16)? as u8;
         bytes.push((high << 4) | low);
