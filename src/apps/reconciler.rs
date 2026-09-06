@@ -629,6 +629,11 @@ fn endpoint(
     if let Some(rate) = spec.limits.as_ref().and_then(|l| l.requests_per_minute) {
         endpoint_spec["rateLimits"] = json!({ "requestsPerMinute": rate });
     }
+    // Both halves of `spec.limits` are enforced on the app's own endpoint and nowhere else, so
+    // an app's downloads never eat into what its author may pull elsewhere (AP-17, EP-44).
+    if let Some(rows) = spec.limits.as_ref().and_then(|l| l.max_file_rows) {
+        endpoint_spec["fileLimits"] = json!({ "maxFileRows": rows });
+    }
 
     generated(format!("app-{name}"), project, "Endpoint", endpoint_spec)
 }

@@ -41,7 +41,7 @@ fn app(overrides: Value) -> RawManifest {
             "operations": ["queryEntity", "retrieveEntity"],
             "representations": ["ngsi-ld", "geojson"]
         }],
-        "limits": { "requestsPerMinute": 600 }
+        "limits": { "requestsPerMinute": 600, "maxFileRows": 20000 }
     });
     for (key, value) in overrides.as_object().expect("an object of overrides") {
         spec[key] = value.clone();
@@ -293,6 +293,10 @@ fn the_endpoint_is_the_union_of_what_the_needs_asked_for() {
     assert_eq!(endpoint.spec["audience"], "project-list");
     assert_eq!(endpoint.spec["allowedProjects"], json!(["ovzdusie"]));
     assert_eq!(endpoint.spec["rateLimits"]["requestsPerMinute"], 600);
+    assert_eq!(
+        endpoint.spec["fileLimits"]["maxFileRows"], 20000,
+        "a download limit belongs to the app's endpoint, not to its author (AP-17)"
+    );
 
     let parsed: EndpointSpec =
         serde_json::from_value(endpoint.spec.clone()).expect("a rendered endpoint parses");
