@@ -1,4 +1,5 @@
 pub mod health;
+pub mod resources;
 
 use axum::http::Uri;
 use axum::response::IntoResponse;
@@ -12,6 +13,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(health::router())
         .merge(auth::oidc::router())
+        .merge(resources::router())
         .fallback(api_not_found)
         .layer(axum::middleware::from_fn(auth::csrf::require_csrf))
 }

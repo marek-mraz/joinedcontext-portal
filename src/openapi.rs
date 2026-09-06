@@ -4,14 +4,32 @@ use axum::{Json, Router};
 use utoipa::OpenApi;
 
 use crate::api::health::Health;
+use crate::api::resources::{ListMeta, ResourceList};
 use crate::auth::Identity;
 use crate::error::ProblemDetails;
+use crate::resource::{Condition, ObjectMeta, Phase, ResourceEnvelope, Status};
 use crate::state::AppState;
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(crate::api::health::health, crate::auth::oidc::me),
-    components(schemas(Health, Identity, ProblemDetails)),
+    paths(
+        crate::api::health::health,
+        crate::auth::oidc::me,
+        crate::api::resources::list,
+        crate::api::resources::get_resource,
+    ),
+    components(schemas(
+        Health,
+        Identity,
+        ProblemDetails,
+        ResourceEnvelope,
+        ObjectMeta,
+        Status,
+        Phase,
+        Condition,
+        ResourceList,
+        ListMeta,
+    )),
     info(
         title = "joinedcontext Portal API",
         version = "0.1.0",
@@ -19,7 +37,8 @@ use crate::state::AppState;
     ),
     tags(
         (name = "system", description = "System operations"),
-        (name = "auth", description = "Sign-in, sign-out and the current identity")
+        (name = "auth", description = "Sign-in, sign-out and the current identity"),
+        (name = "resources", description = "Resource operations")
     )
 )]
 pub struct ApiDoc;

@@ -31,6 +31,8 @@ pub enum ApiError {
     Conflict(String),
     #[error("service unavailable: {0}")]
     Unavailable(String),
+    #[error("not implemented: {0}")]
+    NotImplemented(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -62,6 +64,12 @@ impl IntoResponse for ApiError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "service-unavailable",
                 "Service Unavailable",
+                Some(msg),
+            ),
+            Self::NotImplemented(msg) => (
+                StatusCode::NOT_IMPLEMENTED,
+                "not-implemented",
+                "Not Implemented",
                 Some(msg),
             ),
             Self::Internal(err) => {
@@ -111,6 +119,10 @@ mod tests {
             (
                 ApiError::Unavailable("test".into()),
                 StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                ApiError::NotImplemented("test".into()),
+                StatusCode::NOT_IMPLEMENTED,
             ),
             (
                 ApiError::Internal("test".into()),

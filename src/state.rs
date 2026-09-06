@@ -10,6 +10,7 @@ use axum_extra::extract::cookie::Key;
 use crate::auth::oidc::OidcClient;
 use crate::auth::session::Session;
 use crate::config::Config;
+use crate::store::Mirror;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -17,6 +18,7 @@ pub struct AppState {
     /// `None` when no Keycloak realm is configured: login answers 503, every protected
     /// route answers 401. Fail closed.
     pub oidc: Option<Arc<OidcClient>>,
+    pub mirror: Arc<Mirror>,
     /// `sub` → unix second of the last back-channel logout for that user. Sessions issued
     /// at or before the mark are refused.
     /// ponytail: per-replica map; move it to the preferences database when the portal
@@ -29,8 +31,14 @@ impl AppState {
         Self {
             config: Arc::new(config),
             oidc: oidc.map(Arc::new),
+            mirror: Arc::new(Mirror::new()),
             revocations: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    pub fn with_mirror(mut self, mirror: Arc<Mirror>) -> Self {
+        self.mirror = mirror;
+        self
     }
 
     /// Builds the state for a configuration, discovering the Keycloak realm when one is set.
