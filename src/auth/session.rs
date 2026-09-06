@@ -127,7 +127,8 @@ mod tests {
             },
             expires_at: now + expires_in,
             issued_at: now,
-            id_token: "eyJhbGciOiJSUzI1NiJ9.header.signature".into(),
+            // Deliberately not JWT-shaped: a real-looking token literal trips gitleaks in CI.
+            id_token: "opaque-id-token-for-tests".into(),
         }
     }
 
