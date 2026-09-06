@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn only_ngsi_ld_urns_reach_the_upstream_path() {
         assert!(valid_urn(
-            "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:station-01"
+            "urn:ngsi-ld:AirQualityObserved:hel.fi:air-quality:station-01"
         ));
         assert!(!valid_urn("urn:ngsi-ld:X/../../admin"));
         assert!(!valid_urn("urn:ngsi-ld:X?type=Other"));
@@ -437,9 +437,9 @@ mod tests {
     #[test]
     fn a_station_keeps_only_what_the_grant_returned() {
         let entity = json!({
-            "id": "urn:ngsi-ld:AirQualityObserved:bb:ovzdusie:s1",
+            "id": "urn:ngsi-ld:AirQualityObserved:hel.fi:air-quality:s1",
             "type": TYPE,
-            "name": { "type": "Property", "value": "Štiavničky" },
+            "name": { "type": "Property", "value": "Kallio" },
             "pm10": { "type": "Property", "value": 34.2, "observedAt": "2026-09-06T10:00:00Z" },
             "location": { "type": "GeoProperty", "value": { "type": "Point", "coordinates": [19.1, 48.7] } }
         });

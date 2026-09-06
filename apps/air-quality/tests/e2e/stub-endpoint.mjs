@@ -5,7 +5,7 @@
 import { createServer } from "node:http";
 
 const PORT = Number(process.env.STUB_PORT ?? 4319);
-const ID = "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:station-01";
+const ID = "urn:ngsi-ld:AirQualityObserved:hel.fi:air-quality:station-01";
 
 let note = null;
 
@@ -28,7 +28,7 @@ const send = (response, status, body) => {
 const station = () => ({
   id: ID,
   type: "AirQualityObserved",
-  name: { type: "Property", value: "Štiavničky" },
+  name: { type: "Property", value: "Kallio" },
   pm10: { type: "Property", value: 34.2, observedAt: "2026-09-06T10:00:00Z" },
   pm25: { type: "Property", value: 21 },
   location: {

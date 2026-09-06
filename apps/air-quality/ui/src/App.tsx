@@ -30,13 +30,13 @@ export function App(): JSX.Element {
 
   return (
     <main>
-      <h1>Kvalita ovzdušia</h1>
+      <h1>Air quality</h1>
       <p className="identity">{who(identity)}</p>
 
       {error && <p role="alert">{error}</p>}
-      {!stations && !error && <p role="status">Načítavam stanice…</p>}
+      {!stations && !error && <p role="status">Loading stations…</p>}
 
-      {stations && stations.length === 0 && <p>Zatiaľ tu nie sú žiadne stanice.</p>}
+      {stations && stations.length === 0 && <p>No stations here yet.</p>}
 
       {stations && stations.length > 0 && (
         <ul className="stations">
@@ -59,8 +59,8 @@ function who(identity: Identity | null): string {
     return "…";
   }
   return identity.signedIn
-    ? `Prihlásený: ${identity.email ?? identity.user ?? "neznámy"}`
-    : "Prezeráte anonymne.";
+    ? `Signed in as ${identity.email ?? identity.user ?? "unknown"}`
+    : "You are viewing anonymously.";
 }
 
 function StationCard({
@@ -80,8 +80,8 @@ function StationCard({
         <Metric label="PM2.5" value={station.pm25} unit="µg/m³" />
         <Metric label="Index" value={station.airQualityIndex} />
       </dl>
-      {station.observedAt && <p className="identity">Merané: {station.observedAt}</p>}
-      {station.stewardNote && <p>Poznámka: {station.stewardNote}</p>}
+      {station.observedAt && <p className="identity">Measured: {station.observedAt}</p>}
+      {station.stewardNote && <p>Note: {station.stewardNote}</p>}
       {mayWrite && <NoteBox station={station} onSaved={onSaved} />}
     </li>
   );
@@ -121,7 +121,7 @@ function NoteBox({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const label = `Poznámka správcu pre ${station.name ?? station.id}`;
+  const label = `Steward note for ${station.name ?? station.id}`;
 
   return (
     <form
@@ -155,7 +155,7 @@ function NoteBox({
         }}
       />
       <button type="submit" disabled={saving || note.trim().length === 0}>
-        Uložiť poznámku
+        Save note
       </button>
       {problem && <p role="alert">{problem}</p>}
     </form>

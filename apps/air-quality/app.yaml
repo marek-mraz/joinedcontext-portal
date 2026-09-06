@@ -3,12 +3,12 @@ apiVersion: joinedcontext.com/v1alpha1
 kind: App
 metadata:
   name: air-quality
-  namespace: ovzdusie
+  namespace: helsinki
   title:
-    sk: "Kvalita ovzdušia"
+    fi: "Ilmanlaatu"
     en: "Air quality"
   description:
-    sk: "Stanice, ich posledné hodnoty a 24 hodín histórie; správca môže pridať poznámku."
+    fi: "Asemat, niiden viimeisimmät arvot ja 24 tunnin historia; ylläpitäjä voi lisätä muistiinpanon."
     en: "Stations, their latest values and 24 hours of history; a steward may add a note."
 spec:
   kind: fullstack
@@ -28,7 +28,7 @@ spec:
     # publication of this app in the red lane (AP-09, AP-39).
     - contextSpaceRef:
         kind: ContextSpace
-        name: ovzdusie
+        name: air-quality
       types: [AirQualityObserved]
       attrs: [pm10, pm25, airQualityIndex, location, name, stewardNote]
       operations: [queryEntity, retrieveEntity, queryTemporal, updateAttrs]

@@ -3,11 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 
-const STATION = "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:station-01";
+const STATION = "urn:ngsi-ld:AirQualityObserved:hel.fi:air-quality:station-01";
 
 const station = {
   id: STATION,
-  name: "Štiavničky",
+  name: "Kallio",
   pm10: 34.2,
   pm25: 21,
   observedAt: "2026-09-06T10:00:00Z",
@@ -36,12 +36,12 @@ function serve(identity: Record<string, unknown>, writeStatus = 204, writeDetail
 
 const steward = {
   signedIn: true,
-  email: "demo.steward@banskabystrica.sk",
-  user: "demo.steward@banskabystrica.sk",
+  email: "demo.steward@hel.fi",
+  user: "demo.steward@hel.fi",
   anonymous: false,
   canWriteNote: true,
 };
-const viewer = { ...steward, email: "demo.viewer@banskabystrica.sk", canWriteNote: false };
+const viewer = { ...steward, email: "demo.viewer@hel.fi", canWriteNote: false };
 const nobody = { signedIn: false, email: null, user: null, anonymous: true, canWriteNote: false };
 
 describe("air-quality app", () => {
@@ -53,7 +53,7 @@ describe("air-quality app", () => {
     serve(nobody);
     render(<App />);
 
-    expect(await screen.findByText("Štiavničky")).toBeInTheDocument();
+    expect(await screen.findByText("Kallio")).toBeInTheDocument();
     expect(screen.getByText("34.2 µg/m³")).toBeInTheDocument();
     expect(screen.getByText("21 µg/m³")).toBeInTheDocument();
     // The grant returned no index, so there is no row for it rather than a zero.
@@ -63,38 +63,38 @@ describe("air-quality app", () => {
   it("says who is signed in, and says so plainly when nobody is", async () => {
     serve(steward);
     render(<App />);
-    expect(await screen.findByText(/demo.steward@banskabystrica.sk/)).toBeInTheDocument();
+    expect(await screen.findByText(/demo.steward@hel.fi/)).toBeInTheDocument();
   });
 
   it("shows no note box to an anonymous reader", async () => {
     serve(nobody);
     render(<App />);
-    await screen.findByText("Štiavničky");
-    expect(screen.getByText("Prezeráte anonymne.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Uložiť poznámku" })).toBeNull();
+    await screen.findByText("Kallio");
+    expect(screen.getByText("You are viewing anonymously.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save note" })).toBeNull();
   });
 
   it("shows no note box to a signed-in viewer the PDP refuses", async () => {
     serve(viewer);
     render(<App />);
-    await screen.findByText("Štiavničky");
-    expect(screen.queryByRole("button", { name: "Uložiť poznámku" })).toBeNull();
+    await screen.findByText("Kallio");
+    expect(screen.queryByRole("button", { name: "Save note" })).toBeNull();
   });
 
   it("a steward writes a note and it goes to the app's own backend", async () => {
     const user = userEvent.setup();
     const fetchMock = serve(steward);
     render(<App />);
-    await screen.findByText("Štiavničky");
+    await screen.findByText("Kallio");
 
-    await user.type(screen.getByLabelText(/Poznámka správcu/), "Senzor vyčistený.");
-    await user.click(screen.getByRole("button", { name: "Uložiť poznámku" }));
+    await user.type(screen.getByLabelText(/Steward note/), "Sensor cleaned.");
+    await user.click(screen.getByRole("button", { name: "Save note" }));
 
     await waitFor(() => {
       const write = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
       expect(write).toBeDefined();
       expect(String(write?.[0])).toContain(`api/stations/${encodeURIComponent(STATION)}/note`);
-      expect(JSON.parse(String(write?.[1]?.body))).toEqual({ note: "Senzor vyčistený." });
+      expect(JSON.parse(String(write?.[1]?.body))).toEqual({ note: "Sensor cleaned." });
     });
   });
 
@@ -102,10 +102,10 @@ describe("air-quality app", () => {
     const user = userEvent.setup();
     serve(steward, 403, "writing stewardNote needs the project-steward role");
     render(<App />);
-    await screen.findByText("Štiavničky");
+    await screen.findByText("Kallio");
 
-    await user.type(screen.getByLabelText(/Poznámka správcu/), "Senzor vyčistený.");
-    await user.click(screen.getByRole("button", { name: "Uložiť poznámku" }));
+    await user.type(screen.getByLabelText(/Steward note/), "Sensor cleaned.");
+    await user.click(screen.getByRole("button", { name: "Save note" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "writing stewardNote needs the project-steward role",
@@ -115,7 +115,7 @@ describe("air-quality app", () => {
   it("the save button stays disabled until there is something to save", async () => {
     serve(steward);
     render(<App />);
-    await screen.findByText("Štiavničky");
-    expect(screen.getByRole("button", { name: "Uložiť poznámku" })).toBeDisabled();
+    await screen.findByText("Kallio");
+    expect(screen.getByRole("button", { name: "Save note" })).toBeDisabled();
   });
 });

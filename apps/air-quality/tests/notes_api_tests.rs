@@ -16,7 +16,7 @@ use tower::ServiceExt;
 use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-const STATION: &str = "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:station-01";
+const STATION: &str = "urn:ngsi-ld:AirQualityObserved:hel.fi:air-quality:station-01";
 const BASE: &str = "/apps/air-quality/";
 // Not shaped like a JWT on purpose: a fixture that merely looks like a credential stops the
 // secret scan for no reason, and what these tests assert is that the value is carried through
@@ -35,7 +35,7 @@ fn entity() -> Value {
     json!({
         "id": STATION,
         "type": "AirQualityObserved",
-        "name": { "type": "Property", "value": "Štiavničky" },
+        "name": { "type": "Property", "value": "Kallio" },
         "pm10": { "type": "Property", "value": 34.2, "observedAt": "2026-09-06T10:00:00Z" },
         "pm25": { "type": "Property", "value": 21.0 },
         "location": {
@@ -51,8 +51,8 @@ fn signed_in(method: &str, path: &str, body: Option<Value>) -> Request<Body> {
         .method(method)
         .uri(path)
         .header("x-forwarded-access-token", TOKEN)
-        .header("x-forwarded-email", "demo.steward@banskabystrica.sk")
-        .header("x-forwarded-user", "demo.steward@banskabystrica.sk");
+        .header("x-forwarded-email", "demo.steward@hel.fi")
+        .header("x-forwarded-user", "demo.steward@hel.fi");
     match body {
         Some(body) => builder
             .header("content-type", "application/json")
@@ -117,7 +117,7 @@ async fn the_station_list_is_read_with_the_users_own_token_and_flattened_for_the
     assert_eq!(stations[0]["id"], json!(STATION));
     assert_eq!(stations[0]["pm10"], json!(34.2));
     assert_eq!(stations[0]["coordinates"], json!([19.146, 48.736]));
-    assert_eq!(stations[0]["name"], json!("Štiavničky"));
+    assert_eq!(stations[0]["name"], json!("Kallio"));
 }
 
 /// AP-40, the property this whole app exists to demonstrate. Without a forwarded token there
@@ -226,7 +226,7 @@ async fn the_write_flag_comes_from_the_pdp_and_the_identity_from_the_sidecar() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let me: Value = serde_json::from_str(&body).expect("an identity");
     assert_eq!(me["signedIn"], json!(true));
-    assert_eq!(me["email"], json!("demo.steward@banskabystrica.sk"));
+    assert_eq!(me["email"], json!("demo.steward@hel.fi"));
     assert_eq!(me["canWriteNote"], json!(true));
 }
 
