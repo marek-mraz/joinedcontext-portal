@@ -184,6 +184,34 @@ describe("blueprint wizard", () => {
     expect(screen.getByText(en.changes.accepted)).toBeInTheDocument();
   });
 
+  it("names every parameter the server rejected, not just the first (CC-24)", async () => {
+    const user = userEvent.setup();
+    renderWizard({
+      status: 400,
+      body: {
+        type: "https://joinedcontext.com/errors/invalid-request",
+        title: "Invalid Request",
+        status: 400,
+        detail: "the parameters do not match blueprint 'threshold-alert'",
+        errors: [
+          '"thresholdValue" is not of type "number"',
+          '"webhookUrl" is not a valid URL',
+        ],
+      },
+    });
+    await openWizard(user);
+
+    await user.selectOptions(screen.getByLabelText(/Target entity type/), "AirQualityObserved");
+    await user.type(screen.getByLabelText(/Alert threshold/), "50");
+    await user.type(screen.getByLabelText(/Notification target URL/), "https://example.org/hook");
+    await user.click(screen.getByRole("button", { name: en.flows.instantiate.submit }));
+
+    const alert = await screen.findByRole("alert");
+    // One round trip, every bad field marked: the point of `problem.errors[]`.
+    expect(within(alert).getByText('"thresholdValue" is not of type "number"')).toBeInTheDocument();
+    expect(within(alert).getByText('"webhookUrl" is not a valid URL')).toBeInTheDocument();
+  });
+
   it("shows the server's own reason when the flow is refused", async () => {
     const user = userEvent.setup();
     renderWizard({

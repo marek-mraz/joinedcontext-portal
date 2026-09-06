@@ -642,6 +642,11 @@ export interface components {
         /** @description RFC 7807 Problem Details representation. */
         ProblemDetails: {
             detail?: string | null;
+            /**
+             * @description Every violation of one request, when there is more than one thing to say. A form marks
+             *     all its bad fields from this in one pass instead of one round trip per mistake (CC-24).
+             */
+            errors?: string[] | null;
             instance?: string | null;
             /** Format: int32 */
             status: number;
@@ -1255,6 +1260,15 @@ export interface operations {
                     "application/json": components["schemas"]["Change"];
                 };
             };
+            /** @description The parameters do not satisfy the blueprint's schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
             /** @description Unauthorized */
             401: {
                 headers: {
@@ -1282,7 +1296,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
-            /** @description This build cannot expand blueprints */
+            /** @description The git forge is not configured */
             503: {
                 headers: {
                     [name: string]: unknown;

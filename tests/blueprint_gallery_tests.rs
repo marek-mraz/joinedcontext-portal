@@ -44,7 +44,36 @@ fn session_cookie(config: &Config, roles: &[&str]) -> String {
     format!("{}; {CSRF_COOKIE}={TEST_CSRF_TOKEN}", parts.join("; "))
 }
 
-fn blueprint(name: &str, category: &str, risk: &str, allowed_roles: Value) -> ResourceEnvelope {
+/// A Dashboard, the simplest project-scoped kind: one path segment, no `{space}` placeholder.
+/// Written as a plain multi-line literal on purpose: a `\` line continuation would eat the YAML
+/// indentation with the newline, and the template would render a manifest with no metadata.
+const DASHBOARD_TEMPLATE: &str = "apiVersion: joinedcontext.com/v1alpha1
+kind: Dashboard
+metadata:
+  name: alert-{{ title }}
+spec:
+  title: {{ title }}
+  webhook: {{ webhookUrl }}
+";
+
+/// The same, rendering into a namespace that is not the project the flow runs in.
+const ESCAPING_TEMPLATE: &str = "apiVersion: joinedcontext.com/v1alpha1
+kind: Dashboard
+metadata:
+  name: alert-{{ title }}
+  namespace: someone-elses-project
+spec:
+  title: {{ title }}
+  webhook: {{ webhookUrl }}
+";
+
+fn blueprint_with(
+    name: &str,
+    category: &str,
+    risk: &str,
+    allowed_roles: Value,
+    template: &str,
+) -> ResourceEnvelope {
     ResourceEnvelope {
         api_version: API_VERSION.to_string(),
         kind: "Blueprint".to_string(),
@@ -60,11 +89,22 @@ fn blueprint(name: &str, category: &str, risk: &str, allowed_roles: Value) -> Re
             "category": category,
             "riskClass": risk,
             "allowedRoles": allowed_roles,
-            "parameterSchema": { "type": "object", "properties": { "webhookUrl": { "type": "string" } } },
-            "templates": [{ "name": "subscription", "template": "kind: Subscription" }],
+            "parameterSchema": {
+                "type": "object",
+                "required": ["title", "webhookUrl"],
+                "properties": {
+                    "title": { "type": "string" },
+                    "webhookUrl": { "type": "string" },
+                },
+            },
+            "templates": [{ "name": "dashboard", "template": template }],
         }),
         status: None,
     }
+}
+
+fn blueprint(name: &str, category: &str, risk: &str, allowed_roles: Value) -> ResourceEnvelope {
+    blueprint_with(name, category, risk, allowed_roles, DASHBOARD_TEMPLATE)
 }
 
 fn seeded_mirror() -> Arc<Mirror> {
@@ -81,11 +121,20 @@ fn seeded_mirror() -> Arc<Mirror> {
         "red",
         json!(["org-admin"]),
     ));
+    // `spec.allowedRoles` is required and non-empty in jc-core, so a blueprint that reaches the
+    // mirror without one is malformed. The gallery reads that as "nobody", never as "everybody".
     mirror.upsert(blueprint(
-        "open-to-everyone",
+        "names-no-role",
         "onboarding",
         "yellow",
         json!([]),
+    ));
+    mirror.upsert(blueprint_with(
+        "escapes-the-project",
+        "onboarding",
+        "green",
+        json!(["domain-editor"]),
+        ESCAPING_TEMPLATE,
     ));
     Arc::new(mirror)
 }
@@ -119,6 +168,10 @@ fn names(list: &Value) -> Vec<String> {
                 .to_string()
         })
         .collect()
+}
+
+fn list_contains(list: &Value, name: &str) -> bool {
+    names(list).iter().any(|found| found == name)
 }
 
 async fn get_gallery(roles: &[&str]) -> Value {
@@ -158,22 +211,30 @@ async fn post_flow(roles: &[&str], body: Value) -> (StatusCode, Value) {
 
 #[tokio::test]
 async fn the_gallery_shows_only_what_this_caller_may_run() {
-    // CC-59: `spec.allowedRoles` is the filter, and a blueprint naming no role is open to
-    // everyone who can reach the gallery at all.
+    // CC-59: `spec.allowedRoles` is the filter, in both directions.
     let list = get_gallery(&["domain-editor"]).await;
-    assert_eq!(names(&list), vec!["open-to-everyone", "threshold-alert"]);
+    assert_eq!(names(&list), vec!["escapes-the-project", "threshold-alert"]);
 
     let admin = get_gallery(&["org-admin"]).await;
-    assert_eq!(
-        names(&admin),
-        vec!["cross-city-sharing", "open-to-everyone"]
-    );
+    assert_eq!(names(&admin), vec!["cross-city-sharing"]);
 }
 
 #[tokio::test]
-async fn a_caller_with_no_role_still_sees_the_unrestricted_blueprints() {
-    let list = get_gallery(&[]).await;
-    assert_eq!(names(&list), vec!["open-to-everyone"]);
+async fn a_blueprint_that_names_no_role_is_visible_to_nobody() {
+    // Fail-closed (CC-59): jc-core refuses an empty `spec.allowedRoles`, so one that turns up
+    // in the mirror anyway is a broken manifest. Reading it as "open to all" would make a
+    // malformed blueprint the most widely available one in the gallery.
+    for roles in [&[][..], &["domain-editor"][..], &["org-admin"][..]] {
+        let list = get_gallery(roles).await;
+        assert!(
+            !list_contains(&list, "names-no-role"),
+            "a blueprint with no allowedRoles reached a caller with roles {roles:?}"
+        );
+    }
+    assert!(get_gallery(&[]).await["items"]
+        .as_array()
+        .expect("items")
+        .is_empty());
 }
 
 #[tokio::test]
@@ -254,19 +315,78 @@ async fn a_form_filled_against_another_version_is_a_conflict() {
 }
 
 #[tokio::test]
-async fn a_build_without_the_expansion_engine_says_so_instead_of_rendering() {
-    // CC-25: expansion is jcctl's, the one the reconciler runs. A second engine in the Portal
-    // would render manifests that differ from what a re-render produces, so this build refuses.
+async fn parameters_that_miss_the_schema_come_back_as_one_list_of_violations() {
+    // CC-24: the form marks every bad field in one pass, so a user is not sent round the loop
+    // once per mistake. jcctl collects the violations; the Portal only passes them on.
     let (status, problem) = post_flow(
         &["domain-editor"],
-        json!({ "blueprint": "threshold-alert", "version": "1.2.0", "parameters": { "webhookUrl": "https://example.org/hook" } }),
+        json!({ "blueprint": "threshold-alert", "version": "1.2.0", "parameters": {} }),
     )
     .await;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert!(problem["detail"]
-        .as_str()
-        .unwrap_or_default()
-        .contains("expand"));
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let errors = problem["errors"]
+        .as_array()
+        .expect("one entry per violation");
+    assert_eq!(
+        errors.len(),
+        2,
+        "both violations, not the first one: {problem}"
+    );
+    let joined = errors
+        .iter()
+        .filter_map(|e| e.as_str())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    assert!(
+        joined.contains("title") && joined.contains("webhookUrl"),
+        "both missing parameters must be named: {joined}"
+    );
+}
+
+#[tokio::test]
+async fn a_template_cannot_render_into_another_project() {
+    // A blueprint is authored once and run in many projects, so a template that names a
+    // namespace is a way out of the project the caller chose. Refused before anything is
+    // written, exactly as a hand-written manifest with a foreign namespace is.
+    let (status, problem) = post_flow(
+        &["domain-editor"],
+        json!({
+            "blueprint": "escapes-the-project",
+            "version": "1.2.0",
+            "parameters": { "title": "nocne-hluky", "webhookUrl": "https://example.org/hook" },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("someone-elses-project") && detail.contains("ovzdusie"),
+        "the refusal must name both namespaces: {detail}"
+    );
+}
+
+#[tokio::test]
+async fn a_valid_flow_reaches_the_forge_and_stops_there_when_there_is_none() {
+    // Everything the Portal can check on its own has passed: the roles, the version, the
+    // parameters and every rendered manifest. What is left is the merge request, and without a
+    // forge there is nowhere to open one — so this is 503, never a silent success (CC-32).
+    let (status, problem) = post_flow(
+        &["domain-editor"],
+        json!({
+            "blueprint": "threshold-alert",
+            "version": "1.2.0",
+            "parameters": { "title": "nocne-hluky", "webhookUrl": "https://example.org/hook" },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{problem}");
+    assert!(
+        problem["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("git forge"),
+        "the answer must say what is missing: {problem}"
+    );
 }
 
 #[tokio::test]
@@ -280,7 +400,7 @@ async fn a_flow_without_a_session_never_reaches_the_blueprint() {
                 .uri("/api/v1/projects/ovzdusie/flows")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
-                    json!({ "blueprint": "open-to-everyone", "version": "1.2.0", "parameters": {} })
+                    json!({ "blueprint": "threshold-alert", "version": "1.2.0", "parameters": {} })
                         .to_string(),
                 ))
                 .unwrap(),

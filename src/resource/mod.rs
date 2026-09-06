@@ -91,10 +91,11 @@ pub struct ResourceKey {
     pub name: String,
 }
 
-/// Kinds the specification defines and the Portal already serves, but `jc-core-v0.1.0` does not
-/// implement yet: Dashboard and Layer (UI-17, UI-18, Architecture/10), Subscription and
-/// ContextSourceRegistration (Architecture/06 section 3, DS-16) and Blueprint (API/01 section 4
-/// lists it among the organization-level kinds). Paths follow Architecture/06.
+/// Kinds the specification defines and the Portal already serves, but `jc-core-v0.4.0` does not
+/// implement yet: Dashboard and Layer (UI-17, UI-18, Architecture/10), Entity seeds, Subscription
+/// and ContextSourceRegistration (Architecture/06 section 3, DS-16). Paths follow Architecture/06.
+/// Blueprint left this list when jc-core-v0.4.0 took the kind over, which is exactly the move the
+/// next paragraph describes.
 ///
 /// They live apart from [`jc_core::KINDS`] so the difference stays visible: when @platform adds a
 /// kind to jc-core, its row moves out of this list and nothing else changes.
@@ -128,12 +129,6 @@ pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[
         plural: "layers",
         scope: Scope::Project,
         path_template: "projects/{project}/dashboards/{name}.yaml",
-    },
-    KindInfo {
-        kind: "Blueprint",
-        plural: "blueprints",
-        scope: Scope::Organization,
-        path_template: "blueprints/{name}/blueprint.yaml",
     },
 ];
 
@@ -213,6 +208,7 @@ mod tests {
                 "ServiceAccount",
                 "Pipeline",
                 "App",
+                "Blueprint",
                 "DataSpaceParticipant",
                 "DataOffer",
                 "DataAgreement",

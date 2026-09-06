@@ -17,7 +17,10 @@ path = "src/main.rs"
 # The manifest contract, by tag, never by path into another agent's clone (T-0249).
 # `version` is the crate's own version at that tag (the tag counts differently); without it
 # cargo-deny reads the requirement as `*` and the supply-chain check goes red (T-0287).
-jc-core = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", tag = "jc-core-v0.3.0", version = "0.1.0" }
+jc-core = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", tag = "jc-core-v0.4.0", version = "0.1.0" }
+# Blueprint expansion, the same engine the reconciler runs, so a rendered manifest is
+# byte-identical on both sides (CC-25). Same tag as jc-core: one copy of the contract.
+jcctl = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", tag = "jc-core-v0.4.0", version = "0.1.0", default-features = false }
 # Only to render jc-core's schemas into the OpenAPI document; the Portal's own types use utoipa.
 schemars = "0.8"
 axum = { version = "0.8", features = ["macros"] }

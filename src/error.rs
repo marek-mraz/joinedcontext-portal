@@ -14,6 +14,10 @@ pub struct ProblemDetails {
     pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
+    /// Every violation of one request, when there is more than one thing to say. A form marks
+    /// all its bad fields from this in one pass instead of one round trip per mistake (CC-24).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<String>>,
 }
 
 /// Portal API error variants conforming to RFC 7807.
@@ -23,6 +27,9 @@ pub enum ApiError {
     NotFound(String),
     #[error("bad request: {0}")]
     BadRequest(String),
+    /// A bad request with one entry per violation, so the caller gets them all at once (CC-24).
+    #[error("bad request: {detail}")]
+    Invalid { detail: String, errors: Vec<String> },
     #[error("unauthorized")]
     Unauthorized,
     #[error("forbidden")]
@@ -43,6 +50,7 @@ pub enum ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        let mut errors = None;
         let (status, slug, title, detail) = match self {
             Self::NotFound(msg) => (
                 StatusCode::NOT_FOUND,
@@ -56,6 +64,18 @@ impl IntoResponse for ApiError {
                 "Invalid Request",
                 Some(msg),
             ),
+            Self::Invalid {
+                detail,
+                errors: violations,
+            } => {
+                errors = Some(violations);
+                (
+                    StatusCode::BAD_REQUEST,
+                    "invalid-request",
+                    "Invalid Request",
+                    Some(detail),
+                )
+            }
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
@@ -105,6 +125,7 @@ impl IntoResponse for ApiError {
             status: status.as_u16(),
             detail,
             instance: None,
+            errors,
         };
 
         let body = serde_json::to_string(&problem).unwrap_or_else(|_| {

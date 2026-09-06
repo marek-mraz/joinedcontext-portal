@@ -32,6 +32,8 @@ export function Instantiate({
   const { t, i18n } = useTranslation();
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** One entry per rule the parameters broke, so every bad field is named at once (CC-24). */
+  const [violations, setViolations] = useState<string[]>([]);
 
   const spec = blueprintSpec(blueprint);
   const name = localized(blueprint.metadata.title, i18n.language, blueprint.metadata.name);
@@ -40,6 +42,7 @@ export function Instantiate({
   const start = useMutation({
     mutationFn: async (parameters: Parameters) => {
       setError(null);
+      setViolations([]);
       return unwrap(
         await api.POST("/api/v1/projects/{project}/flows", {
           params: { path: { project } },
@@ -66,6 +69,7 @@ export function Instantiate({
             ? err.message
             : t("flows.instantiate.failed"),
       );
+      setViolations(err instanceof ApiError ? (err.problem?.errors ?? []) : []);
     },
   });
 
@@ -86,9 +90,16 @@ export function Instantiate({
 
       {change && <ChangeNotice change={change} project={project} />}
       {error && (
-        <p role="alert" className="text-danger">
-          {error}
-        </p>
+        <div role="alert" className="text-danger">
+          <p>{error}</p>
+          {violations.length > 0 && (
+            <ul className="mt-1 list-disc pl-5 text-sm">
+              {violations.map((violation) => (
+                <li key={violation}>{violation}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {schema ? (

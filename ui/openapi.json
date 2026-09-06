@@ -714,6 +714,16 @@
               }
             }
           },
+          "400": {
+            "description": "The parameters do not satisfy the blueprint's schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized",
             "content": {
@@ -745,7 +755,7 @@
             }
           },
           "503": {
-            "description": "This build cannot expand blueprints",
+            "description": "The git forge is not configured",
             "content": {
               "application/json": {
                 "schema": {
@@ -2894,6 +2904,16 @@
               "string",
               "null"
             ]
+          },
+          "errors": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Every violation of one request, when there is more than one thing to say. A form marks\nall its bad fields from this in one pass instead of one round trip per mistake (CC-24)."
           },
           "instance": {
             "type": [
