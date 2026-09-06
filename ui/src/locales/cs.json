@@ -162,6 +162,35 @@
       "phase": "Stav"
     }
   },
+  "pipelines": {
+    "title": "Pipeliny",
+    "empty": "Tento projekt zatím nemá žádnou pipelinu.",
+    "class": {
+      "resident": "rezidentní",
+      "residentHelp": "Běží nepřetržitě v Bento runneru projektu.",
+      "scheduled": "plánovaná",
+      "scheduledHelp": "Běží jako Kubernetes CronJob a mezi běhy se zastaví."
+    },
+    "field": {
+      "name": "Pipelina",
+      "class": "Běh",
+      "phase": "Stav",
+      "stream": "Proud",
+      "secrets": "Přihlašovací údaje"
+    },
+    "metrics": {
+      "rate": "zpráv/s",
+      "received": "přijato",
+      "errors": "chyby",
+      "latency": "ms p99",
+      "unavailable": "Bez čísel: runner neodpovídá.",
+      "paused": "Pozastavená"
+    },
+    "pause": "Pozastavit",
+    "pauseHint": "Navrhne změnu, která tuto pipelinu zastaví.",
+    "resume": "Spustit",
+    "resumeHint": "Navrhne změnu, která tuto pipelinu znovu spustí."
+  },
   "dashboards": {
     "title": "Nástěnky",
     "empty": "Projekt zatím nemá nástěnku.",

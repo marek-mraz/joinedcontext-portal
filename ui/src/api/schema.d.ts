@@ -122,6 +122,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/pipelines/{name}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/{plural}": {
         parameters: {
             query?: never;
@@ -327,6 +343,26 @@ export interface components {
         };
         /** @enum {string} */
         Phase: "Draft" | "Pending" | "Deploying" | "Live" | "Error";
+        PipelineMetrics: {
+            /** Format: int64 */
+            bufferDepth?: number | null;
+            /** Format: int64 */
+            errors?: number | null;
+            /** Format: double */
+            latencyP99Ms?: number | null;
+            pipeline: string;
+            /**
+             * Format: int64
+             * @description Cumulative since the runner started, exactly as it reports them: a rate is the view's
+             *     job, history is Prometheus' job (OPS-16). An absent field is not zero, it is a counter
+             *     this runner does not export.
+             */
+            received?: number | null;
+            /** @description When the Portal read the runner, RFC 3339. The counters are as old as this instant. */
+            scrapedAt: string;
+            /** Format: int64 */
+            sent?: number | null;
+        };
         /** @description Summary and field-level changes between two resource revisions. */
         PlanDiff: {
             fields: components["schemas"]["FieldChange"][];
@@ -712,6 +748,58 @@ export interface operations {
                 };
             };
             /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_metrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Pipeline name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Runtime counters of the stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineMetrics"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Pipeline not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No runner configured, or it did not answer */
             503: {
                 headers: {
                     [name: string]: unknown;

@@ -438,6 +438,76 @@
         }
       }
     },
+    "/api/v1/projects/{project}/pipelines/{name}/metrics": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "get_metrics",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Pipeline name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Runtime counters of the stream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineMetrics"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pipeline not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No runner configured, or it did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/{plural}": {
       "get": {
         "tags": [
@@ -1630,6 +1700,62 @@
           "Live",
           "Error"
         ]
+      },
+      "PipelineMetrics": {
+        "type": "object",
+        "required": [
+          "pipeline",
+          "scrapedAt"
+        ],
+        "properties": {
+          "bufferDepth": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "errors": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "latencyP99Ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "pipeline": {
+            "type": "string"
+          },
+          "received": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Cumulative since the runner started, exactly as it reports them: a rate is the view's\njob, history is Prometheus' job (OPS-16). An absent field is not zero, it is a counter\nthis runner does not export.",
+            "minimum": 0
+          },
+          "scrapedAt": {
+            "type": "string",
+            "description": "When the Portal read the runner, RFC 3339. The counters are as old as this instant."
+          },
+          "sent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "PlanDiff": {
         "type": "object",

@@ -6,6 +6,7 @@ use utoipa::OpenApi;
 use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
 use crate::api::dry_run::DryRunResult;
 use crate::api::health::Health;
+use crate::api::pipelines::PipelineMetrics;
 use crate::api::resources::{ListMeta, ResourceList};
 use crate::auth::oidc::LogoutTarget;
 use crate::auth::Identity;
@@ -24,6 +25,7 @@ use crate::sync::SyncStatus;
         crate::auth::oidc::logout,
         crate::api::resources::list,
         crate::api::resources::get_resource,
+        crate::api::pipelines::get_metrics,
         crate::api::mutate::create,
         crate::api::mutate::replace,
         crate::api::mutate::patch,
@@ -61,6 +63,7 @@ use crate::sync::SyncStatus;
         ChangeSummary,
         ChangeAuthor,
         SyncStatus,
+        PipelineMetrics,
     )),
     info(
         title = "joinedcontext Portal API",

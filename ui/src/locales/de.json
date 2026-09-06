@@ -162,6 +162,35 @@
       "phase": "Zustand"
     }
   },
+  "pipelines": {
+    "title": "Pipelines",
+    "empty": "Dieses Projekt hat noch keine Pipeline.",
+    "class": {
+      "resident": "resident",
+      "residentHelp": "Läuft durchgehend im Bento-Runner des Projekts.",
+      "scheduled": "geplant",
+      "scheduledHelp": "Läuft als Kubernetes-CronJob und pausiert zwischen den Läufen."
+    },
+    "field": {
+      "name": "Pipeline",
+      "class": "Ausführung",
+      "phase": "Status",
+      "stream": "Stream",
+      "secrets": "Zugangsdaten"
+    },
+    "metrics": {
+      "rate": "Nachr./s",
+      "received": "empfangen",
+      "errors": "Fehler",
+      "latency": "ms p99",
+      "unavailable": "Keine Zahlen: der Runner antwortet nicht.",
+      "paused": "Pausiert"
+    },
+    "pause": "Pausieren",
+    "pauseHint": "Schlägt eine Änderung vor, die diese Pipeline anhält.",
+    "resume": "Fortsetzen",
+    "resumeHint": "Schlägt eine Änderung vor, die diese Pipeline wieder startet."
+  },
   "dashboards": {
     "title": "Dashboards",
     "empty": "Dieses Projekt hat noch kein Dashboard.",

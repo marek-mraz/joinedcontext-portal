@@ -162,6 +162,35 @@
       "phase": "State"
     }
   },
+  "pipelines": {
+    "title": "Pipelines",
+    "empty": "This project has no pipeline yet.",
+    "class": {
+      "resident": "resident",
+      "residentHelp": "Runs continuously in the project's Bento runner.",
+      "scheduled": "scheduled",
+      "scheduledHelp": "Runs as a Kubernetes CronJob and stops between runs."
+    },
+    "field": {
+      "name": "Pipeline",
+      "class": "Execution",
+      "phase": "Status",
+      "stream": "Stream",
+      "secrets": "Credentials"
+    },
+    "metrics": {
+      "rate": "msg/s",
+      "received": "received",
+      "errors": "errors",
+      "latency": "ms p99",
+      "unavailable": "No numbers: the runner is not answering.",
+      "paused": "Paused"
+    },
+    "pause": "Pause",
+    "pauseHint": "Proposes a change that stops this pipeline.",
+    "resume": "Resume",
+    "resumeHint": "Proposes a change that starts this pipeline again."
+  },
   "dashboards": {
     "title": "Dashboards",
     "empty": "This project has no dashboard yet.",

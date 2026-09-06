@@ -104,6 +104,23 @@ function stubManagerApi() {
             },
           ],
         };
+      } else if (path.endsWith("/pipelines")) {
+        body = {
+          apiVersion: "joinedcontext.com/v1alpha1",
+          kind: "List",
+          items: [
+            {
+              apiVersion: "joinedcontext.com/v1alpha1",
+              kind: "Pipeline",
+              metadata: { name: "aq-mqtt-ingest", namespace: "banskabystrica" },
+              spec: {
+                class: "resident",
+                secretRefs: [{ name: "mqtt-credentials", key: "password", envVar: "MQTT_PASSWORD" }],
+              },
+              status: { phase: "Live" },
+            },
+          ],
+        };
       } else if (path.endsWith("/endpoints")) {
         body = {
           apiVersion: "joinedcontext.com/v1alpha1",
@@ -224,6 +241,18 @@ describe("accessibility", () => {
   });
   it("the Context Spaces manager has no axe violations", async () => {
     window.history.pushState({}, "", "/projects/banskabystrica/spaces");
+    stubManagerApi();
+
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("table")).toBeInTheDocument();
+    });
+
+    await expectNoViolations(container);
+  });
+
+  it("the Pipelines manager has no axe violations", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/pipelines");
     stubManagerApi();
 
     const { container } = renderApp();

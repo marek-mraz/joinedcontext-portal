@@ -162,6 +162,35 @@
       "phase": "Stav"
     }
   },
+  "pipelines": {
+    "title": "Pipeliny",
+    "empty": "Tento projekt zatiaľ nemá žiadnu pipelinu.",
+    "class": {
+      "resident": "rezidentná",
+      "residentHelp": "Beží nepretržite v Bento runneri projektu.",
+      "scheduled": "plánovaná",
+      "scheduledHelp": "Beží ako Kubernetes CronJob a medzi behmi sa zastaví."
+    },
+    "field": {
+      "name": "Pipelina",
+      "class": "Beh",
+      "phase": "Stav",
+      "stream": "Prúd",
+      "secrets": "Prihlasovacie údaje"
+    },
+    "metrics": {
+      "rate": "správ/s",
+      "received": "prijaté",
+      "errors": "chyby",
+      "latency": "ms p99",
+      "unavailable": "Bez čísel: runner neodpovedá.",
+      "paused": "Pozastavená"
+    },
+    "pause": "Pozastaviť",
+    "pauseHint": "Navrhne zmenu, ktorá túto pipelinu zastaví.",
+    "resume": "Spustiť",
+    "resumeHint": "Navrhne zmenu, ktorá túto pipelinu znova spustí."
+  },
   "dashboards": {
     "title": "Nástenky",
     "empty": "Projekt zatiaľ nemá nástenku.",

@@ -3,6 +3,7 @@ pub mod delete;
 pub mod dry_run;
 pub mod health;
 pub mod mutate;
+pub mod pipelines;
 pub mod resources;
 pub mod sync;
 pub mod webhook;
@@ -22,6 +23,7 @@ pub fn router() -> Router<AppState> {
         .merge(auth::oidc::router())
         .merge(changes::router())
         .merge(resources::router())
+        .merge(pipelines::router())
         .merge(sync::router())
         .layer(axum::middleware::from_fn(auth::csrf::require_csrf));
 

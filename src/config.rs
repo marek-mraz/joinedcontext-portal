@@ -15,6 +15,10 @@ pub struct Config {
     pub cookie_key: Key,
     pub sync_interval: Duration,
     pub gitea_webhook_secret: Option<String>,
+    /// Base URL of a project's Bento pipeline runner with `{project}` still in it, e.g.
+    /// `http://pipeline-runner.{project}-pipeline-runner.svc.cluster.local:4195`. `None`
+    /// leaves the metrics route answering 503 instead of guessing a service name.
+    pub pipeline_runner_url: Option<String>,
 }
 
 impl std::fmt::Debug for Config {
@@ -29,6 +33,7 @@ impl std::fmt::Debug for Config {
                 "gitea_webhook_secret",
                 &self.gitea_webhook_secret.as_ref().map(|_| "[redacted]"),
             )
+            .field("pipeline_runner_url", &self.pipeline_runner_url)
             .finish()
     }
 }
@@ -150,6 +155,27 @@ impl Config {
 
         let gitea_webhook_secret = lookup("JC_GITEA_WEBHOOK_SECRET");
 
+        // The template is not a URL until `{project}` is filled in, so it is checked against a
+        // stand-in: an operator learns about a typo at startup, not on the first scrape.
+        let pipeline_runner_url = match lookup("JC_PORTAL_PIPELINE_RUNNER_URL") {
+            Some(template) => {
+                let probe: Url = template.replace("{project}", "project").parse().map_err(
+                    |e: url::ParseError| ConfigError::Invalid {
+                        var: "JC_PORTAL_PIPELINE_RUNNER_URL",
+                        reason: e.to_string(),
+                    },
+                )?;
+                if probe.scheme() != "http" && probe.scheme() != "https" {
+                    return Err(ConfigError::Invalid {
+                        var: "JC_PORTAL_PIPELINE_RUNNER_URL",
+                        reason: format!("scheme '{}' is not http or https", probe.scheme()),
+                    });
+                }
+                Some(template)
+            }
+            None => None,
+        };
+
         Ok(Self {
             bind,
             public_base_url,
@@ -157,6 +183,7 @@ impl Config {
             cookie_key,
             sync_interval,
             gitea_webhook_secret,
+            pipeline_runner_url,
         })
     }
 
@@ -169,6 +196,7 @@ impl Config {
             cookie_key: Key::generate(),
             sync_interval: Duration::ZERO,
             gitea_webhook_secret: None,
+            pipeline_runner_url: None,
         }
     }
 
