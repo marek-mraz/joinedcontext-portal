@@ -53,3 +53,17 @@ jobs:
         run: cd ui && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium && pnpm e2e
       - if: steps.has.outputs.ui == 'no'
         run: echo "no ui/package.json yet"
+      # The reference apps run their flows against their own binary, so the toolchain has to
+      # be here too (AP-34, AP-40).
+      - if: steps.has.outputs.ui == 'yes'
+        uses: dtolnay/rust-toolchain@stable
+      - if: steps.has.outputs.ui == 'yes'
+        uses: Swatinem/rust-cache@v2
+      - if: steps.has.outputs.ui == 'yes'
+        name: the reference app flows
+        run: |
+          set -eu
+          for app in apps/*/ui; do
+            [ -f "$app/playwright.config.ts" ] || continue
+            (cd "$app" && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium && pnpm e2e)
+          done

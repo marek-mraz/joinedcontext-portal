@@ -42,3 +42,13 @@ jobs:
         run: cd ui && pnpm install --frozen-lockfile && pnpm lint && pnpm test -- --run && pnpm build
       - if: steps.has.outputs.ui == 'no'
         run: echo "no ui/package.json yet"
+      # The reference apps of AP-34 carry their own bundle; the Rust half is covered by the
+      # workspace lanes above, this is its screens.
+      - if: steps.has.outputs.ui == 'yes'
+        name: the reference apps build and their screens pass
+        run: |
+          set -eu
+          for app in apps/*/ui; do
+            [ -f "$app/package.json" ] || continue
+            (cd "$app" && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build)
+          done

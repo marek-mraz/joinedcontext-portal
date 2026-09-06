@@ -1,4 +1,9 @@
 target/
 ui/node_modules/
 ui/dist/
+# The reference apps of AP-34 carry the same three build outputs.
+apps/*/ui/node_modules/
+apps/*/ui/dist/
+apps/*/ui/test-results/
+apps/*/ui/*.tsbuildinfo
 .secrets/

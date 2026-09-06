@@ -1,0 +1,40 @@
+# The air-quality reference app (AP-34, AP-39). Hand written, so no generated-by annotation.
+apiVersion: joinedcontext.com/v1alpha1
+kind: App
+metadata:
+  name: air-quality
+  namespace: ovzdusie
+  title:
+    sk: "Kvalita ovzdušia"
+    en: "Air quality"
+  description:
+    sk: "Stanice, ich posledné hodnoty a 24 hodín histórie; správca môže pridať poznámku."
+    en: "Stations, their latest values and 24 hours of history; a steward may add a note."
+spec:
+  kind: fullstack
+  source:
+    path: ./apps/air-quality
+  build:
+    rust: "1.90"
+    node: "22"
+  visibility: project
+  # A reference app ships with the platform, so its publication is the commit that adds it and
+  # its review is the pull request; there is no earlier state for it to sit in (AP-20).
+  lifecycle: published
+  # The Portal frames it in the apps catalogue, which is what `embeddable` is for (AP-12).
+  embeddable: true
+  dataNeeds:
+    # One space, one type. The write is a single attribute, which is what puts the
+    # publication of this app in the red lane (AP-09, AP-39).
+    - contextSpaceRef:
+        kind: ContextSpace
+        name: ovzdusie
+      types: [AirQualityObserved]
+      attrs: [pm10, pm25, airQualityIndex, location, name, stewardNote]
+      operations: [queryEntity, retrieveEntity, queryTemporal, updateAttrs]
+      temporalQ:
+        window: P1D
+      representations: [ngsi-ld, geojson]
+  limits:
+    requestsPerMinute: 300
+    maxFileRows: 5000

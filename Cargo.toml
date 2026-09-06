@@ -1,3 +1,9 @@
+# The reference apps of AP-34 are their own crates beside the Portal, so the repository's
+# existing fmt, clippy and test lanes cover them with no new CI job (AP-36). They depend on
+# nothing here: an app has to run unchanged outside the platform (AP-37).
+[workspace]
+members = ["apps/*"]
+
 [package]
 name = "joinedcontext-portal"
 version = "0.1.0"
