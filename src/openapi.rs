@@ -13,6 +13,7 @@ use crate::error::ProblemDetails;
 use crate::plan::{FieldChange, PlanDiff};
 use crate::resource::{Condition, ObjectMeta, Phase, ResourceEnvelope, Status};
 use crate::state::AppState;
+use crate::sync::SyncStatus;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -26,6 +27,8 @@ use crate::state::AppState;
         crate::api::mutate::replace,
         crate::api::mutate::patch,
         crate::api::delete::delete_resource,
+        crate::api::sync::get_sync_status,
+        crate::api::webhook::gitea_webhook,
     ),
     components(schemas(
         Health,
@@ -48,6 +51,7 @@ use crate::state::AppState;
         PlanDiff,
         FieldChange,
         DryRunResult,
+        SyncStatus,
     )),
     info(
         title = "joinedcontext Portal API",

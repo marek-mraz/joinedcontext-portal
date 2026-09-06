@@ -68,6 +68,11 @@ pub async fn serve(config: Config) -> std::io::Result<()> {
     let state = AppState::from_config(config)
         .await
         .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    if let Some(syncer) = state.syncer.as_ref() {
+        syncer.clone().spawn_periodic(state.config.sync_interval);
+    }
+
     let router = app(state);
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())

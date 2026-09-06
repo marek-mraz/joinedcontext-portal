@@ -90,6 +90,38 @@ export interface paths {
         patch: operations["patch"];
         trace?: never;
     };
+    "/api/v1/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_sync_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/gitea": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["gitea_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -237,6 +269,19 @@ export interface components {
             conditions?: components["schemas"]["Condition"][];
             observedRevision?: string | null;
             phase: components["schemas"]["Phase"];
+        };
+        /**
+         * @description Status of the background Git mirror synchronization.
+         *
+         *     Served to the browser, so it deliberately never carries a token,
+         *     repository URL, or branch name.
+         */
+        SyncStatus: {
+            lastError?: string | null;
+            /** Format: int64 */
+            lastSync?: number | null;
+            manifests: number;
+            revision?: string | null;
         };
     };
     responses: never;
@@ -761,6 +806,97 @@ export interface operations {
                 };
             };
             /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_sync_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status of the background Git mirror synchronization */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    gitea_webhook: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description HMAC-SHA256 signature of request body */
+                "x-gitea-signature": string;
+                /** @description Gitea event type (e.g. push, pull_request) */
+                "x-gitea-event"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Gitea webhook event payload */
+        requestBody: {
+            content: {
+                "application/json": string;
+            };
+        };
+        responses: {
+            /** @description Webhook accepted and synchronization triggered */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Webhook accepted with no action needed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Missing or invalid signature */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Webhook secret not configured */
             503: {
                 headers: {
                     [name: string]: unknown;

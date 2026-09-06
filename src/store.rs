@@ -68,6 +68,16 @@ impl Mirror {
         self.len() == 0
     }
 
+    pub fn replace_all(&self, other: &Mirror) {
+        let new_resources = other
+            .resources
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        let mut lock = self.resources.write().unwrap_or_else(|p| p.into_inner());
+        *lock = new_resources;
+    }
+
     pub fn count_matching(&self, mut predicate: impl FnMut(&ResourceEnvelope) -> bool) -> usize {
         let lock = self.resources.read().unwrap_or_else(|p| p.into_inner());
         lock.values().filter(|env| predicate(env)).count()
@@ -243,6 +253,23 @@ mod tests {
             spec: serde_json::json!({}),
             status: None,
         }
+    }
+
+    #[test]
+    fn replace_all_replaces_resources() {
+        let mirror1 = Mirror::new();
+        mirror1.upsert(sample("ns1", "Endpoint", "old-a", &[]));
+        assert_eq!(mirror1.len(), 1);
+
+        let mirror2 = Mirror::new();
+        mirror2.upsert(sample("ns2", "Endpoint", "new-b", &[]));
+        mirror2.upsert(sample("ns2", "Endpoint", "new-c", &[]));
+
+        mirror1.replace_all(&mirror2);
+        assert_eq!(mirror1.len(), 2);
+        assert!(mirror1.get("ns1", "Endpoint", "old-a").is_none());
+        assert!(mirror1.get("ns2", "Endpoint", "new-b").is_some());
+        assert!(mirror1.get("ns2", "Endpoint", "new-c").is_some());
     }
 
     #[test]

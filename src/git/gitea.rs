@@ -222,6 +222,21 @@ struct MergePayload<'a> {
     merge_message_field: &'a str,
 }
 
+#[derive(Deserialize)]
+struct GitTreeResponse {
+    #[serde(default)]
+    tree: Vec<GitTreeEntryDto>,
+    #[serde(default)]
+    truncated: bool,
+}
+
+#[derive(Deserialize)]
+struct GitTreeEntryDto {
+    path: String,
+    #[serde(rename = "type")]
+    entry_type: String,
+}
+
 impl GiteaClient {
     pub fn new(
         base: Url,
@@ -320,6 +335,38 @@ impl GiteaClient {
             GitError::Transport(format!("failed to parse repository response: {e}"))
         })?;
         Ok(repo.default_branch)
+    }
+
+    /// `GET /git/trees/{git_ref}?recursive=true&per_page=1000` — retrieves the Git tree.
+    pub async fn list_tree(&self, git_ref: &str) -> Result<Vec<String>, GitError> {
+        let mut url = self.repo_url(&format!("git/trees/{git_ref}"))?;
+        url.query_pairs_mut()
+            .append_pair("recursive", "true")
+            .append_pair("per_page", "1000");
+
+        let res = self.send(self.http.get(url)).await?;
+        let res = Self::check_status(res).await?;
+        let status_code = res.status().as_u16();
+        let raw: GitTreeResponse = res
+            .json()
+            .await
+            .map_err(|e| GitError::Transport(format!("failed to parse tree response: {e}")))?;
+
+        if raw.truncated {
+            return Err(GitError::Api {
+                status: status_code,
+                message: "git tree was truncated".to_string(),
+            });
+        }
+
+        let paths = raw
+            .tree
+            .into_iter()
+            .filter(|entry| entry.entry_type == "blob")
+            .map(|entry| entry.path)
+            .collect();
+
+        Ok(paths)
     }
 
     /// `GET /branches/{branch}` — returns the head commit id for the given branch.

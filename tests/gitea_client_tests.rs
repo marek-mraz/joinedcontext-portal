@@ -405,6 +405,57 @@ fn from_env_fail_closed_behavior() {
     assert_eq!(complete.repo, "my-repo");
 }
 
+#[tokio::test]
+async fn list_tree_filters_blobs_and_detects_truncated() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().unwrap();
+    let client = GiteaClient::new(base_url, "test-owner", "test-repo", "secret-token").unwrap();
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/git/trees/main"))
+        .and(query_param("recursive", "true"))
+        .and(query_param("per_page", "1000"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "tree-sha-1",
+            "truncated": false,
+            "tree": [
+                {
+                    "path": "projects/ovzdusie/spaces/ovzdusie/space.yaml",
+                    "type": "blob"
+                },
+                {
+                    "path": "projects/ovzdusie",
+                    "type": "tree"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let paths = client.list_tree("main").await.unwrap();
+    assert_eq!(paths, vec!["projects/ovzdusie/spaces/ovzdusie/space.yaml"]);
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/git/trees/truncated-ref",
+        ))
+        .and(query_param("recursive", "true"))
+        .and(query_param("per_page", "1000"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "tree-sha-2",
+            "truncated": true,
+            "tree": []
+        })))
+        .mount(&server)
+        .await;
+
+    let err = client.list_tree("truncated-ref").await.unwrap_err();
+    match err {
+        GitError::Api { message, .. } => assert!(message.contains("truncated")),
+        other => panic!("expected GitError::Api, got {other:?}"),
+    }
+}
+
 #[test]
 fn git_error_converts_to_api_error() {
     let not_found = GitError::NotFound;

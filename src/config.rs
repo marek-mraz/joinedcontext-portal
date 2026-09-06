@@ -1,5 +1,6 @@
 use axum_extra::extract::cookie::Key;
 use std::net::SocketAddr;
+use std::time::Duration;
 use url::Url;
 
 /// Portal server configuration. Secrets are redacted in `Debug` so a config dump
@@ -12,6 +13,8 @@ pub struct Config {
     /// answers 401. Configuration is fail-closed, never fail-open.
     pub oidc: Option<OidcConfig>,
     pub cookie_key: Key,
+    pub sync_interval: Duration,
+    pub gitea_webhook_secret: Option<String>,
 }
 
 impl std::fmt::Debug for Config {
@@ -21,6 +24,11 @@ impl std::fmt::Debug for Config {
             .field("public_base_url", &self.public_base_url.as_str())
             .field("oidc", &self.oidc)
             .field("cookie_key", &"[redacted]")
+            .field("sync_interval", &self.sync_interval)
+            .field(
+                "gitea_webhook_secret",
+                &self.gitea_webhook_secret.as_ref().map(|_| "[redacted]"),
+            )
             .finish()
     }
 }
@@ -131,11 +139,24 @@ impl Config {
             }
         };
 
+        let sync_interval_secs = match lookup("JC_PORTAL_SYNC_INTERVAL") {
+            Some(val) => val.parse::<u64>().map_err(|e| ConfigError::Invalid {
+                var: "JC_PORTAL_SYNC_INTERVAL",
+                reason: e.to_string(),
+            })?,
+            None => 60,
+        };
+        let sync_interval = Duration::from_secs(sync_interval_secs);
+
+        let gitea_webhook_secret = lookup("JC_GITEA_WEBHOOK_SECRET");
+
         Ok(Self {
             bind,
             public_base_url,
             oidc,
             cookie_key,
+            sync_interval,
+            gitea_webhook_secret,
         })
     }
 
@@ -146,6 +167,8 @@ impl Config {
                 .unwrap_or_else(|_| unreachable!("valid test url")),
             oidc: None,
             cookie_key: Key::generate(),
+            sync_interval: Duration::ZERO,
+            gitea_webhook_secret: None,
         }
     }
 
@@ -277,5 +300,30 @@ mod tests {
     fn for_tests_provides_valid_config() {
         let cfg = Config::for_tests();
         assert_eq!(cfg.bind.port(), 0);
+    }
+
+    #[test]
+    fn sync_interval_and_webhook_secret_configuration() {
+        let config = Config::from_vars(|k| match k {
+            "JC_PORTAL_SYNC_INTERVAL" => Some("30".to_string()),
+            "JC_GITEA_WEBHOOK_SECRET" => Some("my-secret".to_string()),
+            _ => None,
+        })
+        .expect("config");
+        assert_eq!(config.sync_interval, Duration::from_secs(30));
+        assert_eq!(config.gitea_webhook_secret.as_deref(), Some("my-secret"));
+
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("my-secret"));
+        assert!(debug.contains("[redacted]"));
+
+        let err = Config::from_vars(|k| match k {
+            "JC_PORTAL_SYNC_INTERVAL" => Some("not-a-number".to_string()),
+            _ => None,
+        })
+        .expect_err("should reject invalid sync interval");
+        match err {
+            ConfigError::Invalid { var, .. } => assert_eq!(var, "JC_PORTAL_SYNC_INTERVAL"),
+        }
     }
 }

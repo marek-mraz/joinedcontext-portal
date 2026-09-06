@@ -12,6 +12,7 @@ use crate::auth::session::Session;
 use crate::config::Config;
 use crate::git::GiteaClient;
 use crate::store::Mirror;
+use crate::sync::Syncer;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -23,6 +24,7 @@ pub struct AppState {
     /// `None` when no forge is configured: every write answers 503. A Portal that cannot
     /// open a merge request must not fall back to a local write (CC-03).
     pub gitea: Option<Arc<GiteaClient>>,
+    pub syncer: Option<Arc<Syncer>>,
     /// `sub` → unix second of the last back-channel logout for that user. Sessions issued
     /// at or before the mark are refused.
     /// ponytail: per-replica map; move it to the preferences database when the portal
@@ -37,6 +39,7 @@ impl AppState {
             oidc: oidc.map(Arc::new),
             mirror: Arc::new(Mirror::new()),
             gitea: None,
+            syncer: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -48,6 +51,11 @@ impl AppState {
 
     pub fn with_gitea(mut self, gitea: Arc<GiteaClient>) -> Self {
         self.gitea = Some(gitea);
+        self
+    }
+
+    pub fn with_syncer(mut self, syncer: Arc<Syncer>) -> Self {
+        self.syncer = Some(syncer);
         self
     }
 
@@ -67,7 +75,12 @@ impl AppState {
         // `from_env` answers `Ok(None)` only when all four variables are absent.
         let gitea = GiteaClient::from_env(|key| std::env::var(key).ok())?;
         let mut state = Self::new(config, oidc);
-        state.gitea = gitea.map(Arc::new);
+        if let Some(client) = gitea {
+            let client = Arc::new(client);
+            let syncer = Arc::new(Syncer::new(Arc::clone(&client), Arc::clone(&state.mirror)));
+            state.gitea = Some(client);
+            state.syncer = Some(syncer);
+        }
         Ok(state)
     }
 

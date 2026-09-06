@@ -14,6 +14,7 @@ pub mod resource;
 pub mod server;
 pub mod state;
 pub mod store;
+pub mod sync;
 
 /// Name reported by `/api/v1/health` and the process banner.
 pub const APP_NAME: &str = "joinedcontext-portal";
