@@ -1,3 +1,3 @@
 fn main() {
-    println!("joinedcontext-portal: not implemented yet, see ../docs");
+    println!("{}: not implemented yet, see ../docs", joinedcontext_portal::APP_NAME);
 }

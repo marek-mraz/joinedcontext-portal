@@ -34,16 +34,22 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@0.36.0
         with: { scan-type: fs, severity: "HIGH,CRITICAL", exit-code: "1", ignore-unfixed: true }
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - run: test -f ui/package.json || { echo "no ui yet"; exit 0; }
-      - uses: pnpm/action-setup@v4
+      - id: has
+        run: echo "ui=$([ -f ui/package.json ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+      - if: steps.has.outputs.ui == 'yes'
+        uses: pnpm/action-setup@v4
         with: { version: 10 }
-      - uses: actions/setup-node@v4
+      - if: steps.has.outputs.ui == 'yes'
+        uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: cd ui && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium && pnpm e2e
+      - if: steps.has.outputs.ui == 'yes'
+        run: cd ui && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium && pnpm e2e
+      - if: steps.has.outputs.ui == 'no'
+        run: echo "no ui/package.json yet"
