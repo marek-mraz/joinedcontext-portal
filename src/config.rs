@@ -19,6 +19,13 @@ pub struct Config {
     /// `http://pipeline-runner.{project}-pipeline-runner.svc.cluster.local:4195`. `None`
     /// leaves the metrics route answering 503 instead of guessing a service name.
     pub pipeline_runner_url: Option<String>,
+    /// Base URL of the stateless Model Tools service, e.g.
+    /// `http://model-tools.tools.svc.cluster.local:8080`. `None` leaves the LinkML preview
+    /// routes answering 503 instead of guessing a service name (DM-18).
+    pub model_tools_url: Option<String>,
+    /// Root of the built app bundles, one directory per app. `None` leaves every
+    /// `/apps/{name}/` path answering 404 rather than reading a guessed directory (AP-14).
+    pub apps_dir: Option<String>,
 }
 
 impl std::fmt::Debug for Config {
@@ -34,6 +41,8 @@ impl std::fmt::Debug for Config {
                 &self.gitea_webhook_secret.as_ref().map(|_| "[redacted]"),
             )
             .field("pipeline_runner_url", &self.pipeline_runner_url)
+            .field("model_tools_url", &self.model_tools_url)
+            .field("apps_dir", &self.apps_dir)
             .finish()
     }
 }
@@ -176,6 +185,27 @@ impl Config {
             None => None,
         };
 
+        let model_tools_url = match lookup("JC_PORTAL_MODEL_TOOLS_URL") {
+            Some(raw) => {
+                let url: Url = raw
+                    .parse()
+                    .map_err(|e: url::ParseError| ConfigError::Invalid {
+                        var: "JC_PORTAL_MODEL_TOOLS_URL",
+                        reason: e.to_string(),
+                    })?;
+                if url.scheme() != "http" && url.scheme() != "https" {
+                    return Err(ConfigError::Invalid {
+                        var: "JC_PORTAL_MODEL_TOOLS_URL",
+                        reason: format!("scheme '{}' is not http or https", url.scheme()),
+                    });
+                }
+                Some(raw)
+            }
+            None => None,
+        };
+
+        let apps_dir = lookup("JC_PORTAL_APPS_DIR");
+
         Ok(Self {
             bind,
             public_base_url,
@@ -184,6 +214,8 @@ impl Config {
             sync_interval,
             gitea_webhook_secret,
             pipeline_runner_url,
+            model_tools_url,
+            apps_dir,
         })
     }
 
@@ -197,6 +229,8 @@ impl Config {
             sync_interval: Duration::ZERO,
             gitea_webhook_secret: None,
             pipeline_runner_url: None,
+            model_tools_url: None,
+            apps_dir: None,
         }
     }
 

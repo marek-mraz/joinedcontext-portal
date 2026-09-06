@@ -18,6 +18,7 @@ use crate::plan::{FieldChange, PlanDiff};
 use crate::resource::{ResourceEnvelope, Status};
 use crate::state::AppState;
 use crate::sync::SyncStatus;
+use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -38,6 +39,8 @@ use crate::sync::SyncStatus;
         crate::api::delete::delete_resource,
         crate::api::sync::get_sync_status,
         crate::api::webhook::gitea_webhook,
+        crate::tools::model_tools::generate,
+        crate::tools::model_tools::import_sdm,
     ),
     components(schemas(
         Health,
@@ -63,6 +66,9 @@ use crate::sync::SyncStatus;
         ChangeAuthor,
         SyncStatus,
         PipelineMetrics,
+        GenerateRequest,
+        ImportSdmRequest,
+        Artifacts,
     )),
     info(
         title = "joinedcontext Portal API",
@@ -72,7 +78,8 @@ use crate::sync::SyncStatus;
     tags(
         (name = "system", description = "System operations"),
         (name = "auth", description = "Sign-in, sign-out and the current identity"),
-        (name = "resources", description = "Resource operations")
+        (name = "resources", description = "Resource operations"),
+        (name = "tools", description = "Model Tools schema generation and preview")
     ),
     modifiers(&JcCoreSchemas)
 )]

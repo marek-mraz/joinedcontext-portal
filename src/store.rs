@@ -83,6 +83,16 @@ impl Mirror {
         lock.values().filter(|env| predicate(env)).count()
     }
 
+    /// The first resource matching a predicate. Used where a name identifies a resource on its
+    /// own, without the project segment the key carries (an app URL is `/apps/{name}/`).
+    pub fn find(
+        &self,
+        mut predicate: impl FnMut(&ResourceEnvelope) -> bool,
+    ) -> Option<ResourceEnvelope> {
+        let lock = self.resources.read().unwrap_or_else(|p| p.into_inner());
+        lock.values().find(|env| predicate(env)).cloned()
+    }
+
     pub fn get(&self, namespace: &str, kind: &str, name: &str) -> Option<ResourceEnvelope> {
         let lock = self.resources.read().unwrap_or_else(|p| p.into_inner());
         let key = ResourceKey {

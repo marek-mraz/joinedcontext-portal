@@ -6,6 +6,7 @@ use axum::Router;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::api;
+use crate::apps;
 use crate::assets;
 use crate::config::Config;
 use crate::openapi;
@@ -18,19 +19,30 @@ pub fn app(state: AppState) -> Router {
          font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:",
     );
 
-    Router::new()
+    // A static app carries its own Content Security Policy and its own framing rule, built from
+    // its manifest (AP-12); the Portal's would override them, so those two headers are set on
+    // the Portal's own routes only. Everything below them applies to both.
+    let portal = Router::new()
         .nest("/api/v1", api::router())
         .merge(openapi::router())
         .fallback(assets::static_handler)
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("x-frame-options"),
+            HeaderValue::from_static("SAMEORIGIN"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CONTENT_SECURITY_POLICY,
+            content_security_policy,
+        ));
+
+    Router::new()
+        .merge(apps::static_host::router())
+        .merge(portal)
         .with_state(state)
         .layer(from_fn(api_cache_control_middleware))
         .layer(SetResponseHeaderLayer::overriding(
             HeaderName::from_static("x-content-type-options"),
             HeaderValue::from_static("nosniff"),
-        ))
-        .layer(SetResponseHeaderLayer::overriding(
-            HeaderName::from_static("x-frame-options"),
-            HeaderValue::from_static("SAMEORIGIN"),
         ))
         .layer(SetResponseHeaderLayer::overriding(
             HeaderName::from_static("referrer-policy"),
@@ -43,10 +55,6 @@ pub fn app(state: AppState) -> Router {
         .layer(SetResponseHeaderLayer::overriding(
             HeaderName::from_static("permissions-policy"),
             HeaderValue::from_static("geolocation=(self), camera=(), microphone=()"),
-        ))
-        .layer(SetResponseHeaderLayer::overriding(
-            header::CONTENT_SECURITY_POLICY,
-            content_security_policy,
         ))
 }
 

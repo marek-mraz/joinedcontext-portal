@@ -25,6 +25,7 @@ pub fn router() -> Router<AppState> {
         .merge(resources::router())
         .merge(pipelines::router())
         .merge(sync::router())
+        .merge(crate::tools::model_tools::router())
         .layer(axum::middleware::from_fn(auth::csrf::require_csrf));
 
     // The Gitea webhook is a server-to-server call authenticated by its HMAC signature

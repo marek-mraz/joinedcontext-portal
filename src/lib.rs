@@ -2,6 +2,7 @@
 //! (see docs/Architecture/09-portal.md). The binary in `main.rs` only starts it.
 
 pub mod api;
+pub mod apps;
 pub mod assets;
 pub mod auth;
 pub mod change;
@@ -15,6 +16,7 @@ pub mod server;
 pub mod state;
 pub mod store;
 pub mod sync;
+pub mod tools;
 
 /// Name reported by `/api/v1/health` and the process banner.
 pub const APP_NAME: &str = "joinedcontext-portal";

@@ -186,6 +186,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tools/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["generate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tools/import-sdm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["import_sdm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/gitea": {
         parameters: {
             query?: never;
@@ -209,6 +241,25 @@ export interface components {
         /** @description Request body for approving or rejecting a change proposal. */
         ApproveBody: {
             confirm?: string | null;
+        };
+        /**
+         * @description What one Model Tools run rendered. Every artifact is optional: a version that does not
+         *     render one omits it, and a source that does not compile yet answers with `errors` filled in
+         *     and the artifacts absent. A half-written model is the normal state of an editor.
+         */
+        Artifacts: {
+            context?: unknown;
+            /** @description Compilation messages. Non-empty with no artifacts means the source does not compile. */
+            errors?: string[];
+            example?: unknown;
+            /**
+             * @description The generator version that produced these artifacts, so a preview and a committed
+             *     artifact set can be compared (DM-19).
+             */
+            generatorVersion?: string | null;
+            jsonSchema?: unknown;
+            owl?: string | null;
+            shacl?: string | null;
         };
         /** @description The `Change` resource describing a proposed configuration update. */
         Change: {
@@ -302,6 +353,11 @@ export interface components {
             path: string;
             to?: Record<string, never>;
         };
+        /** @description A LinkML source to compile. */
+        GenerateRequest: {
+            /** @description LinkML YAML, exactly as the editor holds it. */
+            source: string;
+        };
         Health: {
             name: string;
             status: string;
@@ -320,6 +376,15 @@ export interface components {
             /** @description Keycloak `sub`: stable, opaque, the only durable user key. */
             subject: string;
             username: string;
+        };
+        /** @description A model to import from the Smart Data Models catalogue. */
+        ImportSdmRequest: {
+            /**
+             * @description Catalogue identifier, `dataModel.Environment/AirQualityObserved`. Never a URL: the
+             *     allowlist that limits fetching to the Smart Data Models organisation lives in Model
+             *     Tools (DM-10), and the Portal refuses anything a caller could steer.
+             */
+            model: string;
         };
         /**
          * @description Change risk classification lane (CC-63).
@@ -1307,6 +1372,108 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    generate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Compiled artifacts, or the messages of a source that does not compile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Artifacts"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Source larger than the payload limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No model tools service configured, or it did not answer */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    import_sdm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportSdmRequest"];
+            };
+        };
+        responses: {
+            /** @description Compiled artifacts of the catalogue model */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Artifacts"];
+                };
+            };
+            /** @description Not a Smart Data Models catalogue identifier */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No model tools service configured, or it did not answer */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

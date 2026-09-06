@@ -1199,6 +1199,126 @@
         }
       }
     },
+    "/api/v1/tools/generate": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "generate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Compiled artifacts, or the messages of a source that does not compile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Artifacts"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Source larger than the payload limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model tools service configured, or it did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/import-sdm": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "import_sdm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSdmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Compiled artifacts of the catalogue model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Artifacts"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a Smart Data Models catalogue identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model tools service configured, or it did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/gitea": {
       "post": {
         "tags": [
@@ -1287,6 +1407,41 @@
         "description": "Request body for approving or rejecting a change proposal.",
         "properties": {
           "confirm": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Artifacts": {
+        "type": "object",
+        "description": "What one Model Tools run rendered. Every artifact is optional: a version that does not\nrender one omits it, and a source that does not compile yet answers with `errors` filled in\nand the artifacts absent. A half-written model is the normal state of an editor.",
+        "properties": {
+          "context": {},
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Compilation messages. Non-empty with no artifacts means the source does not compile."
+          },
+          "example": {},
+          "generatorVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The generator version that produced these artifacts, so a preview and a committed\nartifact set can be compared (DM-19)."
+          },
+          "jsonSchema": {},
+          "owl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shacl": {
             "type": [
               "string",
               "null"
@@ -1554,6 +1709,19 @@
           }
         }
       },
+      "GenerateRequest": {
+        "type": "object",
+        "description": "A LinkML source to compile.",
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "LinkML YAML, exactly as the editor holds it."
+          }
+        }
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -1606,6 +1774,19 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "ImportSdmRequest": {
+        "type": "object",
+        "description": "A model to import from the Smart Data Models catalogue.",
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Catalogue identifier, `dataModel.Environment/AirQualityObserved`. Never a URL: the\nallowlist that limits fetching to the Smart Data Models organisation lives in Model\nTools (DM-10), and the Portal refuses anything a caller could steer."
           }
         }
       },
@@ -2019,6 +2200,10 @@
     {
       "name": "resources",
       "description": "Resource operations"
+    },
+    {
+      "name": "tools",
+      "description": "Model Tools schema generation and preview"
     }
   ]
 }
