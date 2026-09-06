@@ -61,6 +61,12 @@ pub struct OidcConfig {
     pub issuer: Url,
     pub client_id: String,
     client_secret: String,
+    /// PEM of an extra root the discovery client trusts, on top of the compiled-in Mozilla
+    /// bundle. An instance whose issuer is served by a private CA (a self-signed cluster
+    /// issuer, an internal PKI) is unreachable without it: the binary carries `webpki-roots`
+    /// alone, so no mounted file or `SSL_CERT_FILE` is consulted. Verification stays on;
+    /// this only widens what a valid chain may end in.
+    pub extra_ca_pem: Option<Vec<u8>>,
 }
 
 impl OidcConfig {
@@ -131,6 +137,15 @@ impl Config {
                     })?,
                 client_id,
                 client_secret,
+                // Unreadable means misconfigured, not "carry on with fewer roots": a start-up
+                // error names the file, a silent fallback would be a confusing 500 at login.
+                extra_ca_pem: match lookup("JC_OIDC_CA_FILE") {
+                    None => None,
+                    Some(path) => Some(std::fs::read(&path).map_err(|e| ConfigError::Invalid {
+                        var: "JC_OIDC_CA_FILE",
+                        reason: format!("{path}: {e}"),
+                    })?),
+                },
             }),
             _ => {
                 return Err(ConfigError::Invalid {
@@ -342,6 +357,62 @@ mod tests {
             "client secret leaked into Debug: {dumped}"
         );
         assert!(dumped.contains("[redacted]"));
+    }
+
+    #[test]
+    fn oidc_ca_file_is_read_from_disk() {
+        let path = std::env::temp_dir().join(format!("jc-portal-ca-{}.pem", std::process::id()));
+        std::fs::write(&path, b"-----BEGIN CERTIFICATE-----\nnot-a-real-one\n").expect("write pem");
+        let config = Config::from_vars(|k| match k {
+            "JC_OIDC_ISSUER" => Some("https://idm.example.sk/realms/bb".to_string()),
+            "JC_OIDC_CLIENT_ID" => Some("portal".to_string()),
+            "JC_OIDC_CLIENT_SECRET" => Some("s3cr3t".to_string()),
+            "JC_OIDC_CA_FILE" => Some(path.display().to_string()),
+            _ => None,
+        })
+        .expect("oidc config with a ca file");
+        let _ = std::fs::remove_file(&path);
+        let pem = config
+            .oidc
+            .as_ref()
+            .expect("oidc present")
+            .extra_ca_pem
+            .as_ref()
+            .expect("ca pem loaded");
+        assert!(pem.starts_with(b"-----BEGIN CERTIFICATE-----"));
+    }
+
+    #[test]
+    fn oidc_configuration_without_a_ca_file_carries_no_extra_root() {
+        let config = Config::from_vars(|k| match k {
+            "JC_OIDC_ISSUER" => Some("https://idm.example.sk/realms/bb".to_string()),
+            "JC_OIDC_CLIENT_ID" => Some("portal".to_string()),
+            "JC_OIDC_CLIENT_SECRET" => Some("s3cr3t".to_string()),
+            _ => None,
+        })
+        .expect("oidc config");
+        assert!(config.oidc.expect("oidc present").extra_ca_pem.is_none());
+    }
+
+    #[test]
+    fn unreadable_oidc_ca_file_stops_start_up() {
+        let err = Config::from_vars(|k| match k {
+            "JC_OIDC_ISSUER" => Some("https://idm.example.sk/realms/bb".to_string()),
+            "JC_OIDC_CLIENT_ID" => Some("portal".to_string()),
+            "JC_OIDC_CLIENT_SECRET" => Some("s3cr3t".to_string()),
+            "JC_OIDC_CA_FILE" => Some("/nonexistent/jc-portal/ca.crt".to_string()),
+            _ => None,
+        })
+        .expect_err("a mount that is not there must fail closed, not lose the root silently");
+        match err {
+            ConfigError::Invalid { var, reason } => {
+                assert_eq!(var, "JC_OIDC_CA_FILE");
+                assert!(
+                    reason.contains("/nonexistent/jc-portal/ca.crt"),
+                    "the operator needs the path in the message: {reason}"
+                );
+            }
+        }
     }
 
     #[test]

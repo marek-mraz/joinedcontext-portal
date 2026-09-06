@@ -85,12 +85,44 @@ pub struct OidcClient {
     end_session_endpoint: Option<Url>,
 }
 
+/// `Display` of a `DiscoveryError` is "Request failed" and the reason lives in its source, so a
+/// TLS failure reads exactly like a 404 in the log. This walks the chain and joins it.
+fn source_chain(error: &dyn std::error::Error) -> String {
+    let mut parts = vec![error.to_string()];
+    let mut cause = error.source();
+    while let Some(current) = cause {
+        parts.push(current.to_string());
+        cause = current.source();
+    }
+    parts.join(": ")
+}
+
 impl OidcClient {
     pub async fn discover(config: &OidcConfig, redirect_uri: &str) -> Result<Self, OidcError> {
         // No redirects: an authorization server must never bounce a token request elsewhere.
-        let http = reqwest::ClientBuilder::new()
+        let mut builder = reqwest::ClientBuilder::new()
             .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(10));
+        // The binary trusts `webpki-roots` and nothing else, so an issuer served by a private
+        // CA needs its root handed over explicitly (JC_OIDC_CA_FILE). Added, never swapped in:
+        // the public roots stay, and certificate verification is untouched.
+        if let Some(pem) = &config.extra_ca_pem {
+            // Whole bundle, not `from_pem`: a private CA is usually a chain and the first block
+            // alone would not verify. Empty is an error rather than "carry on with the public
+            // roots" — rustls drops roots it cannot parse without a word, so a wrong mount would
+            // otherwise fail later as a plain handshake error with nothing pointing at the file.
+            let roots = reqwest::Certificate::from_pem_bundle(pem)
+                .map_err(|e| OidcError::HttpClient(format!("JC_OIDC_CA_FILE: {e}")))?;
+            if roots.is_empty() {
+                return Err(OidcError::HttpClient(
+                    "JC_OIDC_CA_FILE: no PEM certificate in the file".to_string(),
+                ));
+            }
+            for root in roots {
+                builder = builder.add_root_certificate(root);
+            }
+        }
+        let http = builder
             .build()
             .map_err(|e| OidcError::HttpClient(e.to_string()))?;
 
@@ -99,7 +131,7 @@ impl OidcClient {
             .map_err(|e| OidcError::Url(e.to_string()))?;
         let metadata = PortalProviderMetadata::discover_async(issuer, &http)
             .await
-            .map_err(|e| OidcError::Discovery(e.to_string()))?;
+            .map_err(|e| OidcError::Discovery(source_chain(&e)))?;
         let end_session_endpoint = metadata
             .additional_metadata()
             .end_session_endpoint
@@ -452,6 +484,58 @@ mod tests {
         assert_eq!(safe_redirect(Some("//evil.example".into())), "/");
         assert_eq!(safe_redirect(Some("https://evil.example".into())), "/");
         assert_eq!(safe_redirect(None), "/");
+    }
+
+    /// Shaped like `openidconnect::DiscoveryError`: the reason is in the source, not in `Display`.
+    #[derive(Debug, thiserror::Error)]
+    #[error("Request failed")]
+    struct Opaque(#[source] std::io::Error);
+
+    #[test]
+    fn the_source_chain_survives_into_the_message() {
+        let err = Opaque(std::io::Error::other(
+            "invalid peer certificate: UnknownIssuer",
+        ));
+        assert_eq!(
+            source_chain(&err),
+            "Request failed: invalid peer certificate: UnknownIssuer"
+        );
+    }
+
+    fn oidc_config(ca_file: Option<&str>) -> crate::config::OidcConfig {
+        crate::config::Config::from_vars(|k| match k {
+            "JC_OIDC_ISSUER" => Some("https://idm.example.test/realms/bb".to_string()),
+            "JC_OIDC_CLIENT_ID" => Some("portal".to_string()),
+            "JC_OIDC_CLIENT_SECRET" => Some("s3cr3t".to_string()),
+            "JC_OIDC_CA_FILE" => ca_file.map(str::to_string),
+            _ => None,
+        })
+        .expect("oidc config")
+        .oidc
+        .expect("oidc present")
+    }
+
+    /// The private root has to reach the http client, and the only failure that proves it does so
+    /// without a network is an unusable one: a PEM the builder refuses stops discovery before the
+    /// first request. Configured but ignored is exactly the bug this guards (T-0350).
+    #[tokio::test]
+    async fn an_unusable_extra_root_is_refused_by_name() {
+        let path =
+            std::env::temp_dir().join(format!("jc-portal-bad-ca-{}.pem", std::process::id()));
+        std::fs::write(&path, b"not a certificate\n").expect("write pem");
+        let config = oidc_config(Some(&path.display().to_string()));
+        let err = OidcClient::discover(&config, "https://portal.example.test/api/v1/auth/callback")
+            .await
+            .map(|_| ())
+            .expect_err("a root that cannot be parsed must stop start-up");
+        let _ = std::fs::remove_file(&path);
+        match err {
+            OidcError::HttpClient(reason) => assert!(
+                reason.contains("JC_OIDC_CA_FILE"),
+                "the operator needs the variable in the message: {reason}"
+            ),
+            other => panic!("expected the ca file to be refused, got {other}"),
+        }
     }
 }
 
