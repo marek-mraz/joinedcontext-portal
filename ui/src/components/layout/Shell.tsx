@@ -101,8 +101,20 @@ export function Shell({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const matchRoute = useMatchRoute();
+
+  // Approvals has its own routes, so the generic `$plural` match never fires for it.
+  const approvalDetail = matchRoute({ to: "/projects/$project/approvals/$id" });
+  const onApprovals = Boolean(approvalDetail || matchRoute({ to: "/projects/$project/approvals" }));
+
   const activeSection = NAV_SECTIONS.find((section) =>
-    matchRoute({ to: "/projects/$project/$plural", params: { project, plural: section.plural } }),
+    section.plural === "approvals"
+      ? onApprovals
+      : Boolean(
+          matchRoute({
+            to: "/projects/$project/$plural",
+            params: { project, plural: section.plural },
+          }),
+        ),
   );
 
   return (
@@ -162,9 +174,25 @@ export function Shell({
               {activeSection ? (
                 <li className="flex items-center gap-1">
                   <span aria-hidden="true">/</span>
-                  <span aria-current="page" className="font-semibold">
-                    {t(activeSection.labelKey)}
-                  </span>
+                  {approvalDetail ? (
+                    <>
+                      <Link
+                        to="/projects/$project/approvals"
+                        params={{ project }}
+                        className="rounded underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+                      >
+                        {t(activeSection.labelKey)}
+                      </Link>
+                      <span aria-hidden="true">/</span>
+                      <span aria-current="page" className="font-mono font-semibold">
+                        {approvalDetail.id}
+                      </span>
+                    </>
+                  ) : (
+                    <span aria-current="page" className="font-semibold">
+                      {t(activeSection.labelKey)}
+                    </span>
+                  )}
                 </li>
               ) : null}
             </ol>

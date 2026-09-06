@@ -111,17 +111,18 @@ describe("portal shell", () => {
   });
 
   it("shows the project and the active section as a breadcrumb trail", async () => {
-    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(crumbs).getByRole("link", { name: "banskabystrica" })).toBeInTheDocument();
-    expect(within(crumbs).getByText("Context Spaces")).toHaveAttribute("aria-current", "page");
+    // A route change remounts the shell, so the breadcrumb node has to be looked up again.
+    const crumbs = () => screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumbs()).getByRole("link", { name: "banskabystrica" })).toBeInTheDocument();
+    expect(within(crumbs()).getByText("Context Spaces")).toHaveAttribute("aria-current", "page");
 
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     await userEvent.click(within(nav).getByRole("link", { name: "Approvals" }));
 
     await waitFor(() => {
-      expect(within(crumbs).getByText("Approvals")).toHaveAttribute("aria-current", "page");
+      expect(within(crumbs()).getByText("Approvals")).toHaveAttribute("aria-current", "page");
     });
-    expect(within(crumbs).queryByText("Context Spaces")).not.toBeInTheDocument();
+    expect(within(crumbs()).queryByText("Context Spaces")).not.toBeInTheDocument();
   });
 
   it("offers the active project in a switcher and the identity in a user menu", () => {

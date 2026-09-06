@@ -8,6 +8,8 @@ import {
 import { Shell } from "./components/layout/Shell";
 import { LoginPage } from "./routes/LoginPage";
 import { ResourceListPage } from "./routes/ResourceListPage";
+import { ApprovalsPage } from "./routes/ApprovalsPage";
+import { ApprovalDetailPage } from "./routes/ApprovalDetailPage";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -49,6 +51,32 @@ const indexRoute = createRoute({
   },
 });
 
+const approvalsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/approvals",
+  component: function ApprovalsRoute() {
+    const { project } = approvalsRoute.useParams();
+    return (
+      <Shell project={project} projects={KNOWN_PROJECTS}>
+        <ApprovalsPage project={project} />
+      </Shell>
+    );
+  },
+});
+
+const approvalDetailRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/approvals/$id",
+  component: function ApprovalDetailRoute() {
+    const { project, id } = approvalDetailRoute.useParams();
+    return (
+      <Shell project={project} projects={KNOWN_PROJECTS}>
+        <ApprovalDetailPage project={project} id={id} />
+      </Shell>
+    );
+  },
+});
+
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
@@ -64,7 +92,12 @@ const resourceListRoute = createRoute({
 
 export const routeTree = rootRoute.addChildren([
   loginRoute,
-  protectedRoute.addChildren([indexRoute, resourceListRoute]),
+  protectedRoute.addChildren([
+    indexRoute,
+    approvalsRoute,
+    approvalDetailRoute,
+    resourceListRoute,
+  ]),
 ]);
 
 export function createPortalRouter() {

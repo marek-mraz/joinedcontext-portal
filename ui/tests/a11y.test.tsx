@@ -13,6 +13,55 @@ const IDENTITY = {
   roles: ["portal-viewer"],
 };
 
+const CHANGES = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "ChangeList",
+  items: [
+    {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "ChangeProposal",
+      metadata: { name: "chg-1a2b3c4d", namespace: "banskabystrica" },
+      summary: {
+        key: "change.summary.update",
+        params: { kind: "Endpoint", name: "air-quality", fields: 2 },
+      },
+      author: { name: "Marek Mráz", email: "marek@banskabystrica.sk" },
+      createdAt: "2026-03-03T12:00:00Z",
+      status: {
+        lane: "yellow",
+        phase: "PendingApproval",
+        plan: { update: 1 },
+        mergeRequest: "https://gitea.example/city/city-config/pulls/7",
+      },
+      planFields: [
+        { path: "spec.audience", from: "public", to: "internal" },
+        { path: "spec.credentials.token", from: "[REDACTED]", to: "[REDACTED]" },
+      ],
+    },
+  ],
+};
+
+function stubChangesApi() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const body = url.includes("/auth/me")
+        ? IDENTITY
+        : url.endsWith("/changes")
+          ? CHANGES
+          : CHANGES.items[0];
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }),
+  );
+}
+
 function renderApp() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -74,6 +123,29 @@ describe("accessibility", () => {
     const { container } = renderApp();
     await waitFor(() => {
       expect(screen.getByRole("banner")).toBeInTheDocument();
+    });
+
+    await expectNoViolations(container);
+  });
+  it("the approvals queue has no axe violations", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/approvals");
+    stubChangesApi();
+
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("table")).toBeInTheDocument();
+    });
+
+    await expectNoViolations(container);
+  });
+
+  it("the change under review has no axe violations", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/approvals/chg-1a2b3c4d");
+    stubChangesApi();
+
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Schváliť" })).toBeInTheDocument();
     });
 
     await expectNoViolations(container);

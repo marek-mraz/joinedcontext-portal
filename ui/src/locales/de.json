@@ -44,6 +44,70 @@
     "maxLength": "Der Wert ist zu lang",
     "pattern": "Der Wert entspricht nicht dem geforderten Muster",
     "enum": "Der Wert muss einer der zulässigen Werte sein",
-    "format": "Ungültiges Format"
+    "format": "Ungültiges Format",
+    "redacted": "Ausgeblendet"
+  },
+  "approvals": {
+    "title": "Freigaben",
+    "empty": "Keine offenen Änderungsvorschläge.",
+    "noChanges": "Keine Feldänderungen.",
+    "author": "Autor",
+    "created": "Erstellt",
+    "lane": "Risikostufe",
+    "phase": "Phase",
+    "mergeRequest": "Merge-Request",
+    "approve": "Freigeben",
+    "reject": "Ablehnen",
+    "approving": "Wird freigegeben...",
+    "rejecting": "Wird abgelehnt...",
+    "needsRole": "Die Rolle portal-approver ist erforderlich, um freizugeben oder abzulehnen.",
+    "ownProposal": "Sie können Ihren eigenen Vorschlag nicht freigeben oder ablehnen.",
+    "confirmPrompt": "Für die rote Stufe geben Sie zur Bestätigung den Ressourcennamen ein:",
+    "confirmLabel": "Ressourcenname zur Bestätigung",
+    "diffAdded": "Hinzugefügt",
+    "diffChanged": "Geändert",
+    "diffRemoved": "Entfernt",
+    "before": "Vorher",
+    "after": "Nachher",
+    "summary": "Zusammenfassung",
+    "field": "Feld",
+    "diffType": "Änderungstyp",
+    "actions": "Aktionen",
+    "view": "Anzeigen"
+  },
+  "lane": {
+    "green": "Grün",
+    "greenHelp": "Geringes Risiko: die Änderung fügt nur hinzu, nichts im Betrieb wird ersetzt.",
+    "yellow": "Gelb",
+    "yellowHelp": "Mittleres Risiko: eine bestehende Ressource wird geändert.",
+    "red": "Rot",
+    "redHelp": "Hohes Risiko: eine aktive Ressource wird gelöscht oder ersetzt; zur Bestätigung muss ihr Name eingetippt werden."
+  },
+  "phase": {
+    "draft": "Entwurf",
+    "draftHelp": "Noch nicht eingereicht, nur lokal gespeichert.",
+    "pendingApproval": "Wartet auf Freigabe",
+    "pendingApprovalHelp": "Wartet auf Freigabe oder Ablehnung.",
+    "deploying": "Wird bereitgestellt",
+    "deployingHelp": "Freigegeben und gemergt; der Reconciler wendet die Änderung an.",
+    "live": "Aktiv",
+    "liveHelp": "Angewendet und läuft wie im Manifest beschrieben.",
+    "error": "Fehler",
+    "errorHelp": "Der Reconciler konnte die Änderung nicht anwenden.",
+    "drifted": "Abweichung",
+    "driftedHelp": "Der Cluster entspricht nicht mehr dem Manifest in Git.",
+    "merged": "Zusammengeführt",
+    "mergedHelp": "Der Merge Request ist in main gemergt.",
+    "applied": "Angewendet",
+    "appliedHelp": "Der Reconciler hat diese Änderung angewendet.",
+    "rejected": "Abgelehnt",
+    "rejectedHelp": "Der Vorschlag wurde abgelehnt."
+  },
+  "change": {
+    "summary": {
+      "create": "{fields, plural, =0 {{kind} „{name}“ erstellen} one {{kind} „{name}“ erstellen ({fields} Feld)} other {{kind} „{name}“ erstellen ({fields} Felder)}}",
+      "update": "{fields, plural, =0 {{kind} „{name}“ aktualisieren} one {{kind} „{name}“ aktualisieren ({fields} geändertes Feld)} other {{kind} „{name}“ aktualisieren ({fields} geänderte Felder)}}",
+      "delete": "{fields, plural, =0 {{kind} „{name}“ löschen} one {{kind} „{name}“ löschen ({fields} Feld)} other {{kind} „{name}“ löschen ({fields} Felder)}}"
+    }
   }
 }

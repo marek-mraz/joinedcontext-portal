@@ -44,6 +44,70 @@
     "maxLength": "Value is too long",
     "pattern": "Value does not match pattern",
     "enum": "Value must be one of the allowed choices",
-    "format": "Invalid format"
+    "format": "Invalid format",
+    "redacted": "Redacted"
+  },
+  "approvals": {
+    "title": "Approvals",
+    "empty": "No open change proposals.",
+    "noChanges": "No field changes.",
+    "author": "Author",
+    "created": "Created",
+    "lane": "Risk lane",
+    "phase": "Phase",
+    "mergeRequest": "Merge request",
+    "approve": "Approve",
+    "reject": "Reject",
+    "approving": "Approving...",
+    "rejecting": "Rejecting...",
+    "needsRole": "The portal-approver role is required to approve or reject.",
+    "ownProposal": "You cannot approve or reject your own proposal.",
+    "confirmPrompt": "For red lane, type the resource name to confirm:",
+    "confirmLabel": "Resource name confirmation",
+    "diffAdded": "Added",
+    "diffChanged": "Changed",
+    "diffRemoved": "Removed",
+    "before": "Before",
+    "after": "After",
+    "summary": "Summary",
+    "field": "Field",
+    "diffType": "Change type",
+    "actions": "Actions",
+    "view": "View"
+  },
+  "lane": {
+    "green": "Green",
+    "greenHelp": "Low risk: the change only adds, nothing in service is replaced.",
+    "yellow": "Yellow",
+    "yellowHelp": "Medium risk: an existing resource is changed in place.",
+    "red": "Red",
+    "redHelp": "High risk: a live resource is deleted or replaced; its name must be typed to confirm."
+  },
+  "phase": {
+    "draft": "Draft",
+    "draftHelp": "Not proposed yet, saved locally only.",
+    "pendingApproval": "Pending approval",
+    "pendingApprovalHelp": "Waiting for an approver to approve or reject it.",
+    "deploying": "Deploying",
+    "deployingHelp": "Approved and merged; the reconciler is applying it.",
+    "live": "Live",
+    "liveHelp": "Applied and running as the manifest describes.",
+    "error": "Error",
+    "errorHelp": "The reconciler could not apply the change.",
+    "drifted": "Drifted",
+    "driftedHelp": "The cluster no longer matches the manifest in Git.",
+    "merged": "Merged",
+    "mergedHelp": "The merge request is merged into main.",
+    "applied": "Applied",
+    "appliedHelp": "The reconciler applied this change.",
+    "rejected": "Rejected",
+    "rejectedHelp": "An approver rejected the proposal."
+  },
+  "change": {
+    "summary": {
+      "create": "{fields, plural, =0 {Create {kind} \"{name}\"} one {Create {kind} \"{name}\" ({fields} field)} other {Create {kind} \"{name}\" ({fields} fields)}}",
+      "update": "{fields, plural, =0 {Update {kind} \"{name}\"} one {Update {kind} \"{name}\" ({fields} field changed)} other {Update {kind} \"{name}\" ({fields} fields changed)}}",
+      "delete": "{fields, plural, =0 {Delete {kind} \"{name}\"} one {Delete {kind} \"{name}\" ({fields} field)} other {Delete {kind} \"{name}\" ({fields} fields)}}"
+    }
   }
 }

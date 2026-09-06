@@ -44,6 +44,70 @@
     "maxLength": "Hodnota je príliš dlhá",
     "pattern": "Hodnota nezodpovedá požadovanému vzoru",
     "enum": "Hodnota musí byť jedna z povolených možností",
-    "format": "Neplatný formát"
+    "format": "Neplatný formát",
+    "redacted": "Zabezpečené"
+  },
+  "approvals": {
+    "title": "Schvaľovania",
+    "empty": "Žiadne otvorené návrhy zmien.",
+    "noChanges": "Žiadne zmeny polí.",
+    "author": "Autor",
+    "created": "Vytvorené",
+    "lane": "Úroveň rizika",
+    "phase": "Fáza",
+    "mergeRequest": "Požiadavka na zlúčenie",
+    "approve": "Schváliť",
+    "reject": "Zamietnuť",
+    "approving": "Schvaľuje sa...",
+    "rejecting": "Zamieta sa...",
+    "needsRole": "Na schválenie alebo zamietnutie je potrebná rola portal-approver.",
+    "ownProposal": "Nemôžete schváliť ani zamietnuť vlastný návrh.",
+    "confirmPrompt": "Pre červenú úroveň zadajte názov prostriedku pre potvrdenie:",
+    "confirmLabel": "Názov prostriedku pre potvrdenie",
+    "diffAdded": "Pridané",
+    "diffChanged": "Zmenené",
+    "diffRemoved": "Odstránené",
+    "before": "Predtým",
+    "after": "Potom",
+    "summary": "Súhrn",
+    "field": "Pole",
+    "diffType": "Typ zmeny",
+    "actions": "Akcie",
+    "view": "Zobraziť"
+  },
+  "lane": {
+    "green": "Zelená",
+    "greenHelp": "Nízke riziko: zmena len pridáva, nič v prevádzke sa nenahrádza.",
+    "yellow": "Žltá",
+    "yellowHelp": "Stredné riziko: mení sa existujúci prostriedok.",
+    "red": "Červená",
+    "redHelp": "Vysoké riziko: maže alebo nahrádza sa živý prostriedok; na potvrdenie treba prepísať jeho názov."
+  },
+  "phase": {
+    "draft": "Návrh",
+    "draftHelp": "Zatiaľ nenavrhnuté, uložené len lokálne.",
+    "pendingApproval": "Čaká na schválenie",
+    "pendingApprovalHelp": "Čaká na schválenie alebo zamietnutie schvaľovateľom.",
+    "deploying": "Nasadzuje sa",
+    "deployingHelp": "Schválené a zlúčené; rekonciliátor to práve nasadzuje.",
+    "live": "Aktívne",
+    "liveHelp": "Nasadené a beží podľa manifestu.",
+    "error": "Chyba",
+    "errorHelp": "Rekonciliátor zmenu nedokázal aplikovať.",
+    "drifted": "Odchýlené",
+    "driftedHelp": "Stav klastra sa už nezhoduje s manifestom v Gite.",
+    "merged": "Zlúčené",
+    "mergedHelp": "Merge request je zlúčený do vetvy main.",
+    "applied": "Aplikované",
+    "appliedHelp": "Rekonciliátor túto zmenu aplikoval.",
+    "rejected": "Zamietnuté",
+    "rejectedHelp": "Schvaľovateľ návrh zamietol."
+  },
+  "change": {
+    "summary": {
+      "create": "{fields, plural, =0 {Vytvorenie {kind} „{name}“ bez polí} one {Vytvorenie {kind} „{name}“ ({fields} pole)} few {Vytvorenie {kind} „{name}“ ({fields} polia)} other {Vytvorenie {kind} „{name}“ ({fields} polí)}}",
+      "update": "{fields, plural, =0 {Úprava {kind} „{name}“ bez zmien} one {Úprava {kind} „{name}“ ({fields} zmenené pole)} few {Úprava {kind} „{name}“ ({fields} zmenené polia)} other {Úprava {kind} „{name}“ ({fields} zmenených polí)}}",
+      "delete": "{fields, plural, =0 {Odstránenie {kind} „{name}“} one {Odstránenie {kind} „{name}“ ({fields} pole)} few {Odstránenie {kind} „{name}“ ({fields} polia)} other {Odstránenie {kind} „{name}“ ({fields} polí)}}"
+    }
   }
 }
