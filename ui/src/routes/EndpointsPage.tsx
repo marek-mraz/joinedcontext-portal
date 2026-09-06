@@ -9,6 +9,7 @@ import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { ExportButton } from "../components/export/ExportButton";
+import { SchemaProjectionPanel } from "../pages/endpoints/SchemaProjectionPanel";
 import { endpointSchema, endpointUiSchema, generateSlug } from "../schemas/kinds";
 
 interface EndpointForm {
@@ -18,12 +19,49 @@ interface EndpointForm {
   slug: string;
   audience: string;
   enabledRepresentations: string[];
+  allowedProjects?: string[];
+  rateLimits?: { requestsPerMinute?: number; burst?: number };
+  caching?: { maxAgeSeconds?: number };
 }
 
 const SPACE_LABEL = "joinedcontext.com/space";
 
-function toEnvelope(project: string, form: EndpointForm) {
-  const { name, title, ...spec } = form;
+/**
+ * The spec the manifest takes, with the optional blocks the steward left alone removed.
+ *
+ * rjsf renders a nested object whether or not anybody fills it in, so an untouched fieldset
+ * arrives as `{}` or as a half-filled object; either one fails `EndpointSpec::validate` on
+ * the way in. `allowedProjects` goes the other way: the manifest requires it for
+ * `project-list` and refuses it for the other two audiences (EP-14, EP-15).
+ */
+function toSpec(form: EndpointForm, hiddenAttributes: string[]) {
+  const { allowedProjects, rateLimits, caching, ...rest } = form;
+  // `name` and `title` are metadata, not spec.
+  delete (rest as Partial<EndpointForm>).name;
+  delete (rest as Partial<EndpointForm>).title;
+  return {
+    ...rest,
+    ...(form.audience === "project-list" && allowedProjects && allowedProjects.length > 0
+      ? { allowedProjects }
+      : {}),
+    ...(typeof rateLimits?.requestsPerMinute === "number"
+      ? {
+          rateLimits: {
+            requestsPerMinute: rateLimits.requestsPerMinute,
+            ...(typeof rateLimits.burst === "number" ? { burst: rateLimits.burst } : {}),
+          },
+        }
+      : {}),
+    ...(typeof caching?.maxAgeSeconds === "number"
+      ? { caching: { maxAgeSeconds: caching.maxAgeSeconds } }
+      : {}),
+    ...(hiddenAttributes.length > 0 ? { projection: { hiddenAttributes } } : {}),
+  };
+}
+
+function toEnvelope(project: string, form: EndpointForm, hiddenAttributes: string[]) {
+  const { name, title } = form;
+  const spec = toSpec(form, hiddenAttributes);
   return {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "Endpoint",
@@ -44,6 +82,9 @@ function toForm(endpoint: Manifest): EndpointForm {
     slug?: string;
     audience?: string;
     enabledRepresentations?: string[];
+    allowedProjects?: string[];
+    rateLimits?: { requestsPerMinute?: number; burst?: number };
+    caching?: { maxAgeSeconds?: number };
   };
   return {
     name: endpoint.metadata.name,
@@ -52,7 +93,17 @@ function toForm(endpoint: Manifest): EndpointForm {
     slug: spec.slug ?? "",
     audience: spec.audience ?? "project-list",
     enabledRepresentations: spec.enabledRepresentations ?? [],
+    allowedProjects: spec.allowedProjects ?? [],
+    rateLimits: spec.rateLimits,
+    caching: spec.caching,
   };
+}
+
+/** The attributes an Endpoint holds back, `spec.projection.hiddenAttributes` (EP-61). */
+function hiddenOf(endpoint: Manifest): string[] {
+  const projection = (endpoint.spec as { projection?: { hiddenAttributes?: string[] } })
+    .projection;
+  return projection?.hiddenAttributes ?? [];
 }
 
 function CopyUrlButton({ slug }: { slug: string }): JSX.Element {
@@ -87,6 +138,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const [isNew, setIsNew] = useState(false);
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  // Kept beside the form rather than in it: the panel names the attributes the endpoint
+  // already publishes, which the form's own schema knows nothing about (EP-61).
+  const [hidden, setHidden] = useState<string[]>([]);
 
   const list = useQuery({
     queryKey: queryKeys.list(project, "endpoints"),
@@ -111,7 +165,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const propose = useMutation({
     mutationFn: async ({ form, create }: { form: EndpointForm; create: boolean }) => {
       setFormError(null);
-      const body = toEnvelope(project, form) as never;
+      const body = toEnvelope(project, form, hidden) as never;
       const result = create
         ? await api.POST("/api/v1/projects/{project}/{plural}", {
             params: { path: { project, plural: "endpoints" } },
@@ -178,12 +232,14 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
           onClick={() => {
             setFormError(null);
             setIsNew(true);
+            setHidden([]);
             setEditing({
               name: "",
               contextSpaceRef: spaceNames[0] ?? "",
               slug: generateSlug(),
               audience: "project-list",
               enabledRepresentations: ["ngsi-ld"],
+              allowedProjects: [],
             });
           }}
           className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
@@ -272,6 +328,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                           onClick={() => {
                             setFormError(null);
                             setIsNew(false);
+                            setHidden(hiddenOf(endpoint));
                             setEditing(toForm(endpoint));
                           }}
                           className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
@@ -331,6 +388,14 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
           >
             {t("endpoints.generateSlug")}
           </button>
+        ) : null}
+        {editing?.audience === "public" ? (
+          <p role="note" className="rounded border border-border bg-surface-subtle p-3 text-sm">
+            {t("endpoints.publicNotice")}
+          </p>
+        ) : null}
+        {editing && !isNew ? (
+          <SchemaProjectionPanel slug={editing.slug} hidden={hidden} onHiddenChange={setHidden} />
         ) : null}
       </ResourceFormDialog>
     </div>

@@ -66,6 +66,33 @@ export const REPRESENTATIONS = [
 
 export const AUDIENCES = ["project-list", "organization", "public"] as const;
 
+/**
+ * The token-bucket classes a steward chooses between (EP-20).
+ *
+ * The contract field is a plain requests-per-minute number, and any number is valid on the
+ * wire. Naming three of them is what turns a capacity decision into one somebody can make
+ * without a calculator: strict for a hand-written client, standard for an application,
+ * open for a scraper that pages through everything.
+ */
+export const RATE_LIMIT_CLASSES = { strict: 60, standard: 600, open: 6000 } as const;
+
+/**
+ * The schema formalisms an Endpoint publishes under `schema/v{major}/` (EP-46, EP-49).
+ *
+ * Every Endpoint serves all of them, so this is what to look at, never what to switch on.
+ * The gateway compiles the first two itself and answers 406 for the rest until Model Tools
+ * has committed them beside the source.
+ */
+export const SCHEMA_FORMALISMS = [
+  "json-schema",
+  "context.jsonld",
+  "model.linkml.yaml",
+  "model.ttl",
+  "model.md",
+] as const;
+
+export type SchemaFormalism = (typeof SCHEMA_FORMALISMS)[number];
+
 export function endpointSchema(
   t: (key: string) => string,
   spaces: string[],
@@ -104,14 +131,61 @@ export function endpointSchema(
         uniqueItems: true,
         minItems: 1,
       },
+      // Required by the manifest when the audience is `project-list` and refused for the
+      // other two (EP-14, EP-15). The page prunes it rather than the schema, because rjsf
+      // cannot both hide a field and keep the value somebody already typed into it.
+      allowedProjects: {
+        type: "array",
+        title: t("endpoints.field.allowedProjects"),
+        items: { type: "string", pattern: DNS1123 },
+        uniqueItems: true,
+      },
+      rateLimits: {
+        type: "object",
+        title: t("endpoints.field.rateLimits"),
+        properties: {
+          // EP-20 asks every endpoint to configure a limit, so the form carries one rather
+          // than letting a steward publish an unlimited endpoint by leaving a field alone.
+          // The Change shows it like any other field, so nothing lands unseen.
+          requestsPerMinute: {
+            type: "integer",
+            title: t("endpoints.field.requestsPerMinute"),
+            default: RATE_LIMIT_CLASSES.standard,
+            oneOf: Object.entries(RATE_LIMIT_CLASSES).map(([name, perMinute]) => ({
+              const: perMinute,
+              title: `${t(`endpoints.rateClass.${name}`)} (${perMinute}/min)`,
+            })),
+          },
+          burst: {
+            type: "integer",
+            title: t("endpoints.field.burst"),
+            minimum: 1,
+            maximum: 10000,
+          },
+        },
+      },
+      caching: {
+        type: "object",
+        title: t("endpoints.field.caching"),
+        properties: {
+          maxAgeSeconds: {
+            type: "integer",
+            title: t("endpoints.field.maxAge"),
+            minimum: 0,
+            maximum: 3600,
+            multipleOf: 30,
+          },
+        },
+      },
     },
   };
 }
 
-/** Checkboxes for the representation set; everything else takes the default widget. */
+/** Checkboxes for the representation set, a slider for the cache TTL; the rest is default. */
 export const endpointUiSchema: UiSchema = {
   enabledRepresentations: { "ui:widget": "checkboxes" },
   slug: { "ui:autocomplete": "off" },
+  caching: { maxAgeSeconds: { "ui:widget": "range" } },
 };
 
 /**

@@ -162,7 +162,33 @@
       "slug": "Slug",
       "audience": "Audience",
       "representations": "Representations",
-      "phase": "State"
+      "phase": "State",
+      "allowedProjects": "Allowed projects",
+      "rateLimits": "Rate limit",
+      "requestsPerMinute": "Class",
+      "burst": "Burst",
+      "caching": "Caching",
+      "maxAge": "Cache lifetime (seconds)"
+    },
+    "rateClass": {
+      "strict": "Strict",
+      "standard": "Standard",
+      "open": "Open"
+    },
+    "publicNotice": "An endpoint with a public audience answers anonymous callers, and an anonymous caller may only read. Writes and subscriptions still need a login, whichever representations are enabled.",
+    "projection": {
+      "title": "Published attributes",
+      "hint": "An endpoint can narrow what the policy grants, never widen it. A hidden attribute is absent from every representation and from the published schema.",
+      "formalism": "Schema formalism",
+      "hide": "Hide",
+      "effective": "Published here",
+      "none": "Nothing is published under this type.",
+      "unavailable": "This endpoint publishes no schema yet; type an attribute name to hide it.",
+      "loading": "Reading the published schema…",
+      "notCompiled": "The gateway does not compile this formalism; it is served once Model Tools commits it beside the source.",
+      "addHidden": "Hide an attribute by name",
+      "add": "Hide",
+      "attribute": "Attribute"
     }
   },
   "pipelines": {

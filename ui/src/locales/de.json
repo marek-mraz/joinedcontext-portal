@@ -162,7 +162,33 @@
       "slug": "Slug",
       "audience": "Zielgruppe",
       "representations": "Repräsentationen",
-      "phase": "Zustand"
+      "phase": "Zustand",
+      "allowedProjects": "Zugelassene Projekte",
+      "rateLimits": "Ratenbegrenzung",
+      "requestsPerMinute": "Klasse",
+      "burst": "Spitze",
+      "caching": "Zwischenspeicher",
+      "maxAge": "Lebensdauer im Zwischenspeicher (Sekunden)"
+    },
+    "rateClass": {
+      "strict": "Streng",
+      "standard": "Standard",
+      "open": "Offen"
+    },
+    "publicNotice": "Ein Endpunkt mit öffentlichem Publikum antwortet anonymen Aufrufern, und ein anonymer Aufrufer darf nur lesen. Schreibzugriffe und Abonnements verlangen weiterhin eine Anmeldung, welche Repräsentationen auch aktiviert sind.",
+    "projection": {
+      "title": "Veröffentlichte Attribute",
+      "hint": "Ein Endpunkt kann das, was die Richtlinie gewährt, nur einschränken, niemals erweitern. Ein verborgenes Attribut fehlt in jeder Repräsentation und im veröffentlichten Schema.",
+      "formalism": "Schema-Formalismus",
+      "hide": "Verbergen",
+      "effective": "Hier veröffentlicht",
+      "none": "Unter diesem Typ wird nichts veröffentlicht.",
+      "unavailable": "Dieser Endpunkt veröffentlicht noch kein Schema; geben Sie einen Attributnamen ein, um ihn zu verbergen.",
+      "loading": "Veröffentlichtes Schema wird gelesen…",
+      "notCompiled": "Das Gateway kompiliert diesen Formalismus nicht; er wird ausgeliefert, sobald Model Tools ihn neben der Quelle ablegt.",
+      "addHidden": "Attribut nach Namen verbergen",
+      "add": "Verbergen",
+      "attribute": "Attribut"
     }
   },
   "pipelines": {

@@ -162,7 +162,33 @@
       "slug": "Slug",
       "audience": "Publikum",
       "representations": "Reprezentácie",
-      "phase": "Stav"
+      "phase": "Stav",
+      "allowedProjects": "Povolené projekty",
+      "rateLimits": "Obmedzenie požiadaviek",
+      "requestsPerMinute": "Trieda",
+      "burst": "Špička",
+      "caching": "Vyrovnávacia pamäť",
+      "maxAge": "Životnosť vo vyrovnávacej pamäti (sekundy)"
+    },
+    "rateClass": {
+      "strict": "Prísna",
+      "standard": "Štandardná",
+      "open": "Otvorená"
+    },
+    "publicNotice": "Endpoint s verejným publikom odpovedá anonymnému volajúcemu a ten smie iba čítať. Zápisy a odbery aj naďalej vyžadujú prihlásenie, nech sú zapnuté ktorékoľvek reprezentácie.",
+    "projection": {
+      "title": "Zverejnené atribúty",
+      "hint": "Endpoint môže to, čo povoľuje politika, iba zúžiť, nikdy rozšíriť. Skrytý atribút chýba v každej reprezentácii aj v zverejnenej schéme.",
+      "formalism": "Formalizmus schémy",
+      "hide": "Skryť",
+      "effective": "Zverejnené tu",
+      "none": "Pod týmto typom sa nezverejňuje nič.",
+      "unavailable": "Tento endpoint zatiaľ nezverejňuje schému; skryjete atribút tak, že napíšete jeho názov.",
+      "loading": "Načítavam zverejnenú schému…",
+      "notCompiled": "Tento formalizmus brána nekompiluje; zverejní sa, keď ho Model Tools uloží vedľa zdroja.",
+      "addHidden": "Skryť atribút podľa názvu",
+      "add": "Skryť",
+      "attribute": "Atribút"
     }
   },
   "pipelines": {
