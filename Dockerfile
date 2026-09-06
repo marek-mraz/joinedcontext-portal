@@ -18,6 +18,9 @@ FROM rust:1.97-slim-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
+# sqlx::migrate!("./migrations") reads the folder at COMPILE time, so it is a build input,
+# not a runtime one: without it cargo fails with "error canonicalizing migration directory".
+COPY migrations ./migrations
 COPY --from=ui /ui/dist ./ui/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \

@@ -50,7 +50,9 @@ const KEYS = {
 
 const MINTED = {
   keyId: "aa11bb22cc33dd44",
-  token: "jc_aa11bb22cc33dd44_Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZg",
+  // Deliberately low entropy and self-describing: the previous fixture was a plausible
+  // base64 secret and gitleaks' generic-api-key rule stopped the whole ci lane on it.
+  token: "jc_aa11bb22cc33dd44_EXAMPLE_NOT_A_REAL_TOKEN",
   credential: "legacy-push",
 };
 
