@@ -1,0 +1,360 @@
+//! The app's own contract with its Endpoint (T-0309, AP-04, AP-28, AP-38, AP-41).
+//!
+//! Every case runs the real router and the real poll against a stubbed endpoint, so what is
+//! asserted is the request that actually leaves the pod: which URL, which representation,
+//! and which credential. The point of a public reference app is that it adds nothing at all
+//! to the caller's authority, and that is only observable from outside the process.
+
+use std::sync::Arc;
+
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use hsl_transport::{router, App, Config, PollError};
+use http_body_util::BodyExt;
+use serde_json::{json, Value};
+use tower::ServiceExt;
+use wiremock::matchers::{header, method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+const BASE: &str = "/apps/hsl-transport/";
+const BUS: &str = "urn:ngsi-ld:Vehicle:hsl.fi:transport:bus-01";
+
+fn app_at(endpoint: &MockServer) -> Arc<App> {
+    Arc::new(App::new(Config {
+        base_path: BASE.to_owned(),
+        endpoint_url: format!("{}/", endpoint.uri()),
+        poll_seconds: 1,
+    }))
+}
+
+/// One bus as the Endpoint's GeoJSON representation carries it.
+fn feature(id: &str, longitude: f64, latitude: f64) -> Value {
+    json!({
+        "id": id,
+        "type": "Feature",
+        "geometry": { "type": "Point", "coordinates": [longitude, latitude] },
+        "properties": {
+            "type": "Vehicle",
+            "bearing": { "type": "Property", "value": 143.0 },
+            "speed": { "type": "Property", "value": 8.5 },
+            "refLine": { "type": "Property", "value": "550" }
+        }
+    })
+}
+
+fn collection(features: Vec<Value>) -> Value {
+    json!({ "type": "FeatureCollection", "features": features })
+}
+
+/// Answers every fleet request with this collection.
+async fn serving(endpoint: &MockServer, body: Value) {
+    Mock::given(method("GET"))
+        .and(path("/ngsi-ld/v1/entities"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(endpoint)
+        .await;
+}
+
+async fn text_of(response: axum::response::Response) -> String {
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("a body")
+        .to_bytes();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// AP-04, AP-38: the fleet comes from the Endpoint's GeoJSON representation, capped at 30.
+#[tokio::test]
+async fn the_fleet_is_read_from_the_endpoints_geojson_representation() {
+    let endpoint = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/ngsi-ld/v1/entities"))
+        .and(query_param("type", "Vehicle"))
+        .and(query_param("limit", "30"))
+        .and(header("accept", "application/geo+json"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(collection(vec![feature(BUS, 24.94, 60.17)])),
+        )
+        .expect(1)
+        .mount(&endpoint)
+        .await;
+
+    let app = app_at(&endpoint);
+    let changed = app.poll_once().await.expect("a fleet");
+
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].id, BUS);
+    assert_eq!(changed[0].coordinates, [24.94, 60.17]);
+    assert_eq!(changed[0].ref_line.as_deref(), Some("550"));
+}
+
+/// AP-28: the Endpoint is public and the app never sees a user, so nothing it sends carries a
+/// credential. An app that sent one would be lending an authority no caller asked for.
+#[tokio::test]
+async fn the_poll_carries_no_credential_at_all() {
+    let endpoint = MockServer::start().await;
+    serving(&endpoint, collection(vec![feature(BUS, 24.94, 60.17)])).await;
+
+    app_at(&endpoint).poll_once().await.expect("a fleet");
+
+    let requests = endpoint.received_requests().await.expect("the requests");
+    assert_eq!(requests.len(), 1);
+    for name in ["authorization", "cookie", "x-forwarded-access-token"] {
+        assert!(
+            requests[0].headers.get(name).is_none(),
+            "the poll sent a `{name}` header"
+        );
+    }
+}
+
+/// The Endpoint is the app's whole world: no broker, no database, no second host.
+#[tokio::test]
+async fn every_call_the_app_makes_goes_to_its_own_endpoint() {
+    let endpoint = MockServer::start().await;
+    serving(&endpoint, collection(vec![feature(BUS, 24.94, 60.17)])).await;
+    let app = app_at(&endpoint);
+
+    app.poll_once().await.expect("a fleet");
+    // Serving a browser must not produce a call of its own; the fleet is already in memory.
+    router(Arc::clone(&app))
+        .oneshot(
+            Request::builder()
+                .uri(format!("{BASE}api/vehicles"))
+                .body(Body::empty())
+                .expect("a request"),
+        )
+        .await
+        .expect("a response");
+
+    let requests = endpoint.received_requests().await.expect("the requests");
+    assert_eq!(requests.len(), 1, "a browser must not cost a query");
+    assert!(requests[0].url.path().starts_with("/ngsi-ld/v1/"));
+}
+
+/// A hundred open maps are one query per interval, so only what moved travels.
+#[tokio::test]
+async fn a_bus_that_has_not_moved_is_not_sent_again() {
+    let endpoint = MockServer::start().await;
+    serving(&endpoint, collection(vec![feature(BUS, 24.94, 60.17)])).await;
+    let app = app_at(&endpoint);
+
+    assert_eq!(app.poll_once().await.expect("a fleet").len(), 1);
+    assert!(
+        app.poll_once().await.expect("a fleet").is_empty(),
+        "an unchanged fleet produced a change"
+    );
+    assert_eq!(app.snapshot().len(), 1, "the bus left the map");
+}
+
+#[tokio::test]
+async fn a_bus_that_moves_is_reported_once_and_the_others_stay_quiet() {
+    let endpoint = MockServer::start().await;
+    let other = "urn:ngsi-ld:Vehicle:hsl.fi:transport:bus-02";
+    Mock::given(method("GET"))
+        .and(path("/ngsi-ld/v1/entities"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(collection(vec![
+            feature(BUS, 24.94, 60.17),
+            feature(other, 24.80, 60.20),
+        ])))
+        .up_to_n_times(1)
+        .mount(&endpoint)
+        .await;
+    serving(
+        &endpoint,
+        collection(vec![
+            feature(BUS, 24.95, 60.18),
+            feature(other, 24.80, 60.20),
+        ]),
+    )
+    .await;
+    let app = app_at(&endpoint);
+
+    assert_eq!(app.poll_once().await.expect("a fleet").len(), 2);
+    let moved = app.poll_once().await.expect("a fleet");
+
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0].id, BUS);
+    assert_eq!(moved[0].coordinates, [24.95, 60.18]);
+}
+
+/// AP-38: the demo runs thirty buses and the map draws thirty, whatever the space holds.
+#[tokio::test]
+async fn the_fleet_is_capped_at_thirty_buses() {
+    let endpoint = MockServer::start().await;
+    let features = (0..40)
+        .map(|n| {
+            feature(
+                &format!("urn:ngsi-ld:Vehicle:hsl.fi:transport:bus-{n:02}"),
+                24.0 + f64::from(n) / 100.0,
+                60.0,
+            )
+        })
+        .collect();
+    serving(&endpoint, collection(features)).await;
+
+    let app = app_at(&endpoint);
+    assert_eq!(app.poll_once().await.expect("a fleet").len(), 30);
+    assert_eq!(app.snapshot().len(), 30);
+}
+
+/// A bus the map cannot place is a bus the map must not draw somewhere wrong.
+#[tokio::test]
+async fn a_feature_with_no_point_is_dropped_rather_than_placed_at_zero() {
+    let endpoint = MockServer::start().await;
+    serving(
+        &endpoint,
+        collection(vec![
+            json!({ "id": "urn:ngsi-ld:Vehicle:hsl.fi:transport:bus-99", "type": "Feature", "geometry": Value::Null, "properties": {} }),
+            feature(BUS, 24.94, 60.17),
+        ]),
+    )
+    .await;
+
+    let fleet = app_at(&endpoint).poll_once().await.expect("a fleet");
+    assert_eq!(fleet.len(), 1);
+    assert_eq!(fleet[0].id, BUS);
+}
+
+/// An attribute a Policy hides is absent from the app's own answer too, never a zero that a
+/// reader would take for a measurement (R9).
+#[tokio::test]
+async fn an_attribute_the_grant_hides_is_absent_and_not_defaulted() {
+    let endpoint = MockServer::start().await;
+    serving(
+        &endpoint,
+        collection(vec![json!({
+            "id": BUS,
+            "type": "Feature",
+            "geometry": { "type": "Point", "coordinates": [24.94, 60.17] },
+            "properties": { "type": "Vehicle" }
+        })]),
+    )
+    .await;
+    let app = app_at(&endpoint);
+    app.poll_once().await.expect("a fleet");
+
+    let response = router(Arc::clone(&app))
+        .oneshot(
+            Request::builder()
+                .uri(format!("{BASE}api/vehicles"))
+                .body(Body::empty())
+                .expect("a request"),
+        )
+        .await
+        .expect("a response");
+    let fleet: Value = serde_json::from_str(&text_of(response).await).expect("json");
+
+    assert_eq!(fleet[0]["coordinates"], json!([24.94, 60.17]));
+    for hidden in ["bearing", "speed", "refLine"] {
+        assert!(fleet[0].get(hidden).is_none(), "`{hidden}` was invented");
+    }
+}
+
+/// Nothing polled yet is not an empty fleet, and a map should be told the difference.
+#[tokio::test]
+async fn the_fleet_route_says_so_before_the_first_poll_has_produced_anything() {
+    let endpoint = MockServer::start().await;
+    let response = router(app_at(&endpoint))
+        .oneshot(
+            Request::builder()
+                .uri(format!("{BASE}api/vehicles"))
+                .body(Body::empty())
+                .expect("a request"),
+        )
+        .await
+        .expect("a response");
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+}
+
+/// AP-41: a browser that has just connected draws immediately, so the stream opens with the
+/// whole fleet and every later event is a difference.
+#[tokio::test]
+async fn the_stream_opens_with_the_whole_fleet() {
+    let endpoint = MockServer::start().await;
+    serving(&endpoint, collection(vec![feature(BUS, 24.94, 60.17)])).await;
+    let app = app_at(&endpoint);
+    app.poll_once().await.expect("a fleet");
+
+    let response = router(app)
+        .oneshot(
+            Request::builder()
+                .uri(format!("{BASE}api/stream"))
+                .body(Body::empty())
+                .expect("a request"),
+        )
+        .await
+        .expect("a response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/event-stream")
+    );
+    let frame = response
+        .into_body()
+        .frame()
+        .await
+        .expect("a frame")
+        .expect("a data frame");
+    let first = String::from_utf8_lossy(frame.data_ref().expect("data")).into_owned();
+    assert!(first.contains("event: vehicles"), "got {first}");
+    assert!(first.contains(BUS), "got {first}");
+}
+
+/// A poll that fails leaves the last known fleet on every open map: the buses stop moving
+/// rather than disappearing, and the reason goes to the log rather than to the browser.
+#[tokio::test]
+async fn an_endpoint_that_refuses_leaves_the_last_known_fleet_in_place() {
+    let endpoint = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/ngsi-ld/v1/entities"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(collection(vec![feature(BUS, 24.94, 60.17)])),
+        )
+        .up_to_n_times(1)
+        .mount(&endpoint)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/ngsi-ld/v1/entities"))
+        .respond_with(ResponseTemplate::new(403))
+        .mount(&endpoint)
+        .await;
+    let app = app_at(&endpoint);
+
+    app.poll_once().await.expect("a fleet");
+    assert_eq!(app.poll_once().await, Err(PollError::Refused(403)));
+    assert_eq!(app.snapshot().len(), 1, "a refusal emptied the map");
+}
+
+/// The Portal links the app with the trailing slash and a person types it without; they are
+/// not different visitors.
+#[tokio::test]
+async fn the_front_page_answers_on_both_spellings_of_the_prefix() {
+    let endpoint = MockServer::start().await;
+    let app = app_at(&endpoint);
+    for uri in [BASE.trim_end_matches('/'), BASE] {
+        let response = router(Arc::clone(&app))
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("a request"),
+            )
+            .await
+            .expect("a response");
+        assert_eq!(response.status(), StatusCode::OK, "{uri} did not answer");
+    }
+}

@@ -1,0 +1,33 @@
+[package]
+name = "hsl-transport"
+version = "0.1.0"
+edition = "2021"
+license = "EUPL-1.2"
+description = "The hsl-transport reference app: 30 buses on a live map, all through one public Endpoint"
+
+[lib]
+name = "hsl_transport"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hsl-transport"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The only outbound client the app has. Rustls, no native roots: the app talks to one host,
+# its endpoint, and that host presents a publicly trusted certificate (AP-37).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rust-embed = "8"
+mime_guess = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+wiremock = "0.6"

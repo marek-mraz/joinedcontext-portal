@@ -1438,6 +1438,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "hsl-transport"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "mime_guess",
+ "reqwest",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "wiremock",
+]
+
+[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3916,6 +3935,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
