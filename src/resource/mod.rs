@@ -100,15 +100,6 @@ pub struct ResourceKey {
 /// They live apart from [`jc_core::KINDS`] so the difference stays visible: when @platform adds a
 /// kind to jc-core, its row moves out of this list and nothing else changes.
 pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[
-    // jc-core v0.4.0 predates the kind (platform 6343c87, MF-35); its row moves out of this
-    // list the moment the Portal depends on a tag that carries `DataSourceSpec`, and the
-    // resource API keeps serving `datasources` at the same path either way.
-    KindInfo {
-        kind: "DataSource",
-        plural: "datasources",
-        scope: Scope::Project,
-        path_template: "projects/{project}/datasources/{name}.yaml",
-    },
     KindInfo {
         kind: "Subscription",
         plural: "subscriptions",
