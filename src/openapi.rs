@@ -5,6 +5,7 @@ use utoipa::OpenApi;
 
 use crate::api::health::Health;
 use crate::api::resources::{ListMeta, ResourceList};
+use crate::auth::oidc::LogoutTarget;
 use crate::auth::Identity;
 use crate::error::ProblemDetails;
 use crate::resource::{Condition, ObjectMeta, Phase, ResourceEnvelope, Status};
@@ -15,12 +16,14 @@ use crate::state::AppState;
     paths(
         crate::api::health::health,
         crate::auth::oidc::me,
+        crate::auth::oidc::logout,
         crate::api::resources::list,
         crate::api::resources::get_resource,
     ),
     components(schemas(
         Health,
         Identity,
+        LogoutTarget,
         ProblemDetails,
         ResourceEnvelope,
         ObjectMeta,

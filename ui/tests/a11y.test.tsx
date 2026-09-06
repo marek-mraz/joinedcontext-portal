@@ -1,50 +1,81 @@
-import { render } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import axe from "axe-core";
-import { describe, expect, it } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { App } from "../src/App";
 
-if (typeof window !== "undefined" && !window.matchMedia) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
+const IDENTITY = {
+  subject: "b7c1e0f4",
+  username: "jana.kovacova",
+  name: "Jana Kováčová",
+  roles: ["portal-viewer"],
+};
+
+function renderApp() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <I18nextProvider i18n={i18n}>
+        <App />
+      </I18nextProvider>
+    </QueryClientProvider>,
+  );
 }
 
-describe("Accessibility", () => {
-  it("renders App with zero axe violations", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
-        },
-      },
+async function expectNoViolations(container: HTMLElement) {
+  const results = await axe.run(container);
+  const summary = results.violations
+    .map((v) => `${v.id}: ${v.description} (${v.nodes.map((n) => n.html).join("; ")})`)
+    .join("\n");
+  expect(results.violations, summary).toEqual([]);
+}
+
+describe("accessibility", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("sk");
+    window.history.pushState({}, "", "/");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("the login route has no axe violations", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(null, { status: 401 }))));
+
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /prihlásiť/i })).toBeInTheDocument();
     });
 
-    const { container } = render(
-      <QueryClientProvider client={queryClient}>
-        <I18nextProvider i18n={i18n}>
-          <App />
-        </I18nextProvider>
-      </QueryClientProvider>
+    await expectNoViolations(container);
+  });
+
+  it("the authenticated shell has no axe violations", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        const body = url.includes("/auth/me")
+          ? IDENTITY
+          : { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] };
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
     );
 
-    const results = await axe.run(container);
-    const violationSummary = results.violations
-      .map((v) => `${v.id}: ${v.description} (${v.nodes.map((n) => n.html).join("; ")})`)
-      .join("\n");
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("banner")).toBeInTheDocument();
+    });
 
-    expect(results.violations, violationSummary).toEqual([]);
+    await expectNoViolations(container);
   });
 });

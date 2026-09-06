@@ -10,6 +10,38 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "`POST /api/v1/auth/logout` — clears the session and tells the SPA where to send the browser.",
+        "description": "It answers with JSON rather than a 302 on purpose: the SPA calls this with `fetch`, and a\ncross-origin redirect to Keycloak is unreadable to it. The browser navigation is the caller's.",
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "Session cleared; navigate to endSessionUrl",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutTarget"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or mismatched CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/me": {
       "get": {
         "tags": [
@@ -302,6 +334,13 @@
               "null"
             ]
           },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keycloak realm roles from the ID token's `realm_access.roles` (CC-42). Empty when the\ntoken asserts none. Display and enablement only — the resource API and the forge enforce\nthe same boundaries independently."
+          },
           "subject": {
             "type": "string",
             "description": "Keycloak `sub`: stable, opaque, the only durable user key."
@@ -326,6 +365,19 @@
               "null"
             ],
             "minimum": 0
+          }
+        }
+      },
+      "LogoutTarget": {
+        "type": "object",
+        "description": "The URL the browser must visit to finish an RP-initiated logout at Keycloak.",
+        "required": [
+          "endSessionUrl"
+        ],
+        "properties": {
+          "endSessionUrl": {
+            "type": "string",
+            "description": "Absolute URL: Keycloak's `end_session_endpoint`, or the portal itself when no realm is\nconfigured."
           }
         }
       },

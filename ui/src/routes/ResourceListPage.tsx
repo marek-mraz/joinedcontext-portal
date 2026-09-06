@@ -1,0 +1,68 @@
+import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { api, queryKeys, unwrap } from "../api/client";
+
+/** `/api/v1/projects/{project}/{plural}` rendered as a plain table; MF-11…MF-15. */
+export function ResourceListPage({
+  project,
+  plural,
+}: {
+  project: string;
+  plural: string;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const list = useQuery({
+    queryKey: queryKeys.list(project, plural),
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project, plural } },
+        }),
+      ),
+  });
+
+  if (list.isPending) {
+    return <p role="status">{t("app.loading")}</p>;
+  }
+  if (list.isError) {
+    return (
+      <div role="alert">
+        <p>{t("app.error.generic")}</p>
+        <button
+          type="button"
+          onClick={() => {
+            void list.refetch();
+          }}
+          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+        >
+          {t("app.error.retry")}
+        </button>
+      </div>
+    );
+  }
+
+  const items = list.data.items ?? [];
+  return (
+    <table className="w-full border-collapse text-sm">
+      <caption className="sr-only">{plural}</caption>
+      <thead>
+        <tr className="border-b border-border text-left">
+          <th scope="col" className="py-2 pr-4">
+            name
+          </th>
+          <th scope="col" className="py-2 pr-4">
+            kind
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item) => (
+          <tr key={`${item.kind}/${item.metadata.name}`} className="border-b border-border">
+            <td className="py-2 pr-4 font-mono">{item.metadata.name}</td>
+            <td className="py-2 pr-4">{item.kind}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}

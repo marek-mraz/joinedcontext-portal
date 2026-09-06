@@ -24,6 +24,11 @@ pub struct Identity {
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Keycloak realm roles from the ID token's `realm_access.roles` (CC-42). Empty when the
+    /// token asserts none. Display and enablement only — the resource API and the forge enforce
+    /// the same boundaries independently.
+    #[serde(default)]
+    pub roles: Vec<String>,
 }
 
 /// The session payload. `Debug` redacts `id_token` so no token reaches a log line.
@@ -124,6 +129,7 @@ mod tests {
                 username: "demo.steward".into(),
                 email: Some("demo.steward@banskabystrica.sk".into()),
                 name: Some("Demo Steward".into()),
+                roles: Vec::new(),
             },
             expires_at: now + expires_in,
             issued_at: now,

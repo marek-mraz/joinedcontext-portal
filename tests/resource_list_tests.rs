@@ -22,6 +22,7 @@ fn make_session_cookie(config: &Config) -> String {
             username: "demo.steward".into(),
             email: Some("demo.steward@banskabystrica.sk".into()),
             name: Some("Demo Steward".into()),
+            roles: Vec::new(),
         },
         expires_at: now + 3600,
         issued_at: now,

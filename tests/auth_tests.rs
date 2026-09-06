@@ -279,7 +279,20 @@ async fn a_mutation_with_a_matching_csrf_token_passes_the_gate() {
 
     assert_eq!(
         response.status(),
-        StatusCode::SEE_OTHER,
-        "logout redirects once CSRF passes"
+        StatusCode::OK,
+        "logout answers once CSRF passes"
+    );
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/json"
+    );
+
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let target: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert!(
+        target["endSessionUrl"]
+            .as_str()
+            .is_some_and(|u| !u.is_empty()),
+        "the SPA needs somewhere to navigate: {target}"
     );
 }

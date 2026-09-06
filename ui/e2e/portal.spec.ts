@@ -1,46 +1,48 @@
 import { expect, test } from "@playwright/test";
 import { axeViolations } from "./axe";
 
-// `?lang=` is the first source i18next's detector consults, so the journey does not depend on
-// the browser's own locale.
-test.describe("portal shell", () => {
-  test("renders in Slovak, switches to English and keeps the document language in step", async ({
-    page,
-  }) => {
+// `vite preview` serves the built bundle with no portal API behind it, so `/api/v1/auth/me`
+// never answers with a session and every journey here is the anonymous one. The authenticated
+// journeys arrive with the task that runs the Rust binary in ci-full.
+//
+// `?lang=` is the first source i18next's detector consults, so nothing depends on the
+// browser's own locale.
+test.describe("portal", () => {
+  test("sends an anonymous visitor to the login route", async ({ page }) => {
     await page.goto("/?lang=sk");
 
+    await expect(page).toHaveURL(/\/login/);
     await expect(page.getByRole("heading", { name: "joinedcontext Portal" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Prihlásiť sa" })).toBeVisible();
+  });
+
+  test("switches language and keeps the document language in step", async ({ page }) => {
+    await page.goto("/login?lang=sk");
+
     await expect(page.locator("html")).toHaveAttribute("lang", "sk");
-    await expect(page.getByRole("button", { name: "Odoslať" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Prihlásiť sa" })).toBeVisible();
 
     await page.getByRole("button", { name: "Jazyk" }).click();
     await page.getByRole("menuitem", { name: "English" }).click();
 
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
-    await expect(page.getByRole("button", { name: "Submit" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   });
 
-  test("refuses an invalid manifest and echoes a valid one", async ({ page }) => {
-    await page.goto("/?lang=en");
+  test("starts the server-side code flow when sign-in is pressed", async ({ page }) => {
+    await page.goto("/login?lang=en");
 
-    const name = page.getByLabel("Name");
-    await name.fill("ab");
-    await expect(name).toHaveAttribute("aria-invalid", "true");
+    const request = page.waitForRequest((r) => r.url().includes("/api/v1/auth/login"));
+    await page.getByRole("button", { name: "Sign in" }).click();
 
-    await name.fill("sensor-hub");
-    await page.getByLabel("Replicas").fill("2");
-    await expect(name).not.toHaveAttribute("aria-invalid", "true");
-
-    await page.getByRole("button", { name: "Submit" }).click();
-
-    const echo = page.getByLabel("Submitted Data");
-    await expect(echo).toContainText("sensor-hub");
-    await expect(echo).toContainText("2");
+    const url = new URL((await request).url());
+    expect(url.pathname).toBe("/api/v1/auth/login");
+    expect(url.searchParams.get("redirect_to")).toBe("/");
   });
 
-  test("has no axe violations", async ({ page }) => {
-    await page.goto("/?lang=sk");
-    await expect(page.getByRole("heading", { name: "joinedcontext Portal" })).toBeVisible();
+  test("the login route has no axe violations", async ({ page }) => {
+    await page.goto("/login?lang=sk");
+    await expect(page.getByRole("button", { name: "Prihlásiť sa" })).toBeVisible();
 
     expect(await axeViolations(page)).toEqual([]);
   });

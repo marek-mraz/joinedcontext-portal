@@ -15,7 +15,10 @@
     "dashboards": "Dashboards",
     "apps": "Anwendungen",
     "approvals": "Freigaben",
-    "access": "Zugriff"
+    "access": "Zugriff",
+    "main": "Hauptnavigation",
+    "skipToContent": "Zum Inhalt springen",
+    "breadcrumb": "Navigationspfad"
   },
   "auth": {
     "signIn": "Anmelden",

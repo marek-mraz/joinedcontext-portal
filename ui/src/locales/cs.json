@@ -15,7 +15,10 @@
     "dashboards": "Přehledy",
     "apps": "Aplikace",
     "approvals": "Schvalování",
-    "access": "Přístup"
+    "access": "Přístup",
+    "main": "Hlavní navigace",
+    "skipToContent": "Přeskočit na obsah",
+    "breadcrumb": "Drobečková navigace"
   },
   "auth": {
     "signIn": "Přihlásit se",

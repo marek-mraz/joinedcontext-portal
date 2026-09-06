@@ -45,6 +45,9 @@ export function readCsrfToken(): string | undefined {
 export const api = createClient<paths>({
   baseUrl: window.location.origin,
   credentials: "same-origin",
+  // Resolve the global at call time. openapi-fetch would otherwise capture whatever
+  // `globalThis.fetch` was when this module first loaded, which no test can substitute.
+  fetch: (request) => globalThis.fetch(request),
 });
 
 /** Echoes the double-submit cookie the backend sets non-HttpOnly for exactly this purpose. */

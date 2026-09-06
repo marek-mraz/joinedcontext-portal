@@ -15,7 +15,10 @@
     "dashboards": "Dashboards",
     "apps": "Applications",
     "approvals": "Approvals",
-    "access": "Access"
+    "access": "Access",
+    "main": "Main navigation",
+    "skipToContent": "Skip to content",
+    "breadcrumb": "Breadcrumb"
   },
   "auth": {
     "signIn": "Sign in",

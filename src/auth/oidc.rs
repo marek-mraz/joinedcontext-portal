@@ -281,6 +281,7 @@ pub async fn callback(
             .name()
             .and_then(|n| n.get(None))
             .map(|n| n.to_string()),
+        roles: realm_roles(id_token.to_string().as_str()),
     };
     let session = Session {
         identity,
@@ -293,6 +294,37 @@ pub async fn callback(
     let jar = session::store(jar, &session)?;
     let (cookies, _token) = csrf::issue(cookies);
     Ok((jar, cookies, Redirect::to(&flow.redirect_to)).into_response())
+}
+
+/// Keycloak puts realm roles in `realm_access.roles`, which `openidconnect`'s core claim set does
+/// not model. Reading them back out of the token's payload is safe here and only here: the caller
+/// has already verified this exact token's signature and nonce, so the bytes are trusted. A
+/// malformed or role-less token yields an empty list, never an error — roles are display and
+/// enablement only (CC-42), and the resource API enforces the real boundary.
+fn realm_roles(id_token: &str) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct RealmAccess {
+        #[serde(default)]
+        roles: Vec<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Payload {
+        realm_access: Option<RealmAccess>,
+    }
+
+    let Some(payload) = id_token.split('.').nth(1) else {
+        return Vec::new();
+    };
+    let Ok(bytes) =
+        base64::engine::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
+    else {
+        return Vec::new();
+    };
+    serde_json::from_slice::<Payload>(&bytes)
+        .ok()
+        .and_then(|p| p.realm_access)
+        .map(|r| r.roles)
+        .unwrap_or_default()
 }
 
 /// `GET /api/v1/auth/me` — who is signed in.
@@ -309,7 +341,28 @@ pub async fn me(user: crate::auth::CurrentUser) -> Json<Identity> {
     Json(user.0.identity)
 }
 
-/// `POST /api/v1/auth/logout` — clears the session and hands the browser to Keycloak.
+/// The URL the browser must visit to finish an RP-initiated logout at Keycloak.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LogoutTarget {
+    /// Absolute URL: Keycloak's `end_session_endpoint`, or the portal itself when no realm is
+    /// configured.
+    pub end_session_url: String,
+}
+
+/// `POST /api/v1/auth/logout` — clears the session and tells the SPA where to send the browser.
+///
+/// It answers with JSON rather than a 302 on purpose: the SPA calls this with `fetch`, and a
+/// cross-origin redirect to Keycloak is unreadable to it. The browser navigation is the caller's.
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/logout",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Session cleared; navigate to endSessionUrl", body = LogoutTarget),
+        (status = 403, description = "Missing or mismatched CSRF token", body = crate::error::ProblemDetails)
+    )
+)]
 pub async fn logout(
     State(state): State<AppState>,
     jar: PrivateCookieJar,
@@ -341,7 +394,14 @@ pub async fn logout(
         })
         .unwrap_or_else(|| state.config.public_base_url.to_string());
 
-    Ok((jar, cookies, Redirect::to(&target)).into_response())
+    Ok((
+        jar,
+        cookies,
+        Json(LogoutTarget {
+            end_session_url: target,
+        }),
+    )
+        .into_response())
 }
 
 /// `POST /api/v1/auth/backchannel-logout` — the Keycloak back-channel logout endpoint.
@@ -392,5 +452,43 @@ mod tests {
         assert_eq!(safe_redirect(Some("//evil.example".into())), "/");
         assert_eq!(safe_redirect(Some("https://evil.example".into())), "/");
         assert_eq!(safe_redirect(None), "/");
+    }
+}
+
+#[cfg(test)]
+mod realm_roles_tests {
+    use super::realm_roles;
+    use base64::engine::{general_purpose::URL_SAFE_NO_PAD, Engine};
+
+    /// Builds a JWT-shaped string around `payload`. Nothing here is signed: `realm_roles` runs
+    /// only on a token the caller already verified, so the test exercises the parsing alone.
+    fn token(payload: &str) -> String {
+        format!(
+            "{}.{}.{}",
+            URL_SAFE_NO_PAD.encode(br#"{"alg":"RS256"}"#),
+            URL_SAFE_NO_PAD.encode(payload.as_bytes()),
+            URL_SAFE_NO_PAD.encode(b"not-a-signature"),
+        )
+    }
+
+    #[test]
+    fn reads_realm_access_roles_in_order() {
+        let t = token(r#"{"sub":"u1","realm_access":{"roles":["space-editor","portal-viewer"]}}"#);
+        assert_eq!(realm_roles(&t), vec!["space-editor", "portal-viewer"]);
+    }
+
+    #[test]
+    fn missing_or_empty_realm_access_is_no_roles() {
+        assert!(realm_roles(&token(r#"{"sub":"u1"}"#)).is_empty());
+        assert!(realm_roles(&token(r#"{"sub":"u1","realm_access":{}}"#)).is_empty());
+        assert!(realm_roles(&token(r#"{"sub":"u1","realm_access":{"roles":[]}}"#)).is_empty());
+    }
+
+    #[test]
+    fn a_malformed_token_yields_no_roles_instead_of_an_error() {
+        assert!(realm_roles("").is_empty());
+        assert!(realm_roles("only-one-segment").is_empty());
+        assert!(realm_roles("header.!!!not-base64!!!.sig").is_empty());
+        assert!(realm_roles(&token("not json at all")).is_empty());
     }
 }

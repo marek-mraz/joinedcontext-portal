@@ -4,6 +4,27 @@
  */
 
 export interface paths {
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * `POST /api/v1/auth/logout` — clears the session and tells the SPA where to send the browser.
+         * @description It answers with JSON rather than a 302 on purpose: the SPA calls this with `fetch`, and a
+         *     cross-origin redirect to Keycloak is unreadable to it. The browser navigation is the caller's.
+         */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/me": {
         parameters: {
             query?: never;
@@ -88,6 +109,12 @@ export interface components {
         Identity: {
             email?: string | null;
             name?: string | null;
+            /**
+             * @description Keycloak realm roles from the ID token's `realm_access.roles` (CC-42). Empty when the
+             *     token asserts none. Display and enablement only — the resource API and the forge enforce
+             *     the same boundaries independently.
+             */
+            roles?: string[];
             /** @description Keycloak `sub`: stable, opaque, the only durable user key. */
             subject: string;
             username: string;
@@ -95,6 +122,14 @@ export interface components {
         ListMeta: {
             continue?: string | null;
             remainingItemCount?: number | null;
+        };
+        /** @description The URL the browser must visit to finish an RP-initiated logout at Keycloak. */
+        LogoutTarget: {
+            /**
+             * @description Absolute URL: Keycloak's `end_session_endpoint`, or the portal itself when no realm is
+             *     configured.
+             */
+            endSessionUrl: string;
         };
         ObjectMeta: {
             annotations?: {
@@ -150,6 +185,35 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session cleared; navigate to endSessionUrl */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogoutTarget"];
+                };
+            };
+            /** @description Missing or mismatched CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     me: {
         parameters: {
             query?: never;

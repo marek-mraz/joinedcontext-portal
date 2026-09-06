@@ -87,6 +87,7 @@ mod tests {
                 username: "demo.steward".into(),
                 email: None,
                 name: None,
+                roles: Vec::new(),
             },
             expires_at: issued_at + 600,
             issued_at,
