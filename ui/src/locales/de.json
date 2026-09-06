@@ -109,5 +109,57 @@
       "update": "{fields, plural, =0 {{kind} „{name}“ aktualisieren} one {{kind} „{name}“ aktualisieren ({fields} geändertes Feld)} other {{kind} „{name}“ aktualisieren ({fields} geänderte Felder)}}",
       "delete": "{fields, plural, =0 {{kind} „{name}“ löschen} one {{kind} „{name}“ löschen ({fields} Feld)} other {{kind} „{name}“ löschen ({fields} Felder)}}"
     }
+  },
+  "quota": {
+    "contextSpaces": "Kontexträume",
+    "unlimited": "{used}, ohne Limit",
+    "exceeded": "Das Projektkontingent von {limit} Kontexträumen ist aufgebraucht. Bitten Sie eine Plattformadministration, es zu erhöhen."
+  },
+  "changes": {
+    "accepted": "Als Änderung vorgeschlagen:",
+    "review": "In Freigaben öffnen"
+  },
+  "spaces": {
+    "title": "Kontexträume",
+    "empty": "Dieses Projekt hat noch keinen Kontextraum.",
+    "add": "Neuer Kontextraum",
+    "addHint": "Das Speichern schlägt eine Änderung vor; der Raum entsteht nach der Freigabe.",
+    "propose": "Änderung vorschlagen",
+    "sandbox": "Sandbox, {days} Tage",
+    "field": {
+      "name": "Name",
+      "title": "Titel",
+      "dataModel": "Datenmodell",
+      "locale": "Standardsprache",
+      "sandbox": "Kurzlebige Sandbox",
+      "ttlDays": "Lebensdauer in Tagen",
+      "phase": "Zustand",
+      "source": "Quelle"
+    }
+  },
+  "endpoints": {
+    "title": "Endpunkte",
+    "empty": "Dieses Projekt veröffentlicht noch keinen Endpunkt.",
+    "add": "Neuer Endpunkt",
+    "edit": "Bearbeiten",
+    "addHint": "Das Speichern schlägt eine Änderung vor; der Endpunkt antwortet nach der Freigabe.",
+    "propose": "Änderung vorschlagen",
+    "generateSlug": "Slug erzeugen",
+    "copyUrl": "URL kopieren",
+    "copied": "Kopiert",
+    "audience": {
+      "project-list": "Ausgewählte Projekte",
+      "organization": "Organisation",
+      "public": "Öffentlich"
+    },
+    "field": {
+      "name": "Name",
+      "title": "Titel",
+      "space": "Kontextraum",
+      "slug": "Slug",
+      "audience": "Zielgruppe",
+      "representations": "Repräsentationen",
+      "phase": "Zustand"
+    }
   }
 }

@@ -62,6 +62,7 @@ fn seed_demo_mirror() -> Arc<Mirror> {
         status: Some(Status {
             phase: Phase::Live,
             observed_revision: None,
+            source_url: None,
             conditions: Vec::new(),
         }),
     });

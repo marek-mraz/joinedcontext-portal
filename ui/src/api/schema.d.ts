@@ -364,6 +364,11 @@ export interface components {
             conditions?: components["schemas"]["Condition"][];
             observedRevision?: string | null;
             phase: components["schemas"]["Phase"];
+            /**
+             * @description Forge page of the file this manifest was read from, so a view can link "Source"
+             *     without knowing where a kind lives in the repository. Computed, never read from Git.
+             */
+            sourceUrl?: string | null;
         };
         /**
          * @description Status of the background Git mirror synchronization.

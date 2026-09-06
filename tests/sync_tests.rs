@@ -146,6 +146,17 @@ async fn sync_fills_mirror_from_tree_with_live_status_and_observed_revision() {
         Some("c0ffee123456")
     );
     assert!(space_status.conditions.is_empty());
+    // The Source link points at the branch page of the very file the manifest came from.
+    assert_eq!(
+        space_status.source_url.as_deref(),
+        Some(
+            format!(
+                "{}/test-owner/test-repo/src/branch/main/projects/ovzdusie/spaces/mobility/space.yaml",
+                server.uri()
+            )
+            .as_str()
+        )
+    );
 
     let endpoint = mirror
         .get("ovzdusie", "Endpoint", "public-air")
@@ -376,6 +387,7 @@ async fn failed_tree_listing_preserves_mirror_and_records_error_in_sync_status()
         status: Some(Status {
             phase: Phase::Live,
             observed_revision: Some("initial-rev".to_string()),
+            source_url: None,
             conditions: Vec::new(),
         }),
     });

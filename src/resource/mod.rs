@@ -83,6 +83,10 @@ pub struct Status {
     pub phase: Phase,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_revision: Option<String>,
+    /// Forge page of the file this manifest was read from, so a view can link "Source"
+    /// without knowing where a kind lives in the repository. Computed, never read from Git.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditions: Vec<Condition>,
 }

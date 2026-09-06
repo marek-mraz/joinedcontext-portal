@@ -109,5 +109,57 @@
       "update": "{fields, plural, =0 {Úprava {kind} „{name}“ bez zmien} one {Úprava {kind} „{name}“ ({fields} zmenené pole)} few {Úprava {kind} „{name}“ ({fields} zmenené polia)} other {Úprava {kind} „{name}“ ({fields} zmenených polí)}}",
       "delete": "{fields, plural, =0 {Odstránenie {kind} „{name}“} one {Odstránenie {kind} „{name}“ ({fields} pole)} few {Odstránenie {kind} „{name}“ ({fields} polia)} other {Odstránenie {kind} „{name}“ ({fields} polí)}}"
     }
+  },
+  "quota": {
+    "contextSpaces": "Kontextové priestory",
+    "unlimited": "{used}, bez limitu",
+    "exceeded": "Kvóta projektu {limit} kontextových priestorov je vyčerpaná. O jej zvýšenie požiadajte správcu platformy."
+  },
+  "changes": {
+    "accepted": "Navrhnuté ako zmena:",
+    "review": "Otvoriť v Schvaľovaní"
+  },
+  "spaces": {
+    "title": "Kontextové priestory",
+    "empty": "Projekt zatiaľ nemá kontextový priestor.",
+    "add": "Nový kontextový priestor",
+    "addHint": "Uložením vznikne návrh zmeny; priestor pribudne po jeho schválení.",
+    "propose": "Navrhnúť zmenu",
+    "sandbox": "pieskovisko, {days} dní",
+    "field": {
+      "name": "Názov",
+      "title": "Popis",
+      "dataModel": "Dátový model",
+      "locale": "Predvolený jazyk",
+      "sandbox": "Dočasné pieskovisko",
+      "ttlDays": "Životnosť v dňoch",
+      "phase": "Stav",
+      "source": "Zdroj"
+    }
+  },
+  "endpoints": {
+    "title": "Rozhrania",
+    "empty": "Projekt zatiaľ nezverejnil žiadne rozhranie.",
+    "add": "Nové rozhranie",
+    "edit": "Upraviť",
+    "addHint": "Uložením vznikne návrh zmeny; rozhranie začne odpovedať po jeho schválení.",
+    "propose": "Navrhnúť zmenu",
+    "generateSlug": "Vygenerovať slug",
+    "copyUrl": "Kopírovať URL",
+    "copied": "Skopírované",
+    "audience": {
+      "project-list": "Vybrané projekty",
+      "organization": "Organizácia",
+      "public": "Verejné"
+    },
+    "field": {
+      "name": "Názov",
+      "title": "Popis",
+      "space": "Kontextový priestor",
+      "slug": "Slug",
+      "audience": "Publikum",
+      "representations": "Reprezentácie",
+      "phase": "Stav"
+    }
   }
 }

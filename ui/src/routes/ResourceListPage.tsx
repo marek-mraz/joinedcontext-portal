@@ -1,9 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../api/client";
+import { SpacesPage } from "./SpacesPage";
+import { EndpointsPage } from "./EndpointsPage";
 
 /** `/api/v1/projects/{project}/{plural}` rendered as a plain table; MF-11…MF-15. */
 export function ResourceListPage({
+  project,
+  plural,
+}: {
+  project: string;
+  plural: string;
+}): React.JSX.Element {
+  // Two kinds have a manager of their own; the rest fall back to the plain manifest table.
+  if (plural === "spaces") {
+    return <SpacesPage project={project} />;
+  }
+  if (plural === "endpoints") {
+    return <EndpointsPage project={project} />;
+  }
+  return <GenericListPage project={project} plural={plural} />;
+}
+
+function GenericListPage({
   project,
   plural,
 }: {

@@ -109,5 +109,57 @@
       "update": "{fields, plural, =0 {Update {kind} \"{name}\"} one {Update {kind} \"{name}\" ({fields} field changed)} other {Update {kind} \"{name}\" ({fields} fields changed)}}",
       "delete": "{fields, plural, =0 {Delete {kind} \"{name}\"} one {Delete {kind} \"{name}\" ({fields} field)} other {Delete {kind} \"{name}\" ({fields} fields)}}"
     }
+  },
+  "quota": {
+    "contextSpaces": "Context Spaces",
+    "unlimited": "{used}, no limit",
+    "exceeded": "The project quota of {limit} Context Spaces is used up. Ask a platform administrator to raise it."
+  },
+  "changes": {
+    "accepted": "Proposed as a change:",
+    "review": "Review it in Approvals"
+  },
+  "spaces": {
+    "title": "Context Spaces",
+    "empty": "This project has no Context Space yet.",
+    "add": "New Context Space",
+    "addHint": "Saving proposes a change; a space appears once the change is approved.",
+    "propose": "Propose change",
+    "sandbox": "sandbox, {days} days",
+    "field": {
+      "name": "Name",
+      "title": "Title",
+      "dataModel": "Data model",
+      "locale": "Default locale",
+      "sandbox": "Ephemeral sandbox",
+      "ttlDays": "Lifetime in days",
+      "phase": "State",
+      "source": "Source"
+    }
+  },
+  "endpoints": {
+    "title": "Endpoints",
+    "empty": "This project publishes no endpoint yet.",
+    "add": "New endpoint",
+    "edit": "Edit",
+    "addHint": "Saving proposes a change; the endpoint answers once the change is approved.",
+    "propose": "Propose change",
+    "generateSlug": "Generate slug",
+    "copyUrl": "Copy URL",
+    "copied": "Copied",
+    "audience": {
+      "project-list": "Selected projects",
+      "organization": "Organization",
+      "public": "Public"
+    },
+    "field": {
+      "name": "Name",
+      "title": "Title",
+      "space": "Context Space",
+      "slug": "Slug",
+      "audience": "Audience",
+      "representations": "Representations",
+      "phase": "State"
+    }
   }
 }

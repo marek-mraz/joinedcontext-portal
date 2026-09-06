@@ -350,6 +350,18 @@ impl GiteaClient {
         }
     }
 
+    /// Browser URL of one file at a git ref, the page a "Source" link opens (never the API URL).
+    pub fn browse_url(&self, path: &str, git_ref: &str) -> String {
+        format!(
+            "{}/{}/{}/src/branch/{}/{}",
+            self.base.as_str().trim_end_matches('/'),
+            self.owner,
+            self.repo,
+            git_ref,
+            path.trim_start_matches('/'),
+        )
+    }
+
     fn repo_url(&self, path: &str) -> Result<Url, GitError> {
         let clean_base = self.base.as_str().trim_end_matches('/');
         let path = path.trim_start_matches('/');

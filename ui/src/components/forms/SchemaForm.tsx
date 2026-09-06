@@ -33,14 +33,12 @@ const ajvErrorKeyMap: Record<string, string> = {
 };
 
 function SubmitButton(props: SubmitButtonProps): React.JSX.Element | null {
-  const { t } = useTranslation();
+  // rjsf hands the button its options under `ui:options`, never the raw key the caller wrote.
   const options = getSubmitButtonOptions(props.uiSchema);
   if (options.norender) {
     return null;
   }
-  const submitText =
-    (props.uiSchema?.["ui:submitButtonOptions"] as { submitText?: string } | undefined)?.submitText ??
-    t("form.submit");
+  const submitText = options.submitText;
 
   return (
     <button
@@ -150,18 +148,17 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
   const { schema, uiSchema, formData, disabled, submitLabel, onSubmit, onChange } = props;
   const { t } = useTranslation();
 
-  const effectiveUiSchema = React.useMemo(() => {
-    if (!submitLabel) {
-      return uiSchema;
-    }
-    return {
+  const effectiveUiSchema = React.useMemo(
+    () => ({
       ...uiSchema,
       "ui:submitButtonOptions": {
         ...(uiSchema?.["ui:submitButtonOptions"] as Record<string, unknown> | undefined),
-        submitText: submitLabel,
+        // rjsf's own default is the untranslated word "Submit".
+        submitText: submitLabel ?? t("form.submit"),
       },
-    };
-  }, [uiSchema, submitLabel]);
+    }),
+    [uiSchema, submitLabel, t],
+  );
 
   const transformErrors = React.useCallback(
     (errors: RJSFValidationError[]): RJSFValidationError[] => {

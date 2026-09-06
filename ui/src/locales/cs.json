@@ -109,5 +109,57 @@
       "update": "{fields, plural, =0 {Úprava {kind} „{name}“ beze změn} one {Úprava {kind} „{name}“ ({fields} změněné pole)} few {Úprava {kind} „{name}“ ({fields} změněná pole)} other {Úprava {kind} „{name}“ ({fields} změněných polí)}}",
       "delete": "{fields, plural, =0 {Smazání {kind} „{name}“} one {Smazání {kind} „{name}“ ({fields} pole)} few {Smazání {kind} „{name}“ ({fields} pole)} other {Smazání {kind} „{name}“ ({fields} polí)}}"
     }
+  },
+  "quota": {
+    "contextSpaces": "Kontextové prostory",
+    "unlimited": "{used}, bez limitu",
+    "exceeded": "Kvóta projektu {limit} kontextových prostorů je vyčerpaná. O její navýšení požádejte správce platformy."
+  },
+  "changes": {
+    "accepted": "Navrženo jako změna:",
+    "review": "Otevřít ve Schvalování"
+  },
+  "spaces": {
+    "title": "Kontextové prostory",
+    "empty": "Projekt zatím nemá kontextový prostor.",
+    "add": "Nový kontextový prostor",
+    "addHint": "Uložením vznikne návrh změny; prostor přibude po jeho schválení.",
+    "propose": "Navrhnout změnu",
+    "sandbox": "pískoviště, {days} dní",
+    "field": {
+      "name": "Název",
+      "title": "Popis",
+      "dataModel": "Datový model",
+      "locale": "Výchozí jazyk",
+      "sandbox": "Dočasné pískoviště",
+      "ttlDays": "Životnost ve dnech",
+      "phase": "Stav",
+      "source": "Zdroj"
+    }
+  },
+  "endpoints": {
+    "title": "Rozhraní",
+    "empty": "Projekt zatím nezveřejnil žádné rozhraní.",
+    "add": "Nové rozhraní",
+    "edit": "Upravit",
+    "addHint": "Uložením vznikne návrh změny; rozhraní začne odpovídat po jeho schválení.",
+    "propose": "Navrhnout změnu",
+    "generateSlug": "Vygenerovat slug",
+    "copyUrl": "Kopírovat URL",
+    "copied": "Zkopírováno",
+    "audience": {
+      "project-list": "Vybrané projekty",
+      "organization": "Organizace",
+      "public": "Veřejné"
+    },
+    "field": {
+      "name": "Název",
+      "title": "Popis",
+      "space": "Kontextový prostor",
+      "slug": "Slug",
+      "audience": "Publikum",
+      "representations": "Reprezentace",
+      "phase": "Stav"
+    }
   }
 }

@@ -337,6 +337,7 @@ mod tests {
             status: Some(crate::resource::Status {
                 phase: crate::resource::Phase::Live,
                 observed_revision: None,
+                source_url: None,
                 conditions: Vec::new(),
             }),
         };

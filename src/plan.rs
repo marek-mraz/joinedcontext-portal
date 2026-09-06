@@ -424,12 +424,14 @@ mod tests {
         curr.status = Some(Status {
             phase: Phase::Draft,
             observed_revision: Some("rev-1".into()),
+            source_url: None,
             conditions: Vec::new(),
         });
         let mut des = sample_envelope("public-air", json!({ "audience": "public" }));
         des.status = Some(Status {
             phase: Phase::Live,
             observed_revision: Some("rev-2".into()),
+            source_url: None,
             conditions: Vec::new(),
         });
 

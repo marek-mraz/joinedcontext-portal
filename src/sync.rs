@@ -155,6 +155,9 @@ impl Syncer {
             envelope.status = Some(crate::resource::Status {
                 phase: crate::resource::Phase::Live,
                 observed_revision: Some(revision.clone()),
+                // The branch, not the revision: a Source link should keep working after the
+                // next commit, and the observed revision is right there beside it.
+                source_url: Some(self.gitea.browse_url(&path, &default_branch)),
                 conditions: Vec::new(),
             });
 

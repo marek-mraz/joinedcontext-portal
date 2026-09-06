@@ -25,5 +25,8 @@ export default defineConfig({
     globals: true,
     css: true,
     include: ["tests/**/*.test.{ts,tsx}"],
+    // Rendering the whole app (router, i18n, rjsf) takes seconds on a shared CPU, and the
+    // 5 s default would kill a test in the middle of an assertion that is merely slow.
+    testTimeout: 20_000,
   },
 });

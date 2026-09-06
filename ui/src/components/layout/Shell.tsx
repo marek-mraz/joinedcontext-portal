@@ -141,19 +141,30 @@ export function Shell({
           <ul className="mt-3 space-y-1">
             {NAV_SECTIONS.map((section) => {
               const isActive = section === activeSection;
+              const linkProps = {
+                "aria-current": isActive ? ("page" as const) : undefined,
+                className: clsx(
+                  "block rounded px-2 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus",
+                  isActive && "bg-surface-subtle font-semibold",
+                ),
+              };
               return (
                 <li key={section.plural}>
-                  <Link
-                    to="/projects/$project/$plural"
-                    params={{ project, plural: section.plural }}
-                    aria-current={isActive ? "page" : undefined}
-                    className={clsx(
-                      "block rounded px-2 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus",
-                      isActive && "bg-surface-subtle font-semibold",
-                    )}
-                  >
-                    {t(section.labelKey)}
-                  </Link>
+                  {/* Approvals has a route of its own; linking it through the generic
+                      template would resolve to that route anyway, with a router warning. */}
+                  {section.plural === "approvals" ? (
+                    <Link to="/projects/$project/approvals" params={{ project }} {...linkProps}>
+                      {t(section.labelKey)}
+                    </Link>
+                  ) : (
+                    <Link
+                      to="/projects/$project/$plural"
+                      params={{ project, plural: section.plural }}
+                      {...linkProps}
+                    >
+                      {t(section.labelKey)}
+                    </Link>
+                  )}
                 </li>
               );
             })}

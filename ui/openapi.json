@@ -1782,6 +1782,13 @@
           },
           "phase": {
             "$ref": "#/components/schemas/Phase"
+          },
+          "sourceUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Forge page of the file this manifest was read from, so a view can link \"Source\"\nwithout knowing where a kind lives in the repository. Computed, never read from Git."
           }
         },
         "additionalProperties": false

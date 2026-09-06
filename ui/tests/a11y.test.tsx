@@ -62,6 +62,60 @@ function stubChangesApi() {
   );
 }
 
+function stubManagerApi() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const path = new URL(url, window.location.origin).pathname;
+      let body: unknown = { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] };
+      if (path.endsWith("/auth/me")) {
+        body = IDENTITY;
+      } else if (path.endsWith("/spaces")) {
+        body = {
+          apiVersion: "joinedcontext.com/v1alpha1",
+          kind: "List",
+          items: [
+            {
+              apiVersion: "joinedcontext.com/v1alpha1",
+              kind: "ContextSpace",
+              metadata: { name: "ovzdusie", namespace: "banskabystrica" },
+              spec: { dataModelRef: "AirQualityObserved" },
+              status: { phase: "Live", sourceUrl: "https://git.example.sk/bb/org/src/branch/main/x.yaml" },
+            },
+          ],
+        };
+      } else if (path.endsWith("/endpoints")) {
+        body = {
+          apiVersion: "joinedcontext.com/v1alpha1",
+          kind: "List",
+          items: [
+            {
+              apiVersion: "joinedcontext.com/v1alpha1",
+              kind: "Endpoint",
+              metadata: { name: "public-air", namespace: "banskabystrica" },
+              spec: {
+                contextSpaceRef: "ovzdusie",
+                slug: "k7m2qz4tv6xh3n5jb2ryd3wcfa",
+                audience: "public",
+                enabledRepresentations: ["ngsi-ld"],
+              },
+              status: { phase: "Live" },
+            },
+          ],
+        };
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }),
+  );
+}
+
 function renderApp() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -146,6 +200,29 @@ describe("accessibility", () => {
     const { container } = renderApp();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Schváliť" })).toBeInTheDocument();
+    });
+
+    await expectNoViolations(container);
+  });
+  it("the Context Spaces manager has no axe violations", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/spaces");
+    stubManagerApi();
+
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("table")).toBeInTheDocument();
+    });
+
+    await expectNoViolations(container);
+  });
+
+  it("the Endpoints manager has no axe violations", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/endpoints");
+    stubManagerApi();
+
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("table")).toBeInTheDocument();
     });
 
     await expectNoViolations(container);
