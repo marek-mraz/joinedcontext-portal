@@ -265,10 +265,23 @@ export interface components {
             key: string;
             params: Record<string, never>;
         };
+        /**
+         * Condition
+         * @description Status condition entry.
+         */
         Condition: {
-            lastTransitionTime: string;
-            reason: string;
+            /**
+             * Format: date-time
+             * @description Last transition timestamp.
+             */
+            lastTransitionTime?: string | null;
+            /** @description Human-readable message. */
+            message?: string | null;
+            /** @description Machine-readable reason code. */
+            reason?: string | null;
+            /** @description Status value ("True", "False", "Unknown"). */
             status: string;
+            /** @description Type of condition (e.g. Reconciled, Ready). */
             type: string;
         };
         /** @description Reviewer-facing validation and diff result returned on `?dryRun=All` (MF-13, R17). */
@@ -325,23 +338,36 @@ export interface components {
              */
             endSessionUrl: string;
         };
+        /**
+         * ObjectMeta
+         * @description Metadata envelope attached to every platform resource (MF-02).
+         */
         ObjectMeta: {
+            /** @description Key-value annotations for provenance and ownership (MF-08). */
             annotations?: {
                 [key: string]: string;
             };
+            /** @description Human-readable multilingual description (PF-24). */
             description?: {
                 [key: string]: string;
             } | null;
+            /** @description Key-value labels for filtering (MF-10). */
             labels?: {
                 [key: string]: string;
             };
+            /** @description Resource name (DNS-1123 label). */
             name: string;
+            /** @description Resource namespace ("org" or project slug). */
             namespace?: string | null;
+            /** @description Human-readable multilingual title (PF-24). */
             title?: {
                 [key: string]: string;
             } | null;
         };
-        /** @enum {string} */
+        /**
+         * Phase
+         * @description Lifecycle phase enumeration.
+         */
         Phase: "Draft" | "Pending" | "Deploying" | "Live" | "Error";
         PipelineMetrics: {
             /** Format: int64 */
@@ -396,6 +422,11 @@ export interface components {
             kind: string;
             metadata: components["schemas"]["ListMeta"];
         };
+        /**
+         * @description The status the Portal API reports (MF-04). It is `jc_core::Status` plus `sourceUrl` and a phase
+         *     that is always known; it stays a Portal type until jc-core carries `sourceUrl` too (docs API/01
+         *     section 6 is the contract), then it becomes a re-export like its neighbours.
+         */
         Status: {
             conditions?: components["schemas"]["Condition"][];
             observedRevision?: string | null;

@@ -1476,24 +1476,42 @@
       },
       "Condition": {
         "type": "object",
+        "title": "Condition",
+        "description": "Status condition entry.",
         "required": [
-          "type",
           "status",
-          "reason",
-          "lastTransitionTime"
+          "type"
         ],
         "properties": {
           "lastTransitionTime": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Last transition timestamp."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable message."
           },
           "reason": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Machine-readable reason code."
           },
           "status": {
-            "type": "string"
+            "type": "string",
+            "description": "Status value (\"True\", \"False\", \"Unknown\")."
           },
           "type": {
-            "type": "string"
+            "type": "string",
+            "description": "Type of condition (e.g. Reconciled, Ready)."
           }
         },
         "additionalProperties": false
@@ -1633,16 +1651,16 @@
       },
       "ObjectMeta": {
         "type": "object",
+        "title": "ObjectMeta",
+        "description": "Metadata envelope attached to every platform resource (MF-02).",
         "required": [
           "name"
         ],
         "properties": {
           "annotations": {
             "type": "object",
+            "description": "Key-value annotations for provenance and ownership (MF-08).",
             "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
               "type": "string"
             }
           },
@@ -1651,55 +1669,90 @@
               "object",
               "null"
             ],
+            "description": "Human-readable multilingual description (PF-24).",
             "additionalProperties": {
               "type": "string"
             },
             "propertyNames": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[a-z]{2}$"
             }
           },
           "labels": {
             "type": "object",
+            "description": "Key-value labels for filtering (MF-10).",
             "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
               "type": "string"
             }
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Resource name (DNS-1123 label)."
           },
           "namespace": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Resource namespace (\"org\" or project slug)."
           },
           "title": {
             "type": [
               "object",
               "null"
             ],
+            "description": "Human-readable multilingual title (PF-24).",
             "additionalProperties": {
               "type": "string"
             },
             "propertyNames": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[a-z]{2}$"
             }
           }
         },
         "additionalProperties": false
       },
       "Phase": {
-        "type": "string",
-        "enum": [
-          "Draft",
-          "Pending",
-          "Deploying",
-          "Live",
-          "Error"
-        ]
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Resource manifest is in draft state.",
+            "enum": [
+              "Draft"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "Resource is pending review or approval.",
+            "enum": [
+              "Pending"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "Resource deployment is in progress.",
+            "enum": [
+              "Deploying"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "Resource is live and active in cluster.",
+            "enum": [
+              "Live"
+            ]
+          },
+          {
+            "type": "string",
+            "description": "Reconciliation error.",
+            "enum": [
+              "Error"
+            ]
+          }
+        ],
+        "title": "Phase",
+        "description": "Lifecycle phase enumeration."
       },
       "PipelineMetrics": {
         "type": "object",
@@ -1890,6 +1943,7 @@
       },
       "Status": {
         "type": "object",
+        "description": "The status the Portal API reports (MF-04). It is `jc_core::Status` plus `sourceUrl` and a phase\nthat is always known; it stays a Portal type until jc-core carries `sourceUrl` too (docs API/01\nsection 6 is the contract), then it becomes a re-export like its neighbours.",
         "required": [
           "phase"
         ],

@@ -226,7 +226,7 @@ pub async fn propose(
     }
 
     // 4. Metadata DNS-1123, status rejection (MF-04) and secret rejection (MF-24)
-    envelope.metadata.validate().map_err(ApiError::BadRequest)?;
+    resource::validate_meta(&envelope.metadata).map_err(ApiError::BadRequest)?;
 
     if body_val.get("status").is_some() || envelope.status.is_some() {
         return Err(ApiError::BadRequest(

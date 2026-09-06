@@ -1,7 +1,9 @@
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
-use utoipa::OpenApi;
+use utoipa::openapi::schema::{Array, Ref, Schema};
+use utoipa::openapi::RefOr;
+use utoipa::{Modify, OpenApi};
 
 use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
 use crate::api::dry_run::DryRunResult;
@@ -13,7 +15,7 @@ use crate::auth::Identity;
 use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSummary};
 use crate::error::ProblemDetails;
 use crate::plan::{FieldChange, PlanDiff};
-use crate::resource::{Condition, ObjectMeta, Phase, ResourceEnvelope, Status};
+use crate::resource::{ResourceEnvelope, Status};
 use crate::state::AppState;
 use crate::sync::SyncStatus;
 
@@ -43,10 +45,7 @@ use crate::sync::SyncStatus;
         LogoutTarget,
         ProblemDetails,
         ResourceEnvelope,
-        ObjectMeta,
         Status,
-        Phase,
-        Condition,
         ResourceList,
         ListMeta,
         Change,
@@ -74,9 +73,59 @@ use crate::sync::SyncStatus;
         (name = "system", description = "System operations"),
         (name = "auth", description = "Sign-in, sign-out and the current identity"),
         (name = "resources", description = "Resource operations")
-    )
+    ),
+    modifiers(&JcCoreSchemas)
 )]
 pub struct ApiDoc;
+
+/// jc-core's types describe themselves with schemars, the Portal's with utoipa. The fields typed
+/// by jc-core point at named components (so the generated TypeScript keeps `ObjectMeta`, `Phase`
+/// and `Condition` as it always had them) and this modifier fills those components in from the
+/// crate's own JSON Schema, so the document can never drift from the tagged contract.
+struct JcCoreSchemas;
+
+impl Modify for JcCoreSchemas {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi.components.get_or_insert_with(Default::default);
+        components.schemas.insert(
+            "ObjectMeta".into(),
+            schemars_schema::<jc_core::ObjectMeta>(),
+        );
+        components
+            .schemas
+            .insert("Phase".into(), schemars_schema::<jc_core::Phase>());
+        components
+            .schemas
+            .insert("Condition".into(), schemars_schema::<jc_core::Condition>());
+    }
+}
+
+/// A jc-core type's draft-07 schema as a utoipa schema. Subschemas are inlined so no
+/// `#/definitions/` reference is left pointing outside the OpenAPI components.
+fn schemars_schema<T: schemars::JsonSchema>() -> RefOr<Schema> {
+    let mut settings = schemars::gen::SchemaSettings::draft07();
+    settings.inline_subschemas = true;
+    let root = schemars::gen::SchemaGenerator::new(settings).into_root_schema_for::<T>();
+    let value = serde_json::to_value(root.schema).unwrap_or_default();
+    serde_json::from_value(value).unwrap_or_else(|err| {
+        // A schema this crate cannot express is a build defect, not a runtime condition: the
+        // openapi test catches it before it ships. Documented as a free object until then.
+        tracing::error!(error = %err, "jc-core schema is not a valid OpenAPI schema");
+        RefOr::T(Schema::Object(Default::default()))
+    })
+}
+
+pub fn object_meta_ref() -> Ref {
+    Ref::from_schema_name("ObjectMeta")
+}
+
+pub fn phase_ref() -> Ref {
+    Ref::from_schema_name("Phase")
+}
+
+pub fn conditions_ref() -> Array {
+    Array::new(Ref::from_schema_name("Condition"))
+}
 
 pub async fn openapi_json() -> impl IntoResponse {
     Json(ApiDoc::openapi())

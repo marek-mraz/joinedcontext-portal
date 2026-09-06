@@ -212,7 +212,7 @@ fn visit_dir(dir: &Path, mirror: &Mirror) -> Result<(), MirrorError> {
                     source: e,
                 })?;
 
-            if let Err(reason) = envelope.metadata.validate() {
+            if let Err(reason) = crate::resource::validate_meta(&envelope.metadata) {
                 return Err(MirrorError::InvalidResource {
                     path: path.clone(),
                     reason,

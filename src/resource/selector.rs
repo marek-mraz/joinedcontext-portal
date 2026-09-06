@@ -241,7 +241,7 @@ impl FieldSelector {
                 Field::StatusPhase => envelope
                     .status
                     .as_ref()
-                    .map(|s| s.phase.as_str() == expected.as_str())
+                    .map(|s| super::phase_str(s.phase) == expected.as_str())
                     .unwrap_or(false),
             },
             FieldRequirement::NotEquals(field, expected) => match field {
@@ -252,7 +252,7 @@ impl FieldSelector {
                 Field::StatusPhase => envelope
                     .status
                     .as_ref()
-                    .map(|s| s.phase.as_str() != expected.as_str())
+                    .map(|s| super::phase_str(s.phase) != expected.as_str())
                     .unwrap_or(true),
             },
         })
