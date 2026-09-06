@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.36.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with: { scan-type: fs, severity: "HIGH,CRITICAL", exit-code: "1", ignore-unfixed: true }
   e2e:
     runs-on: ubuntu-latest
