@@ -5,6 +5,35 @@ edition = "2021"
 license = "EUPL-1.2"
 description = "joinedcontext Portal: one application that manages the platform (Rust API + reconciler + embedded React UI)"
 
+[lib]
+name = "joinedcontext_portal"
+path = "src/lib.rs"
+
+[[bin]]
+name = "joinedcontext-portal"
+path = "src/main.rs"
+
 [dependencies]
-# axum, sqlx, utoipa, jc-core and jcctl (as library) are added when the first code lands;
-# see ../docs/Architecture/09-portal.md and 06-configuration-as-code.md
+axum = { version = "0.8", features = ["macros"] }
+axum-extra = { version = "0.12", features = ["cookie-private"] }
+tower = "0.5"
+tower-http = { version = "0.7", features = ["set-header", "trace"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+utoipa = { version = "5", features = ["axum_extras"] }
+rust-embed = "8"
+mime_guess = "2"
+openidconnect = "4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+time = "0.3"
+url = "2"
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+wiremock = "0.6"
