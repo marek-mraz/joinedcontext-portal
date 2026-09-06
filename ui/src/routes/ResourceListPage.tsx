@@ -5,6 +5,7 @@ import { SpacesPage } from "./SpacesPage";
 import { EndpointsPage } from "./EndpointsPage";
 import { DashboardsPage } from "./DashboardsPage";
 import { PipelinesPage } from "./PipelinesPage";
+import { DataSourcesPage } from "../pages/datasources/DataSourcesPage";
 import { AccessPage } from "../pages/access/AccessPage";
 import { FlowGallery } from "../pages/flows/Gallery";
 import { AppsCatalog } from "../pages/apps/AppsCatalog";
@@ -26,6 +27,9 @@ export function ResourceListPage({
   }
   if (plural === "pipelines") {
     return <PipelinesPage project={project} />;
+  }
+  if (plural === "datasources") {
+    return <DataSourcesPage project={project} />;
   }
   if (plural === "dashboards") {
     return <DashboardsPage project={project} />;

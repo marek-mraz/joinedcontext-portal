@@ -14,6 +14,8 @@ export const NAV_SECTIONS = [
   { plural: "flows", labelKey: "nav.flows" },
   { plural: "spaces", labelKey: "nav.spaces" },
   { plural: "endpoints", labelKey: "nav.endpoints" },
+  // A source is what a pipeline reads, so it sits in front of the pipelines (MF-35).
+  { plural: "datasources", labelKey: "nav.datasources" },
   { plural: "pipelines", labelKey: "nav.pipelines" },
   { plural: "dashboards", labelKey: "nav.dashboards" },
   { plural: "apps", labelKey: "nav.apps" },

@@ -11,6 +11,7 @@
     "projects": "Projects",
     "spaces": "Context Spaces",
     "endpoints": "Endpoints",
+    "datasources": "Data sources",
     "pipelines": "Pipelines",
     "dashboards": "Dashboards",
     "apps": "Applications",
@@ -189,6 +190,57 @@
       "addHidden": "Hide an attribute by name",
       "add": "Hide",
       "attribute": "Attribute"
+    }
+  },
+  "datasources": {
+    "title": "Data sources",
+    "lead": "Where the city reads from: one connection per source, declared once and referenced by the pipelines that read it.",
+    "empty": "This project has no data source yet.",
+    "add": "New data source",
+    "edit": "Edit",
+    "propose": "Propose change",
+    "check": "Check",
+    "plan": "Planned change",
+    "secretHint": "Credentials stay in the secret store. A form takes the name and the key of a reference, never the value itself.",
+    "noSecret": "none",
+    "type": {
+      "mqtt": "MQTT broker",
+      "http": "HTTP endpoint",
+      "web-socket": "WebSocket stream",
+      "gtfs-rt": "GTFS-realtime feed"
+    },
+    "dialog": {
+      "create": "New data source",
+      "edit": "Edit data source",
+      "mqtt": "Subscribes to topics on a broker and hands every message to the pipeline that references it.",
+      "http": "Polls a URL on the pipeline's own period.",
+      "web-socket": "Holds a socket open and reads the messages the server pushes.",
+      "gtfs-rt": "Reads a GTFS-realtime feed; the protobuf is decoded before the pipeline sees it."
+    },
+    "field": {
+      "type": "Type",
+      "name": "Name",
+      "title": "Title",
+      "endpoint": "Endpoint",
+      "secrets": "Credentials",
+      "urls": "Broker URLs",
+      "topics": "Topics",
+      "qos": "QoS",
+      "cleanSession": "Clean session",
+      "username": "User name",
+      "password": "Password reference",
+      "url": "URL",
+      "verb": "Method",
+      "timeout": "Timeout",
+      "authorization": "Authorization",
+      "scheme": "Scheme",
+      "credential": "Credential reference",
+      "openMessage": "Opening message",
+      "feed": "Feed",
+      "tls": "TLS",
+      "caCert": "Certificate authority reference",
+      "secretName": "Secret name",
+      "secretKey": "Key in the secret"
     }
   },
   "pipelines": {

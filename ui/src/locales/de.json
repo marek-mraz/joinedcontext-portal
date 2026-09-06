@@ -11,6 +11,7 @@
     "projects": "Projekte",
     "spaces": "Kontexträume",
     "endpoints": "Endpunkte",
+    "datasources": "Datenquellen",
     "pipelines": "Pipelines",
     "dashboards": "Dashboards",
     "apps": "Anwendungen",
@@ -189,6 +190,57 @@
       "addHidden": "Attribut nach Namen verbergen",
       "add": "Verbergen",
       "attribute": "Attribut"
+    }
+  },
+  "datasources": {
+    "title": "Datenquellen",
+    "lead": "Woher die Stadt liest: eine Verbindung je Quelle, einmal deklariert und von den Pipelines referenziert, die sie lesen.",
+    "empty": "Dieses Projekt hat noch keine Datenquelle.",
+    "add": "Neue Datenquelle",
+    "edit": "Bearbeiten",
+    "propose": "Änderung vorschlagen",
+    "check": "Prüfen",
+    "plan": "Geplante Änderung",
+    "secretHint": "Zugangsdaten bleiben im Secret-Store. Das Formular nimmt Name und Schlüssel einer Referenz, niemals den Wert selbst.",
+    "noSecret": "keine",
+    "type": {
+      "mqtt": "MQTT-Broker",
+      "http": "HTTP-Endpunkt",
+      "web-socket": "WebSocket-Stream",
+      "gtfs-rt": "GTFS-Realtime-Feed"
+    },
+    "dialog": {
+      "create": "Neue Datenquelle",
+      "edit": "Datenquelle bearbeiten",
+      "mqtt": "Abonniert Topics auf einem Broker und übergibt jede Nachricht der Pipeline, die ihn referenziert.",
+      "http": "Ruft eine URL im Takt der Pipeline ab.",
+      "web-socket": "Hält einen Socket offen und liest die Nachrichten, die der Server sendet.",
+      "gtfs-rt": "Liest einen GTFS-Realtime-Feed; das Protobuf wird vor der Pipeline dekodiert."
+    },
+    "field": {
+      "type": "Typ",
+      "name": "Name",
+      "title": "Titel",
+      "endpoint": "Adresse",
+      "secrets": "Zugangsdaten",
+      "urls": "Broker-URLs",
+      "topics": "Topics",
+      "qos": "QoS",
+      "cleanSession": "Clean Session",
+      "username": "Benutzername",
+      "password": "Passwort-Referenz",
+      "url": "URL",
+      "verb": "Methode",
+      "timeout": "Zeitlimit",
+      "authorization": "Autorisierung",
+      "scheme": "Schema",
+      "credential": "Referenz auf Zugangsdaten",
+      "openMessage": "Eröffnungsnachricht",
+      "feed": "Feed",
+      "tls": "TLS",
+      "caCert": "Referenz auf Zertifizierungsstelle",
+      "secretName": "Name des Secrets",
+      "secretKey": "Schlüssel im Secret"
     }
   },
   "pipelines": {

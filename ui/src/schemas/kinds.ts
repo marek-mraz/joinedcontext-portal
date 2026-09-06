@@ -200,3 +200,148 @@ export function generateSlug(): string {
   // often; masking to 5 bits keeps every character equally likely.
   return Array.from(bytes, (byte) => alphabet[byte & 31]).join("");
 }
+
+/** The four feeds a `DataSource` connects to, in the order the wizard offers them (MF-35). */
+export const DATA_SOURCE_TYPES = ["mqtt", "http", "web-socket", "gtfs-rt"] as const;
+
+export type DataSourceType = (typeof DATA_SOURCE_TYPES)[number];
+
+/** The connection block each type carries, keyed the way the manifest keys it. */
+export const CONNECTION_BLOCK: Record<DataSourceType, string> = {
+  mqtt: "mqtt",
+  http: "http",
+  "web-socket": "webSocket",
+  "gtfs-rt": "gtfsRt",
+};
+
+/**
+ * A credential reference, never a credential: the picker offers the secret names this project
+ * already uses and takes a new one as free text, and the value itself is only ever in the
+ * secret store (CC-06, MF-35).
+ */
+function secretRef(t: (key: string) => string, title: string, secrets: string[]): JsonSchema {
+  return {
+    type: "object",
+    title,
+    required: ["name", "key"],
+    properties: {
+      name: {
+        type: "string",
+        title: t("datasources.field.secretName"),
+        ...(secrets.length > 0 ? { examples: secrets } : {}),
+      },
+      key: { type: "string", title: t("datasources.field.secretKey") },
+    },
+  };
+}
+
+/**
+ * The form of one connection type (MF-35, UI-04).
+ *
+ * One schema per type rather than one schema with four optional blocks: the manifest allows
+ * exactly the block its `type` names, and a form offering the other three invites a manifest
+ * the API refuses.
+ */
+export function dataSourceSchema(
+  t: (key: string) => string,
+  type: DataSourceType,
+  secrets: string[] = [],
+): JsonSchema {
+  const name: JsonSchema = {
+    type: "string",
+    title: t("datasources.field.name"),
+    pattern: DNS1123,
+    maxLength: 63,
+  };
+  const title = { ...titleProperty, title: t("datasources.field.title") };
+  const tls: JsonSchema = {
+    type: "object",
+    title: t("datasources.field.tls"),
+    properties: {
+      caCertRef: secretRef(t, t("datasources.field.caCert"), secrets),
+    },
+  };
+
+  const connection: Record<DataSourceType, JsonSchema> = {
+    mqtt: {
+      type: "object",
+      title: t("datasources.type.mqtt"),
+      required: ["urls", "topics"],
+      properties: {
+        urls: {
+          type: "array",
+          title: t("datasources.field.urls"),
+          minItems: 1,
+          items: { type: "string", pattern: "^(tcp|tls|ws|wss)://.+" },
+        },
+        topics: {
+          type: "array",
+          title: t("datasources.field.topics"),
+          minItems: 1,
+          items: { type: "string", minLength: 1 },
+        },
+        qos: { type: "integer", title: t("datasources.field.qos"), minimum: 0, maximum: 2 },
+        cleanSession: { type: "boolean", title: t("datasources.field.cleanSession") },
+        username: { type: "string", title: t("datasources.field.username") },
+        passwordRef: secretRef(t, t("datasources.field.password"), secrets),
+      },
+    },
+    http: {
+      type: "object",
+      title: t("datasources.type.http"),
+      required: ["url"],
+      properties: {
+        url: { type: "string", title: t("datasources.field.url"), pattern: "^https?://.+" },
+        verb: { type: "string", title: t("datasources.field.verb"), enum: ["GET", "POST"], default: "GET" },
+        timeout: { type: "string", title: t("datasources.field.timeout"), pattern: "^[0-9]+(ms|s|m)$" },
+        authorization: {
+          type: "object",
+          title: t("datasources.field.authorization"),
+          properties: {
+            scheme: { type: "string", title: t("datasources.field.scheme"), default: "Bearer" },
+            headerRef: secretRef(t, t("datasources.field.credential"), secrets),
+          },
+        },
+      },
+    },
+    "web-socket": {
+      type: "object",
+      title: t("datasources.type.web-socket"),
+      required: ["url"],
+      properties: {
+        url: { type: "string", title: t("datasources.field.url"), pattern: "^wss?://.+" },
+        openMessage: { type: "string", title: t("datasources.field.openMessage") },
+      },
+    },
+    "gtfs-rt": {
+      type: "object",
+      title: t("datasources.type.gtfs-rt"),
+      required: ["url", "feed"],
+      properties: {
+        url: { type: "string", title: t("datasources.field.url"), pattern: "^https?://.+" },
+        feed: {
+          type: "string",
+          title: t("datasources.field.feed"),
+          enum: ["vehiclePositions", "tripUpdates", "alerts"],
+          default: "vehiclePositions",
+        },
+      },
+    },
+  };
+
+  return {
+    type: "object",
+    required: ["name", CONNECTION_BLOCK[type]],
+    properties: {
+      name,
+      title,
+      [CONNECTION_BLOCK[type]]: connection[type],
+      tls,
+    },
+  };
+}
+
+/** Long free text gets a text area; the rest is default rendering. */
+export const dataSourceUiSchema: UiSchema = {
+  webSocket: { openMessage: { "ui:widget": "textarea" } },
+};

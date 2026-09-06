@@ -11,6 +11,7 @@
     "projects": "Projekty",
     "spaces": "Kontextové priestory",
     "endpoints": "Koncové body",
+    "datasources": "Zdroje údajov",
     "pipelines": "Pipelines",
     "dashboards": "Prehľady",
     "apps": "Aplikácie",
@@ -189,6 +190,57 @@
       "addHidden": "Skryť atribút podľa názvu",
       "add": "Skryť",
       "attribute": "Atribút"
+    }
+  },
+  "datasources": {
+    "title": "Zdroje údajov",
+    "lead": "Odkiaľ mesto číta: jedno pripojenie na zdroj, deklarované raz a odkazované z pipeline, ktoré ho čítajú.",
+    "empty": "Tento projekt zatiaľ nemá žiadny zdroj údajov.",
+    "add": "Nový zdroj údajov",
+    "edit": "Upraviť",
+    "propose": "Navrhnúť zmenu",
+    "check": "Skontrolovať",
+    "plan": "Plánovaná zmena",
+    "secretHint": "Prihlasovacie údaje zostávajú v úložisku tajomstiev. Formulár berie názov a kľúč odkazu, nikdy samotnú hodnotu.",
+    "noSecret": "žiadne",
+    "type": {
+      "mqtt": "MQTT broker",
+      "http": "HTTP endpoint",
+      "web-socket": "WebSocket stream",
+      "gtfs-rt": "GTFS-realtime feed"
+    },
+    "dialog": {
+      "create": "Nový zdroj údajov",
+      "edit": "Úprava zdroja údajov",
+      "mqtt": "Odoberá témy na brokeri a každú správu odovzdá pipeline, ktorá naň odkazuje.",
+      "http": "Periodicky sťahuje URL v perióde samotnej pipeline.",
+      "web-socket": "Drží otvorený socket a číta správy, ktoré server posiela.",
+      "gtfs-rt": "Číta GTFS-realtime feed; protobuf sa dekóduje ešte pred pipeline."
+    },
+    "field": {
+      "type": "Typ",
+      "name": "Názov",
+      "title": "Popisný názov",
+      "endpoint": "Adresa",
+      "secrets": "Prihlasovacie údaje",
+      "urls": "Adresy brokera",
+      "topics": "Témy",
+      "qos": "QoS",
+      "cleanSession": "Čistá relácia",
+      "username": "Používateľské meno",
+      "password": "Odkaz na heslo",
+      "url": "URL",
+      "verb": "Metóda",
+      "timeout": "Časový limit",
+      "authorization": "Autorizácia",
+      "scheme": "Schéma",
+      "credential": "Odkaz na prihlasovací údaj",
+      "openMessage": "Úvodná správa",
+      "feed": "Feed",
+      "tls": "TLS",
+      "caCert": "Odkaz na certifikačnú autoritu",
+      "secretName": "Názov tajomstva",
+      "secretKey": "Kľúč v tajomstve"
     }
   },
   "pipelines": {
