@@ -9,8 +9,8 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use axum::extract::State;
-use axum::routing::post;
+use axum::extract::{Query, State};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -35,6 +35,52 @@ pub struct GenerateRequest {
     pub source: String,
 }
 
+/// One model of the Smart Data Models catalogue index, as the wizard lists and searches it.
+#[derive(Debug, Default, Deserialize, Serialize, ToSchema, PartialEq)]
+pub struct CatalogueModel {
+    /// The catalogue identifier, `dataModel.Environment/AirQualityObserved`.
+    pub id: String,
+    /// The model name, `AirQualityObserved`.
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Attribute names, so the wizard can search by attribute without fetching the model.
+    #[serde(default)]
+    pub attributes: Vec<String>,
+}
+
+/// One subject of the catalogue: `dataModel.Environment` and the models under it.
+#[derive(Debug, Default, Deserialize, Serialize, ToSchema, PartialEq)]
+pub struct CatalogueSubject {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub models: Vec<CatalogueModel>,
+}
+
+/// The catalogue index Model Tools caches and refreshes daily (DM-12).
+#[derive(Debug, Default, Deserialize, Serialize, ToSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Catalogue {
+    #[serde(default)]
+    pub subjects: Vec<CatalogueSubject>,
+    /// When the cache was last filled from the catalogue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refreshed_at: Option<String>,
+    /// The last refresh did not reach the catalogue, so this index is the older cached one.
+    /// An index a browser cannot refresh is still an index it can work from (DM-12).
+    #[serde(default)]
+    pub stale: bool,
+}
+
+/// `?refresh=true`: ask Model Tools to fill its cache now instead of waiting for the daily run.
+#[derive(Debug, Default, Deserialize, Serialize, ToSchema)]
+pub struct CatalogueQuery {
+    #[serde(default)]
+    pub refresh: bool,
+}
+
 /// A model to import from the Smart Data Models catalogue.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct ImportSdmRequest {
@@ -50,6 +96,10 @@ pub struct ImportSdmRequest {
 #[derive(Debug, Default, Deserialize, Serialize, ToSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Artifacts {
+    /// The LinkML source itself, which an import produces and the editor then edits; its
+    /// annotations carry `spec.source.repository`, `path` and `commit` (DM-07, DM-08).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linkml: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub json_schema: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,39 +146,43 @@ fn http() -> &'static reqwest::Client {
     })
 }
 
+/// The Model Tools base URL, or the reason the Portal cannot reach it.
+fn model_tools_url(state: &AppState, route: &str) -> Result<String, ApiError> {
+    let base = state
+        .config
+        .model_tools_url
+        .as_deref()
+        .ok_or_else(|| ApiError::Unavailable("no model tools service is configured".into()))?;
+    Ok(format!("{}/{route}", base.trim_end_matches('/')))
+}
+
+/// The URL names an internal service, so the reason is logged and the caller learns only that
+/// the compiler is unreachable.
+fn unavailable(route: &str, what: &str, err: &dyn std::fmt::Display) -> ApiError {
+    tracing::warn!(route = %route, error = %err, "model tools {what}");
+    ApiError::Unavailable("the model tools service did not answer".into())
+}
+
 /// Posts one body to a Model Tools route and reads the artifacts back.
 async fn compile(
     state: &AppState,
     route: &str,
     body: &impl Serialize,
 ) -> Result<Json<Artifacts>, ApiError> {
-    let base = state
-        .config
-        .model_tools_url
-        .as_deref()
-        .ok_or_else(|| ApiError::Unavailable("no model tools service is configured".into()))?;
-    let url = format!("{}/{route}", base.trim_end_matches('/'));
-
-    // The URL names an internal service, so the reason is logged and the caller learns only
-    // that the compiler is unreachable.
-    let unavailable = |what: &str, err: &dyn std::fmt::Display| {
-        tracing::warn!(route = %route, error = %err, "model tools {what}");
-        ApiError::Unavailable("the model tools service did not answer".into())
-    };
-
+    let url = model_tools_url(state, route)?;
     let response = http()
         .post(&url)
         .json(body)
         .send()
         .await
-        .map_err(|err| unavailable("unreachable", &err))?;
+        .map_err(|err| unavailable(route, "unreachable", &err))?;
     if !response.status().is_success() {
-        return Err(unavailable("refused", &response.status()));
+        return Err(unavailable(route, "refused", &response.status()));
     }
     let artifacts = response
         .json::<Artifacts>()
         .await
-        .map_err(|err| unavailable("answered unreadably", &err))?;
+        .map_err(|err| unavailable(route, "answered unreadably", &err))?;
     Ok(Json(artifacts))
 }
 
@@ -179,8 +233,45 @@ pub async fn import_sdm(
     compile(&state, "import-sdm", &request).await
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/tools/sdm-catalog",
+    tag = "tools",
+    params(("refresh" = Option<bool>, Query, description = "Refresh the cached index now instead of waiting for the daily run")),
+    responses(
+        (status = 200, description = "The catalogue index, from the cache when a refresh did not reach the catalogue", body = Catalogue),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 503, description = "No model tools service configured, or it did not answer", body = ProblemDetails)
+    )
+)]
+pub async fn sdm_catalog(
+    _user: CurrentUser,
+    State(state): State<AppState>,
+    Query(query): Query<CatalogueQuery>,
+) -> Result<Json<Catalogue>, ApiError> {
+    let route = "catalog";
+    let url = model_tools_url(&state, route)?;
+    let response = http()
+        .get(&url)
+        // The only thing a caller may steer here: whether the cache is refilled first. The
+        // catalogue itself is named by Model Tools' own allowlist, never by the request (DM-10).
+        .query(&[("refresh", query.refresh.to_string())])
+        .send()
+        .await
+        .map_err(|err| unavailable(route, "unreachable", &err))?;
+    if !response.status().is_success() {
+        return Err(unavailable(route, "refused", &response.status()));
+    }
+    let catalogue = response
+        .json::<Catalogue>()
+        .await
+        .map_err(|err| unavailable(route, "answered unreadably", &err))?;
+    Ok(Json(catalogue))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/tools/sdm-catalog", get(sdm_catalog))
         .route("/tools/generate", post(generate))
         .route("/tools/import-sdm", post(import_sdm))
         // Model Tools is stateless and shared: an oversized source is refused here, before it

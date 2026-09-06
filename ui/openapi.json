@@ -2044,6 +2044,57 @@
         }
       }
     },
+    "/api/v1/tools/sdm-catalog": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "sdm_catalog",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "description": "Refresh the cached index now instead of waiting for the daily run",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The catalogue index, from the cache when a refresh did not reach the catalogue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Catalogue"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model tools service configured, or it did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/webhooks/gitea": {
       "post": {
         "tags": [
@@ -2160,6 +2211,13 @@
             "description": "The generator version that produced these artifacts, so a preview and a committed\nartifact set can be compared (DM-19)."
           },
           "jsonSchema": {},
+          "linkml": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The LinkML source itself, which an import produces and the editor then edits; its\nannotations carry `spec.source.repository`, `path` and `commit` (DM-07, DM-08)."
+          },
           "owl": {
             "type": [
               "string",
@@ -2167,6 +2225,84 @@
             ]
           },
           "shacl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Catalogue": {
+        "type": "object",
+        "description": "The catalogue index Model Tools caches and refreshes daily (DM-12).",
+        "properties": {
+          "refreshedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the cache was last filled from the catalogue."
+          },
+          "stale": {
+            "type": "boolean",
+            "description": "The last refresh did not reach the catalogue, so this index is the older cached one.\nAn index a browser cannot refresh is still an index it can work from (DM-12)."
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogueSubject"
+            }
+          }
+        }
+      },
+      "CatalogueModel": {
+        "type": "object",
+        "description": "One model of the Smart Data Models catalogue index, as the wizard lists and searches it.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Attribute names, so the wizard can search by attribute without fetching the model."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "The catalogue identifier, `dataModel.Environment/AirQualityObserved`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The model name, `AirQualityObserved`."
+          }
+        }
+      },
+      "CatalogueSubject": {
+        "type": "object",
+        "description": "One subject of the catalogue: `dataModel.Environment` and the models under it.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogueModel"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "title": {
             "type": [
               "string",
               "null"

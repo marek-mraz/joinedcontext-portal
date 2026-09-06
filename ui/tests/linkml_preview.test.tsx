@@ -1,0 +1,155 @@
+/** T-0220: what the model compiles to, while it is being written (DM-17, DM-20, DM-21). */
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { I18nextProvider } from "react-i18next";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "../src/i18n";
+import { LinkmlPreviewPanel, unmappedTerms } from "../src/pages/models/LinkmlPreviewPanel";
+
+const SOURCE = `id: https://banskabystrica.sk/models/air
+name: air
+classes:
+  AirQualityObserved:
+    slots: [pm10, dateObserved, location]
+slots:
+  pm10:
+    range: float
+  dateObserved:
+    range: datetime
+  location:
+    annotations:
+      ngsi_ld_kind: GeoProperty
+`;
+
+const ARTIFACTS = {
+  jsonSchema: {
+    $schema: "http://json-schema.org/draft-07/schema#",
+    title: "AirQualityObserved",
+    type: "object",
+    properties: { pm10: { type: "number", title: "pm10" } },
+  },
+  context: { "@context": { pm10: "https://banskabystrica.sk/terms/pm10" } },
+  example: { id: "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:st-1", pm10: 31.4 },
+  generatorVersion: "linkml-1.8.0",
+  errors: [],
+};
+
+function renderPanel(artifacts: unknown = ARTIFACTS, status = 200) {
+  const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(() =>
+    Promise.resolve(
+      new Response(JSON.stringify(artifacts), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <I18nextProvider i18n={i18n}>
+        <LinkmlPreviewPanel source={SOURCE} debounceMs={0} />
+      </I18nextProvider>
+    </QueryClientProvider>,
+  );
+  return { fetchMock, user: userEvent.setup() };
+}
+
+describe("LinkML preview panel", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("compiles the source through the Portal and never through the browser", async () => {
+    const { fetchMock } = renderPanel();
+
+    await screen.findByText(/AirQualityObserved/);
+    const request = fetchMock.mock.calls[0][0] as Request;
+    expect(new URL(request.url).pathname).toBe("/api/v1/tools/generate");
+    expect(request.method).toBe("POST");
+    // Model Tools is the only component allowed to fetch a third-party schema (DM-10).
+    for (const call of fetchMock.mock.calls) {
+      expect(new URL((call[0] as Request).url).origin).toBe(window.location.origin);
+    }
+  });
+
+  it("switches between the artifacts of one compilation", async () => {
+    const { user } = renderPanel();
+    await screen.findByText(/AirQualityObserved/);
+
+    await user.click(screen.getByRole("tab", { name: "@context" }));
+    expect(await screen.findByText(/banskabystrica.sk\/terms\/pm10/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Example entity" }));
+    expect(await screen.findByText(/urn:ngsi-ld:AirQualityObserved/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Documentation" }));
+    expect(await screen.findByText(/# AirQualityObserved/)).toBeInTheDocument();
+  });
+
+  it("renders the form the JSON Schema produces, which is the form the Portal will show", async () => {
+    const { user } = renderPanel();
+    await screen.findByText(/AirQualityObserved/);
+
+    await user.click(screen.getByRole("tab", { name: "Form" }));
+
+    const field = await screen.findByLabelText("pm10");
+    expect(field).toHaveValue(31.4);
+    expect(field).toBeDisabled();
+  });
+
+  it("classifies every slot for the dashboards that will filter on it", async () => {
+    const { user } = renderPanel();
+    await screen.findByText(/AirQualityObserved/);
+
+    await user.click(screen.getByRole("tab", { name: "Filters and layers" }));
+
+    const rows = await screen.findAllByRole("row");
+    const text = rows.map((row) => row.textContent ?? "");
+    expect(text.some((row) => row.includes("pm10") && row.includes("range filter"))).toBe(true);
+    expect(text.some((row) => row.includes("dateObserved") && row.includes("time filter"))).toBe(
+      true,
+    );
+    expect(text.some((row) => row.includes("location") && row.includes("map layer"))).toBe(true);
+  });
+
+  it("names the terms an example carries that the generated context does not define", async () => {
+    renderPanel({
+      ...ARTIFACTS,
+      example: { ...ARTIFACTS.example, temperature: 21 },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("temperature");
+  });
+
+  it("shows the compiler's own messages for a model that does not compile yet", async () => {
+    renderPanel({ errors: ["slot 'pm10' has no range"] });
+
+    expect(await screen.findByText("slot 'pm10' has no range")).toBeInTheDocument();
+  });
+
+  it("says the preview is unavailable rather than losing the source", async () => {
+    renderPanel({ title: "Service Unavailable" }, 503);
+
+    expect(
+      await screen.findByText(/The preview service did not answer/),
+    ).toBeInTheDocument();
+  });
+
+  it("counts only real terms as unmapped", () => {
+    expect(
+      unmappedTerms(
+        { id: "urn:x", type: "Air", pm10: 1, "@context": [] },
+        { "@context": { pm10: "https://x/pm10" } },
+      ),
+    ).toEqual([]);
+    expect(unmappedTerms({ pm25: 1 }, { "@context": { pm10: "https://x/pm10" } })).toEqual([
+      "pm25",
+    ]);
+    expect(unmappedTerms(undefined, undefined)).toEqual([]);
+  });
+});

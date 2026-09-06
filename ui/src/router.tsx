@@ -11,6 +11,7 @@ import { ResourceListPage } from "./routes/ResourceListPage";
 import { ApprovalsPage } from "./routes/ApprovalsPage";
 import { ApprovalDetailPage } from "./routes/ApprovalDetailPage";
 import { FederationPlayground } from "./components/visualization/FederationPlayground";
+import { ModelsPage } from "./pages/models/ModelsPage";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -91,6 +92,19 @@ const playgroundRoute = createRoute({
   },
 });
 
+const modelsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/models",
+  component: function ModelsRoute() {
+    const { project } = modelsRoute.useParams();
+    return (
+      <Shell project={project} projects={KNOWN_PROJECTS}>
+        <ModelsPage project={project} />
+      </Shell>
+    );
+  },
+});
+
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
@@ -111,6 +125,7 @@ export const routeTree = rootRoute.addChildren([
     approvalsRoute,
     approvalDetailRoute,
     playgroundRoute,
+    modelsRoute,
     resourceListRoute,
   ]),
 ]);

@@ -15,6 +15,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
     "@rjsf/core": "^6.8.0",
@@ -28,10 +29,12 @@
     "i18next-icu": "^2.4.4",
     "intl-messageformat": "^10.7.16",
     "maplibre-gl": "^6.7.0",
+    "monaco-editor": "^0.56.0",
     "openapi-fetch": "^0.17.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-i18next": "^17.0.13"
+    "react-i18next": "^17.0.13",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

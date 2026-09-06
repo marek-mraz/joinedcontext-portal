@@ -111,6 +111,7 @@ export function Shell({
   const onApprovals = Boolean(approvalDetail || matchRoute({ to: "/projects/$project/approvals" }));
 
   const playgroundActive = Boolean(matchRoute({ to: "/playground" }));
+  const modelsActive = Boolean(matchRoute({ to: "/projects/$project/models", params: { project } }));
 
   const activeSection = NAV_SECTIONS.find((section) =>
     section.plural === "approvals"
@@ -177,9 +178,23 @@ export function Shell({
               );
             })}
           </ul>
-          {/* Not a section of the resource API: the playground is a drawing of federation
-              that runs entirely in the browser, so it hangs below the list, on its own. */}
+          {/* Neither is a section of the resource API: the model editor writes LinkML into the
+              repository rather than a manifest of its own, and the playground is a drawing of
+              federation that runs entirely in the browser. Both hang below the list. */}
           <ul className="mt-3 space-y-1 border-t border-border pt-3">
+            <li>
+              <Link
+                to="/projects/$project/models"
+                params={{ project }}
+                aria-current={modelsActive ? "page" : undefined}
+                className={clsx(
+                  "block rounded px-2 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus",
+                  modelsActive && "bg-surface-subtle font-semibold",
+                )}
+              >
+                {t("nav.models")}
+              </Link>
+            </li>
             <li>
               <Link
                 to="/playground"

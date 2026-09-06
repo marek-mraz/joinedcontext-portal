@@ -346,6 +346,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tools/sdm-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["sdm_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/gitea": {
         parameters: {
             query?: never;
@@ -386,8 +402,40 @@ export interface components {
              */
             generatorVersion?: string | null;
             jsonSchema?: unknown;
+            /**
+             * @description The LinkML source itself, which an import produces and the editor then edits; its
+             *     annotations carry `spec.source.repository`, `path` and `commit` (DM-07, DM-08).
+             */
+            linkml?: string | null;
             owl?: string | null;
             shacl?: string | null;
+        };
+        /** @description The catalogue index Model Tools caches and refreshes daily (DM-12). */
+        Catalogue: {
+            /** @description When the cache was last filled from the catalogue. */
+            refreshedAt?: string | null;
+            /**
+             * @description The last refresh did not reach the catalogue, so this index is the older cached one.
+             *     An index a browser cannot refresh is still an index it can work from (DM-12).
+             */
+            stale?: boolean;
+            subjects?: components["schemas"]["CatalogueSubject"][];
+        };
+        /** @description One model of the Smart Data Models catalogue index, as the wizard lists and searches it. */
+        CatalogueModel: {
+            /** @description Attribute names, so the wizard can search by attribute without fetching the model. */
+            attributes?: string[];
+            description?: string | null;
+            /** @description The catalogue identifier, `dataModel.Environment/AirQualityObserved`. */
+            id: string;
+            /** @description The model name, `AirQualityObserved`. */
+            name: string;
+        };
+        /** @description One subject of the catalogue: `dataModel.Environment` and the models under it. */
+        CatalogueSubject: {
+            models?: components["schemas"]["CatalogueModel"][];
+            name: string;
+            title?: string | null;
         };
         /** @description The `Change` resource describing a proposed configuration update. */
         Change: {
@@ -2203,6 +2251,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No model tools service configured, or it did not answer */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    sdm_catalog: {
+        parameters: {
+            query?: {
+                /** @description Refresh the cached index now instead of waiting for the daily run */
+                refresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The catalogue index, from the cache when a refresh did not reach the catalogue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Catalogue"];
                 };
             };
             /** @description Unauthorized */

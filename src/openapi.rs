@@ -22,7 +22,9 @@ use crate::plan::{FieldChange, PlanDiff};
 use crate::resource::{ResourceEnvelope, Status};
 use crate::state::AppState;
 use crate::sync::SyncStatus;
-use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
+use crate::tools::model_tools::{
+    Artifacts, Catalogue, CatalogueModel, CatalogueSubject, GenerateRequest, ImportSdmRequest,
+};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -53,6 +55,7 @@ use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
         crate::api::delete::delete_resource,
         crate::api::sync::get_sync_status,
         crate::api::webhook::gitea_webhook,
+        crate::tools::model_tools::sdm_catalog,
         crate::tools::model_tools::generate,
         crate::tools::model_tools::import_sdm,
     ),
@@ -83,6 +86,9 @@ use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
         GenerateRequest,
         ImportSdmRequest,
         Artifacts,
+        Catalogue,
+        CatalogueSubject,
+        CatalogueModel,
         Preferences,
         KeyInfo,
         KeyList,
