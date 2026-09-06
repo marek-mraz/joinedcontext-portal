@@ -161,5 +161,12 @@
       "representations": "Representations",
       "phase": "State"
     }
+  },
+  "dashboards": {
+    "title": "Dashboards",
+    "empty": "This project has no dashboard yet.",
+    "mapUnavailable": "The map needs WebGL, which this browser does not offer.",
+    "layerBlocked": "Not shown, because a public dashboard may only read public endpoints: {layers}",
+    "colouredBy": "coloured by {property} ({min}–{max})"
   }
 }

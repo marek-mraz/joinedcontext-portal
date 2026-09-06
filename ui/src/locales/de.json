@@ -161,5 +161,12 @@
       "representations": "Repräsentationen",
       "phase": "Zustand"
     }
+  },
+  "dashboards": {
+    "title": "Dashboards",
+    "empty": "Dieses Projekt hat noch kein Dashboard.",
+    "mapUnavailable": "Die Karte braucht WebGL, das dieser Browser nicht anbietet.",
+    "layerBlocked": "Nicht gezeigt, denn ein öffentliches Dashboard darf nur öffentliche Endpunkte lesen: {layers}",
+    "colouredBy": "eingefärbt nach {property} ({min}–{max})"
   }
 }

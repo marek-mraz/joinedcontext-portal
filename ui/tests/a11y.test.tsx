@@ -86,6 +86,24 @@ function stubManagerApi() {
             },
           ],
         };
+      } else if (path.endsWith("/dashboards")) {
+        body = {
+          apiVersion: "joinedcontext.com/v1alpha1",
+          kind: "List",
+          items: [
+            {
+              apiVersion: "joinedcontext.com/v1alpha1",
+              kind: "Dashboard",
+              metadata: { name: "ovzdusie-prehlad", namespace: "banskabystrica" },
+              spec: {
+                title: { sk: "Kvalita ovzdušia", en: "Air quality" },
+                visibility: "project",
+                pages: [{ title: "Mapa", layout: "full-map", layers: [] }],
+              },
+              status: { phase: "Live" },
+            },
+          ],
+        };
       } else if (path.endsWith("/endpoints")) {
         body = {
           apiVersion: "joinedcontext.com/v1alpha1",
@@ -211,6 +229,20 @@ describe("accessibility", () => {
     const { container } = renderApp();
     await waitFor(() => {
       expect(screen.getByRole("table")).toBeInTheDocument();
+    });
+
+    await expectNoViolations(container);
+  });
+
+  it("the map dashboard has no axe violations", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/dashboards");
+    stubManagerApi();
+
+    const { container } = renderApp();
+    // jsdom has no WebGL, so the map falls back to its message; the page around it is
+    // what axe has to be clean on either way.
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
     });
 
     await expectNoViolations(container);

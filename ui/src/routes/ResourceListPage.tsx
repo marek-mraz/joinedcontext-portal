@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../api/client";
 import { SpacesPage } from "./SpacesPage";
 import { EndpointsPage } from "./EndpointsPage";
+import { DashboardsPage } from "./DashboardsPage";
 
 /** `/api/v1/projects/{project}/{plural}` rendered as a plain table; MF-11…MF-15. */
 export function ResourceListPage({
@@ -12,12 +13,15 @@ export function ResourceListPage({
   project: string;
   plural: string;
 }): React.JSX.Element {
-  // Two kinds have a manager of their own; the rest fall back to the plain manifest table.
+  // Some kinds have a view of their own; the rest fall back to the plain manifest table.
   if (plural === "spaces") {
     return <SpacesPage project={project} />;
   }
   if (plural === "endpoints") {
     return <EndpointsPage project={project} />;
+  }
+  if (plural === "dashboards") {
+    return <DashboardsPage project={project} />;
   }
   return <GenericListPage project={project} plural={plural} />;
 }

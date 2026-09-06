@@ -161,5 +161,12 @@
       "representations": "Reprezentácie",
       "phase": "Stav"
     }
+  },
+  "dashboards": {
+    "title": "Nástenky",
+    "empty": "Projekt zatiaľ nemá nástenku.",
+    "mapUnavailable": "Mapa potrebuje WebGL, ktoré tento prehliadač neponúka.",
+    "layerBlocked": "Nezobrazené, lebo verejná nástenka smie čítať len verejné rozhrania: {layers}",
+    "colouredBy": "farba podľa {property} ({min}–{max})"
   }
 }
