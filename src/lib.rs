@@ -4,8 +4,10 @@
 pub mod api;
 pub mod assets;
 pub mod auth;
+pub mod change;
 pub mod config;
 pub mod error;
+pub mod git;
 pub mod openapi;
 pub mod resource;
 pub mod server;

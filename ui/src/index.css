@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+:root {
+  --portal-color-primary: #1d4ed8;
+  --portal-color-primary-fg: #ffffff;
+  --portal-color-surface: #ffffff;
+  --portal-color-surface-subtle: #f8fafc;
+  --portal-color-surface-fg: #0f172a;
+  --portal-color-border: #94a3b8;
+  --portal-color-border-focus: #1d4ed8;
+  --portal-color-danger: #b91c1c;
+  --portal-color-danger-fg: #ffffff;
+  --portal-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --portal-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --portal-color-primary: #3b82f6;
+    --portal-color-primary-fg: #0f172a;
+    --portal-color-surface: #0f172a;
+    --portal-color-surface-subtle: #1e293b;
+    --portal-color-surface-fg: #f8fafc;
+    --portal-color-border: #475569;
+    --portal-color-border-focus: #60a5fa;
+    --portal-color-danger: #f87171;
+    --portal-color-danger-fg: #0f172a;
+  }
+}
+
+@theme {
+  --color-primary: var(--portal-color-primary);
+  --color-primary-fg: var(--portal-color-primary-fg);
+  --color-surface: var(--portal-color-surface);
+  --color-surface-subtle: var(--portal-color-surface-subtle);
+  --color-surface-fg: var(--portal-color-surface-fg);
+  --color-border: var(--portal-color-border);
+  --color-border-focus: var(--portal-color-border-focus);
+  --color-danger: var(--portal-color-danger);
+  --color-danger-fg: var(--portal-color-danger-fg);
+  --font-sans: var(--portal-font-sans);
+  --font-mono: var(--portal-font-mono);
+}

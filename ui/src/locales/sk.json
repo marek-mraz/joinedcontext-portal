@@ -1,0 +1,45 @@
+{
+  "app": {
+    "title": "joinedcontext Portal",
+    "loading": "Načítava sa...",
+    "error": {
+      "generic": "Vyskytla sa neočakávaná chyba.",
+      "retry": "Skúsiť znova"
+    }
+  },
+  "nav": {
+    "projects": "Projekty",
+    "spaces": "Kontextové priestory",
+    "endpoints": "Koncové body",
+    "pipelines": "Pipelines",
+    "dashboards": "Prehľady",
+    "apps": "Aplikácie",
+    "approvals": "Schvaľovania",
+    "access": "Prístup"
+  },
+  "auth": {
+    "signIn": "Prihlásiť sa",
+    "signOut": "Odhlásiť sa",
+    "signedInAs": "Prihlásený ako {name}"
+  },
+  "lang": {
+    "label": "Jazyk",
+    "sk": "Slovenčina",
+    "en": "English",
+    "de": "Deutsch",
+    "cs": "Čeština"
+  },
+  "form": {
+    "submit": "Odoslať",
+    "cancel": "Zrušiť",
+    "required": "Toto pole je povinné",
+    "invalid": "Neplatná hodnota",
+    "errors": "{count, plural, =0 {Bez chýb} one {# chyba} few {# chyby} other {# chýb}}",
+    "type": "Nesprávny typ hodnoty",
+    "minLength": "Hodnota je príliš krátka",
+    "maxLength": "Hodnota je príliš dlhá",
+    "pattern": "Hodnota nezodpovedá požadovanému vzoru",
+    "enum": "Hodnota musí byť jedna z povolených možností",
+    "format": "Neplatný formát"
+  }
+}

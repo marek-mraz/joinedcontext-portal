@@ -1,0 +1,45 @@
+{
+  "app": {
+    "title": "joinedcontext Portal",
+    "loading": "Loading...",
+    "error": {
+      "generic": "An unexpected error occurred.",
+      "retry": "Retry"
+    }
+  },
+  "nav": {
+    "projects": "Projects",
+    "spaces": "Context Spaces",
+    "endpoints": "Endpoints",
+    "pipelines": "Pipelines",
+    "dashboards": "Dashboards",
+    "apps": "Applications",
+    "approvals": "Approvals",
+    "access": "Access"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "signedInAs": "Signed in as {name}"
+  },
+  "lang": {
+    "label": "Language",
+    "sk": "Slovenčina",
+    "en": "English",
+    "de": "Deutsch",
+    "cs": "Čeština"
+  },
+  "form": {
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "required": "This field is required",
+    "invalid": "Invalid value",
+    "errors": "{count, plural, =0 {No errors} one {# error} other {# errors}}",
+    "type": "Invalid type",
+    "minLength": "Value is too short",
+    "maxLength": "Value is too long",
+    "pattern": "Value does not match pattern",
+    "enum": "Value must be one of the allowed choices",
+    "format": "Invalid format"
+  }
+}
