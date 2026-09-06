@@ -27,6 +27,8 @@ pub enum ApiError {
     Unauthorized,
     #[error("forbidden")]
     Forbidden,
+    #[error("self-approval: {0}")]
+    SelfApproval(String),
     #[error("conflict: {0}")]
     Conflict(String),
     #[error("unsupported media type: {0}")]
@@ -61,6 +63,12 @@ impl IntoResponse for ApiError {
                 None,
             ),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden", "Forbidden", None),
+            Self::SelfApproval(msg) => (
+                StatusCode::FORBIDDEN,
+                "self-approval",
+                "Self Approval Forbidden",
+                Some(msg),
+            ),
             Self::Conflict(msg) => (StatusCode::CONFLICT, "conflict", "Conflict", Some(msg)),
             Self::UnsupportedMediaType(msg) => (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -123,6 +131,7 @@ mod tests {
             (ApiError::BadRequest("test".into()), StatusCode::BAD_REQUEST),
             (ApiError::Unauthorized, StatusCode::UNAUTHORIZED),
             (ApiError::Forbidden, StatusCode::FORBIDDEN),
+            (ApiError::SelfApproval("test".into()), StatusCode::FORBIDDEN),
             (ApiError::Conflict("test".into()), StatusCode::CONFLICT),
             (
                 ApiError::UnsupportedMediaType("test".into()),

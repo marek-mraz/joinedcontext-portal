@@ -3,6 +3,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use utoipa::OpenApi;
 
+use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
 use crate::api::dry_run::DryRunResult;
 use crate::api::health::Health;
 use crate::api::resources::{ListMeta, ResourceList};
@@ -26,6 +27,10 @@ use crate::sync::SyncStatus;
         crate::api::mutate::create,
         crate::api::mutate::replace,
         crate::api::mutate::patch,
+        crate::api::changes::list_changes,
+        crate::api::changes::get_change,
+        crate::api::changes::approve_change,
+        crate::api::changes::reject_change,
         crate::api::delete::delete_resource,
         crate::api::sync::get_sync_status,
         crate::api::webhook::gitea_webhook,
@@ -51,6 +56,10 @@ use crate::sync::SyncStatus;
         PlanDiff,
         FieldChange,
         DryRunResult,
+        ChangeProposal,
+        ChangeList,
+        ChangeSummary,
+        ChangeAuthor,
         SyncStatus,
     )),
     info(

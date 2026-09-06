@@ -104,6 +104,13 @@ pub struct PullRequest {
     pub number: u64,
     pub url: String,
     pub state: String,
+    pub title: String,
+    pub body: String,
+    pub head_branch: String,
+    pub base_branch: String,
+    pub created_at: String,
+    pub author_name: String,
+    pub author_email: Option<String>,
     pub mergeable: Option<bool>,
     pub merged: bool,
 }
@@ -204,9 +211,71 @@ struct GiteaPullResponse {
     html_url: String,
     state: String,
     #[serde(default)]
+    title: String,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    head: Option<BranchRefDto>,
+    #[serde(default)]
+    base: Option<BranchRefDto>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    user: Option<GiteaUserDto>,
+    #[serde(default)]
     mergeable: Option<bool>,
     #[serde(default)]
     merged: bool,
+}
+
+#[derive(Deserialize)]
+struct BranchRefDto {
+    #[serde(rename = "ref", default)]
+    git_ref: String,
+}
+
+#[derive(Deserialize)]
+struct GiteaUserDto {
+    #[serde(default)]
+    login: Option<String>,
+    #[serde(default)]
+    full_name: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+}
+
+impl From<GiteaPullResponse> for PullRequest {
+    fn from(raw: GiteaPullResponse) -> Self {
+        let author_name = raw
+            .user
+            .as_ref()
+            .and_then(|u| {
+                u.full_name
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .or(u.login.as_deref())
+            })
+            .unwrap_or_default()
+            .to_string();
+        let author_email = raw.user.and_then(|u| u.email);
+        let head_branch = raw.head.map(|h| h.git_ref).unwrap_or_default();
+        let base_branch = raw.base.map(|b| b.git_ref).unwrap_or_default();
+
+        PullRequest {
+            number: raw.number,
+            url: raw.html_url,
+            state: raw.state,
+            title: raw.title,
+            body: raw.body.unwrap_or_default(),
+            head_branch,
+            base_branch,
+            created_at: raw.created_at.unwrap_or_default(),
+            author_name,
+            author_email,
+            mergeable: raw.mergeable,
+            merged: raw.merged,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -467,6 +536,23 @@ impl GiteaClient {
         Ok(commit_sha)
     }
 
+    /// `GET /pulls?state={state}&sort=recentupdate&limit=50` — retrieves pull requests.
+    pub async fn list_pull_requests(&self, state: &str) -> Result<Vec<PullRequest>, GitError> {
+        let mut url = self.repo_url("pulls")?;
+        url.query_pairs_mut()
+            .append_pair("state", state)
+            .append_pair("sort", "recentupdate")
+            .append_pair("limit", "50");
+
+        let res = self.send(self.http.get(url)).await?;
+        let res = Self::check_status(res).await?;
+        let raw_list: Vec<GiteaPullResponse> = res
+            .json()
+            .await
+            .map_err(|e| GitError::Transport(format!("failed to parse pull requests list: {e}")))?;
+        Ok(raw_list.into_iter().map(Into::into).collect())
+    }
+
     /// `POST /pulls` — creates a new pull request.
     pub async fn create_pull_request(
         &self,
@@ -488,13 +574,7 @@ impl GiteaClient {
             .json()
             .await
             .map_err(|e| GitError::Transport(format!("failed to parse pull request: {e}")))?;
-        Ok(PullRequest {
-            number: raw.number,
-            url: raw.html_url,
-            state: raw.state,
-            mergeable: raw.mergeable,
-            merged: raw.merged,
-        })
+        Ok(raw.into())
     }
 
     /// `GET /pulls/{number}` — retrieves an existing pull request.
@@ -506,13 +586,7 @@ impl GiteaClient {
             .json()
             .await
             .map_err(|e| GitError::Transport(format!("failed to parse pull request: {e}")))?;
-        Ok(PullRequest {
-            number: raw.number,
-            url: raw.html_url,
-            state: raw.state,
-            mergeable: raw.mergeable,
-            merged: raw.merged,
-        })
+        Ok(raw.into())
     }
 
     /// `POST /pulls/{number}/reviews` — submits a review on the pull request.

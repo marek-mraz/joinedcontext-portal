@@ -93,6 +93,351 @@
         }
       }
     },
+    "/api/v1/projects/{project}/changes": {
+      "get": {
+        "tags": [
+          "changes"
+        ],
+        "operationId": "list_changes",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of change proposals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/changes/{id}": {
+      "get": {
+        "tags": [
+          "changes"
+        ],
+        "operationId": "get_change",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Change proposal ID (chg- + 8 hex digits)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Change proposal with plan diff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Change proposal not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/changes/{id}/approve": {
+      "post": {
+        "tags": [
+          "changes"
+        ],
+        "operationId": "approve_change",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Change proposal ID (chg- + 8 hex digits)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Optional approval confirmation for red-lane changes",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ApproveBody"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Change proposal approved and deploying",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request or missing red-lane confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (missing role or self-approval)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Change proposal not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/changes/{id}/reject": {
+      "post": {
+        "tags": [
+          "changes"
+        ],
+        "operationId": "reject_change",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Change proposal ID (chg- + 8 hex digits)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Optional reject payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ApproveBody"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Change proposal rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Change proposal not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/{plural}": {
       "get": {
         "tags": [
@@ -867,6 +1212,18 @@
   },
   "components": {
     "schemas": {
+      "ApproveBody": {
+        "type": "object",
+        "description": "Request body for approving or rejecting a change proposal.",
+        "properties": {
+          "confirm": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "Change": {
         "type": "object",
         "description": "The `Change` resource describing a proposed configuration update.",
@@ -888,6 +1245,47 @@
           },
           "status": {
             "$ref": "#/components/schemas/ChangeStatus"
+          }
+        }
+      },
+      "ChangeAuthor": {
+        "type": "object",
+        "description": "Human author attributed on the change proposal.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ChangeList": {
+        "type": "object",
+        "description": "Collection envelope for change proposals.",
+        "required": [
+          "apiVersion",
+          "kind",
+          "items"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangeProposal"
+            }
+          },
+          "kind": {
+            "type": "string"
           }
         }
       },
@@ -913,10 +1311,56 @@
         "description": "Lifecycle phase of a change.",
         "enum": [
           "PendingApproval",
+          "Deploying",
           "Merged",
           "Applied",
           "Rejected"
         ]
+      },
+      "ChangeProposal": {
+        "type": "object",
+        "description": "A change proposal representing an open Git merge request.",
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "status",
+          "summary",
+          "author",
+          "createdAt"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/components/schemas/ChangeAuthor"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ChangeMeta"
+          },
+          "planFields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FieldChange"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChangeStatus"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ChangeSummary"
+          }
+        }
       },
       "ChangeStatus": {
         "type": "object",
@@ -941,6 +1385,22 @@
           },
           "plan": {
             "$ref": "#/components/schemas/PlanSummary"
+          }
+        }
+      },
+      "ChangeSummary": {
+        "type": "object",
+        "description": "Human-readable proposal summary parameters derived from the plan diff.",
+        "required": [
+          "key",
+          "params"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
           }
         }
       },

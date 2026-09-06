@@ -1,3 +1,4 @@
+pub mod changes;
 pub mod delete;
 pub mod dry_run;
 pub mod health;
@@ -19,6 +20,7 @@ pub fn router() -> Router<AppState> {
     let protected = Router::new()
         .merge(health::router())
         .merge(auth::oidc::router())
+        .merge(changes::router())
         .merge(resources::router())
         .merge(sync::router())
         .layer(axum::middleware::from_fn(auth::csrf::require_csrf));

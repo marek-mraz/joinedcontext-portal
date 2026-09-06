@@ -58,6 +58,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_changes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/changes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_change"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/changes/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["approve_change"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/changes/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reject_change"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/{plural}": {
         parameters: {
             query?: never;
@@ -126,12 +190,27 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Request body for approving or rejecting a change proposal. */
+        ApproveBody: {
+            confirm?: string | null;
+        };
         /** @description The `Change` resource describing a proposed configuration update. */
         Change: {
             apiVersion: string;
             kind: string;
             metadata: components["schemas"]["ChangeMeta"];
             status: components["schemas"]["ChangeStatus"];
+        };
+        /** @description Human author attributed on the change proposal. */
+        ChangeAuthor: {
+            email?: string | null;
+            name: string;
+        };
+        /** @description Collection envelope for change proposals. */
+        ChangeList: {
+            apiVersion: string;
+            items: components["schemas"]["ChangeProposal"][];
+            kind: string;
         };
         /** @description Metadata identifying the change. */
         ChangeMeta: {
@@ -146,13 +225,29 @@ export interface components {
          * @description Lifecycle phase of a change.
          * @enum {string}
          */
-        ChangePhase: "PendingApproval" | "Merged" | "Applied" | "Rejected";
+        ChangePhase: "PendingApproval" | "Deploying" | "Merged" | "Applied" | "Rejected";
+        /** @description A change proposal representing an open Git merge request. */
+        ChangeProposal: {
+            apiVersion: string;
+            author: components["schemas"]["ChangeAuthor"];
+            createdAt: string;
+            kind: string;
+            metadata: components["schemas"]["ChangeMeta"];
+            planFields?: components["schemas"]["FieldChange"][] | null;
+            status: components["schemas"]["ChangeStatus"];
+            summary: components["schemas"]["ChangeSummary"];
+        };
         /** @description Approval and reconciliation status of a change. */
         ChangeStatus: {
             lane: components["schemas"]["Lane"];
             mergeRequest?: string | null;
             phase: components["schemas"]["ChangePhase"];
             plan: components["schemas"]["PlanSummary"];
+        };
+        /** @description Human-readable proposal summary parameters derived from the plan diff. */
+        ChangeSummary: {
+            key: string;
+            params: Record<string, never>;
         };
         Condition: {
             lastTransitionTime: string;
@@ -366,6 +461,258 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    list_changes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of change proposals */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_change: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Change proposal ID (chg- + 8 hex digits) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Change proposal with plan diff */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangeProposal"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Change proposal not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    approve_change: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Change proposal ID (chg- + 8 hex digits) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Optional approval confirmation for red-lane changes */
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ApproveBody"];
+            };
+        };
+        responses: {
+            /** @description Change proposal approved and deploying */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Bad request or missing red-lane confirmation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden (missing role or self-approval) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Change proposal not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    reject_change: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Change proposal ID (chg- + 8 hex digits) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Optional reject payload */
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["ApproveBody"];
+            };
+        };
+        responses: {
+            /** @description Change proposal rejected */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Change proposal not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };

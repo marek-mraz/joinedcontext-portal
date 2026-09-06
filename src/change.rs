@@ -126,6 +126,7 @@ pub enum Lane {
 #[serde(rename_all = "PascalCase")]
 pub enum ChangePhase {
     PendingApproval,
+    Deploying,
     Merged,
     Applied,
     Rejected,
