@@ -18,7 +18,8 @@
     "access": "Přístup",
     "main": "Hlavní navigace",
     "skipToContent": "Přeskočit na obsah",
-    "breadcrumb": "Drobečková navigace"
+    "breadcrumb": "Drobečková navigace",
+    "playground": "Hřiště"
   },
   "auth": {
     "signIn": "Přihlásit se",
@@ -197,5 +198,19 @@
     "mapUnavailable": "Mapa potřebuje WebGL, které tento prohlížeč nenabízí.",
     "layerBlocked": "Nezobrazeno, protože veřejná nástěnka smí číst jen veřejná rozhraní: {layers}",
     "colouredBy": "barva podle {property} ({min}–{max})"
+  },
+  "playground": {
+    "title": "Federační hřiště",
+    "subtitle": "Kontextové prostory, jejich registrace a provoz mezi nimi — vykreslené v prohlížeči, bez dotazu na server.",
+    "pause": "Pozastavit",
+    "resume": "Pokračovat",
+    "send": "Poslat dotaz",
+    "events": "Poslední odpovědi",
+    "noEvents": "Zatím žádná odpověď. Stiskněte „Poslat dotaz“.",
+    "anyType": "každý typ",
+    "entities": "{count, plural, =0 {žádné entity} one {# entita} few {# entity} other {# entit}}",
+    "graphLabel": "Graf federace: {spaces} kontextových prostorů, {links} registrací",
+    "selected": "Registrace prostoru {space}",
+    "noLinks": "Tento prostor neregistruje žádný kontextový zdroj a není žádným registrován."
   }
 }

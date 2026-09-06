@@ -18,7 +18,8 @@
     "access": "Prístup",
     "main": "Hlavná navigácia",
     "skipToContent": "Preskočiť na obsah",
-    "breadcrumb": "Navigačná cesta"
+    "breadcrumb": "Navigačná cesta",
+    "playground": "Ihrisko"
   },
   "auth": {
     "signIn": "Prihlásiť sa",
@@ -197,5 +198,19 @@
     "mapUnavailable": "Mapa potrebuje WebGL, ktoré tento prehliadač neponúka.",
     "layerBlocked": "Nezobrazené, lebo verejná nástenka smie čítať len verejné rozhrania: {layers}",
     "colouredBy": "farba podľa {property} ({min}–{max})"
+  },
+  "playground": {
+    "title": "Federačné ihrisko",
+    "subtitle": "Kontextové priestory, ich registrácie a prevádzka medzi nimi — vykreslené v prehliadači, bez otázky na server.",
+    "pause": "Pozastaviť",
+    "resume": "Pokračovať",
+    "send": "Poslať dopyt",
+    "events": "Posledné odpovede",
+    "noEvents": "Zatiaľ žiadna odpoveď. Stlačte „Poslať dopyt“.",
+    "anyType": "každý typ",
+    "entities": "{count, plural, =0 {žiadne entity} one {# entita} few {# entity} other {# entít}}",
+    "graphLabel": "Graf federácie: {spaces} kontextových priestorov, {links} registrácií",
+    "selected": "Registrácie priestoru {space}",
+    "noLinks": "Tento priestor neregistruje žiadny kontextový zdroj a nie je registrovaný žiadnym."
   }
 }

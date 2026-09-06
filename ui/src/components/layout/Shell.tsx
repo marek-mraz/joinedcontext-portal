@@ -106,6 +106,8 @@ export function Shell({
   const approvalDetail = matchRoute({ to: "/projects/$project/approvals/$id" });
   const onApprovals = Boolean(approvalDetail || matchRoute({ to: "/projects/$project/approvals" }));
 
+  const playgroundActive = Boolean(matchRoute({ to: "/playground" }));
+
   const activeSection = NAV_SECTIONS.find((section) =>
     section.plural === "approvals"
       ? onApprovals
@@ -168,6 +170,22 @@ export function Shell({
                 </li>
               );
             })}
+          </ul>
+          {/* Not a section of the resource API: the playground is a drawing of federation
+              that runs entirely in the browser, so it hangs below the list, on its own. */}
+          <ul className="mt-3 space-y-1 border-t border-border pt-3">
+            <li>
+              <Link
+                to="/playground"
+                aria-current={playgroundActive ? "page" : undefined}
+                className={clsx(
+                  "block rounded px-2 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus",
+                  playgroundActive && "bg-surface-subtle font-semibold",
+                )}
+              >
+                {t("nav.playground")}
+              </Link>
+            </li>
           </ul>
         </nav>
         <main id="main" className="min-w-0 flex-1 p-6">

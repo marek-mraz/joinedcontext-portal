@@ -18,7 +18,8 @@
     "access": "Access",
     "main": "Main navigation",
     "skipToContent": "Skip to content",
-    "breadcrumb": "Breadcrumb"
+    "breadcrumb": "Breadcrumb",
+    "playground": "Playground"
   },
   "auth": {
     "signIn": "Sign in",
@@ -197,5 +198,19 @@
     "mapUnavailable": "The map needs WebGL, which this browser does not offer.",
     "layerBlocked": "Not shown, because a public dashboard may only read public endpoints: {layers}",
     "colouredBy": "coloured by {property} ({min}–{max})"
+  },
+  "playground": {
+    "title": "Federation playground",
+    "subtitle": "Context spaces, their registrations and the traffic between them — drawn in your browser, with nothing asked of the server.",
+    "pause": "Pause",
+    "resume": "Resume",
+    "send": "Send a query",
+    "events": "Recent answers",
+    "noEvents": "No answer yet. Press “Send a query”.",
+    "anyType": "every type",
+    "entities": "{count, plural, =0 {no entities} one {# entity} other {# entities}}",
+    "graphLabel": "Federation graph: {spaces} context spaces, {links} registrations",
+    "selected": "Registrations of {space}",
+    "noLinks": "This space registers no context source and is registered by none."
   }
 }

@@ -18,7 +18,8 @@
     "access": "Zugriff",
     "main": "Hauptnavigation",
     "skipToContent": "Zum Inhalt springen",
-    "breadcrumb": "Navigationspfad"
+    "breadcrumb": "Navigationspfad",
+    "playground": "Spielwiese"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -197,5 +198,19 @@
     "mapUnavailable": "Die Karte braucht WebGL, das dieser Browser nicht anbietet.",
     "layerBlocked": "Nicht gezeigt, denn ein öffentliches Dashboard darf nur öffentliche Endpunkte lesen: {layers}",
     "colouredBy": "eingefärbt nach {property} ({min}–{max})"
+  },
+  "playground": {
+    "title": "Föderations-Spielwiese",
+    "subtitle": "Kontexträume, ihre Registrierungen und der Verkehr dazwischen — im Browser gezeichnet, ohne eine Frage an den Server.",
+    "pause": "Anhalten",
+    "resume": "Fortsetzen",
+    "send": "Abfrage senden",
+    "events": "Letzte Antworten",
+    "noEvents": "Noch keine Antwort. Drücken Sie „Abfrage senden“.",
+    "anyType": "jeder Typ",
+    "entities": "{count, plural, =0 {keine Entitäten} one {# Entität} other {# Entitäten}}",
+    "graphLabel": "Föderationsgraph: {spaces} Kontexträume, {links} Registrierungen",
+    "selected": "Registrierungen von {space}",
+    "noLinks": "Dieser Raum registriert keine Kontextquelle und wird von keiner registriert."
   }
 }

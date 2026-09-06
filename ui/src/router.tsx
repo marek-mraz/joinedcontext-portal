@@ -10,6 +10,7 @@ import { LoginPage } from "./routes/LoginPage";
 import { ResourceListPage } from "./routes/ResourceListPage";
 import { ApprovalsPage } from "./routes/ApprovalsPage";
 import { ApprovalDetailPage } from "./routes/ApprovalDetailPage";
+import { FederationPlayground } from "./components/visualization/FederationPlayground";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -77,6 +78,19 @@ const approvalDetailRoute = createRoute({
   },
 });
 
+/** The playground draws its own data; it needs no project and asks the API for nothing. */
+const playgroundRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/playground",
+  component: function PlaygroundRoute() {
+    return (
+      <Shell project={KNOWN_PROJECTS[0]} projects={KNOWN_PROJECTS}>
+        <FederationPlayground />
+      </Shell>
+    );
+  },
+});
+
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
@@ -96,6 +110,7 @@ export const routeTree = rootRoute.addChildren([
     indexRoute,
     approvalsRoute,
     approvalDetailRoute,
+    playgroundRoute,
     resourceListRoute,
   ]),
 ]);
