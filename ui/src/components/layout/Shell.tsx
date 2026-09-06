@@ -9,6 +9,9 @@ import { useAuth } from "../../auth/AuthProvider";
 
 /** The plural segments of `/api/v1/projects/{project}/{plural}`, in sidebar order. */
 export const NAV_SECTIONS = [
+  // The gallery is the primary model of the application, so it is the first thing in the
+  // sidebar; everything below it is the expert view of what a flow produced (CC-30).
+  { plural: "flows", labelKey: "nav.flows" },
   { plural: "spaces", labelKey: "nav.spaces" },
   { plural: "endpoints", labelKey: "nav.endpoints" },
   { plural: "pipelines", labelKey: "nav.pipelines" },

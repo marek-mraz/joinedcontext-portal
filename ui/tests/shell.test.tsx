@@ -65,6 +65,7 @@ describe("portal shell", () => {
   it("lists every section of the resource API in the sidebar", () => {
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     for (const label of [
+      "Flows",
       "Context Spaces",
       "Endpoints",
       "Pipelines",

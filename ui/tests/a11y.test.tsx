@@ -121,6 +121,34 @@ function stubManagerApi() {
             },
           ],
         };
+      } else if (path.endsWith("/blueprints")) {
+        body = {
+          apiVersion: "joinedcontext.com/v1alpha1",
+          kind: "List",
+          items: [
+            {
+              apiVersion: "joinedcontext.com/v1alpha1",
+              kind: "Blueprint",
+              metadata: {
+                name: "threshold-alert",
+                namespace: "org",
+                title: { sk: "Notifikácia prekročenia limitu", en: "Threshold Alert" },
+                description: { sk: "Sleduje vlastnosť a zavolá webhook", en: "Watches a property" },
+              },
+              spec: {
+                version: "1.2.0",
+                category: "alerting",
+                riskClass: "green",
+                allowedRoles: ["domain-editor"],
+                parameterSchema: {
+                  type: "object",
+                  required: ["webhookUrl"],
+                  properties: { webhookUrl: { type: "string", title: "Webhook" } },
+                },
+              },
+            },
+          ],
+        };
       } else if (path.endsWith("/endpoints")) {
         body = {
           apiVersion: "joinedcontext.com/v1alpha1",
@@ -239,6 +267,18 @@ describe("accessibility", () => {
 
     await expectNoViolations(container);
   });
+  it("the Flow gallery has no axe violations", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/flows");
+    stubManagerApi();
+
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2 })).toBeInTheDocument();
+    });
+
+    await expectNoViolations(container);
+  });
+
   it("the Context Spaces manager has no axe violations", async () => {
     window.history.pushState({}, "", "/projects/banskabystrica/spaces");
     stubManagerApi();

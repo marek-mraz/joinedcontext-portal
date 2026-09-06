@@ -100,6 +100,8 @@ export async function unwrap<T>(result: {
 export const queryKeys = {
   session: () => ["session"] as const,
   list: (project: string, plural: string) => ["projects", project, plural] as const,
+  // Blueprints are organization-level, so they are not under a project key (CC-30).
+  blueprints: () => ["blueprints"] as const,
   resource: (project: string, plural: string, name: string) =>
     ["projects", project, plural, name] as const,
   changes: (project: string) => ["projects", project, "changes"] as const,

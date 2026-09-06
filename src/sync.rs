@@ -129,11 +129,11 @@ impl Syncer {
                 }
             };
 
-            if crate::resource::by_kind(&envelope.kind).is_none() {
+            let Some(kind_info) = crate::resource::by_kind(&envelope.kind) else {
                 tracing::warn!(path = %path, kind = %envelope.kind, "skipping manifest with unknown kind");
                 skipped += 1;
                 continue;
-            }
+            };
 
             // Fill in namespace if missing from manifest
             if envelope
@@ -143,7 +143,11 @@ impl Syncer {
                 .unwrap_or("")
                 .is_empty()
             {
-                if path == "org.yaml" || path == "bundle.yaml" {
+                // The second path segment is the project for `projects/{project}/…` and the
+                // blueprint's own name for `blueprints/{name}/…`, so the scope decides rather
+                // than the path: an organization-level manifest filed under its own name is
+                // invisible to every list, which asks for "org".
+                if kind_info.scope == crate::resource::Scope::Organization {
                     envelope.metadata.namespace = Some("org".to_string());
                 } else if let Some(proj) = path.split('/').nth(1) {
                     envelope.metadata.namespace = Some(proj.to_string());
@@ -207,6 +211,11 @@ impl Syncer {
 pub(crate) fn is_candidate_manifest(path: &str) -> bool {
     let clean = path.trim_start_matches('/');
     if clean == "org.yaml" || clean == "bundle.yaml" {
+        return true;
+    }
+    // A blueprint is an organization-level manifest with a path of its own
+    // (`blueprints/{name}/blueprint.yaml`, CC-23); without it the gallery has nothing to list.
+    if clean.starts_with("blueprints/") && clean.ends_with("/blueprint.yaml") {
         return true;
     }
     clean.starts_with("projects/") && (clean.ends_with(".yaml") || clean.ends_with(".yml"))
@@ -283,8 +292,18 @@ mod tests {
         ));
         assert!(is_candidate_manifest("projects/ovzdusie/endpoints/air.yml"));
 
+        assert!(is_candidate_manifest(
+            "blueprints/threshold-alert/blueprint.yaml"
+        ));
+
         assert!(!is_candidate_manifest("README.md"));
-        assert!(!is_candidate_manifest("blueprints/air/blueprint.yaml"));
+        // Only the blueprint manifest itself, not the notes or fixtures beside it.
+        assert!(!is_candidate_manifest(
+            "blueprints/threshold-alert/README.md"
+        ));
+        assert!(!is_candidate_manifest(
+            "blueprints/threshold-alert/example.yaml"
+        ));
         assert!(!is_candidate_manifest(
             "projects/ovzdusie/spaces/mobility/space.json"
         ));

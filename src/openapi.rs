@@ -5,6 +5,7 @@ use utoipa::openapi::schema::{Array, Ref, Schema};
 use utoipa::openapi::RefOr;
 use utoipa::{Modify, OpenApi};
 
+use crate::api::blueprints::FlowRequest;
 use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
 use crate::api::dry_run::DryRunResult;
 use crate::api::export::{Revision, RevisionList};
@@ -30,6 +31,8 @@ use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
         crate::auth::oidc::me,
         crate::auth::oidc::logout,
         crate::api::resources::list,
+        crate::api::blueprints::list_blueprints,
+        crate::api::blueprints::start_flow,
         crate::api::resources::get_resource,
         crate::api::pipelines::get_metrics,
         crate::api::export::export,
@@ -86,6 +89,7 @@ use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
         MintedKey,
         Revision,
         RevisionList,
+        FlowRequest,
     )),
     info(
         title = "joinedcontext Portal API",

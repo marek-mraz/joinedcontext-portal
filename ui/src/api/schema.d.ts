@@ -42,6 +42,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/blueprints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_blueprints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -148,6 +164,22 @@ export interface paths {
         get: operations["export"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/flows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_flow"];
         delete?: never;
         options?: never;
         head?: never;
@@ -449,6 +481,18 @@ export interface components {
             path: string;
             to?: Record<string, never>;
         };
+        /** @description Running a blueprint: the parameters the form collected (API/01 §13). */
+        FlowRequest: {
+            /** @description The organization-level Blueprint to run. */
+            blueprint: string;
+            /** @description The values the user filled in, validated against `spec.parameterSchema` (CC-24). */
+            parameters: unknown;
+            /**
+             * @description The version the form was generated from. A mismatch is a conflict rather than an
+             *     expansion against a schema the user never saw (CC-26).
+             */
+            version: string;
+        };
         /** @description A LinkML source to compile. */
         GenerateRequest: {
             /** @description LinkML YAML, exactly as the editor holds it. */
@@ -711,6 +755,35 @@ export interface operations {
                 };
             };
             /** @description No live session */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    list_blueprints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The blueprints this caller may run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceList"];
+                };
+            };
+            /** @description Unauthorized */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1147,6 +1220,69 @@ export interface operations {
                 };
             };
             /** @description No repository configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    start_flow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project the flow creates resources in */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FlowRequest"];
+            };
+        };
+        responses: {
+            /** @description Change proposal opened */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such blueprint for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The form was filled against another version */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description This build cannot expand blueprints */
             503: {
                 headers: {
                     [name: string]: unknown;

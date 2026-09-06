@@ -73,6 +73,36 @@
         }
       }
     },
+    "/api/v1/blueprints": {
+      "get": {
+        "tags": [
+          "blueprints"
+        ],
+        "operationId": "list_blueprints",
+        "responses": {
+          "200": {
+            "description": "The blueprints this caller may run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -635,6 +665,87 @@
           },
           "503": {
             "description": "No repository configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/flows": {
+      "post": {
+        "tags": [
+          "blueprints"
+        ],
+        "operationId": "start_flow",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project the flow creates resources in",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Change proposal opened",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such blueprint for this caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The form was filled against another version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This build cannot expand blueprints",
             "content": {
               "application/json": {
                 "schema": {
@@ -2312,6 +2423,29 @@
             "type": "object"
           }
         }
+      },
+      "FlowRequest": {
+        "type": "object",
+        "description": "Running a blueprint: the parameters the form collected (API/01 §13).",
+        "required": [
+          "blueprint",
+          "version",
+          "parameters"
+        ],
+        "properties": {
+          "blueprint": {
+            "type": "string",
+            "description": "The organization-level Blueprint to run."
+          },
+          "parameters": {
+            "description": "The values the user filled in, validated against `spec.parameterSchema` (CC-24)."
+          },
+          "version": {
+            "type": "string",
+            "description": "The version the form was generated from. A mismatch is a conflict rather than an\nexpansion against a schema the user never saw (CC-26)."
+          }
+        },
+        "additionalProperties": false
       },
       "GenerateRequest": {
         "type": "object",

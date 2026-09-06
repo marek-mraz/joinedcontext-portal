@@ -19,7 +19,8 @@
     "main": "Hlavná navigácia",
     "skipToContent": "Preskočiť na obsah",
     "breadcrumb": "Navigačná cesta",
-    "playground": "Ihrisko"
+    "playground": "Ihrisko",
+    "flows": "Toky"
   },
   "auth": {
     "signIn": "Prihlásiť sa",
@@ -268,6 +269,32 @@
       "prohibitions": "Výslovne zakázané",
       "forbidden": "Tento endpoint vám neodpovedá; prihláste sa účtom, ktorý má oprávnenie.",
       "unavailable": "Dokument o prístupe teraz nie je dostupný."
+    }
+  },
+  "flows": {
+    "title": "Toky",
+    "subtitle": "Vyberte, čo chcete nastaviť. Formulár sa pýta len na potrebné údaje, konfiguráciu zapíše platforma.",
+    "empty": "Zatiaľ pre vás nie je dostupná žiadna šablóna.",
+    "emptyFiltered": "Tomuto filtru nezodpovedá žiadna šablóna.",
+    "category": {
+      "all": "Všetko",
+      "uncategorised": "Ostatné"
+    },
+    "risk": {
+      "green": "Schvaľuje sa automaticky",
+      "yellow": "Jeden schvaľovateľ",
+      "red": "Úplné schválenie"
+    },
+    "riskLabel": "Schvaľovanie",
+    "version": "Verzia {version}",
+    "run": "Nastaviť",
+    "back": "Späť na prehľad",
+    "instantiate": {
+      "title": "Nastavenie: {name}",
+      "submit": "Vytvoriť",
+      "hint": "Uložením navrhnete zmenu; prejaví sa po jej schválení.",
+      "noSchema": "Táto šablóna nemá žiadne parametre.",
+      "failed": "Parametre neboli prijaté."
     }
   },
   "export": {

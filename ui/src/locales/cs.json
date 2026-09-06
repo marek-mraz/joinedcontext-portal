@@ -19,7 +19,8 @@
     "main": "Hlavní navigace",
     "skipToContent": "Přeskočit na obsah",
     "breadcrumb": "Drobečková navigace",
-    "playground": "Hřiště"
+    "playground": "Hřiště",
+    "flows": "Toky"
   },
   "auth": {
     "signIn": "Přihlásit se",
@@ -268,6 +269,32 @@
       "prohibitions": "Výslovně zakázáno",
       "forbidden": "Tento endpoint vám neodpovídá; přihlaste se účtem, který má oprávnění.",
       "unavailable": "Dokument o přístupu teď není dostupný."
+    }
+  },
+  "flows": {
+    "title": "Toky",
+    "subtitle": "Vyberte, co chcete nastavit. Formulář se ptá jen na potřebné údaje, konfiguraci zapíše platforma.",
+    "empty": "Zatím pro vás není dostupná žádná šablona.",
+    "emptyFiltered": "Tomuto filtru neodpovídá žádná šablona.",
+    "category": {
+      "all": "Vše",
+      "uncategorised": "Ostatní"
+    },
+    "risk": {
+      "green": "Schvaluje se automaticky",
+      "yellow": "Jeden schvalovatel",
+      "red": "Úplné schválení"
+    },
+    "riskLabel": "Schvalování",
+    "version": "Verze {version}",
+    "run": "Nastavit",
+    "back": "Zpět na přehled",
+    "instantiate": {
+      "title": "Nastavení: {name}",
+      "submit": "Vytvořit",
+      "hint": "Uložením navrhnete změnu; projeví se po jejím schválení.",
+      "noSchema": "Tato šablona nemá žádné parametry.",
+      "failed": "Parametry nebyly přijaty."
     }
   },
   "export": {

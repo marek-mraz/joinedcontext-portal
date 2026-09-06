@@ -19,7 +19,8 @@
     "main": "Hauptnavigation",
     "skipToContent": "Zum Inhalt springen",
     "breadcrumb": "Navigationspfad",
-    "playground": "Spielwiese"
+    "playground": "Spielwiese",
+    "flows": "Abläufe"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -268,6 +269,32 @@
       "prohibitions": "Ausdrücklich verboten",
       "forbidden": "Dieser Endpunkt antwortet Ihnen nicht; melden Sie sich mit einem berechtigten Konto an.",
       "unavailable": "Das Zugriffsdokument ist gerade nicht verfügbar."
+    }
+  },
+  "flows": {
+    "title": "Abläufe",
+    "subtitle": "Wählen Sie, was Sie einrichten möchten. Das Formular fragt nur das Nötige ab, die Konfiguration schreibt die Plattform.",
+    "empty": "Für Sie ist noch keine Vorlage verfügbar.",
+    "emptyFiltered": "Keine Vorlage passt zu diesem Filter.",
+    "category": {
+      "all": "Alle",
+      "uncategorised": "Sonstige"
+    },
+    "risk": {
+      "green": "Wird automatisch freigegeben",
+      "yellow": "Eine Freigabe",
+      "red": "Vollständige Freigabe"
+    },
+    "riskLabel": "Freigabe",
+    "version": "Version {version}",
+    "run": "Einrichten",
+    "back": "Zurück zur Übersicht",
+    "instantiate": {
+      "title": "{name} einrichten",
+      "submit": "Erstellen",
+      "hint": "Beim Speichern wird eine Änderung vorgeschlagen; sie wirkt nach der Freigabe.",
+      "noSchema": "Diese Vorlage hat keine Parameter.",
+      "failed": "Die Parameter wurden nicht akzeptiert."
     }
   },
   "export": {

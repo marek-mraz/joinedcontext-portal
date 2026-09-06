@@ -19,7 +19,8 @@
     "main": "Main navigation",
     "skipToContent": "Skip to content",
     "breadcrumb": "Breadcrumb",
-    "playground": "Playground"
+    "playground": "Playground",
+    "flows": "Flows"
   },
   "auth": {
     "signIn": "Sign in",
@@ -268,6 +269,32 @@
       "prohibitions": "Explicitly denied",
       "forbidden": "This endpoint does not answer you; sign in with an account that has a grant.",
       "unavailable": "The access document is not available right now."
+    }
+  },
+  "flows": {
+    "title": "Flows",
+    "subtitle": "Pick what you want to set up. The form asks only for what it needs; the platform writes the configuration.",
+    "empty": "No blueprint is available to you yet.",
+    "emptyFiltered": "No blueprint matches this filter.",
+    "category": {
+      "all": "All",
+      "uncategorised": "Other"
+    },
+    "risk": {
+      "green": "Approved automatically",
+      "yellow": "One approver",
+      "red": "Full approval"
+    },
+    "riskLabel": "Review",
+    "version": "Version {version}",
+    "run": "Set up",
+    "back": "Back to the gallery",
+    "instantiate": {
+      "title": "Set up {name}",
+      "submit": "Create",
+      "hint": "Saving proposes a change; it takes effect once the change is approved.",
+      "noSchema": "This blueprint declares no parameters.",
+      "failed": "The parameters were not accepted."
     }
   },
   "export": {

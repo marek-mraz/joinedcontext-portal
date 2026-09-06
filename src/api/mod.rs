@@ -1,3 +1,4 @@
+pub mod blueprints;
 pub mod changes;
 pub mod delete;
 pub mod dry_run;
@@ -24,6 +25,7 @@ pub fn router() -> Router<AppState> {
     let protected = Router::new()
         .merge(health::router())
         .merge(auth::oidc::router())
+        .merge(blueprints::router())
         .merge(changes::router())
         .merge(export::router())
         .merge(resources::router())

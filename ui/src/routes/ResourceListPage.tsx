@@ -6,6 +6,7 @@ import { EndpointsPage } from "./EndpointsPage";
 import { DashboardsPage } from "./DashboardsPage";
 import { PipelinesPage } from "./PipelinesPage";
 import { AccessPage } from "../pages/access/AccessPage";
+import { FlowGallery } from "../pages/flows/Gallery";
 
 /** `/api/v1/projects/{project}/{plural}` rendered as a plain table; MF-11…MF-15. */
 export function ResourceListPage({
@@ -27,6 +28,11 @@ export function ResourceListPage({
   }
   if (plural === "dashboards") {
     return <DashboardsPage project={project} />;
+  }
+  // "flows" is a section too: the gallery reads organization-level Blueprints, not a project
+  // collection, and the wizard writes through /flows rather than a resource route (CC-30).
+  if (plural === "flows") {
+    return <FlowGallery project={project} />;
   }
   // "access" is a section, not a kind: ServiceAccounts and the caller's own grants (PF-40, EP-60).
   if (plural === "access") {
