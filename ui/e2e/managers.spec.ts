@@ -97,7 +97,12 @@ test.describe("managers", () => {
     await page.goto("/?lang=en");
     await expect(page).toHaveURL(/\/projects\/banskabystrica\/spaces$/);
     await expect(page.getByText("Air quality")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Source" })).toHaveAttribute("href", SOURCE_URL);
+    // `exact`, because getByRole matches the accessible name as a case-insensitive SUBSTRING by
+    // default: the nav's "Data sources" link contains "source" and made this locator ambiguous
+    // the moment that page was added.
+    await expect(
+      page.getByRole("link", { name: "Source", exact: true }),
+    ).toHaveAttribute("href", SOURCE_URL);
   });
 
   test("adding a representation to an endpoint proposes a change", async ({ page }) => {

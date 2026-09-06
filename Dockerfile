@@ -21,10 +21,17 @@ COPY src ./src
 # sqlx::migrate!("./migrations") reads the folder at COMPILE time, so it is a build input,
 # not a runtime one: without it cargo fails with "error canonicalizing migration directory".
 COPY migrations ./migrations
+# Cargo.toml declares `[workspace] members = ["apps/*"]`, and cargo resolves every member's
+# manifest before it builds anything, so without these the build dies on
+# `failed to load manifest for workspace member /src/apps/*`. Their sources are needed too:
+# a member's manifest is only valid if the targets it names exist.
+COPY apps ./apps
 COPY --from=ui /ui/dist ./ui/dist
+# `-p joinedcontext-portal`: this image ships one binary and the reference apps have images of
+# their own, so building the whole workspace here would compile them for nothing.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked && \
+    cargo build --release --locked -p joinedcontext-portal && \
     install -m 0755 target/release/joinedcontext-portal /joinedcontext-portal
 
 FROM gcr.io/distroless/cc-debian12:nonroot
