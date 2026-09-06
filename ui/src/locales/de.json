@@ -408,5 +408,38 @@
     "addEnum": "Werteliste hinzufügen",
     "addValue": "Wert zu {name} hinzufügen",
     "loadingEditor": "Editor wird geladen…"
+  },
+  "apps": {
+    "title": "Anwendungen",
+    "subtitle": "Anwendungen für dieses Projekt. Eine Vorschau läuft gegen einen Sandbox-Raum, das Veröffentlichen ist ein Merge Request.",
+    "empty": "Dieses Projekt hat noch keine Anwendungen.",
+    "visibility": "Sichtbar für {visibility}",
+    "dataNeeds": "Liest {types} in {spaces}",
+    "previewAction": "Vorschau öffnen",
+    "publishAction": "Veröffentlichen",
+    "history": "Quelle und Verlauf",
+    "back": "Zurück zu den Anwendungen",
+    "preview": {
+      "title": "Vorschau von {name}",
+      "sandboxSpace": "Die Vorschau läuft gegen einen Sandbox-Raum mit synthetischen Daten, in einem Rahmen, der das Portal nicht erreicht.",
+      "notEmbeddable": "Diese Anwendung erlaubt keine Einbettung und kann hier nicht angezeigt werden. Setzen Sie embeddable in ihrem Manifest."
+    },
+    "publish": {
+      "title": "{name} veröffentlichen",
+      "body": "Das Veröffentlichen bindet die Anwendung an den echten Raum und macht sie für {visibility} erreichbar.",
+      "hint": "Dies öffnet einen Merge Request. Die Anwendung ist erreichbar, sobald die Änderung genehmigt ist.",
+      "confirm": "Merge Request öffnen",
+      "cancel": "Abbrechen"
+    }
+  },
+  "appLifecycle": {
+    "draft": "Entwurf",
+    "draftHelp": "In Arbeit; nichts ist ausgerollt.",
+    "preview": "Vorschau",
+    "previewHelp": "An einen Sandbox-Raum gebunden, nur für Autor und Prüfer erreichbar.",
+    "published": "Veröffentlicht",
+    "publishedHelp": "An den echten Raum gebunden und für sein Publikum erreichbar.",
+    "retired": "Zurückgezogen",
+    "retiredHelp": "Zurückgezogen; die Quelle bleibt im Repository."
   }
 }

@@ -408,5 +408,38 @@
     "addEnum": "Přidat číselník",
     "addValue": "Přidat hodnotu do {name}",
     "loadingEditor": "Načítá se editor…"
+  },
+  "apps": {
+    "title": "Aplikace",
+    "subtitle": "Aplikace postavené pro tento projekt. Náhled běží nad sandboxovým prostorem, publikování je merge request.",
+    "empty": "Tento projekt zatím nemá žádné aplikace.",
+    "visibility": "Viditelné pro {visibility}",
+    "dataNeeds": "Čte {types} v {spaces}",
+    "previewAction": "Otevřít náhled",
+    "publishAction": "Publikovat",
+    "history": "Zdroj a historie",
+    "back": "Zpět na aplikace",
+    "preview": {
+      "title": "Náhled aplikace {name}",
+      "sandboxSpace": "Náhled běží nad sandboxovým prostorem se syntetickými daty, v rámu, který se nedostane k Portálu.",
+      "notEmbeddable": "Tato aplikace nepovoluje vložení do rámu, takže ji zde nelze zobrazit. Nastavte embeddable v jejím manifestu."
+    },
+    "publish": {
+      "title": "Publikovat {name}",
+      "body": "Publikování naváže aplikaci na reálný prostor a zpřístupní ji pro {visibility}.",
+      "hint": "Otevře se merge request. Aplikace bude dostupná po schválení změny.",
+      "confirm": "Otevřít merge request",
+      "cancel": "Zrušit"
+    }
+  },
+  "appLifecycle": {
+    "draft": "Návrh",
+    "draftHelp": "Rozepsaná; nic není nasazeno.",
+    "preview": "Náhled",
+    "previewHelp": "Navázaná na sandboxový prostor, dostupná jen autorovi a recenzentům.",
+    "published": "Publikovaná",
+    "publishedHelp": "Navázaná na reálný prostor a dostupná svému publiku.",
+    "retired": "Stažená",
+    "retiredHelp": "Stažená; zdroj zůstává v repozitáři."
   }
 }

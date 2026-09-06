@@ -7,6 +7,7 @@ import { DashboardsPage } from "./DashboardsPage";
 import { PipelinesPage } from "./PipelinesPage";
 import { AccessPage } from "../pages/access/AccessPage";
 import { FlowGallery } from "../pages/flows/Gallery";
+import { AppsCatalog } from "../pages/apps/AppsCatalog";
 
 /** `/api/v1/projects/{project}/{plural}` rendered as a plain table; MF-11…MF-15. */
 export function ResourceListPage({
@@ -33,6 +34,11 @@ export function ResourceListPage({
   // collection, and the wizard writes through /flows rather than a resource route (CC-30).
   if (plural === "flows") {
     return <FlowGallery project={project} />;
+  }
+  // Apps are a kind, but a card catalogue with a preview frame and a publication action, not
+  // a manifest table (AP-18, AP-19, AP-20).
+  if (plural === "apps") {
+    return <AppsCatalog project={project} />;
   }
   // "access" is a section, not a kind: ServiceAccounts and the caller's own grants (PF-40, EP-60).
   if (plural === "access") {

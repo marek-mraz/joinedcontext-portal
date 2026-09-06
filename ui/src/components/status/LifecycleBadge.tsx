@@ -2,7 +2,7 @@ import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
 
-export type LifecycleKind = "lane" | "phase";
+export type LifecycleKind = "lane" | "phase" | "appLifecycle";
 
 export interface LifecycleBadgeProps {
   kind: LifecycleKind;
@@ -35,6 +35,14 @@ const PHASES: Record<string, [string, string]> = {
   drifted: ["drifted", "bg-purple-500/15 border-purple-500/40"],
 };
 
+/** An app's own lifecycle, which is not the reconciler's phase (AP-18). */
+const APP_LIFECYCLE: Record<string, [string, string]> = {
+  draft: ["draft", NEUTRAL],
+  preview: ["preview", WARN],
+  published: ["published", GOOD],
+  retired: ["retired", NEUTRAL],
+};
+
 /**
  * One chip for both halves of a resource's lifecycle: the risk lane a change falls into
  * and the phase the reconciler has it in. The tooltip carries the explanation, so the
@@ -43,7 +51,9 @@ const PHASES: Record<string, [string, string]> = {
 export function LifecycleBadge({ kind, value, className }: LifecycleBadgeProps): JSX.Element {
   const { t } = useTranslation();
   const raw = value ?? "";
-  const entry = (kind === "lane" ? LANES : PHASES)[raw.toLowerCase()];
+  const vocabulary =
+    kind === "lane" ? LANES : kind === "appLifecycle" ? APP_LIFECYCLE : PHASES;
+  const entry = vocabulary[raw.toLowerCase()];
 
   return (
     <span

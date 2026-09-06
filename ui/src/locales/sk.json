@@ -408,5 +408,38 @@
     "addEnum": "Pridať číselník",
     "addValue": "Pridať hodnotu do {name}",
     "loadingEditor": "Načítava sa editor…"
+  },
+  "apps": {
+    "title": "Aplikácie",
+    "subtitle": "Aplikácie postavené pre tento projekt. Náhľad beží nad sandboxovým priestorom, publikovanie je merge request.",
+    "empty": "Tento projekt zatiaľ nemá žiadne aplikácie.",
+    "visibility": "Viditeľné pre {visibility}",
+    "dataNeeds": "Číta {types} v {spaces}",
+    "previewAction": "Otvoriť náhľad",
+    "publishAction": "Publikovať",
+    "history": "Zdroj a história",
+    "back": "Späť na aplikácie",
+    "preview": {
+      "title": "Náhľad aplikácie {name}",
+      "sandboxSpace": "Náhľad beží nad sandboxovým priestorom so syntetickými dátami, v rámci, ktorý sa nedostane k Portálu.",
+      "notEmbeddable": "Táto aplikácia nepovoľuje vloženie do rámu, takže ju tu nemožno zobraziť. Nastavte embeddable v jej manifeste."
+    },
+    "publish": {
+      "title": "Publikovať {name}",
+      "body": "Publikovanie naviaže aplikáciu na reálny priestor a sprístupní ju pre {visibility}.",
+      "hint": "Otvorí sa merge request. Aplikácia bude dostupná po schválení zmeny.",
+      "confirm": "Otvoriť merge request",
+      "cancel": "Zrušiť"
+    }
+  },
+  "appLifecycle": {
+    "draft": "Návrh",
+    "draftHelp": "Rozpísaná; nič nie je nasadené.",
+    "preview": "Náhľad",
+    "previewHelp": "Naviazaná na sandboxový priestor, dostupná len autorovi a recenzentom.",
+    "published": "Publikovaná",
+    "publishedHelp": "Naviazaná na reálny priestor a dostupná svojmu publiku.",
+    "retired": "Stiahnutá",
+    "retiredHelp": "Stiahnutá; zdroj zostáva v repozitári."
   }
 }

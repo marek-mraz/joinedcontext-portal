@@ -121,6 +121,41 @@ function stubManagerApi() {
             },
           ],
         };
+      } else if (path.endsWith("/apps")) {
+        body = {
+          apiVersion: "joinedcontext.com/v1alpha1",
+          kind: "List",
+          items: [
+            {
+              apiVersion: "joinedcontext.com/v1alpha1",
+              kind: "App",
+              metadata: {
+                name: "mapa-ovzdusia",
+                namespace: "banskabystrica",
+                title: { sk: "Mapa ovzdušia", en: "Air quality map" },
+                description: { sk: "Stanice podľa PM10", en: "Stations coloured by PM10" },
+              },
+              spec: {
+                kind: "static",
+                visibility: "project",
+                lifecycle: "preview",
+                embeddable: true,
+                dataNeeds: [
+                  {
+                    contextSpaceRef: { name: "ovzdusie" },
+                    types: ["AirQualityObserved"],
+                    operations: ["queryEntity"],
+                  },
+                ],
+              },
+              status: {
+                phase: "Live",
+                observedRevision: "9f1c2ab",
+                sourceUrl: "https://git.example.sk/bb/org/src/branch/main/app.yaml",
+              },
+            },
+          ],
+        };
       } else if (path.endsWith("/blueprints")) {
         body = {
           apiVersion: "joinedcontext.com/v1alpha1",
@@ -269,6 +304,18 @@ describe("accessibility", () => {
   });
   it("the Flow gallery has no axe violations", async () => {
     window.history.pushState({}, "", "/projects/banskabystrica/flows");
+    stubManagerApi();
+
+    const { container } = renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2 })).toBeInTheDocument();
+    });
+
+    await expectNoViolations(container);
+  });
+
+  it("the Apps catalog has no axe violations", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/apps");
     stubManagerApi();
 
     const { container } = renderApp();

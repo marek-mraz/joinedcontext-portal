@@ -408,5 +408,38 @@
     "addEnum": "Add enum",
     "addValue": "Add value to {name}",
     "loadingEditor": "Loading the editor…"
+  },
+  "apps": {
+    "title": "Applications",
+    "subtitle": "Apps built for this project. A preview runs against a sandbox space; publishing is a merge request.",
+    "empty": "This project has no applications yet.",
+    "visibility": "Visible to {visibility}",
+    "dataNeeds": "Reads {types} in {spaces}",
+    "previewAction": "Open preview",
+    "publishAction": "Publish",
+    "history": "Source and history",
+    "back": "Back to applications",
+    "preview": {
+      "title": "Preview of {name}",
+      "sandboxSpace": "The preview runs against a sandbox space with synthetic data, in a frame that cannot reach the Portal.",
+      "notEmbeddable": "This app does not allow being framed, so it cannot be previewed here. Set embeddable in its manifest to preview it."
+    },
+    "publish": {
+      "title": "Publish {name}",
+      "body": "Publishing binds the app to the real space and makes it reachable by {visibility}.",
+      "hint": "This opens a merge request. The app becomes reachable once the change is approved.",
+      "confirm": "Open the merge request",
+      "cancel": "Cancel"
+    }
+  },
+  "appLifecycle": {
+    "draft": "Draft",
+    "draftHelp": "Being written; nothing is deployed.",
+    "preview": "Preview",
+    "previewHelp": "Bound to a sandbox space and reachable only by the author and reviewers.",
+    "published": "Published",
+    "publishedHelp": "Bound to the real space and reachable by its audience.",
+    "retired": "Retired",
+    "retiredHelp": "Withdrawn; the source stays in the repository."
   }
 }
