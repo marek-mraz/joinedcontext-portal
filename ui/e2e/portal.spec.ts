@@ -12,7 +12,13 @@ test.describe("portal", () => {
     await page.goto("/?lang=sk");
 
     await expect(page).toHaveURL(/\/login/);
-    await expect(page.getByRole("heading", { name: "joinedcontext Portal" })).toBeVisible();
+    // The heading is the installation's brand mark since the runtime branding endpoint landed
+    // (UI-30), not the static `app.title`. `vite preview` serves the bundle with no portal API,
+    // so /api/v1/branding is refused and the shell paints NEUTRAL_BRANDING — whose instanceName
+    // is "joinedcontext". `exact`, because that name is a prefix of every branded one.
+    await expect(
+      page.getByRole("heading", { name: "joinedcontext", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Prihlásiť sa" })).toBeVisible();
   });
 
