@@ -16,6 +16,11 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // i18next-icu's ESM build default-imports intl-messageformat, whose CJS entry has no
+    // __esModule marker — Node's interop then hands back the namespace object and
+    // `new IntlMessageFormat()` throws. Inlining makes vitest resolve both through Vite,
+    // which picks the ESM build the browser bundle already uses.
+    server: { deps: { inline: ["i18next-icu", "intl-messageformat"] } },
     setupFiles: ["./tests/setup.ts"],
     globals: true,
     css: true,

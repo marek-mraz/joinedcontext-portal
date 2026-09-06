@@ -7,7 +7,7 @@ use joinedcontext_portal::state::AppState;
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn root_serves_placeholder_html() {
+async fn root_serves_the_html_shell() {
     let app = server::app(AppState::new(Config::for_tests(), None));
     let response = app
         .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -25,7 +25,12 @@ async fn root_serves_placeholder_html() {
 
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-    assert!(body_str.contains("UI bundle not built"));
+    // `ui/dist` is empty in CI (build.rs only creates the folder) and full after a local
+    // `pnpm build`; both must answer `/` with the SPA shell.
+    assert!(
+        body_str.contains("UI bundle not built") || body_str.contains("id=\"root\""),
+        "unexpected shell: {body_str}"
+    );
 }
 
 #[tokio::test]
@@ -80,7 +85,12 @@ async fn spa_route_falls_back_to_index() {
 
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-    assert!(body_str.contains("UI bundle not built"));
+    // `ui/dist` is empty in CI (build.rs only creates the folder) and full after a local
+    // `pnpm build`; both must answer `/` with the SPA shell.
+    assert!(
+        body_str.contains("UI bundle not built") || body_str.contains("id=\"root\""),
+        "unexpected shell: {body_str}"
+    );
 }
 
 #[tokio::test]

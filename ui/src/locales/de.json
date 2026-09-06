@@ -1,0 +1,45 @@
+{
+  "app": {
+    "title": "joinedcontext Portal",
+    "loading": "Wird geladen...",
+    "error": {
+      "generic": "Ein unerwarteter Fehler ist aufgetreten.",
+      "retry": "Erneut versuchen"
+    }
+  },
+  "nav": {
+    "projects": "Projekte",
+    "spaces": "Kontexträume",
+    "endpoints": "Endpunkte",
+    "pipelines": "Pipelines",
+    "dashboards": "Dashboards",
+    "apps": "Anwendungen",
+    "approvals": "Freigaben",
+    "access": "Zugriff"
+  },
+  "auth": {
+    "signIn": "Anmelden",
+    "signOut": "Abmelden",
+    "signedInAs": "Angemeldet als {name}"
+  },
+  "lang": {
+    "label": "Sprache",
+    "sk": "Slovenčina",
+    "en": "English",
+    "de": "Deutsch",
+    "cs": "Čeština"
+  },
+  "form": {
+    "submit": "Absenden",
+    "cancel": "Abbrechen",
+    "required": "Dieses Feld ist erforderlich",
+    "invalid": "Ungültiger Wert",
+    "errors": "{count, plural, =0 {Keine Fehler} one {# Fehler} other {# Fehler}}",
+    "type": "Ungültiger Typ",
+    "minLength": "Der Wert ist zu kurz",
+    "maxLength": "Der Wert ist zu lang",
+    "pattern": "Der Wert entspricht nicht dem geforderten Muster",
+    "enum": "Der Wert muss einer der zulässigen Werte sein",
+    "format": "Ungültiges Format"
+  }
+}
