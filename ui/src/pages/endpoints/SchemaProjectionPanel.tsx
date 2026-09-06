@@ -16,7 +16,7 @@ import type { SchemaFormalism } from "../../schemas/kinds";
  */
 
 /** One class of the published JSON Schema and the attributes it still carries. */
-interface PublishedType {
+export interface PublishedType {
   name: string;
   attributes: string[];
 }
@@ -50,7 +50,7 @@ async function get(url: string, accept: string): Promise<Response> {
   return answer;
 }
 
-async function fetchJson(url: string): Promise<unknown> {
+export async function fetchJson(url: string): Promise<unknown> {
   return (await get(url, "application/json")).json();
 }
 

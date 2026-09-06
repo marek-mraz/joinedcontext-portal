@@ -509,7 +509,39 @@
       "hint": "Dies öffnet einen Merge Request. Die Anwendung ist erreichbar, sobald die Änderung genehmigt ist.",
       "confirm": "Merge Request öffnen",
       "cancel": "Abbrechen"
-    }
+    },
+    "generate": {
+      "title": "Eigene Anwendung erzeugen",
+      "subtitle": "Beschreiben Sie, was Sie brauchen. Der Bau-Agent schreibt und testet es und öffnet einen Merge Request; ohne Prüfung wird nichts ausgerollt.",
+      "name": "Name der Anwendung",
+      "kind": "Art",
+      "kinds": {
+        "fullstack": "Vollständig (Rust-Backend und React-Oberfläche)",
+        "static": "Statisch (nur Oberfläche)",
+        "service": "Dienst (nur Backend, ohne Oberfläche)"
+      },
+      "endpoint": "Endpoint",
+      "pickEndpoint": "Endpoint auswählen",
+      "endpointHint": "Die Anwendung liest diesen einen Endpoint und sonst nichts, sie sieht also genau das, was dieser Endpoint veröffentlicht.",
+      "prompt": "Was soll die Anwendung tun?",
+      "promptHint": "Eine Beschreibung, keine Anweisung, der die Plattform folgt: sie erreicht keine Daten, die die Liste unten nicht enthält.",
+      "submit": "Anwendung erzeugen",
+      "noBuilder": "Diese Installation hat keinen Bau-Agenten, hier lässt sich also keine Anwendung erzeugen. Der Agent Runner ist ein optionales Zusatzmodul; bitten Sie Ihre Administration darum.",
+      "examplesHint": "Die beiden mitgelieferten Anwendungen sind ausgearbeitete Beispiele derselben Form:",
+      "examples": {
+        "hsl-transport": "Busse live: 30 Fahrzeuge auf einer Karte, öffentlich und nur lesend",
+        "air-quality": "Luftqualität: Stationen, ein Tag Verlauf und eine Notiz der Betreuung"
+      },
+      "needs": {
+        "title": "Was die Anwendung lesen darf",
+        "hint": "Abgeleitet aus dem, was der Endpoint veröffentlicht. Haken Sie ab, was die Anwendung nicht braucht; hinzufügen lässt sich hier nichts.",
+        "audience": "Die Anwendung wird für das Publikum des Endpoints sichtbar sein: {audience}.",
+        "loading": "Das Modell des Endpoints wird gelesen…",
+        "unavailable": "Der Endpoint veröffentlicht noch kein Modell, daraus lässt sich nichts ableiten.",
+        "none": "Dieser Endpoint veröffentlicht keine Attribute, es gibt nichts zu lesen."
+      }
+    },
+    "newAction": "Eigene Anwendung erzeugen"
   },
   "appLifecycle": {
     "draft": "Entwurf",

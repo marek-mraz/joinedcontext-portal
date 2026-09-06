@@ -7,6 +7,7 @@ import { asManifests, isChange, localized } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
+import { AppGenerator } from "./AppGenerator";
 
 interface DataNeed {
   contextSpaceRef?: string | { name?: string };
@@ -108,6 +109,7 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [previewing, setPreviewing] = useState<Manifest | null>(null);
+  const [generating, setGenerating] = useState(false);
   const [confirming, setConfirming] = useState<Manifest | null>(null);
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -190,13 +192,41 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
     );
   }
 
+  if (generating) {
+    return (
+      <div className="space-y-3">
+        <button
+          type="button"
+          onClick={() => {
+            setGenerating(false);
+          }}
+          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+        >
+          {t("apps.back")}
+        </button>
+        <AppGenerator project={project} />
+      </div>
+    );
+  }
+
   const apps = asManifests(list.data?.items ?? []);
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold">{t("apps.title")}</h1>
-        <p className="mt-1 text-sm text-muted">{t("apps.subtitle")}</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold">{t("apps.title")}</h1>
+          <p className="mt-1 text-sm text-muted">{t("apps.subtitle")}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setGenerating(true);
+          }}
+          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+        >
+          {t("apps.newAction")}
+        </button>
       </div>
 
       {change && <ChangeNotice change={change} project={project} />}

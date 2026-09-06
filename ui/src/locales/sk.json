@@ -509,7 +509,39 @@
       "hint": "Otvorí sa merge request. Aplikácia bude dostupná po schválení zmeny.",
       "confirm": "Otvoriť merge request",
       "cancel": "Zrušiť"
-    }
+    },
+    "generate": {
+      "title": "Vygenerujte si vlastnú aplikáciu",
+      "subtitle": "Opíšte, čo chcete. Agent ju napíše, otestuje a otvorí žiadosť o zlúčenie; bez revízie sa nič nenasadí.",
+      "name": "Názov aplikácie",
+      "kind": "Druh",
+      "kinds": {
+        "fullstack": "Celá aplikácia (backend v Ruste a obrazovky v Reacte)",
+        "static": "Statická (len obrazovky)",
+        "service": "Služba (len backend, bez obrazoviek)"
+      },
+      "endpoint": "Endpoint",
+      "pickEndpoint": "Vyberte endpoint",
+      "endpointHint": "Aplikácia číta tento jediný endpoint a nič iné, takže vidí presne to, čo endpoint publikuje.",
+      "prompt": "Čo má aplikácia robiť?",
+      "promptHint": "Je to opis, nie príkaz, ktorý platforma vykoná: nedostane sa k údajom, ktoré nie sú v zozname nižšie.",
+      "submit": "Vygenerovať aplikáciu",
+      "noBuilder": "Toto nasadenie nemá agenta na stavbu aplikácií, takže tu aplikáciu vygenerovať nemožno. Agent Runner je voliteľný doplnok; požiadajte správcu o jeho inštaláciu.",
+      "examplesHint": "Dve aplikácie dodávané s platformou sú hotové príklady rovnakého tvaru:",
+      "examples": {
+        "hsl-transport": "Autobusy naživo: 30 vozidiel na mape, verejné a len na čítanie",
+        "air-quality": "Kvalita ovzdušia: stanice, denná história a poznámka správcu"
+      },
+      "needs": {
+        "title": "Čo bude aplikácia smieť čítať",
+        "hint": "Odvodené z toho, čo endpoint publikuje. Odškrtnite, čo aplikácia nepotrebuje; pridať sa tu nedá nič.",
+        "audience": "Aplikácia bude viditeľná pre publikum samotného endpointu: {audience}.",
+        "loading": "Načítava sa model endpointu…",
+        "unavailable": "Endpoint zatiaľ nepublikuje model, takže z neho nemožno nič odvodiť.",
+        "none": "Tento endpoint nepublikuje žiadne atribúty, takže aplikácia nemá čo čítať."
+      }
+    },
+    "newAction": "Vygenerovať vlastnú aplikáciu"
   },
   "appLifecycle": {
     "draft": "Návrh",

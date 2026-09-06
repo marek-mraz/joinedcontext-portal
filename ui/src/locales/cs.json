@@ -509,7 +509,39 @@
       "hint": "Otevře se merge request. Aplikace bude dostupná po schválení změny.",
       "confirm": "Otevřít merge request",
       "cancel": "Zrušit"
-    }
+    },
+    "generate": {
+      "title": "Vygenerujte si vlastní aplikaci",
+      "subtitle": "Popište, co chcete. Agent ji napíše, otestuje a otevře žádost o sloučení; bez revize se nic nenasadí.",
+      "name": "Název aplikace",
+      "kind": "Druh",
+      "kinds": {
+        "fullstack": "Celá aplikace (backend v Rustu a obrazovky v Reactu)",
+        "static": "Statická (jen obrazovky)",
+        "service": "Služba (jen backend, bez obrazovek)"
+      },
+      "endpoint": "Endpoint",
+      "pickEndpoint": "Vyberte endpoint",
+      "endpointHint": "Aplikace čte tento jediný endpoint a nic jiného, takže vidí přesně to, co endpoint publikuje.",
+      "prompt": "Co má aplikace dělat?",
+      "promptHint": "Je to popis, ne příkaz, který platforma vykoná: nedostane se k datům, která nejsou v seznamu níže.",
+      "submit": "Vygenerovat aplikaci",
+      "noBuilder": "Toto nasazení nemá agenta pro stavbu aplikací, takže zde aplikaci vygenerovat nelze. Agent Runner je volitelný doplněk; požádejte správce o jeho instalaci.",
+      "examplesHint": "Dvě aplikace dodávané s platformou jsou hotové příklady stejného tvaru:",
+      "examples": {
+        "hsl-transport": "Autobusy živě: 30 vozidel na mapě, veřejné a jen ke čtení",
+        "air-quality": "Kvalita ovzduší: stanice, denní historie a poznámka správce"
+      },
+      "needs": {
+        "title": "Co bude aplikace smět číst",
+        "hint": "Odvozeno z toho, co endpoint publikuje. Odškrtněte, co aplikace nepotřebuje; přidat zde nelze nic.",
+        "audience": "Aplikace bude viditelná pro publikum samotného endpointu: {audience}.",
+        "loading": "Načítá se model endpointu…",
+        "unavailable": "Endpoint zatím nepublikuje model, takže z něj nelze nic odvodit.",
+        "none": "Tento endpoint nepublikuje žádné atributy, aplikace nemá co číst."
+      }
+    },
+    "newAction": "Vygenerovat vlastní aplikaci"
   },
   "appLifecycle": {
     "draft": "Návrh",

@@ -509,7 +509,39 @@
       "hint": "This opens a merge request. The app becomes reachable once the change is approved.",
       "confirm": "Open the merge request",
       "cancel": "Cancel"
-    }
+    },
+    "generate": {
+      "title": "Generate your own app",
+      "subtitle": "Describe what you want. The builder agent writes it, tests it and opens a merge request; nothing is deployed without a review.",
+      "name": "App name",
+      "kind": "Kind",
+      "kinds": {
+        "fullstack": "Full stack (Rust backend and React screens)",
+        "static": "Static (screens only)",
+        "service": "Service (backend only, no screens)"
+      },
+      "endpoint": "Endpoint",
+      "pickEndpoint": "Choose an endpoint",
+      "endpointHint": "The app reads this one endpoint and nothing else, so what it may see is what this endpoint publishes.",
+      "prompt": "What should the app do?",
+      "promptHint": "A description, not an instruction the platform obeys: it cannot reach data the list below does not carry.",
+      "submit": "Generate the app",
+      "noBuilder": "This deployment has no builder agent, so an app cannot be generated here. The Agent Runner is an optional addon; ask your administrator to install it.",
+      "examplesHint": "The two apps that ship with the platform are worked examples of the same shape:",
+      "examples": {
+        "hsl-transport": "Buses live: 30 vehicles on a map, public and read-only",
+        "air-quality": "Air quality: stations, a day of history and a steward note"
+      },
+      "needs": {
+        "title": "What the app will be allowed to read",
+        "hint": "Derived from what the endpoint publishes. Untick anything the app does not need; nothing can be added here.",
+        "audience": "The app will be visible to the endpoint's own audience: {audience}.",
+        "loading": "Reading the endpoint's model…",
+        "unavailable": "The endpoint does not publish a model yet, so nothing can be derived from it.",
+        "none": "This endpoint publishes no attributes, so there is nothing for an app to read."
+      }
+    },
+    "newAction": "Generate your own app"
   },
   "appLifecycle": {
     "draft": "Draft",
