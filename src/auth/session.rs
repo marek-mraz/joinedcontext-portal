@@ -107,6 +107,23 @@ impl FromRequestParts<AppState> for CurrentUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
+        // A bearer token is a service or a script, verified by the Portal itself; a browser
+        // carries the encrypted session cookie. Neither falls back to the other.
+        if let Some(header) = parts.headers.get(axum::http::header::AUTHORIZATION) {
+            let token = header
+                .to_str()
+                .ok()
+                .and_then(|v| v.strip_prefix("Bearer "))
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .ok_or(ApiError::Unauthorized)?;
+            let verifier = state.bearer.as_ref().ok_or(ApiError::Unauthorized)?;
+            let session = verifier.verify(token).await?;
+            if state.is_revoked(&session) {
+                return Err(ApiError::Unauthorized);
+            }
+            return Ok(CurrentUser(session));
+        }
         let jar = PrivateCookieJar::from_headers(&parts.headers, state.config.cookie_key.clone());
         let session = load(&jar).ok_or(ApiError::Unauthorized)?;
         if state.is_revoked(&session) {

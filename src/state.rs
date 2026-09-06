@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
 
+use crate::auth::bearer::BearerVerifier;
 use crate::auth::oidc::OidcClient;
 use crate::auth::session::Session;
 use crate::config::Config;
@@ -20,6 +21,9 @@ pub struct AppState {
     /// `None` when no Keycloak realm is configured: login answers 503, every protected
     /// route answers 401. Fail closed.
     pub oidc: Option<Arc<OidcClient>>,
+    /// Verifies `Authorization: Bearer` tokens against the realm JWKS. `None` without a realm:
+    /// every bearer call answers 401. Fail closed.
+    pub bearer: Option<Arc<BearerVerifier>>,
     pub mirror: Arc<Mirror>,
     /// `None` when no forge is configured: every write answers 503. A Portal that cannot
     /// open a merge request must not fall back to a local write (CC-03).
@@ -34,7 +38,12 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: Config, oidc: Option<OidcClient>) -> Self {
+        let bearer = config
+            .oidc
+            .as_ref()
+            .map(|o| Arc::new(BearerVerifier::new(&o.issuer, &o.client_id)));
         Self {
+            bearer,
             config: Arc::new(config),
             oidc: oidc.map(Arc::new),
             mirror: Arc::new(Mirror::new()),
@@ -75,6 +84,13 @@ impl AppState {
         // `from_env` answers `Ok(None)` only when all four variables are absent.
         let gitea = GiteaClient::from_env(|key| std::env::var(key).ok())?;
         let mut state = Self::new(config, oidc);
+        // Warm the key cache so the first bearer call does not pay for the fetch; a realm that
+        // is down at startup only costs a warning, the next unknown `kid` fetches again.
+        if let Some(bearer) = state.bearer.as_ref() {
+            if let Err(err) = bearer.refresh().await {
+                tracing::warn!(error = %err, "JWKS not loaded at startup");
+            }
+        }
         if let Some(client) = gitea {
             let client = Arc::new(client);
             let syncer = Arc::new(Syncer::new(Arc::clone(&client), Arc::clone(&state.mirror)));
