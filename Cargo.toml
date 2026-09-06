@@ -1,0 +1,10 @@
+[package]
+name = "joinedcontext-portal"
+version = "0.1.0"
+edition = "2021"
+license = "EUPL-1.2"
+description = "joinedcontext Portal: one application that manages the platform (Rust API + reconciler + embedded React UI)"
+
+[dependencies]
+# axum, sqlx, utoipa, jc-core and jcctl (as library) are added when the first code lands;
+# see ../docs/Architecture/09-portal.md and 06-configuration-as-code.md
