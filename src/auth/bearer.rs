@@ -100,7 +100,7 @@ impl BearerVerifier {
         n
     }
 
-    /// Fetches the JWKS, at most once per [`REFRESH_INTERVAL`]; inside the interval it is a
+    /// Fetches the JWKS, at most once a minute; inside the interval it is a
     /// no-op that reports the current key count. A failed fetch also starts the interval.
     pub async fn refresh(&self) -> Result<usize, ApiError> {
         {
