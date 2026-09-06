@@ -212,5 +212,84 @@
     "graphLabel": "Graf federácie: {spaces} kontextových priestorov, {links} registrácií",
     "selected": "Registrácie priestoru {space}",
     "noLinks": "Tento priestor neregistruje žiadny kontextový zdroj a nie je registrovaný žiadnym."
+  },
+  "access": {
+    "title": "Prístup",
+    "accounts": {
+      "title": "Servisné účty",
+      "empty": "Tento projekt zatiaľ nemá servisný účet.",
+      "owner": "Zodpovedná osoba",
+      "roles": "Role",
+      "purpose": "Účel"
+    },
+    "keys": {
+      "create": "Nový API kľúč ({credential})",
+      "noCredential": "Tento účet nemá v manifeste žiadny údaj typu api-key; najprv ho doplňte.",
+      "empty": "Zatiaľ žiadny API kľúč.",
+      "noStore": "API kľúče potrebujú databázu Portálu, ktorá tu nie je nastavená.",
+      "tableCaption": "API kľúče účtu {account}",
+      "newTitle": "Váš nový API kľúč",
+      "newHint": "Uložte si ho teraz do správcu tajomstiev.",
+      "onceWarning": "Kľúč sa zobrazuje jediný raz. Ukladá sa iba jeho odtlačok a už sa nedá obnoviť.",
+      "token": "API kľúč",
+      "copy": "Kopírovať",
+      "done": "Uložil som si ho",
+      "rotate": "Vymeniť",
+      "rotateHint": "Vydá nástupcu; súčasný kľúč funguje ešte 24 hodín.",
+      "revoke": "Zneplatniť",
+      "revokeNow": "Zneplatniť teraz",
+      "revokeConfirm": "Zneplatniť kľúč {keyId}? Volajúci, ktorí ho používajú, okamžite prestanú fungovať.",
+      "revoked": "zneplatnený {date}",
+      "never": "bez expirácie",
+      "neverUsed": "nepoužitý",
+      "field": {
+        "keyId": "Identifikátor kľúča",
+        "credential": "Údaj",
+        "expires": "Platnosť do",
+        "lastUsed": "Naposledy použitý"
+      }
+    },
+    "matrix": {
+      "title": "Prístup k údajom",
+      "hint": "Čo môžete cez tento endpoint robiť, podľa toho istého vyhodnocovača pravidiel, ktorý ich vynucuje.",
+      "endpoint": "Endpoint",
+      "noEndpoint": "Tento projekt zatiaľ nezverejňuje endpoint.",
+      "subject": "{subject} v priestore {space}",
+      "anonymous": "anonymný volajúci",
+      "empty": "Cez tento endpoint pre vás nie je čitateľný žiadny typ entity.",
+      "type": "Typ entity",
+      "read": "Čítanie",
+      "write": "Zápis",
+      "attributes": "Atribúty",
+      "residual": "Obmedzenia",
+      "allAttributes": "všetky",
+      "none": "žiadne",
+      "unconstrained": "bez obmedzenia",
+      "prohibitions": "Výslovne zakázané",
+      "forbidden": "Tento endpoint vám neodpovedá; prihláste sa účtom, ktorý má oprávnenie.",
+      "unavailable": "Dokument o prístupe teraz nie je dostupný."
+    }
+  },
+  "export": {
+    "title": "Stiahnuť konfiguráciu",
+    "project": "Export",
+    "action": "Export",
+    "hintProject": "Všetko, čo projekt {project} deklaruje, tak ako to je v repozitári.",
+    "hintResource": "Manifest {name}, tak ako je v repozitári.",
+    "format": "Formát",
+    "formats": {
+      "yaml": "YAML",
+      "yamlHelp": "Jeden manifest na dokument, pripravený na opätovné nasadenie.",
+      "json": "Zoznam JSON",
+      "jsonHelp": "Objekt List s tými istými manifestmi.",
+      "zip": "Archív ZIP",
+      "zipHelp": "Manifesty, súbory vedľa nich a index; dá sa naspäť importovať ako balík."
+    },
+    "revision": "Revízia",
+    "currentRevision": "Aktuálna",
+    "noHistory": "História nie je dostupná; aktuálnu revíziu si stiahnuť môžete.",
+    "noForge": "Nie je nastavený repozitár, takže nie je čo stiahnuť.",
+    "secretsNote": "Hodnoty tajomstiev nie sú nikdy súčasťou stiahnutého súboru; odkazy na ne áno.",
+    "download": "Stiahnuť"
   }
 }

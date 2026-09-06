@@ -29,6 +29,9 @@ pub struct AppState {
     /// open a merge request must not fall back to a local write (CC-03).
     pub gitea: Option<Arc<GiteaClient>>,
     pub syncer: Option<Arc<Syncer>>,
+    /// The preferences tier (UI-09). `None` without a database: the preferences routes answer
+    /// 503 and nothing else notices.
+    pub db: Option<sqlx::PgPool>,
     /// `sub` → unix second of the last back-channel logout for that user. Sessions issued
     /// at or before the mark are refused.
     /// ponytail: per-replica map; move it to the preferences database when the portal
@@ -49,6 +52,7 @@ impl AppState {
             mirror: Arc::new(Mirror::new()),
             gitea: None,
             syncer: None,
+            db: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -68,6 +72,11 @@ impl AppState {
         self
     }
 
+    pub fn with_db(mut self, db: sqlx::PgPool) -> Self {
+        self.db = Some(db);
+        self
+    }
+
     /// Builds the state for a configuration, discovering the Keycloak realm when one is set and
     /// picking up the forge from the environment. Both failures are fatal at startup: the caller
     /// only prints them, so one boxed error is enough for the two kinds.
@@ -83,7 +92,14 @@ impl AppState {
         // A half-configured forge is a configuration error, not a reason to run without one:
         // `from_env` answers `Ok(None)` only when all four variables are absent.
         let gitea = GiteaClient::from_env(|key| std::env::var(key).ok())?;
+        // A configured database that cannot be reached or migrated is fatal, like a half-configured
+        // forge: better one clear startup error than a Portal that silently forgets preferences.
+        let db = match config.database_url.as_deref() {
+            Some(url) => Some(crate::db::connect(url).await?),
+            None => None,
+        };
         let mut state = Self::new(config, oidc);
+        state.db = db;
         // Warm the key cache so the first bearer call does not pay for the fetch; a realm that
         // is down at startup only costs a warning, the next unknown `kid` fetches again.
         if let Some(bearer) = state.bearer.as_ref() {

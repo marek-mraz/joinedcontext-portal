@@ -1,10 +1,13 @@
 pub mod changes;
 pub mod delete;
 pub mod dry_run;
+pub mod export;
 pub mod health;
 pub mod mutate;
 pub mod pipelines;
+pub mod preferences;
 pub mod resources;
+pub mod service_accounts;
 pub mod sync;
 pub mod webhook;
 
@@ -22,8 +25,11 @@ pub fn router() -> Router<AppState> {
         .merge(health::router())
         .merge(auth::oidc::router())
         .merge(changes::router())
+        .merge(export::router())
         .merge(resources::router())
         .merge(pipelines::router())
+        .merge(preferences::router())
+        .merge(service_accounts::router())
         .merge(sync::router())
         .merge(crate::tools::model_tools::router())
         .layer(axum::middleware::from_fn(auth::csrf::require_csrf));

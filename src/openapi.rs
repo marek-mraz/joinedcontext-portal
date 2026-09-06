@@ -7,9 +7,12 @@ use utoipa::{Modify, OpenApi};
 
 use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
 use crate::api::dry_run::DryRunResult;
+use crate::api::export::{Revision, RevisionList};
 use crate::api::health::Health;
 use crate::api::pipelines::PipelineMetrics;
+use crate::api::preferences::Preferences;
 use crate::api::resources::{ListMeta, ResourceList};
+use crate::api::service_accounts::{KeyInfo, KeyList, MintedKey};
 use crate::auth::oidc::LogoutTarget;
 use crate::auth::Identity;
 use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSummary};
@@ -29,6 +32,14 @@ use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
         crate::api::resources::list,
         crate::api::resources::get_resource,
         crate::api::pipelines::get_metrics,
+        crate::api::export::export,
+        crate::api::export::revisions,
+        crate::api::service_accounts::list_keys,
+        crate::api::service_accounts::create_key,
+        crate::api::service_accounts::rotate_key,
+        crate::api::service_accounts::revoke_key,
+        crate::api::preferences::get_preferences,
+        crate::api::preferences::put_preferences,
         crate::api::mutate::create,
         crate::api::mutate::replace,
         crate::api::mutate::patch,
@@ -69,6 +80,12 @@ use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
         GenerateRequest,
         ImportSdmRequest,
         Artifacts,
+        Preferences,
+        KeyInfo,
+        KeyList,
+        MintedKey,
+        Revision,
+        RevisionList,
     )),
     info(
         title = "joinedcontext Portal API",
@@ -79,7 +96,9 @@ use crate::tools::model_tools::{Artifacts, GenerateRequest, ImportSdmRequest};
         (name = "system", description = "System operations"),
         (name = "auth", description = "Sign-in, sign-out and the current identity"),
         (name = "resources", description = "Resource operations"),
-        (name = "tools", description = "Model Tools schema generation and preview")
+        (name = "tools", description = "Model Tools schema generation and preview"),
+        (name = "preferences", description = "The signed-in person's own UI preferences"),
+        (name = "access", description = "ServiceAccounts, their API keys and effective grants")
     ),
     modifiers(&JcCoreSchemas)
 )]

@@ -16,6 +16,18 @@ use crate::plan;
 use crate::resource::{self, ResourceEnvelope};
 use crate::state::AppState;
 
+/// Field names whose string values are credentials wherever they appear: refused on a write
+/// (MF-24), redacted in a plan diff (CC-06) and dropped from an export (MF-17).
+pub const SECRET_KEYS: &[&str] = &[
+    "password",
+    "token",
+    "secret",
+    "clientSecret",
+    "apiKey",
+    "client_secret",
+    "api_key",
+];
+
 /// Detects string-valued literal secrets in manifest payloads (MF-24).
 ///
 /// Returns the first offending key name if any string-valued key named `password`, `token`,
@@ -25,17 +37,7 @@ pub fn find_literal_secret(val: &Value) -> Option<String> {
     match val {
         Value::Object(map) => {
             for (k, v) in map {
-                if matches!(
-                    k.as_str(),
-                    "password"
-                        | "token"
-                        | "secret"
-                        | "clientSecret"
-                        | "apiKey"
-                        | "client_secret"
-                        | "api_key"
-                ) && v.is_string()
-                {
+                if SECRET_KEYS.contains(&k.as_str()) && v.is_string() {
                     return Some(k.clone());
                 }
                 if let Some(found) = find_literal_secret(v) {

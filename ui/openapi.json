@@ -93,6 +93,114 @@
         }
       }
     },
+    "/api/v1/preferences": {
+      "get": {
+        "tags": [
+          "preferences"
+        ],
+        "operationId": "get_preferences",
+        "responses": {
+          "200": {
+            "description": "The caller's preferences, empty before the first save",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preferences"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No preferences database configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "preferences"
+        ],
+        "operationId": "put_preferences",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Preferences"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Stored; the body is what is now saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preferences"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field the Portal understands is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing or mismatched CSRF token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No preferences database configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/changes": {
       "get": {
         "tags": [
@@ -438,6 +546,106 @@
         }
       }
     },
+    "/api/v1/projects/{project}/export": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "export",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "yaml (default), json or zip",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "description": "Commit or branch; default branch head when absent",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kinds",
+            "in": "query",
+            "description": "Comma-separated plurals to include",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "names",
+            "in": "query",
+            "description": "Comma-separated resource names to include",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project's configuration at the revision"
+          },
+          "400": {
+            "description": "Unknown format or malformed revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No repository configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/pipelines/{name}/metrics": {
       "get": {
         "tags": [
@@ -497,6 +705,402 @@
           },
           "503": {
             "description": "No runner configured, or it did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/revisions": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "revisions",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1…100, default 20",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Commits touching the project, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "limit out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No repository configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/serviceaccounts/{name}/keys": {
+      "get": {
+        "tags": [
+          "access"
+        ],
+        "operationId": "list_keys",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "ServiceAccount name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The account's keys, metadata only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account, or none the caller may manage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No key database configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "access"
+        ],
+        "operationId": "create_key",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "ServiceAccount name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The minted key; the only answer that carries a token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No such api-key credential, or an expiry in the past",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account, or none the caller may manage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No key database configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/serviceaccounts/{name}/keys/{keyId}": {
+      "delete": {
+        "tags": [
+          "access"
+        ],
+        "operationId": "revoke_key",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "ServiceAccount name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "description": "Key to revoke",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked; the gateway refuses it on the next request"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account or key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No key database configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/serviceaccounts/{name}/keys/{keyId}/rotate": {
+      "post": {
+        "tags": [
+          "access"
+        ],
+        "operationId": "rotate_key",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "ServiceAccount name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "description": "Key to rotate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The successor key; the predecessor works until the overlap ends",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An overlap window outside 0…168 hours",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such account or key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No key database configured",
             "content": {
               "application/json": {
                 "schema": {
@@ -1790,6 +2394,62 @@
           }
         }
       },
+      "KeyInfo": {
+        "type": "object",
+        "description": "One key as everyone else ever sees it: what an operator decides on, and nothing that opens\na door.",
+        "required": [
+          "keyId",
+          "credential",
+          "createdAt",
+          "createdBy"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "credential": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "keyId": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "KeyList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KeyInfo"
+            }
+          }
+        }
+      },
       "Lane": {
         "type": "string",
         "description": "Change risk classification lane (CC-63).",
@@ -1827,6 +2487,33 @@
           "endSessionUrl": {
             "type": "string",
             "description": "Absolute URL: Keycloak's `end_session_endpoint`, or the portal itself when no realm is\nconfigured."
+          }
+        }
+      },
+      "MintedKey": {
+        "type": "object",
+        "description": "A minted key. The only place a raw token ever appears (PF-36).",
+        "required": [
+          "keyId",
+          "token",
+          "credential"
+        ],
+        "properties": {
+          "credential": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "keyId": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "`jc_{keyId}_{secret}`, shown once and never recoverable (PF-37)."
           }
         }
       },
@@ -2028,6 +2715,37 @@
           }
         }
       },
+      "Preferences": {
+        "type": "object",
+        "properties": {
+          "dashboardLayouts": {
+            "type": "object",
+            "description": "Free JSON per dashboard name, the browser's own saved state."
+          },
+          "defaultProject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The project the shell opens on."
+          },
+          "locale": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 639-1 language code."
+          },
+          "theme": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`light`, `dark` or `system`."
+          }
+        },
+        "additionalProperties": false
+      },
       "ProblemDetails": {
         "type": "object",
         "description": "RFC 7807 Problem Details representation.",
@@ -2122,6 +2840,43 @@
           }
         }
       },
+      "Revision": {
+        "type": "object",
+        "required": [
+          "sha",
+          "message",
+          "author",
+          "date"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          }
+        }
+      },
+      "RevisionList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Revision"
+            }
+          }
+        }
+      },
       "Status": {
         "type": "object",
         "description": "The status the Portal API reports (MF-04). It is `jc_core::Status` plus `sourceUrl` and a phase\nthat is always known; it stays a Portal type until jc-core carries `sourceUrl` too (docs API/01\nsection 6 is the contract), then it becomes a re-export like its neighbours.",
@@ -2204,6 +2959,14 @@
     {
       "name": "tools",
       "description": "Model Tools schema generation and preview"
+    },
+    {
+      "name": "preferences",
+      "description": "The signed-in person's own UI preferences"
+    },
+    {
+      "name": "access",
+      "description": "ServiceAccounts, their API keys and effective grants"
     }
   ]
 }

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { clsx } from "clsx";
 import { LanguageSwitcher } from "../LanguageSwitcher";
+import { ExportButton } from "../export/ExportButton";
 import { useAuth } from "../../auth/AuthProvider";
 
 /** The plural segments of `/api/v1/projects/{project}/{plural}`, in sidebar order. */
@@ -130,6 +131,8 @@ export function Shell({
       <header className="flex items-center justify-between border-b border-border px-4 py-3">
         <h1 className="text-lg font-bold">{t("app.title")}</h1>
         <div className="flex items-center gap-2">
+          {/* One click from anywhere in the project, which is the whole of CC-49. */}
+          <ExportButton project={project} target={{}} label={t("export.project")} />
           <LanguageSwitcher />
           <UserMenu />
         </div>

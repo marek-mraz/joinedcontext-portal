@@ -58,6 +58,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_preferences"];
+        put: operations["put_preferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/changes": {
         parameters: {
             query?: never;
@@ -122,6 +138,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/pipelines/{name}/metrics": {
         parameters: {
             query?: never;
@@ -132,6 +164,70 @@ export interface paths {
         get: operations["get_metrics"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["revisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/serviceaccounts/{name}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_keys"];
+        put?: never;
+        post: operations["create_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/serviceaccounts/{name}/keys/{keyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["revoke_key"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/serviceaccounts/{name}/keys/{keyId}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rotate_key"];
         delete?: never;
         options?: never;
         head?: never;
@@ -387,6 +483,22 @@ export interface components {
             model: string;
         };
         /**
+         * @description One key as everyone else ever sees it: what an operator decides on, and nothing that opens
+         *     a door.
+         */
+        KeyInfo: {
+            createdAt: string;
+            createdBy: string;
+            credential: string;
+            expiresAt?: string | null;
+            keyId: string;
+            lastUsedAt?: string | null;
+            revokedAt?: string | null;
+        };
+        KeyList: {
+            items: components["schemas"]["KeyInfo"][];
+        };
+        /**
          * @description Change risk classification lane (CC-63).
          * @enum {string}
          */
@@ -402,6 +514,14 @@ export interface components {
              *     configured.
              */
             endSessionUrl: string;
+        };
+        /** @description A minted key. The only place a raw token ever appears (PF-36). */
+        MintedKey: {
+            credential: string;
+            expiresAt?: string | null;
+            keyId: string;
+            /** @description `jc_{keyId}_{secret}`, shown once and never recoverable (PF-37). */
+            token: string;
         };
         /**
          * ObjectMeta
@@ -465,6 +585,16 @@ export interface components {
             delete?: number;
             update?: number;
         };
+        Preferences: {
+            /** @description Free JSON per dashboard name, the browser's own saved state. */
+            dashboardLayouts?: Record<string, never>;
+            /** @description The project the shell opens on. */
+            defaultProject?: string | null;
+            /** @description ISO 639-1 language code. */
+            locale?: string | null;
+            /** @description `light`, `dark` or `system`. */
+            theme?: string | null;
+        };
         /** @description RFC 7807 Problem Details representation. */
         ProblemDetails: {
             detail?: string | null;
@@ -486,6 +616,15 @@ export interface components {
             items: components["schemas"]["ResourceEnvelope"][];
             kind: string;
             metadata: components["schemas"]["ListMeta"];
+        };
+        Revision: {
+            author: string;
+            date: string;
+            message: string;
+            sha: string;
+        };
+        RevisionList: {
+            items: components["schemas"]["Revision"][];
         };
         /**
          * @description The status the Portal API reports (MF-04). It is `jc_core::Status` plus `sourceUrl` and a phase
@@ -598,6 +737,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    get_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's preferences, empty before the first save */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No preferences database configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    put_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Preferences"];
+            };
+        };
+        responses: {
+            /** @description Stored; the body is what is now saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
+                };
+            };
+            /** @description A field the Portal understands is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Missing or mismatched CSRF token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No preferences database configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -854,6 +1091,72 @@ export interface operations {
             };
         };
     };
+    export: {
+        parameters: {
+            query?: {
+                /** @description yaml (default), json or zip */
+                format?: string;
+                /** @description Commit or branch; default branch head when absent */
+                revision?: string;
+                /** @description Comma-separated plurals to include */
+                kinds?: string;
+                /** @description Comma-separated resource names to include */
+                names?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's configuration at the revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown format or malformed revision */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project or revision */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No repository configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     get_metrics: {
         parameters: {
             query?: never;
@@ -896,6 +1199,295 @@ export interface operations {
                 };
             };
             /** @description No runner configured, or it did not answer */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    revisions: {
+        parameters: {
+            query?: {
+                /** @description 1…100, default 20 */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Commits touching the project, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionList"];
+                };
+            };
+            /** @description limit out of range */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No repository configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    list_keys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description ServiceAccount name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account's keys, metadata only */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeyList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such account, or none the caller may manage */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No key database configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    create_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description ServiceAccount name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": unknown;
+            };
+        };
+        responses: {
+            /** @description The minted key; the only answer that carries a token */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedKey"];
+                };
+            };
+            /** @description No such api-key credential, or an expiry in the past */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such account, or none the caller may manage */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No key database configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    revoke_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description ServiceAccount name */
+                name: string;
+                /** @description Key to revoke */
+                keyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked; the gateway refuses it on the next request */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such account or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No key database configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    rotate_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description ServiceAccount name */
+                name: string;
+                /** @description Key to rotate */
+                keyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": unknown;
+            };
+        };
+        responses: {
+            /** @description The successor key; the predecessor works until the overlap ends */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedKey"];
+                };
+            };
+            /** @description An overlap window outside 0…168 hours */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such account or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No key database configured */
             503: {
                 headers: {
                     [name: string]: unknown;

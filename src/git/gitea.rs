@@ -115,6 +115,16 @@ pub struct PullRequest {
     pub merged: bool,
 }
 
+/// One commit of the repository, as the revision picker shows it (MF-16, CC-49).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Commit {
+    pub sha: String,
+    /// First line of the commit message: the picker renders history as plain sentences.
+    pub message: String,
+    pub author: String,
+    pub date: String,
+}
+
 /// Pull request review action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReviewEvent {
@@ -195,6 +205,29 @@ struct FileCommitResponse {
 #[derive(Deserialize)]
 struct FileCommitShaDto {
     sha: String,
+}
+
+#[derive(Deserialize)]
+struct CommitDto {
+    sha: String,
+    #[serde(default)]
+    commit: Option<CommitDetailsDto>,
+}
+
+#[derive(Deserialize)]
+struct CommitDetailsDto {
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    author: Option<CommitAuthorDto>,
+}
+
+#[derive(Deserialize)]
+struct CommitAuthorDto {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    date: String,
 }
 
 #[derive(Serialize)]
@@ -546,6 +579,58 @@ impl GiteaClient {
             Err(_) => String::new(),
         };
         Ok(commit_sha)
+    }
+
+    /// `GET /commits?sha={git_ref}&path={path}&limit={limit}` — the history of one path.
+    ///
+    /// The forge is the only source: the mirror knows the manifests of one revision, never how
+    /// they got there, so a revision picker that read the mirror would have nothing to show.
+    pub async fn list_commits(
+        &self,
+        git_ref: &str,
+        path: &str,
+        limit: usize,
+    ) -> Result<Vec<Commit>, GitError> {
+        let mut url = self.repo_url("commits")?;
+        url.query_pairs_mut()
+            .append_pair("sha", git_ref)
+            .append_pair("path", path)
+            .append_pair("limit", &limit.to_string())
+            .append_pair("stat", "false")
+            .append_pair("verification", "false")
+            .append_pair("files", "false");
+
+        let res = self.send(self.http.get(url)).await?;
+        let res = Self::check_status(res).await?;
+        let raw: Vec<CommitDto> = res
+            .json()
+            .await
+            .map_err(|e| GitError::Transport(format!("failed to parse commits response: {e}")))?;
+
+        Ok(raw
+            .into_iter()
+            .map(|dto| {
+                let details = dto.commit.unwrap_or(CommitDetailsDto {
+                    message: String::new(),
+                    author: None,
+                });
+                let author = details.author.unwrap_or(CommitAuthorDto {
+                    name: String::new(),
+                    date: String::new(),
+                });
+                Commit {
+                    sha: dto.sha,
+                    message: details
+                        .message
+                        .lines()
+                        .next()
+                        .unwrap_or_default()
+                        .to_string(),
+                    author: author.name,
+                    date: author.date,
+                }
+            })
+            .collect())
     }
 
     /// `GET /pulls?state={state}&sort=recentupdate&limit=50` — retrieves pull requests.

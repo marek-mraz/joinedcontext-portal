@@ -212,5 +212,84 @@
     "graphLabel": "Federation graph: {spaces} context spaces, {links} registrations",
     "selected": "Registrations of {space}",
     "noLinks": "This space registers no context source and is registered by none."
+  },
+  "access": {
+    "title": "Access",
+    "accounts": {
+      "title": "Service accounts",
+      "empty": "This project has no service account yet.",
+      "owner": "Owner",
+      "roles": "Roles",
+      "purpose": "Purpose"
+    },
+    "keys": {
+      "create": "New API key ({credential})",
+      "noCredential": "This account declares no api-key credential; add one to its manifest first.",
+      "empty": "No API key yet.",
+      "noStore": "API keys need the Portal database, which is not configured here.",
+      "tableCaption": "API keys of {account}",
+      "newTitle": "Your new API key",
+      "newHint": "Store it in your secret manager now.",
+      "onceWarning": "This is the only time the key is shown. It is stored as a hash and cannot be recovered.",
+      "token": "API key",
+      "copy": "Copy",
+      "done": "I have stored it",
+      "rotate": "Rotate",
+      "rotateHint": "Issues a successor; the current key keeps working for 24 hours.",
+      "revoke": "Revoke",
+      "revokeNow": "Revoke now",
+      "revokeConfirm": "Revoke key {keyId}? Callers using it stop working immediately.",
+      "revoked": "revoked {date}",
+      "never": "no expiry",
+      "neverUsed": "never used",
+      "field": {
+        "keyId": "Key id",
+        "credential": "Credential",
+        "expires": "Expires",
+        "lastUsed": "Last used"
+      }
+    },
+    "matrix": {
+      "title": "Data access",
+      "hint": "What you may do through this endpoint, answered by the same policy engine that enforces it.",
+      "endpoint": "Endpoint",
+      "noEndpoint": "This project publishes no endpoint yet.",
+      "subject": "{subject} in space {space}",
+      "anonymous": "anonymous caller",
+      "empty": "No entity type is readable through this endpoint for you.",
+      "type": "Entity type",
+      "read": "Read",
+      "write": "Write",
+      "attributes": "Attributes",
+      "residual": "Constraints",
+      "allAttributes": "all",
+      "none": "none",
+      "unconstrained": "no constraint",
+      "prohibitions": "Explicitly denied",
+      "forbidden": "This endpoint does not answer you; sign in with an account that has a grant.",
+      "unavailable": "The access document is not available right now."
+    }
+  },
+  "export": {
+    "title": "Download configuration",
+    "project": "Export",
+    "action": "Export",
+    "hintProject": "Everything project {project} declares, as it is in the repository.",
+    "hintResource": "The manifest of {name}, as it is in the repository.",
+    "format": "Format",
+    "formats": {
+      "yaml": "YAML",
+      "yamlHelp": "One manifest per document, ready to apply again.",
+      "json": "JSON list",
+      "jsonHelp": "A List object with the same manifests.",
+      "zip": "ZIP archive",
+      "zipHelp": "Manifests, the files beside them and an index, re-importable as a bundle."
+    },
+    "revision": "Revision",
+    "currentRevision": "Current",
+    "noHistory": "The history is not available; the current revision is still downloadable.",
+    "noForge": "No repository is configured, so there is nothing to download.",
+    "secretsNote": "Secret values are never part of a download; references to them are.",
+    "download": "Download"
   }
 }

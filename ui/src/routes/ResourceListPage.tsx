@@ -5,6 +5,7 @@ import { SpacesPage } from "./SpacesPage";
 import { EndpointsPage } from "./EndpointsPage";
 import { DashboardsPage } from "./DashboardsPage";
 import { PipelinesPage } from "./PipelinesPage";
+import { AccessPage } from "../pages/access/AccessPage";
 
 /** `/api/v1/projects/{project}/{plural}` rendered as a plain table; MF-11…MF-15. */
 export function ResourceListPage({
@@ -26,6 +27,10 @@ export function ResourceListPage({
   }
   if (plural === "dashboards") {
     return <DashboardsPage project={project} />;
+  }
+  // "access" is a section, not a kind: ServiceAccounts and the caller's own grants (PF-40, EP-60).
+  if (plural === "access") {
+    return <AccessPage project={project} />;
   }
   return <GenericListPage project={project} plural={plural} />;
 }

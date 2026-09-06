@@ -212,5 +212,84 @@
     "graphLabel": "Föderationsgraph: {spaces} Kontexträume, {links} Registrierungen",
     "selected": "Registrierungen von {space}",
     "noLinks": "Dieser Raum registriert keine Kontextquelle und wird von keiner registriert."
+  },
+  "access": {
+    "title": "Zugriff",
+    "accounts": {
+      "title": "Dienstkonten",
+      "empty": "Dieses Projekt hat noch kein Dienstkonto.",
+      "owner": "Verantwortlich",
+      "roles": "Rollen",
+      "purpose": "Zweck"
+    },
+    "keys": {
+      "create": "Neuer API-Schlüssel ({credential})",
+      "noCredential": "Dieses Konto deklariert kein api-key-Credential; ergänzen Sie es zuerst im Manifest.",
+      "empty": "Noch kein API-Schlüssel.",
+      "noStore": "API-Schlüssel brauchen die Portal-Datenbank, die hier nicht konfiguriert ist.",
+      "tableCaption": "API-Schlüssel von {account}",
+      "newTitle": "Ihr neuer API-Schlüssel",
+      "newHint": "Speichern Sie ihn jetzt in Ihrem Passwortspeicher.",
+      "onceWarning": "Der Schlüssel wird nur dieses eine Mal angezeigt. Gespeichert wird nur sein Hash, er ist nicht wiederherstellbar.",
+      "token": "API-Schlüssel",
+      "copy": "Kopieren",
+      "done": "Ich habe ihn gespeichert",
+      "rotate": "Erneuern",
+      "rotateHint": "Erzeugt einen Nachfolger; der aktuelle Schlüssel gilt noch 24 Stunden.",
+      "revoke": "Widerrufen",
+      "revokeNow": "Jetzt widerrufen",
+      "revokeConfirm": "Schlüssel {keyId} widerrufen? Aufrufer, die ihn nutzen, funktionieren sofort nicht mehr.",
+      "revoked": "widerrufen am {date}",
+      "never": "ohne Ablauf",
+      "neverUsed": "nie benutzt",
+      "field": {
+        "keyId": "Schlüssel-Id",
+        "credential": "Credential",
+        "expires": "Gültig bis",
+        "lastUsed": "Zuletzt benutzt"
+      }
+    },
+    "matrix": {
+      "title": "Datenzugriff",
+      "hint": "Was Sie über diesen Endpunkt dürfen, beantwortet von derselben Regel-Engine, die es durchsetzt.",
+      "endpoint": "Endpunkt",
+      "noEndpoint": "Dieses Projekt veröffentlicht noch keinen Endpunkt.",
+      "subject": "{subject} im Raum {space}",
+      "anonymous": "anonymer Aufrufer",
+      "empty": "Über diesen Endpunkt ist für Sie kein Entitätstyp lesbar.",
+      "type": "Entitätstyp",
+      "read": "Lesen",
+      "write": "Schreiben",
+      "attributes": "Attribute",
+      "residual": "Einschränkungen",
+      "allAttributes": "alle",
+      "none": "keine",
+      "unconstrained": "keine Einschränkung",
+      "prohibitions": "Ausdrücklich verboten",
+      "forbidden": "Dieser Endpunkt antwortet Ihnen nicht; melden Sie sich mit einem berechtigten Konto an.",
+      "unavailable": "Das Zugriffsdokument ist gerade nicht verfügbar."
+    }
+  },
+  "export": {
+    "title": "Konfiguration herunterladen",
+    "project": "Export",
+    "action": "Export",
+    "hintProject": "Alles, was Projekt {project} deklariert, so wie es im Repository steht.",
+    "hintResource": "Das Manifest von {name}, so wie es im Repository steht.",
+    "format": "Format",
+    "formats": {
+      "yaml": "YAML",
+      "yamlHelp": "Ein Manifest je Dokument, direkt wieder anwendbar.",
+      "json": "JSON-Liste",
+      "jsonHelp": "Ein List-Objekt mit denselben Manifesten.",
+      "zip": "ZIP-Archiv",
+      "zipHelp": "Manifeste, die Dateien daneben und ein Index, als Bündel reimportierbar."
+    },
+    "revision": "Revision",
+    "currentRevision": "Aktuell",
+    "noHistory": "Die Historie ist nicht verfügbar; die aktuelle Revision können Sie laden.",
+    "noForge": "Kein Repository konfiguriert, es gibt nichts herunterzuladen.",
+    "secretsNote": "Geheimniswerte sind nie Teil eines Downloads, Verweise darauf schon.",
+    "download": "Herunterladen"
   }
 }

@@ -34,6 +34,14 @@ mime_guess = "2"
 openidconnect = "4"
 jsonwebtoken = "9"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# The preferences and API-key tiers (UI-09, PF-36). rustls over ring, the TLS stack reqwest
+# already brought in; `time` because the key rows carry timestamps and the crate is here anyway.
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "migrate", "json", "macros", "time"] }
+# API keys are stored as Argon2id hashes and never as secrets (PF-36); the gateway verifies the
+# PHC string this writes. Same crate and defaults as the gateway's verifier.
+argon2 = "0.5"
+# The one-click configuration archive (CC-49, MF-16). Deflate only: no encryption, no bzip2.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

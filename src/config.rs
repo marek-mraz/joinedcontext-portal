@@ -26,6 +26,10 @@ pub struct Config {
     /// Root of the built app bundles, one directory per app. `None` leaves every
     /// `/apps/{name}/` path answering 404 rather than reading a guessed directory (AP-14).
     pub apps_dir: Option<String>,
+    /// PostgreSQL connection string of the preferences tier (UI-09). Carries a password, so it
+    /// is redacted in `Debug`. `None` runs the Portal without preferences: those routes answer
+    /// 503, everything else works.
+    pub database_url: Option<String>,
 }
 
 impl std::fmt::Debug for Config {
@@ -43,6 +47,10 @@ impl std::fmt::Debug for Config {
             .field("pipeline_runner_url", &self.pipeline_runner_url)
             .field("model_tools_url", &self.model_tools_url)
             .field("apps_dir", &self.apps_dir)
+            .field(
+                "database_url",
+                &self.database_url.as_ref().map(|_| "[redacted]"),
+            )
             .finish()
     }
 }
@@ -205,6 +213,7 @@ impl Config {
         };
 
         let apps_dir = lookup("JC_PORTAL_APPS_DIR");
+        let database_url = lookup("JC_PORTAL_DATABASE_URL").filter(|url| !url.trim().is_empty());
 
         Ok(Self {
             bind,
@@ -216,6 +225,7 @@ impl Config {
             pipeline_runner_url,
             model_tools_url,
             apps_dir,
+            database_url,
         })
     }
 
@@ -231,6 +241,7 @@ impl Config {
             pipeline_runner_url: None,
             model_tools_url: None,
             apps_dir: None,
+            database_url: None,
         }
     }
 

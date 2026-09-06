@@ -8,6 +8,7 @@ import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
+import { ExportButton } from "../components/export/ExportButton";
 import { endpointSchema, endpointUiSchema, generateSlug } from "../schemas/kinds";
 
 interface EndpointForm {
@@ -260,6 +261,12 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         {spec.slug ? <CopyUrlButton slug={spec.slug} /> : null}
+                        <ExportButton
+                          project={project}
+                          target={{ plural: "endpoints", name: endpoint.metadata.name }}
+                          label={t("export.action")}
+                          className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+                        />
                         <button
                           type="button"
                           onClick={() => {
