@@ -207,7 +207,7 @@
     "type": {
       "mqtt": "MQTT broker",
       "http": "HTTP endpoint",
-      "web-socket": "WebSocket stream",
+      "websocket": "WebSocket stream",
       "gtfs-rt": "GTFS-realtime feed"
     },
     "dialog": {
@@ -215,7 +215,7 @@
       "edit": "Edit data source",
       "mqtt": "Subscribes to topics on a broker and hands every message to the pipeline that references it.",
       "http": "Polls a URL on the pipeline's own period.",
-      "web-socket": "Holds a socket open and reads the messages the server pushes.",
+      "websocket": "Holds a socket open and reads the messages the server pushes.",
       "gtfs-rt": "Reads a GTFS-realtime feed; the protobuf is decoded before the pipeline sees it."
     },
     "field": {

@@ -207,7 +207,7 @@
     "type": {
       "mqtt": "MQTT broker",
       "http": "HTTP endpoint",
-      "web-socket": "WebSocket stream",
+      "websocket": "WebSocket stream",
       "gtfs-rt": "GTFS-realtime feed"
     },
     "dialog": {
@@ -215,7 +215,7 @@
       "edit": "Úprava zdroja údajov",
       "mqtt": "Odoberá témy na brokeri a každú správu odovzdá pipeline, ktorá naň odkazuje.",
       "http": "Periodicky sťahuje URL v perióde samotnej pipeline.",
-      "web-socket": "Drží otvorený socket a číta správy, ktoré server posiela.",
+      "websocket": "Drží otvorený socket a číta správy, ktoré server posiela.",
       "gtfs-rt": "Číta GTFS-realtime feed; protobuf sa dekóduje ešte pred pipeline."
     },
     "field": {

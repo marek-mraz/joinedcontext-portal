@@ -200,7 +200,7 @@ describe("data sources view", () => {
 
     await userEvent.selectOptions(
       await screen.findByLabelText(en.datasources.field.type),
-      "web-socket",
+      "websocket",
     );
     await userEvent.click(screen.getByRole("button", { name: en.datasources.add }));
     const dialog = await screen.findByRole("dialog");
@@ -218,7 +218,7 @@ describe("data sources view", () => {
     await expect(request.clone().json()).resolves.toMatchObject({
       kind: "DataSource",
       metadata: { name: "aq-stream", namespace: "banskabystrica" },
-      spec: { type: "web-socket", webSocket: { url: "wss://feed.banskabystrica.sk/aq" } },
+      spec: { type: "websocket", webSocket: { url: "wss://feed.banskabystrica.sk/aq" } },
     });
 
     expect(await screen.findByText("chg-7f3e")).toBeInTheDocument();

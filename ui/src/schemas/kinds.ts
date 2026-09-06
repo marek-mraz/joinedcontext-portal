@@ -202,7 +202,7 @@ export function generateSlug(): string {
 }
 
 /** The four feeds a `DataSource` connects to, in the order the wizard offers them (MF-35). */
-export const DATA_SOURCE_TYPES = ["mqtt", "http", "web-socket", "gtfs-rt"] as const;
+export const DATA_SOURCE_TYPES = ["mqtt", "http", "websocket", "gtfs-rt"] as const;
 
 export type DataSourceType = (typeof DATA_SOURCE_TYPES)[number];
 
@@ -210,7 +210,7 @@ export type DataSourceType = (typeof DATA_SOURCE_TYPES)[number];
 export const CONNECTION_BLOCK: Record<DataSourceType, string> = {
   mqtt: "mqtt",
   http: "http",
-  "web-socket": "webSocket",
+  websocket: "webSocket",
   "gtfs-rt": "gtfsRt",
 };
 
@@ -304,9 +304,9 @@ export function dataSourceSchema(
         },
       },
     },
-    "web-socket": {
+    websocket: {
       type: "object",
-      title: t("datasources.type.web-socket"),
+      title: t("datasources.type.websocket"),
       required: ["url"],
       properties: {
         url: { type: "string", title: t("datasources.field.url"), pattern: "^wss?://.+" },

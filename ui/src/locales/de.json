@@ -207,7 +207,7 @@
     "type": {
       "mqtt": "MQTT-Broker",
       "http": "HTTP-Endpunkt",
-      "web-socket": "WebSocket-Stream",
+      "websocket": "WebSocket-Stream",
       "gtfs-rt": "GTFS-Realtime-Feed"
     },
     "dialog": {
@@ -215,7 +215,7 @@
       "edit": "Datenquelle bearbeiten",
       "mqtt": "Abonniert Topics auf einem Broker und übergibt jede Nachricht der Pipeline, die ihn referenziert.",
       "http": "Ruft eine URL im Takt der Pipeline ab.",
-      "web-socket": "Hält einen Socket offen und liest die Nachrichten, die der Server sendet.",
+      "websocket": "Hält einen Socket offen und liest die Nachrichten, die der Server sendet.",
       "gtfs-rt": "Liest einen GTFS-Realtime-Feed; das Protobuf wird vor der Pipeline dekodiert."
     },
     "field": {
