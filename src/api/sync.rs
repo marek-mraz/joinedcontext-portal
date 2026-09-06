@@ -5,8 +5,8 @@ use axum::Json;
 
 use crate::auth::CurrentUser;
 use crate::error::ProblemDetails;
+use crate::reconciler::SyncStatus;
 use crate::state::AppState;
-use crate::sync::SyncStatus;
 
 #[utoipa::path(
     get,
@@ -46,9 +46,9 @@ mod tests {
     use crate::auth::session::{self, Identity, Session};
     use crate::config::Config;
     use crate::git::GiteaClient;
+    use crate::reconciler::Syncer;
     use crate::server;
     use crate::store::Mirror;
-    use crate::sync::Syncer;
 
     fn make_session_cookie(config: &Config) -> String {
         use axum::response::IntoResponse;

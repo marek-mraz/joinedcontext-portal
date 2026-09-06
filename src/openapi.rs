@@ -19,9 +19,9 @@ use crate::auth::Identity;
 use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSummary};
 use crate::error::ProblemDetails;
 use crate::plan::{FieldChange, PlanDiff};
+use crate::reconciler::SyncStatus;
 use crate::resource::{ResourceEnvelope, Status};
 use crate::state::AppState;
-use crate::sync::SyncStatus;
 use crate::tools::model_tools::{
     Artifacts, Catalogue, CatalogueModel, CatalogueSubject, GenerateRequest, ImportSdmRequest,
 };

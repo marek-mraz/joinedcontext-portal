@@ -12,11 +12,11 @@ pub mod error;
 pub mod git;
 pub mod openapi;
 pub mod plan;
+pub mod reconciler;
 pub mod resource;
 pub mod server;
 pub mod state;
 pub mod store;
-pub mod sync;
 pub mod tools;
 
 /// Name reported by `/api/v1/health` and the process banner.

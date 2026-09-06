@@ -179,9 +179,9 @@ mod tests {
 
     use crate::config::Config;
     use crate::git::GiteaClient;
+    use crate::reconciler::Syncer;
     use crate::server;
     use crate::store::Mirror;
-    use crate::sync::Syncer;
 
     fn compute_signature(secret: &str, body: &[u8]) -> String {
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("slice");

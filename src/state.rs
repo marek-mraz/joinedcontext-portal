@@ -12,8 +12,8 @@ use crate::auth::oidc::OidcClient;
 use crate::auth::session::Session;
 use crate::config::Config;
 use crate::git::GiteaClient;
+use crate::reconciler::{Leadership, Syncer};
 use crate::store::Mirror;
-use crate::sync::Syncer;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -109,9 +109,14 @@ impl AppState {
         }
         if let Some(client) = gitea {
             let client = Arc::new(client);
-            let syncer = Arc::new(Syncer::new(Arc::clone(&client), Arc::clone(&state.mirror)));
+            let mut syncer = Syncer::new(Arc::clone(&client), Arc::clone(&state.mirror));
+            // With a database the replicas elect one reconciler; without one there is nothing
+            // to elect with, and a Portal that runs alone reconciles alone (T-0191, CC-03).
+            if let Some(pool) = state.db.as_ref() {
+                syncer = syncer.with_leadership(Arc::new(Leadership::reconciler(pool.clone())));
+            }
             state.gitea = Some(client);
-            state.syncer = Some(syncer);
+            state.syncer = Some(Arc::new(syncer));
         }
         Ok(state)
     }

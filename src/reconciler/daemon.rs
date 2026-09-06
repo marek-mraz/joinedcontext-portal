@@ -1,8 +1,22 @@
-//! Background mirror synchronization against the Git repository (MF-04, CC-08).
+//! The reconciler loop against the Git repository (T-0191, MF-04, CC-03, CC-08).
 //!
-//! Re-reads declared manifests from Gitea at the default branch HEAD, compiles
-//! their live status, and swaps them into the in-memory mirror atomically.
+//! Re-reads the declared manifests from Gitea at the default branch HEAD, loads them with
+//! `jcctl`, compiles their live status and swaps them into the in-memory mirror atomically.
+//!
+//! The loading is `jcctl`'s, not the Portal's: the same code that validates a repository for
+//! `jcctl plan` decides here what a manifest is, which kinds exist and which two files claim
+//! one identity. A Portal that parsed manifests its own way would eventually disagree with
+//! the CLI, and the disagreement would show up as a resource that CI accepts and the Portal
+//! cannot see.
+//!
+//! A run that cannot load the repository leaves the mirror on the last revision that loaded
+//! and records why in the status. Serving half a repository is worse than serving a slightly
+//! old one: a resource missing from the Portal reads as deleted.
+//!
+//! Only the elected leader reconciles ([`super::leader`]); the other replicas serve the UI
+//! from the mirror the leader fills and answer `sync_once` with `Ok(0)`.
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -10,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use utoipa::ToSchema;
 
+use super::leader::Leadership;
 use crate::git::{GitError, GiteaClient};
 use crate::resource::ResourceEnvelope;
 use crate::store::Mirror;
@@ -25,6 +40,9 @@ pub struct SyncStatus {
     pub revision: Option<String>,
     pub manifests: usize,
     pub last_error: Option<String>,
+    /// Whether this replica is the one that reconciles (CC-03). A Portal without a database
+    /// has no election to run and reconciles on its own, so it reports itself as the leader.
+    pub leader: bool,
 }
 
 /// Errors returned during repository synchronization.
@@ -34,6 +52,16 @@ pub enum SyncError {
     Git(#[from] GitError),
     #[error("{0}")]
     Empty(String),
+    /// The repository does not load as a set of manifests (CC-08, MF-05, MF-06).
+    #[error("repository does not load: {0}")]
+    Load(#[from] jcctl::loader::LoadError),
+    /// The scratch directory the loader reads from could not be written.
+    #[error("cannot stage the repository at {path}: {source}")]
+    Scratch {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// Background reconciler synchronizing repository manifests into the in-memory mirror.
@@ -42,6 +70,8 @@ pub struct Syncer {
     mirror: Arc<Mirror>,
     status: Arc<RwLock<SyncStatus>>,
     running: Arc<Mutex<()>>,
+    /// `None` when the Portal has no database: a single replica needs no election.
+    leadership: Option<Arc<Leadership>>,
 }
 
 impl Syncer {
@@ -49,9 +79,28 @@ impl Syncer {
         Self {
             gitea,
             mirror,
-            status: Arc::new(RwLock::new(SyncStatus::default())),
+            status: Arc::new(RwLock::new(SyncStatus {
+                leader: true,
+                ..SyncStatus::default()
+            })),
             running: Arc::new(Mutex::new(())),
+            leadership: None,
         }
+    }
+
+    /// Makes this replica compete for the reconciler role instead of assuming it (CC-03).
+    pub fn with_leadership(mut self, leadership: Arc<Leadership>) -> Self {
+        self.status
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .leader = leadership.is_leader();
+        self.leadership = Some(leadership);
+        self
+    }
+
+    /// Whether this replica currently reconciles.
+    pub fn is_leader(&self) -> bool {
+        self.leadership.as_ref().is_none_or(|l| l.is_leader())
     }
 
     pub fn status(&self) -> SyncStatus {
@@ -63,8 +112,11 @@ impl Syncer {
 
     /// Synchronizes the mirror once against the Git repository.
     ///
-    /// Guarded against concurrent runs: if another sync is currently active,
-    /// returns `Ok(0)` immediately instead of queueing.
+    /// Answers `Ok(0)` without touching the repository in the two cases where running would
+    /// be wrong rather than merely redundant: another run of this replica is still in
+    /// flight, or this replica is not the leader (CC-03). Both are ordinary states, so
+    /// neither is an error; the webhook that triggered it is already recorded in Git and the
+    /// leader picks it up on its next tick.
     pub async fn sync_once(&self) -> Result<usize, SyncError> {
         let _guard = match self.running.try_lock() {
             Ok(g) => g,
@@ -74,6 +126,11 @@ impl Syncer {
             }
         };
 
+        if !self.claim_leadership().await {
+            tracing::debug!("another replica holds the reconciler lock, skipping this run");
+            return Ok(0);
+        }
+
         match self.do_sync().await {
             Ok((count, revision)) => {
                 let now = crate::auth::session::now_unix();
@@ -82,12 +139,40 @@ impl Syncer {
                 status.revision = Some(revision);
                 status.manifests = count;
                 status.last_error = None;
+                status.leader = true;
                 Ok(count)
             }
             Err(err) => {
                 let mut status = self.status.write().unwrap_or_else(|p| p.into_inner());
                 status.last_error = Some(err.to_string());
                 Err(err)
+            }
+        }
+    }
+
+    /// Whether this replica may reconcile now, asking the database every time (T-0191).
+    ///
+    /// A database that cannot be reached demotes this replica rather than promoting it: two
+    /// leaders are worse than none, because none only delays a mirror refresh.
+    async fn claim_leadership(&self) -> bool {
+        let Some(leadership) = self.leadership.as_ref() else {
+            return true;
+        };
+        match leadership.acquire().await {
+            Ok(leader) => {
+                self.status
+                    .write()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .leader = leader;
+                leader
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "cannot reach the database to elect a reconciler");
+                self.status
+                    .write()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .leader = false;
+                false
             }
         }
     }
@@ -104,38 +189,74 @@ impl Syncer {
             .filter(|p| is_candidate_manifest(p))
             .collect();
 
-        // 3. Read and parse each candidate manifest
-        let mut skipped = 0usize;
-        let mut loaded = 0usize;
-        let fresh_mirror = Mirror::new();
+        if candidate_paths.is_empty() {
+            return Err(SyncError::Empty(
+                "no manifests found in repository".to_string(),
+            ));
+        }
 
+        // 3. Stage the candidates so the loader reads a repository, not a list of blobs.
+        //    The staging directory is this run's own and is removed when it ends, whichever
+        //    way it ends.
+        let scratch = Scratch::new(&revision)?;
+        let mut staged = 0usize;
         for path in &candidate_paths {
             let file = match self.gitea.get_file(path, &revision).await {
                 Ok(Some(f)) => f,
                 Ok(None) => {
+                    // The tree listed it and the contents call does not have it: a race with a
+                    // force-push, not a broken manifest. The next run reads a consistent tree.
                     tracing::warn!(path = %path, "candidate manifest listed in git tree not found");
-                    skipped += 1;
                     continue;
                 }
                 Err(err) => return Err(SyncError::Git(err)),
             };
-
-            let mut envelope: ResourceEnvelope = match serde_yaml_ng::from_str(&file.content) {
-                Ok(env) => env,
+            match stageable(&file.content) {
+                Ok(Some(text)) => {
+                    scratch.write(path, &text)?;
+                    staged += 1;
+                }
+                Ok(None) => {
+                    tracing::warn!(path = %path, "no document of a kind the Portal serves, skipped")
+                }
                 Err(err) => {
-                    tracing::warn!(path = %path, error = %err, "failed to parse manifest as ResourceEnvelope");
-                    skipped += 1;
+                    tracing::warn!(path = %path, error = %err, "not YAML, skipped")
+                }
+            }
+        }
+
+        if staged == 0 {
+            return Err(SyncError::Empty(format!(
+                "none of the {} candidate files holds a manifest",
+                candidate_paths.len()
+            )));
+        }
+
+        // 4. Load and validate the whole repository the way `jcctl plan` does (CC-08, MF-05).
+        let repository = jcctl::loader::Repository::load(scratch.path())?;
+        for (id, path, expected) in repository.misplaced() {
+            tracing::warn!(resource = %id, path = %path.display(), %expected, "manifest is not at the path its kind declares");
+        }
+
+        // 5. Compile the live status of every resource and swap the mirror in one step, so a
+        //    reader never sees a half-built repository (MF-04).
+        let fresh_mirror = Mirror::new();
+        let mut loaded = 0usize;
+        for (_, resource) in repository.iter() {
+            let path = resource.path.to_string_lossy().to_string();
+            let mut envelope: ResourceEnvelope = match serde_json::to_value(&resource.manifest)
+                .and_then(serde_json::from_value)
+            {
+                Ok(envelope) => envelope,
+                Err(err) => {
+                    // The loader accepted the envelope, so this is a metadata member the
+                    // Portal's own view does not know. Skipping one resource is right
+                    // here: the manifest is valid, the Portal simply cannot show it.
+                    tracing::warn!(path = %path, error = %err, "manifest does not fit the Portal's resource view");
                     continue;
                 }
             };
 
-            let Some(kind_info) = crate::resource::by_kind(&envelope.kind) else {
-                tracing::warn!(path = %path, kind = %envelope.kind, "skipping manifest with unknown kind");
-                skipped += 1;
-                continue;
-            };
-
-            // Fill in namespace if missing from manifest
             if envelope
                 .metadata
                 .namespace
@@ -143,25 +264,16 @@ impl Syncer {
                 .unwrap_or("")
                 .is_empty()
             {
-                // The second path segment is the project for `projects/{project}/…` and the
-                // blueprint's own name for `blueprints/{name}/…`, so the scope decides rather
-                // than the path: an organization-level manifest filed under its own name is
-                // invisible to every list, which asks for "org".
-                if kind_info.scope == crate::resource::Scope::Organization {
-                    envelope.metadata.namespace = Some("org".to_string());
-                } else if let Some(proj) = path.split('/').nth(1) {
-                    envelope.metadata.namespace = Some(proj.to_string());
-                }
+                envelope.metadata.namespace = Some(namespace_of(&path));
             }
 
-            // 4. Compute status on server (MF-04)
             envelope.strip_status();
             envelope.status = Some(crate::resource::Status {
                 phase: crate::resource::Phase::Live,
                 observed_revision: Some(revision.clone()),
                 // The branch, not the revision: a Source link should keep working after the
                 // next commit, and the observed revision is right there beside it.
-                source_url: Some(self.gitea.browse_url(path, &default_branch)),
+                source_url: Some(self.gitea.browse_url(&path, &default_branch)),
                 conditions: Vec::new(),
             });
 
@@ -169,18 +281,13 @@ impl Syncer {
             loaded += 1;
         }
 
-        if !candidate_paths.is_empty() && loaded == 0 {
-            let msg = format!("every manifest failed to parse ({skipped} skipped)");
-            return Err(SyncError::Empty(msg));
+        if loaded == 0 {
+            return Err(SyncError::Empty(format!(
+                "no resource of a known kind in {} candidate files",
+                candidate_paths.len()
+            )));
         }
 
-        if candidate_paths.is_empty() {
-            return Err(SyncError::Empty(
-                "no manifests found in repository".to_string(),
-            ));
-        }
-
-        // 5. Swap contents into shared mirror only after all files are processed
         self.mirror.replace_all(&fresh_mirror);
 
         Ok((loaded, revision))
@@ -208,17 +315,133 @@ impl Syncer {
 }
 
 /// Identifies files that are candidates for ResourceEnvelope manifests.
+///
+/// The repository holds YAML that is not a manifest at all: the Portal theme, the navigation
+/// tree, the locale bundles, the LinkML models and the native pipeline configurations. The
+/// loader is strict on purpose, so those are never handed to it; what is handed to it are the
+/// directories the manifest layout claims (CC-08).
 pub(crate) fn is_candidate_manifest(path: &str) -> bool {
     let clean = path.trim_start_matches('/');
+    if clean
+        .split('/')
+        .any(|segment| segment == ".." || segment.is_empty())
+    {
+        // The tree comes from the forge, so it is input: nothing that could climb out of the
+        // staging directory is a candidate (CC-08).
+        return false;
+    }
     if clean == "org.yaml" || clean == "bundle.yaml" {
         return true;
     }
-    // A blueprint is an organization-level manifest with a path of its own
-    // (`blueprints/{name}/blueprint.yaml`, CC-23); without it the gallery has nothing to list.
-    if clean.starts_with("blueprints/") && clean.ends_with("/blueprint.yaml") {
-        return true;
+    if !clean.ends_with(".yaml") && !clean.ends_with(".yml") {
+        return false;
     }
-    clean.starts_with("projects/") && (clean.ends_with(".yaml") || clean.ends_with(".yml"))
+    // A blueprint is an organization-level manifest with a path of its own
+    // (`blueprints/{name}/blueprint.yaml`, CC-23), and the flow gallery reads it from the
+    // mirror like any other resource (CC-26). Only that one name: the notes and the fixtures
+    // beside it are not manifests.
+    if clean.starts_with("blueprints/") {
+        return clean.ends_with("/blueprint.yaml");
+    }
+    clean.starts_with("projects/")
+}
+
+/// Prepares one fetched file for the loader, or leaves it out (MF-04, MF-05).
+///
+/// Two judgements are made here and nowhere else, because the loader is right to refuse both
+/// and the Portal is right to survive them. A `status:` block somebody committed is dropped:
+/// status is computed by the server and never read from Git, so a manifest carrying one is
+/// sanitised rather than refused. A document of a kind the Portal does not serve is left out:
+/// one unknown kind in the repository must not cost every other resource its place in the
+/// mirror. Everything past this point is the loader's judgement, including which two files
+/// claim one identity and which path a kind belongs at.
+///
+/// `Ok(None)` means the file held nothing to load.
+fn stageable(content: &str) -> Result<Option<String>, serde_yaml_ng::Error> {
+    let mut kept: Vec<String> = Vec::new();
+
+    for document in serde_yaml_ng::Deserializer::from_str(content) {
+        let mut value = serde_yaml_ng::Value::deserialize(document)?;
+        let Some(mapping) = value.as_mapping_mut() else {
+            continue;
+        };
+        mapping.remove("status");
+        let kind = mapping
+            .get("kind")
+            .and_then(serde_yaml_ng::Value::as_str)
+            .unwrap_or_default();
+        if crate::resource::by_kind(kind).is_none() {
+            tracing::warn!(kind = %kind, "manifest of an unknown kind, skipped");
+            continue;
+        }
+        kept.push(serde_yaml_ng::to_string(&value)?);
+    }
+
+    if kept.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(kept.join("---\n")))
+}
+
+/// The project a manifest without a namespace belongs to, taken from where it lies (CC-08).
+fn namespace_of(path: &str) -> String {
+    let clean = path.trim_start_matches('/');
+    match clean.split('/').collect::<Vec<_>>().as_slice() {
+        ["projects", project, ..] if !project.is_empty() => (*project).to_owned(),
+        _ => "org".to_owned(),
+    }
+}
+
+/// The directory one run stages the fetched manifests in.
+///
+/// `jcctl` loads a repository from a path, and the Portal reads its repository over the
+/// forge API, so the two meet on disk. The directory belongs to one run and is removed when
+/// that run ends: nothing from the repository outlives the sync that fetched it.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new(revision: &str) -> Result<Self, SyncError> {
+        // One directory per run, never per revision: two runs staging into one directory would
+        // read each other's files, and the first to finish would delete the other's.
+        static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "jc-portal-sync-{}-{}-{run}",
+            std::process::id(),
+            revision.get(..12).unwrap_or(revision)
+        ));
+        std::fs::create_dir_all(&path).map_err(|source| SyncError::Scratch {
+            path: path.clone(),
+            source,
+        })?;
+        Ok(Self(path))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+
+    fn write(&self, relative: &str, content: &str) -> Result<(), SyncError> {
+        let target = self.0.join(relative.trim_start_matches('/'));
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| SyncError::Scratch {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        std::fs::write(&target, content).map_err(|source| SyncError::Scratch {
+            path: target,
+            source,
+        })
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        if let Err(err) = std::fs::remove_dir_all(&self.0) {
+            tracing::warn!(path = %self.0.display(), error = %err, "could not remove the sync staging directory");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -292,11 +515,15 @@ mod tests {
         ));
         assert!(is_candidate_manifest("projects/ovzdusie/endpoints/air.yml"));
 
+        // A Blueprint is a manifest kind of its own, so the gallery finds it in the mirror.
         assert!(is_candidate_manifest(
             "blueprints/threshold-alert/blueprint.yaml"
         ));
 
         assert!(!is_candidate_manifest("README.md"));
+        assert!(!is_candidate_manifest("portal/theme.yaml"));
+        assert!(!is_candidate_manifest("users/groups.yaml"));
+        assert!(!is_candidate_manifest("platform-settings.yaml"));
         // Only the blueprint manifest itself, not the notes or fixtures beside it.
         assert!(!is_candidate_manifest(
             "blueprints/threshold-alert/README.md"
@@ -304,6 +531,10 @@ mod tests {
         assert!(!is_candidate_manifest(
             "blueprints/threshold-alert/example.yaml"
         ));
+        assert!(
+            !is_candidate_manifest("projects/../../etc/passwd.yaml"),
+            "the tree comes from the forge: nothing may climb out of the staging directory"
+        );
         assert!(!is_candidate_manifest(
             "projects/ovzdusie/spaces/mobility/space.json"
         ));
@@ -397,7 +628,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_once_all_files_fail_returns_empty_error() {
+    async fn a_repository_of_nothing_loadable_leaves_the_mirror_alone() {
         let server = MockServer::start().await;
         let base_url = server.uri().parse().unwrap();
         let client =
@@ -473,13 +704,17 @@ mod tests {
 
         let err = syncer.sync_once().await.unwrap_err();
         match err {
-            SyncError::Empty(msg) => {
-                assert!(msg.contains("every manifest failed to parse (1 skipped)"));
+            SyncError::Empty(message) => {
+                assert!(
+                    message.contains("none of the 1 candidate files"),
+                    "{message}"
+                );
             }
-            other => panic!("expected SyncError::Empty, got {other:?}"),
+            other => panic!("expected an empty-repository error, got {other:?}"),
         }
 
-        // Mirror still holds the pre-seeded resource
+        // Mirror still holds the pre-seeded resource: a repository that does not load leaves
+        // the last one that did in place.
         assert_eq!(mirror.len(), 1);
         assert!(mirror.get("ovzdusie", "ContextSpace", "existing").is_some());
 
@@ -488,6 +723,6 @@ mod tests {
         assert!(status
             .last_error
             .unwrap()
-            .contains("every manifest failed to parse (1 skipped)"));
+            .contains("none of the 1 candidate files"));
     }
 }

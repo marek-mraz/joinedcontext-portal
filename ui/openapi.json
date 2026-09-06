@@ -3203,7 +3203,8 @@
         "type": "object",
         "description": "Status of the background Git mirror synchronization.\n\nServed to the browser, so it deliberately never carries a token,\nrepository URL, or branch name.",
         "required": [
-          "manifests"
+          "manifests",
+          "leader"
         ],
         "properties": {
           "lastError": {
@@ -3218,6 +3219,10 @@
               "null"
             ],
             "format": "int64"
+          },
+          "leader": {
+            "type": "boolean",
+            "description": "Whether this replica is the one that reconciles (CC-03). A Portal without a database\nhas no election to run and reconciles on its own, so it reports itself as the leader."
           },
           "manifests": {
             "type": "integer",

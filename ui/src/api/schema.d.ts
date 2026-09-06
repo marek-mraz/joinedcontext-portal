@@ -748,6 +748,11 @@ export interface components {
             lastError?: string | null;
             /** Format: int64 */
             lastSync?: number | null;
+            /**
+             * @description Whether this replica is the one that reconciles (CC-03). A Portal without a database
+             *     has no election to run and reconciles on its own, so it reports itself as the leader.
+             */
+            leader: boolean;
             manifests: number;
             revision?: string | null;
         };
