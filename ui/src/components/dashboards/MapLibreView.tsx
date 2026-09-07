@@ -10,6 +10,12 @@ export interface MapLayer {
   name: string;
   /** Absolute or same-origin GeoJSON URL of the Endpoint, `geoQ` and friends included. */
   url: string;
+  /**
+   * The features, when the caller has already fetched them to count them (UI-21). MapLibre
+   * takes a source that is either a URL it fetches or the collection itself, and handing it
+   * what is already in memory is what keeps a dashboard from downloading each layer twice.
+   */
+  data?: unknown;
   style: "circle" | "line" | "fill";
   colorBy?: { property: string; domain?: [number, number]; palette?: string };
   sizeBy?: { property: string; range?: [number, number] };
@@ -21,6 +27,12 @@ export interface MapLibreViewProps {
   center?: [number, number];
   zoom?: number;
   label: string;
+  /**
+   * Called once the map exists, for an overlay to attach itself to it (UI-20); what it
+   * returns is called when the map goes away. This is how the deck.gl overlay draws on the
+   * same map instead of a second one beside it.
+   */
+  onReady?: (map: MapLibreMap) => (() => void) | void;
 }
 
 /** Banská Bystrica: the demo city, and a better first view than null island. */
@@ -28,7 +40,7 @@ const DEFAULT_CENTER: [number, number] = [19.146, 48.736];
 const DEFAULT_ZOOM = 11;
 
 /** Yellow→orange→red, the "YlOrRd" ramp the Layer manifests name, as four stops. */
-const RAMP = ["#ffffb2", "#fecc5c", "#fd8d3c", "#e31a1c"];
+export const RAMP = ["#ffffb2", "#fecc5c", "#fd8d3c", "#e31a1c"];
 
 function paintFor(layer: MapLayer): Record<string, unknown> {
   const color = layer.colorBy
@@ -83,7 +95,13 @@ function popupHtml(feature: MapGeoJSONFeature, properties?: string[]): string {
  * Native MapLibre vector rendering of Layer manifests (UI-20, UI-21). Datasets of 50k
  * features and up belong to the deck.gl overlay of T-0225, not here.
  */
-export function MapLibreView({ layers, center, zoom, label }: MapLibreViewProps): JSX.Element {
+export function MapLibreView({
+  layers,
+  center,
+  zoom,
+  label,
+  onReady,
+}: MapLibreViewProps): JSX.Element {
   const { t } = useTranslation();
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<MapLibreMap | null>(null);
@@ -110,9 +128,13 @@ export function MapLibreView({ layers, center, zoom, label }: MapLibreViewProps)
       return;
     }
     map.current = instance;
+    const detach = onReady?.(instance);
     instance.on("load", () => {
       for (const layer of layers) {
-        instance.addSource(layer.name, { type: "geojson", data: layer.url });
+        instance.addSource(layer.name, {
+          type: "geojson",
+          data: (layer.data ?? layer.url) as string,
+        });
         instance.addLayer({
           id: layer.name,
           type: layer.style,
@@ -134,12 +156,13 @@ export function MapLibreView({ layers, center, zoom, label }: MapLibreViewProps)
     });
 
     return () => {
+      detach?.();
       instance.remove();
       map.current = null;
     };
     // Layers come from manifests: they change when the dashboard does, and then the map
     // is rebuilt from scratch rather than diffed source by source.
-  }, [layers, center, zoom]);
+  }, [layers, center, zoom, onReady]);
 
   if (failed) {
     return (

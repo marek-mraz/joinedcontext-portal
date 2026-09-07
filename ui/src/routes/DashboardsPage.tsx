@@ -2,10 +2,13 @@ import { lazy, Suspense, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import type { Feature, FeatureCollection } from "geojson";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, localized } from "../api/manifest";
 import type { Manifest } from "../api/manifest";
+import { rendersWithDeckGl } from "../components/dashboards/rendering";
 import type { MapLayer } from "../components/dashboards/MapLibreView";
+import type { DenseLayer } from "../components/dashboards/DeckGlOverlay";
 
 // MapLibre is about half of the bundle; nobody downloads it before opening a dashboard.
 const MapLibreView = lazy(() =>
@@ -14,10 +17,25 @@ const MapLibreView = lazy(() =>
   })),
 );
 
+// deck.gl is the other half again, and only a dense dashboard ever needs it.
+const DeckGlOverlay = lazy(() =>
+  import("../components/dashboards/DeckGlOverlay").then((module) => ({
+    default: module.DeckGlOverlay,
+  })),
+);
+
+/** The styles a Layer manifest may name; `icon` has no renderer yet and draws as a circle. */
+const STYLES = ["circle", "line", "fill", "hexagon", "heatmap"] as const;
+
+type LayerStyle = (typeof STYLES)[number];
+
+/** One resolved layer before its features are known, which is what decides the renderer. */
+type PlannedLayer = Omit<DenseLayer, "features">;
+
 interface LayerSpec {
   sourceEndpointRef?: string;
   entityType?: string;
-  style?: "circle" | "line" | "fill";
+  style?: LayerStyle | "icon";
   visible?: boolean;
   filter?: { q?: string; scopeQ?: string; geoQ?: string };
   colorBy?: { property: string; domain?: [number, number]; palette?: string };
@@ -45,6 +63,24 @@ function geojsonUrl(slug: string, spec: LayerSpec): string {
   }
   const query = params.toString();
   return `/api/endpoint/${slug}/file.geojson${query ? `?${query}` : ""}`;
+}
+
+/**
+ * Every layer's features, fetched once (UI-21, UI-22).
+ *
+ * The count is only knowable from the data, and deck.gl needs the data anyway, so the page
+ * fetches what MapLibre would otherwise have fetched for itself and hands it on. A body that
+ * is not a FeatureCollection yields `null`: the layer then keeps its URL and MapLibre fetches
+ * it the old way, which is the right answer for an Endpoint that answered with a problem
+ * document.
+ */
+async function fetchFeatures(url: string): Promise<Feature[] | null> {
+  const response = await fetch(url, { credentials: "same-origin" });
+  if (!response.ok) {
+    throw new ApiError(response.status, response.statusText);
+  }
+  const body = (await response.json()) as FeatureCollection | null;
+  return Array.isArray(body?.features) ? body.features : null;
 }
 
 /** A dashboard is three lists deep: the dashboard, its layers, and the endpoints they read. */
@@ -88,7 +124,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
       asManifests(endpoints.data?.items ?? []).map((item) => [item.metadata.name, item] as const),
     );
 
-    const resolved: MapLayer[] = [];
+    const resolved: PlannedLayer[] = [];
     const refused: string[] = [];
     for (const name of page?.layers ?? []) {
       const layer = layerByName.get(name);
@@ -113,7 +149,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
       resolved.push({
         name,
         url: geojsonUrl(endpointSpec.slug, layerSpec),
-        style: layerSpec.style === "line" || layerSpec.style === "fill" ? layerSpec.style : "circle",
+        style: STYLES.find((style) => style === layerSpec.style) ?? "circle",
         colorBy: layerSpec.colorBy,
         sizeBy: layerSpec.sizeBy,
         popupProperties: layerSpec.popupProperties,
@@ -121,6 +157,35 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
     }
     return { mapLayers: resolved, blocked: refused };
   }, [dashboard, layers.data, endpoints.data]);
+
+  const features = useQuery({
+    queryKey: ["layer-features", mapLayers.map((layer) => layer.url)],
+    queryFn: () => Promise.all(mapLayers.map((layer) => fetchFeatures(layer.url))),
+    enabled: mapLayers.length > 0,
+    // A dashboard is opened, read and left. Refetching a 60 000-feature layer whenever the
+    // window regains focus is not what the reader came for.
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const { native, dense } = useMemo(() => {
+    const drawn: MapLayer[] = [];
+    const overlaid: DenseLayer[] = [];
+    mapLayers.forEach((layer, index) => {
+      const fetched = features.data?.[index] ?? null;
+      if (fetched && rendersWithDeckGl(layer.style, fetched.length)) {
+        overlaid.push({ ...layer, features: fetched });
+        return;
+      }
+      // Whatever is left is MapLibre's, and MapLibre knows three styles: an aggregation
+      // that never reached the threshold draws as the points it aggregates.
+      const style = layer.style === "line" || layer.style === "fill" ? layer.style : "circle";
+      // A bare array is not GeoJSON: MapLibre takes a URL, a Feature or a collection.
+      const data = fetched ? { type: "FeatureCollection", features: fetched } : undefined;
+      drawn.push({ ...layer, style, data });
+    });
+    return { native: drawn, dense: overlaid };
+  }, [mapLayers, features.data]);
 
   if (dashboards.isPending) {
     return <p role="status">{t("app.loading")}</p>;
@@ -190,11 +255,17 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
       ) : null}
 
       <Suspense fallback={<p role="status">{t("app.loading")}</p>}>
-        <MapLibreView layers={mapLayers} label={title} />
+        {features.isPending && mapLayers.length > 0 ? (
+          <p role="status">{t("app.loading")}</p>
+        ) : dense.length > 0 ? (
+          <DeckGlOverlay layers={native} dense={dense} label={title} />
+        ) : (
+          <MapLibreView layers={native} label={title} />
+        )}
       </Suspense>
 
       <ul className="flex flex-wrap gap-4">
-        {mapLayers.map((layer) => (
+        {[...native, ...dense].map((layer) => (
           <li key={layer.name} className="rounded border border-border px-3 py-2 text-sm">
             <span className="font-medium">{layer.name}</span>
             {layer.colorBy ? (
