@@ -60,6 +60,14 @@ function renderDetail(
     if (request.url.includes("/auth/me")) {
       return Promise.resolve(json(options.identity ?? APPROVER));
     }
+    // Roles as code (T-0526): the approver's grant comes from the bindings, not the token.
+    if (request.url.includes("/permissions/me")) {
+      const identity = (options.identity ?? APPROVER) as { roles?: string[] };
+      const approver = identity.roles?.includes("portal-approver") ?? false;
+      return Promise.resolve(
+        json({ project: "banskabystrica", bootstrap: approver, grants: [] }),
+      );
+    }
     if (request.method === "POST") {
       return Promise.resolve(json(DEPLOYING, 202));
     }

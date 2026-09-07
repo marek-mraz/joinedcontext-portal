@@ -28,6 +28,7 @@ fn session_cookie(config: &Config, subject: &str) -> String {
             email: None,
             name: None,
             roles: Vec::new(),
+            groups: vec!["portal-approver".into()],
         },
         expires_at: now + 3600,
         issued_at: now,

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { usePermissions } from "../../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
@@ -88,6 +89,7 @@ export function claimedTypes(spec: Record<string, unknown>): string[] {
 /** The federation of one project: who reads whose data, as a list and as a graph (UI-27). */
 export function FederationPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
+  const mayPropose = usePermissions(project).can("ContextSourceRegistration", "propose");
   const queryClient = useQueryClient();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
@@ -181,7 +183,7 @@ export function FederationPage({ project }: { project: string }): JSX.Element {
           <h1 className="text-xl font-bold">{t("federation.title")}</h1>
           <p className="mt-1 max-w-2xl text-sm text-surface-fg/70">{t("federation.lead")}</p>
         </div>
-        <button
+        {mayPropose ? <button
           type="button"
           onClick={() => {
             setFormError(null);
@@ -190,7 +192,7 @@ export function FederationPage({ project }: { project: string }): JSX.Element {
           className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
         >
           {t("federation.add")}
-        </button>
+        </button> : null}
       </div>
 
       {change ? <ChangeNotice change={change} project={project} /> : null}

@@ -1039,6 +1039,47 @@
         }
       }
     },
+    "/api/v1/projects/{project}/permissions/me": {
+      "get": {
+        "tags": [
+          "permissions"
+        ],
+        "operationId": "permissions_me",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The caller's effective rules in the project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Effective"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/pipelines/{name}/metrics": {
       "get": {
         "tags": [
@@ -3434,6 +3475,30 @@
           "consumes"
         ]
       },
+      "Effective": {
+        "type": "object",
+        "description": "What one caller may do in one project: `GET /api/v1/projects/{project}/permissions/me`.",
+        "required": [
+          "project",
+          "bootstrap",
+          "grants"
+        ],
+        "properties": {
+          "bootstrap": {
+            "type": "boolean",
+            "description": "The caller is in the bootstrap group of `JC_PORTAL_BOOTSTRAP_ADMINS`: everything,\neverywhere, so the first binding can be written into an empty repository."
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Grant"
+            }
+          },
+          "project": {
+            "type": "string"
+          }
+        }
+      },
       "FederationGraph": {
         "type": "object",
         "description": "The federation of one project (UI-27).",
@@ -3537,6 +3602,33 @@
           }
         }
       },
+      "Grant": {
+        "type": "object",
+        "description": "One rule in force, with the binding and role it came through, so a refusal can be traced.",
+        "required": [
+          "role",
+          "binding",
+          "rule"
+        ],
+        "properties": {
+          "binding": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "object"
+          },
+          "space": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when the binding is scoped to one context space: the rule then applies only to a\nmanifest whose `spec.contextSpaceRef` names it."
+          }
+        }
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -3569,6 +3661,13 @@
               "string",
               "null"
             ]
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keycloak group paths from the token's `groups` claim, without the leading `/`. Identity,\nnot permission: a `RoleBinding` names a group, the Portal checks the binding (PF-50)."
           },
           "name": {
             "type": [
@@ -4633,6 +4732,10 @@
     {
       "name": "resources",
       "description": "Resource operations"
+    },
+    {
+      "name": "permissions",
+      "description": "What the caller may do in a project (PF-50)"
     },
     {
       "name": "tools",

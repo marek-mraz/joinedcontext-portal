@@ -217,6 +217,8 @@ mod tests {
                 // the moment it is in this catalogue, which is what the catalogue is for; what
                 // the Portal does with `portal/forms/*.uischema.yaml` as forms is T-0452.
                 "UiSchema",
+                "Role",
+                "RoleBinding",
             ],
             "jc-core's catalogue changed: check PORTAL_ONLY_KINDS and the UI navigation"
         );

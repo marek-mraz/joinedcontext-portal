@@ -34,6 +34,9 @@ pub enum ApiError {
     Unauthorized,
     #[error("forbidden")]
     Forbidden,
+    /// 403 with the reason: the verb no role grants, or the constraint the manifest violates (PF-50).
+    #[error("forbidden: {0}")]
+    Denied(String),
     #[error("self-approval: {0}")]
     SelfApproval(String),
     #[error("conflict: {0}")]
@@ -83,6 +86,7 @@ impl IntoResponse for ApiError {
                 None,
             ),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden", "Forbidden", None),
+            Self::Denied(msg) => (StatusCode::FORBIDDEN, "forbidden", "Forbidden", Some(msg)),
             Self::SelfApproval(msg) => (
                 StatusCode::FORBIDDEN,
                 "self-approval",

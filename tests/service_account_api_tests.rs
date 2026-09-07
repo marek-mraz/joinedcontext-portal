@@ -32,6 +32,7 @@ fn session_cookie(config: &Config, username: &str, roles: &[&str]) -> String {
             email: Some(format!("{username}@banskabystrica.sk")),
             name: None,
             roles: roles.iter().map(|role| role.to_string()).collect(),
+            groups: Vec::new(),
         },
         expires_at: now + 3600,
         issued_at: now,

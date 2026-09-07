@@ -63,6 +63,8 @@ struct Claims {
     name: Option<String>,
     #[serde(default)]
     realm_access: RealmAccess,
+    #[serde(default)]
+    groups: Vec<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -188,6 +190,11 @@ impl BearerVerifier {
                 email: c.email,
                 name: c.name,
                 roles: c.realm_access.roles,
+                groups: c
+                    .groups
+                    .into_iter()
+                    .map(|g| g.trim_start_matches('/').to_owned())
+                    .collect(),
             },
             expires_at: c.exp,
             issued_at: c.iat,

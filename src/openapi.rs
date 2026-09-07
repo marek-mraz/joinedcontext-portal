@@ -24,6 +24,7 @@ use crate::auth::{Front, Identity};
 use crate::branding::{Branding, Colours, Fonts, Languages};
 use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSummary};
 use crate::error::ProblemDetails;
+use crate::permissions::{Effective, Grant};
 use crate::plan::{FieldChange, PlanDiff};
 use crate::reconciler::SyncStatus;
 use crate::resource::{ResourceEnvelope, Status};
@@ -49,6 +50,7 @@ use crate::tools::model_tools::{
         crate::api::export::export,
         crate::api::import::import,
         crate::api::export::revisions,
+        crate::api::permissions::permissions_me,
         crate::api::service_accounts::list_keys,
         crate::api::service_accounts::create_key,
         crate::api::service_accounts::rotate_key,
@@ -78,6 +80,8 @@ use crate::tools::model_tools::{
     ),
     components(schemas(
         Health,
+        Effective,
+        Grant,
         Branding,
         Colours,
         Fonts,
@@ -147,6 +151,7 @@ use crate::tools::model_tools::{
         (name = "system", description = "System operations"),
         (name = "auth", description = "Sign-in, sign-out and the current identity"),
         (name = "resources", description = "Resource operations"),
+        (name = "permissions", description = "What the caller may do in a project (PF-50)"),
         (name = "tools", description = "Model Tools schema generation and preview"),
         (name = "preferences", description = "The signed-in person's own UI preferences"),
         (name = "access", description = "ServiceAccounts, their API keys and effective grants")

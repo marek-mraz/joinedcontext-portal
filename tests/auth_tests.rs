@@ -456,6 +456,7 @@ fn session_cookies(access_in: i64) -> String {
             email: None,
             name: None,
             roles: vec!["portal-viewer".into()],
+            groups: Vec::new(),
         },
         expires_at: now + 3600,
         issued_at: now - 600,

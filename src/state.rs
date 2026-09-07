@@ -202,6 +202,7 @@ mod tests {
                 email: None,
                 name: None,
                 roles: Vec::new(),
+                groups: Vec::new(),
             },
             expires_at: issued_at + 600,
             issued_at,

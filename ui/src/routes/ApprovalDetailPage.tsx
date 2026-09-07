@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
@@ -28,7 +29,8 @@ export function ApprovalDetailPage({
 }): JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { identity, hasRole } = useAuth();
+  const { identity } = useAuth();
+  const permissions = usePermissions(project);
 
   const [confirmInput, setConfirmInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -52,7 +54,8 @@ export function ApprovalDetailPage({
   const expectedName = proposal ? computeExpectedName(proposal) : "";
   const confirmMatches = !isRedLane || confirmInput.trim() === expectedName;
 
-  const hasApproverRole = hasRole("portal-approver");
+  // Any grant with `approve` in this project; the API checks the change's kind (PF-50).
+  const hasApproverRole = permissions.can("*", "approve");
   const isAuthor = Boolean(
     identity?.email &&
       proposal?.author.email &&

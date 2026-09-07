@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
@@ -167,6 +168,8 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Manifest | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { can } = usePermissions(project);
+  const mayPropose = can("Pipeline", "propose");
   const [formError, setFormError] = useState<string | null>(null);
 
   const list = useQuery({
@@ -264,11 +267,11 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
     setDialogOpen(true);
   }
 
-  const newButton = (
+  const newButton = mayPropose ? (
     <Button variant="primary" icon={<Icon name="plus" className="size-4" />} onClick={() => openEditor(null)}>
       {t("pipelines.add")}
     </Button>
-  );
+  ) : null;
 
   const head = (
     <TableHead>
@@ -389,9 +392,11 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
                   </TableCell>
                   <TableCell align="right">
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      <Button size="sm" onClick={() => openEditor(pipeline)}>
-                        {t("pipelines.edit")}
-                      </Button>
+                      {mayPropose ? (
+                        <Button size="sm" onClick={() => openEditor(pipeline)}>
+                          {t("pipelines.edit")}
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
                         disabled={toggle.isPending}

@@ -82,7 +82,7 @@
     "reject": "Zamítnout",
     "approving": "Schvaluje se...",
     "rejecting": "Zamítá se...",
-    "needsRole": "Ke schválení nebo zamítnutí je vyžadována role portal-approver.",
+    "needsRole": "Ke schválení je třeba přiřazená role s právem `approve` v tomto projektu.",
     "ownProposal": "Nemůžete schválit ani zamítnout vlastní návrh.",
     "confirmPrompt": "Pro červenou úroveň zadejte název prostředku pro potvrzení:",
     "confirmLabel": "Název prostředku pro potvrzení",

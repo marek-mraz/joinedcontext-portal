@@ -83,6 +83,10 @@ pub struct Identity {
     /// the same boundaries independently.
     #[serde(default)]
     pub roles: Vec<String>,
+    /// Keycloak group paths from the token's `groups` claim, without the leading `/`. Identity,
+    /// not permission: a `RoleBinding` names a group, the Portal checks the binding (PF-50).
+    #[serde(default)]
+    pub groups: Vec<String>,
 }
 
 /// The session payload. `Debug` redacts the tokens so none reaches a log line.
@@ -271,6 +275,7 @@ mod tests {
                 email: Some("demo.steward@banskabystrica.sk".into()),
                 name: Some("Demo Steward".into()),
                 roles: Vec::new(),
+                groups: Vec::new(),
             },
             expires_at: now + expires_in,
             issued_at: now,

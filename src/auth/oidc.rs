@@ -184,6 +184,7 @@ impl OidcClient {
                 Ok(_) => {
                     id_token = fresh.to_string();
                     identity.roles = realm_roles(&id_token);
+                    identity.groups = token_groups(&id_token);
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "id_token from the refresh did not verify; keeping the old one")
@@ -388,6 +389,7 @@ pub async fn callback(
             .and_then(|n| n.get(None))
             .map(|n| n.to_string()),
         roles: realm_roles(id_token.to_string().as_str()),
+        groups: token_groups(id_token.to_string().as_str()),
     };
     let session = mint_session(identity, id_token.to_string(), issued_at, &token_response);
     tracing::info!(subject = %session.identity.subject, "portal login");
@@ -422,6 +424,24 @@ fn jwt_exp(token: &str) -> Option<i64> {
 /// has already verified this exact token's signature, so the bytes are trusted. A malformed or
 /// role-less token yields an empty list, never an error — roles are display and enablement only
 /// (CC-42), and the resource API enforces the real boundary.
+/// The `groups` claim a Keycloak group-membership mapper adds (`/parent/child` paths); the
+/// leading `/` goes, so a `RoleBinding` names `air-quality-team`, not `/air-quality-team`.
+fn token_groups(id_token: &str) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Payload {
+        #[serde(default)]
+        groups: Vec<String>,
+    }
+    jwt_payload::<Payload>(id_token)
+        .map(|p| {
+            p.groups
+                .into_iter()
+                .map(|g| g.trim_start_matches('/').to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn realm_roles(id_token: &str) -> Vec<String> {
     #[derive(serde::Deserialize)]
     struct RealmAccess {

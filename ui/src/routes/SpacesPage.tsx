@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { usePermissions } from "../api/permissions";
 import { Link } from "@tanstack/react-router";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
@@ -106,6 +107,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const mayPropose = usePermissions(project).can("ContextSpace", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -222,7 +224,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
         description={t("spaces.lead")}
         aside={<QuotaBar label={t("quota.contextSpaces")} used={spaces.length} limit={limit} />}
         actions={
-          <Button
+          mayPropose ? <Button
             variant="primary"
             disabled={quotaExceeded}
             icon={<Icon name="plus" className="size-4" />}
@@ -232,7 +234,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
             }}
           >
             {t("spaces.add")}
-          </Button>
+          </Button> : null
         }
       />
 

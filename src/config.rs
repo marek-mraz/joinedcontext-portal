@@ -39,6 +39,9 @@ pub struct Config {
     /// is redacted in `Debug`. `None` runs the Portal without preferences: those routes answer
     /// 503, everything else works.
     pub database_url: Option<String>,
+    /// The group (or realm role) whose members may do everything everywhere, so the first
+    /// `RoleBinding` can be written into an empty repository (T-0526, PF-50).
+    pub bootstrap_admins: String,
     /// Where an App's four Kubernetes objects are applied (AP-13, AP-18, T-0411). `None` leaves
     /// the reconciler reading apps and applying nothing, which is what a Portal outside a
     /// cluster does; it is never a guess, because guessing a namespace here would mean writing
@@ -133,6 +136,7 @@ pub enum ConfigError {
 
 impl Config {
     pub const DEFAULT_BIND: &'static str = "0.0.0.0:8080";
+    const DEFAULT_BOOTSTRAP_ADMINS: &'static str = "platform-admins";
     pub const DEFAULT_PUBLIC_URL: &'static str = "http://localhost:8080";
     /// `Key::from` panics below 64 bytes, so the length is checked before it is called.
     pub const MIN_COOKIE_KEY_LEN: usize = 64;
@@ -273,6 +277,10 @@ impl Config {
         let app_settings = app_settings(&lookup, &public_base_url);
         let branding_file = lookup("JC_BRANDING_FILE").filter(|path| !path.trim().is_empty());
         let database_url = lookup("JC_PORTAL_DATABASE_URL").filter(|url| !url.trim().is_empty());
+        let bootstrap_admins = lookup("JC_PORTAL_BOOTSTRAP_ADMINS")
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::DEFAULT_BOOTSTRAP_ADMINS.to_owned());
 
         Ok(Self {
             bind,
@@ -287,6 +295,7 @@ impl Config {
             apps_dir,
             branding_file,
             database_url,
+            bootstrap_admins,
             app_settings,
         })
     }
@@ -307,6 +316,9 @@ impl Config {
             apps_dir: None,
             branding_file: None,
             database_url: None,
+            // The dev realm's approver role: a test session that carries it may do everything,
+            // one that does not is bound by whatever Role/RoleBinding the test puts in the mirror.
+            bootstrap_admins: "portal-approver".to_owned(),
         }
     }
 

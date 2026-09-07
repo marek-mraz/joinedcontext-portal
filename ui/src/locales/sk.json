@@ -82,7 +82,7 @@
     "reject": "Zamietnuť",
     "approving": "Schvaľuje sa...",
     "rejecting": "Zamieta sa...",
-    "needsRole": "Na schválenie alebo zamietnutie je potrebná rola portal-approver.",
+    "needsRole": "Na schválenie treba priradenú rolu s právom `approve` v tomto projekte.",
     "ownProposal": "Nemôžete schváliť ani zamietnuť vlastný návrh.",
     "confirmPrompt": "Pre červenú úroveň zadajte názov prostriedku pre potvrdenie:",
     "confirmLabel": "Názov prostriedku pre potvrdenie",

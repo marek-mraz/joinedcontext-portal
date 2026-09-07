@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
@@ -179,6 +180,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
 
   const [editing, setEditing] = useState<EndpointForm | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const mayPropose = usePermissions(project).can("Endpoint", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   // Kept beside the form rather than in it: the panel names the attributes the endpoint
@@ -367,7 +369,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         title={t("endpoints.title")}
         description={t("endpoints.lead")}
         actions={
-          <Button
+          mayPropose ? <Button
             variant="primary"
             icon={<Icon name="plus" className="size-4" />}
             onClick={() => {
@@ -385,7 +387,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             }}
           >
             {t("endpoints.add")}
-          </Button>
+          </Button> : null
         }
       />
 
@@ -468,17 +470,19 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                         label={t("export.action")}
                         size="sm"
                       />
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setFormError(null);
-                          setIsNew(false);
-                          setHidden(hiddenOf(endpoint));
-                          setEditing(toForm(endpoint));
-                        }}
-                      >
-                        {t("endpoints.edit")}
-                      </Button>
+                      {mayPropose ? (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setFormError(null);
+                            setIsNew(false);
+                            setHidden(hiddenOf(endpoint));
+                            setEditing(toForm(endpoint));
+                          }}
+                        >
+                          {t("endpoints.edit")}
+                        </Button>
+                      ) : null}
                       {endpoint.status?.sourceUrl ? (
                         <a
                           href={endpoint.status.sourceUrl}

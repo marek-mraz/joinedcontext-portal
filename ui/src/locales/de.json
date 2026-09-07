@@ -82,7 +82,7 @@
     "reject": "Ablehnen",
     "approving": "Wird freigegeben...",
     "rejecting": "Wird abgelehnt...",
-    "needsRole": "Die Rolle portal-approver ist erforderlich, um freizugeben oder abzulehnen.",
+    "needsRole": "Zum Genehmigen braucht es eine Rollenzuweisung mit `approve` in diesem Projekt.",
     "ownProposal": "Sie können Ihren eigenen Vorschlag nicht freigeben oder ablehnen.",
     "confirmPrompt": "Für die rote Stufe geben Sie zur Bestätigung den Ressourcennamen ein:",
     "confirmLabel": "Ressourcenname zur Bestätigung",

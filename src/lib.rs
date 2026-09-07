@@ -12,6 +12,7 @@ pub mod db;
 pub mod error;
 pub mod git;
 pub mod openapi;
+pub mod permissions;
 pub mod plan;
 pub mod reconciler;
 pub mod resource;

@@ -38,6 +38,7 @@ fn session_cookie(config: &Config) -> String {
             email: Some("demo.steward@banskabystrica.sk".into()),
             name: Some("Demo Steward".into()),
             roles: Vec::new(),
+            groups: vec!["portal-approver".into()],
         },
         expires_at: now + 3600,
         issued_at: now,

@@ -171,6 +171,50 @@ pub fn parse_branch_name(branch: &str) -> Option<BranchInfo> {
     })
 }
 
+/// A caller with no `approve` grant in the project is refused before the forge is asked
+/// anything: the cheap answer first, the kind-precise one once the change is loaded (PF-50).
+fn may_approve_anything(
+    state: &AppState,
+    user: &CurrentUser,
+    project: &str,
+) -> Result<(), ApiError> {
+    let effective = crate::permissions::for_request(state, &user.0.identity, project);
+    if effective.bootstrap
+        || effective
+            .grants
+            .iter()
+            .any(|grant| grant.rule.verbs.contains(&jc_core::kinds::Verb::Approve))
+    {
+        return Ok(());
+    }
+    Err(ApiError::Denied(format!(
+        "no role grants approve in project {project} (PF-50)"
+    )))
+}
+
+/// Approval and rejection need `approve` on the change's kind in a binding that covers the
+/// project (T-0526, PF-50); the head manifest is what the constraints are checked against,
+/// the base one for a deletion.
+fn may_approve(
+    state: &AppState,
+    user: &CurrentUser,
+    project: &str,
+    data: &ManifestData,
+) -> Result<(), ApiError> {
+    let target = data
+        .head_envelope
+        .as_ref()
+        .or(data.base_envelope.as_ref())
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    crate::permissions::for_request(state, &user.0.identity, project).check(
+        &data.kind,
+        jc_core::kinds::Verb::Approve,
+        target.as_ref(),
+    )
+}
+
 pub(crate) struct ManifestData {
     pub kind: String,
     pub name: String,
@@ -546,10 +590,7 @@ pub async fn approve_change(
     Path((project, id)): Path<(String, String)>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
-    if !user.0.identity.roles.iter().any(|r| r == "portal-approver") {
-        return Err(ApiError::Forbidden);
-    }
-
+    may_approve_anything(&state, &user, &project)?;
     let pr_number = parse_change_id(&id)?;
     let gitea = state
         .gitea
@@ -564,6 +605,7 @@ pub async fn approve_change(
                 "change proposal '{id}' not found in project '{project}'"
             ))
         })?;
+    may_approve(&state, &user, &project, &data)?;
 
     let is_author = match (&pr.author_email, &user.0.identity.email) {
         (Some(pr_email), Some(user_email)) if !pr_email.trim().is_empty() => {
@@ -668,15 +710,12 @@ pub async fn reject_change(
     Path((project, id)): Path<(String, String)>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
-    if !user.0.identity.roles.iter().any(|r| r == "portal-approver") {
-        return Err(ApiError::Forbidden);
-    }
-
     if !body.is_empty() {
         let _: ApproveBody = serde_json::from_slice(&body)
             .map_err(|e| ApiError::BadRequest(format!("invalid json body: {e}")))?;
     }
 
+    may_approve_anything(&state, &user, &project)?;
     let pr_number = parse_change_id(&id)?;
     let gitea = state
         .gitea
@@ -691,6 +730,7 @@ pub async fn reject_change(
                 "change proposal '{id}' not found in project '{project}'"
             ))
         })?;
+    may_approve(&state, &user, &project, &data)?;
 
     gitea
         .review(
@@ -757,6 +797,7 @@ mod tests {
                 email: Some(email.into()),
                 name: Some("Jana Kováčová".into()),
                 roles: roles.into_iter().map(String::from).collect(),
+                groups: Vec::new(),
             },
             expires_at: 9_999_999_999,
             issued_at: 1000,
@@ -877,7 +918,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(matches!(err_role, ApiError::Forbidden));
+        assert!(matches!(err_role, ApiError::Denied(_)));
 
         // 2. Author self-approval -> 403 SelfApproval
         Mock::given(method("GET"))

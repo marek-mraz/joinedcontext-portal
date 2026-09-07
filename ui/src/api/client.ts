@@ -141,5 +141,6 @@ export const queryKeys = {
   resource: (project: string, plural: string, name: string) =>
     ["projects", project, plural, name] as const,
   changes: (project: string) => ["projects", project, "changes"] as const,
+  permissions: (project: string) => ["projects", project, "permissions"] as const,
   change: (project: string, id: string) => ["projects", project, "changes", id] as const,
 };

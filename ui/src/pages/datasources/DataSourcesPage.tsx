@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { usePermissions } from "../../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, prune } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
@@ -111,6 +112,7 @@ function typeOf(spec: Record<string, unknown>): DataSourceType {
 /** DataSources of one project: what the city reads from, and with which credential (MF-35). */
 export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
+  const mayPropose = usePermissions(project).can("DataSource", "propose");
   const queryClient = useQueryClient();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
@@ -270,13 +272,13 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
               ))}
             </select>
           </label>
-          <button
+          {mayPropose ? <button
             type="button"
             onClick={openCreate}
             className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
           >
             {t("datasources.add")}
-          </button>
+          </button> : null}
         </div>
       </div>
 
@@ -330,13 +332,13 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
                       {used.length > 0 ? used.join(", ") : t("datasources.noSecret")}
                     </td>
                     <td className="px-4 py-2 text-right">
-                      <button
+                      {mayPropose ? <button
                         type="button"
                         onClick={() => openEdit(source)}
                         className="rounded border border-border px-3 py-1 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
                       >
                         {t("datasources.edit")}
-                      </button>
+                      </button> : null}
                     </td>
                   </tr>
                 );

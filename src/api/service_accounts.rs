@@ -28,10 +28,6 @@ use crate::error::{ApiError, ProblemDetails};
 use crate::resource::is_dns1123;
 use crate::state::AppState;
 
-/// The realm role that may manage any account's keys; without it a caller manages the accounts
-/// they are named the owner of (CC-60).
-const APPROVER_ROLE: &str = "portal-approver";
-
 /// Default and ceiling of the window in which a rotated key and its successor both work (PF-38).
 const DEFAULT_OVERLAP_HOURS: i64 = 24;
 const MAX_OVERLAP_HOURS: i64 = 168;
@@ -169,7 +165,9 @@ fn admit(
         .unwrap_or_default();
     let is_owner = !owner.is_empty()
         && (owner == identity.username || Some(owner) == identity.email.as_deref());
-    let is_approver = identity.roles.iter().any(|role| role == APPROVER_ROLE);
+    let is_approver = crate::permissions::for_request(state, identity, project)
+        .check("ServiceAccount", jc_core::kinds::Verb::Propose, None)
+        .is_ok();
     if !is_owner && !is_approver {
         return Err(not_found());
     }

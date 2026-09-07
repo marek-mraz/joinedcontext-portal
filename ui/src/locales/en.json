@@ -82,7 +82,7 @@
     "reject": "Reject",
     "approving": "Approving...",
     "rejecting": "Rejecting...",
-    "needsRole": "The portal-approver role is required to approve or reject.",
+    "needsRole": "Approving needs a role binding with `approve` in this project.",
     "ownProposal": "You cannot approve or reject your own proposal.",
     "confirmPrompt": "For red lane, type the resource name to confirm:",
     "confirmLabel": "Resource name confirmation",

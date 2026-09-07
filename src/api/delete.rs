@@ -88,6 +88,14 @@ pub async fn delete_resource(
         .get(&project, kind_info.kind, &name)
         .ok_or_else(not_found)?;
 
+    // 1b. Deletion needs `delete` in a binding that covers the project (T-0526, PF-50).
+    let target = serde_json::to_value(&envelope).map_err(|e| ApiError::Internal(e.to_string()))?;
+    crate::permissions::for_request(&state, &user.0.identity, &project).check(
+        kind_info.kind,
+        jc_core::kinds::Verb::Delete,
+        Some(&target),
+    )?;
+
     // 2. Scan every resource in the mirror for blocking dependents (MF-07, R20)
     let blocking_count = state.mirror.count_matching(|candidate| {
         let candidate_ns = candidate.metadata.namespace.as_deref().unwrap_or_default();
@@ -213,6 +221,7 @@ mod tests {
                 email: Some("demo@example.com".into()),
                 name: Some("Demo Developer".into()),
                 roles: vec![],
+                groups: vec!["portal-approver".into()],
             },
             expires_at: 9_999_999_999,
             issued_at: 1000,

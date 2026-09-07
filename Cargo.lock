@@ -1892,7 +1892,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "jc-core"
 version = "0.1.0"
-source = "git+https://github.com/marek-mraz/joinedcontext-platform.git?tag=jc-core-v0.7.3#7eabbda3f0e459995fe82b55b89604985d1ed4bc"
+source = "git+https://github.com/marek-mraz/joinedcontext-platform.git?tag=jc-core-v0.7.5#cffc2ce2368808d1c4971dc5827faa3526ce8551"
 dependencies = [
  "chrono",
  "regex",
@@ -1906,7 +1906,7 @@ dependencies = [
 [[package]]
 name = "jcctl"
 version = "0.1.0"
-source = "git+https://github.com/marek-mraz/joinedcontext-platform.git?tag=jc-core-v0.7.3#7eabbda3f0e459995fe82b55b89604985d1ed4bc"
+source = "git+https://github.com/marek-mraz/joinedcontext-platform.git?tag=jc-core-v0.7.5#cffc2ce2368808d1c4971dc5827faa3526ce8551"
 dependencies = [
  "aes-gcm",
  "age",
@@ -1986,6 +1986,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "base64 0.23.1",
+ "chrono",
  "hmac 0.12.1",
  "http-body-util",
  "jc-core",

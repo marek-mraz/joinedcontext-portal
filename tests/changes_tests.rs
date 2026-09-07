@@ -38,6 +38,7 @@ fn make_session_cookie(
             email: email.map(str::to_string),
             name: name.map(str::to_string),
             roles: roles.into_iter().map(str::to_string).collect(),
+            groups: Vec::new(),
         },
         expires_at: now + 3600,
         issued_at: now,

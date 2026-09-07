@@ -260,6 +260,14 @@ pub async fn propose(
         })?;
     }
 
+    // 4c. Who may propose this kind here, with this content (T-0526, PF-50): the bindings of
+    //     the organization repository, before a Change exists. 403 names the verb or the field.
+    crate::permissions::for_request(state, &user.0.identity, project).check(
+        kind_info.kind,
+        jc_core::kinds::Verb::Propose,
+        Some(&body_val),
+    )?;
+
     // 5. Diff against current mirror state
     let current = state
         .mirror
@@ -546,6 +554,7 @@ mod tests {
                 email: Some("demo@example.com".into()),
                 name: Some("Demo Developer".into()),
                 roles: vec![],
+                groups: vec!["portal-approver".into()],
             },
             expires_at: 9_999_999_999,
             issued_at: 1000,

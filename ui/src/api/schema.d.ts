@@ -294,6 +294,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/permissions/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["permissions_me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/pipelines/{name}/metrics": {
         parameters: {
             query?: never;
@@ -865,6 +881,16 @@ export interface components {
          * @enum {string}
          */
         EdgeKind: "registers" | "serves" | "feeds" | "consumes";
+        /** @description What one caller may do in one project: `GET /api/v1/projects/{project}/permissions/me`. */
+        Effective: {
+            /**
+             * @description The caller is in the bootstrap group of `JC_PORTAL_BOOTSTRAP_ADMINS`: everything,
+             *     everywhere, so the first binding can be written into an empty repository.
+             */
+            bootstrap: boolean;
+            grants: components["schemas"]["Grant"][];
+            project: string;
+        };
         /** @description The federation of one project (UI-27). */
         FederationGraph: {
             /** @description Directed edges, each naming the manifest it was read from. */
@@ -923,6 +949,17 @@ export interface components {
             /** @description LinkML YAML, exactly as the editor holds it. */
             source: string;
         };
+        /** @description One rule in force, with the binding and role it came through, so a refusal can be traced. */
+        Grant: {
+            binding: string;
+            role: string;
+            rule: Record<string, never>;
+            /**
+             * @description Set when the binding is scoped to one context space: the rule then applies only to a
+             *     manifest whose `spec.contextSpaceRef` names it.
+             */
+            space?: string | null;
+        };
         Health: {
             name: string;
             status: string;
@@ -931,6 +968,11 @@ export interface components {
         /** @description Who is signed in. Returned by `GET /api/v1/auth/me` and used by every protected route. */
         Identity: {
             email?: string | null;
+            /**
+             * @description Keycloak group paths from the token's `groups` claim, without the leading `/`. Identity,
+             *     not permission: a `RoleBinding` names a group, the Portal checks the binding (PF-50).
+             */
+            groups?: string[];
             name?: string | null;
             /**
              * @description Keycloak realm roles from the ID token's `realm_access.roles` (CC-42). Empty when the
@@ -2122,6 +2164,38 @@ export interface operations {
             };
             /** @description No repository configured */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    permissions_me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's effective rules in the project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Effective"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
