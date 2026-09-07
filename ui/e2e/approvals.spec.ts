@@ -5,6 +5,8 @@ import { axeViolations } from "./axe";
 // `vite preview` serves the built bundle with no portal API behind it, so this journey answers
 // the API from the browser. The clicks, the routing and the rendering are the real ones; only
 // the Rust process is absent (its own journey arrives with the ci-full task that runs the binary).
+// The project is `helsinki`: the root route redirects to the shell's one known project
+// (KNOWN_PROJECTS in router.tsx, T-0479), so a journey that starts at `/` lands there.
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -17,7 +19,7 @@ const IDENTITY = {
 const PROPOSAL = {
   apiVersion: "joinedcontext.com/v1alpha1",
   kind: "ChangeProposal",
-  metadata: { name: "chg-1a2b3c4d", namespace: "banskabystrica" },
+  metadata: { name: "chg-1a2b3c4d", namespace: "helsinki" },
   summary: {
     key: "change.summary.update",
     params: { kind: "Endpoint", name: "air-quality", fields: 2 },
@@ -81,7 +83,7 @@ test.describe("approvals", () => {
       name: "Approvals",
     }).click();
 
-    await expect(page).toHaveURL(/\/projects\/banskabystrica\/approvals$/);
+    await expect(page).toHaveURL(/\/projects\/helsinki\/approvals$/);
     const summary = 'Update Endpoint "air-quality" (2 fields changed)';
     await expect(page.getByRole("link", { name: summary })).toBeVisible();
     await expect(page.getByText("Yellow")).toBeVisible();
@@ -99,17 +101,17 @@ test.describe("approvals", () => {
     await page.getByRole("button", { name: "Approve" }).click();
 
     await expect(page.getByText("Deploying")).toBeVisible();
-    expect(approvals).toEqual(["/api/v1/projects/banskabystrica/changes/chg-1a2b3c4d/approve"]);
+    expect(approvals).toEqual(["/api/v1/projects/helsinki/changes/chg-1a2b3c4d/approve"]);
   });
 
   test("the approvals routes have no axe violations", async ({ page }) => {
     await stubApi(page);
 
-    await page.goto("/projects/banskabystrica/approvals?lang=sk");
+    await page.goto("/projects/helsinki/approvals?lang=sk");
     await expect(page.getByRole("table")).toBeVisible();
     expect(await axeViolations(page)).toEqual([]);
 
-    await page.goto("/projects/banskabystrica/approvals/chg-1a2b3c4d?lang=sk");
+    await page.goto("/projects/helsinki/approvals/chg-1a2b3c4d?lang=sk");
     await expect(page.getByRole("button", { name: "Schváliť" })).toBeVisible();
     expect(await axeViolations(page)).toEqual([]);
   });

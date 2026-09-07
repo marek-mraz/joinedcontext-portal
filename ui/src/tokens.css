@@ -38,8 +38,10 @@
   --portal-brand-fg: var(--portal-color-primary-fg);
   --portal-danger-base: var(--portal-color-danger);
   --portal-danger-base-fg: var(--portal-color-danger-fg);
-  --portal-success-base: #15803d;
-  --portal-warning-base: #b45309;
+  /* Dark enough to read on their `-soft` chips at caption size (WCAG AA 4.5:1; the axe run in
+     the e2e suite checks it): green-800 and orange-800, not the 700s. */
+  --portal-success-base: #166534;
+  --portal-warning-base: #9a3412;
   --portal-info-base: var(--portal-color-secondary);
 
   /* 2. Scales. `--portal-neutral-0` is the paper itself; 900 is the ink. */
@@ -74,7 +76,10 @@
   --portal-surface-raised: var(--portal-neutral-0);
   --portal-fg: var(--portal-neutral-900);
   --portal-fg-muted: var(--portal-neutral-600);
-  --portal-fg-subtle: var(--portal-neutral-500);
+  /* Between neutral-500 and -600: 500 is 4.2:1 on the paper, below AA for the caption-size
+     text this token carries (ids under titles, metric labels); 60 % ink reads 5.4:1 on the
+     paper and 4.7:1 on neutral-100. The dark theme inherits the formula and stays above 5:1. */
+  --portal-fg-subtle: color-mix(in oklab, var(--portal-ink) 60%, var(--portal-paper));
   --portal-border: var(--portal-neutral-200);
   --portal-border-strong: var(--portal-neutral-300);
   --portal-primary: var(--portal-primary-500);

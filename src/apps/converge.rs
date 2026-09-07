@@ -1,4 +1,4 @@
-//! Putting what [`super::reconciler::render`] compiles onto the cluster (T-0411, AP-13,
+//! Putting what [`crate::apps::reconciler::render`] compiles onto the cluster (T-0411, AP-13,
 //! AP-13a, AP-18, AP-21, AP-27).
 //!
 //! Rendering is a pure function; this is the half with a side effect. One App manifest becomes
