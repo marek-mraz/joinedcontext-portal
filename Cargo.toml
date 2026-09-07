@@ -62,6 +62,12 @@ base64 = "0.23"
 hmac = "0.12"
 sha2 = "0.10"
 
+# The Portal's own Prometheus surface (OPS-16, TS-22). No default features: the exporter's
+# own HTTP listener and push gateway would be a second server on a second port when the
+# Portal already has one.
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.17", default-features = false }
+
 [dev-dependencies]
 http-body-util = "0.1"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "jwk"] }

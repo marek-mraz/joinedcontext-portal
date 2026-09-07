@@ -255,6 +255,9 @@ pub async fn propose(
 
     // 6. Risk-classified approval lane
     let lane = change::classify(kind_info.kind, operation, &envelope.spec);
+    // OPS-16: the one series no other component can produce. A rise in red proposals is a
+    // change in what people are asking the platform to do.
+    crate::telemetry::proposed(lane, kind_info.kind);
 
     // 7. Dry run short-circuit
     if dry_run {

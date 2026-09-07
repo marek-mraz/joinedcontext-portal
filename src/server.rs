@@ -11,8 +11,14 @@ use crate::assets;
 use crate::config::Config;
 use crate::openapi;
 use crate::state::AppState;
+use crate::telemetry;
 
 pub fn app(state: AppState) -> Router {
+    // The recorder belongs to the surface rather than to `main`: without it every `metrics::`
+    // call in the process is a no-op, and a Portal that counted nothing would look exactly
+    // like one nobody used (OPS-16).
+    telemetry::install();
+
     let content_security_policy = HeaderValue::from_static(
         "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; \
          form-action 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; \
@@ -37,8 +43,13 @@ pub fn app(state: AppState) -> Router {
 
     Router::new()
         .merge(apps::static_host::router())
+        // OPS-16: what `components/monitoring` scrapes. Outside the Portal's own security
+        // headers and outside `/api/v1`, so no session or CSRF guard stands in front of a
+        // scrape; the edge refuses the path, which is what keeps it inside the cluster.
+        .merge(telemetry::router())
         .merge(portal)
         .with_state(state)
+        .layer(from_fn(telemetry::record))
         .layer(from_fn(api_cache_control_middleware))
         .layer(SetResponseHeaderLayer::overriding(
             HeaderName::from_static("x-content-type-options"),
