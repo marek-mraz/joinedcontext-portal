@@ -31,3 +31,29 @@ export function localized(
   }
   return map[locale] ?? map[locale.split("-")[0]] ?? map.en ?? map.sk ?? fallback;
 }
+
+/**
+ * The value without the empty leaves a form leaves behind: rjsf keeps an empty object for
+ * every group the user opened and left alone, and an empty string for every field they
+ * cleared, none of which a manifest should carry.
+ */
+export function prune<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.filter((item) => item !== undefined && item !== "") as T;
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, member] of Object.entries(value)) {
+      const cleaned = prune(member);
+      const empty =
+        cleaned === undefined ||
+        cleaned === "" ||
+        (cleaned !== null && typeof cleaned === "object" && Object.keys(cleaned).length === 0);
+      if (!empty) {
+        out[key] = cleaned;
+      }
+    }
+    return out as T;
+  }
+  return value;
+}

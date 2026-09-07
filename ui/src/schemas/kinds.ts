@@ -478,3 +478,259 @@ export const contextSourceRegistrationUiSchema: UiSchema = {
     "*",
   ],
 };
+
+/** The execution classes of a Pipeline, `auto` letting the reconciler pick (PL-04, PL-26). */
+export const PIPELINE_CLASSES = ["auto", "resident", "scheduled"] as const;
+
+/** The compute engines a pipeline step may run on, lightest first (PL-33). */
+export const COMPUTE_KINDS = ["bloblang", "mapping", "wasm", "container"] as const;
+
+/** How a derived pipeline writes its result (PL-32). */
+export const OUTPUT_MODES = ["upsert", "update-attrs"] as const;
+
+/** A Bento duration: a positive count and one of the units Bento accepts (PL-26, PL-27). */
+export const PERIOD_PATTERN = "^[1-9][0-9]*(ms|s|m|h)$";
+
+/** Five whitespace-separated fields; the CronJob controller parses the rest (PL-04). */
+export const CRON_PATTERN = "^\\S+\\s+\\S+\\s+\\S+\\s+\\S+\\s+\\S+$";
+
+/** An NGSI-LD entity type short name, PascalCase, 2 to 64 characters. */
+export const ENTITY_TYPE_PATTERN = "^[A-Z][A-Za-z0-9]{1,63}$";
+
+/** The URN of an Endpoint: `urn:ngsi-ld:Endpoint:{orgDomain}:{space}:{name}` (PF-39, PL-18). */
+export const ENDPOINT_URN_PATTERN = "^urn:ngsi-ld:Endpoint:[^:]+:[^:]+:[^:]+$";
+
+/** One Endpoint the pipeline form may pick, by name as a source and by URN as a target. */
+export interface EndpointOption {
+  name: string;
+  urn?: string;
+}
+
+/** A select when the project has something to offer, free text with the pattern otherwise. */
+function choice(base: JsonSchema, values: string[]): JsonSchema {
+  return values.length > 0 ? { ...base, enum: values } : base;
+}
+
+/**
+ * `PipelineSpec`, field for field, with the rules `PipelineSpec::validate` checks written as
+ * conditions so the form refuses what the reconciler would refuse (PL-04, PL-31, PL-33, PL-39).
+ *
+ * The inline Bloblang of a `bloblang` step is not in the manifest at all: it lives in
+ * `bento.yaml` beside it (Architecture/08 §3), so no field here carries it.
+ */
+export function pipelineSchema(
+  t: (key: string) => string,
+  dataSources: string[],
+  endpoints: EndpointOption[],
+): JsonSchema {
+  const entityType = (title: string): JsonSchema => ({
+    type: "string",
+    title,
+    pattern: ENTITY_TYPE_PATTERN,
+  });
+  const names = (title: string): JsonSchema => ({
+    type: "array",
+    title,
+    items: { type: "string", minLength: 1 },
+  });
+  const targets = endpoints.flatMap((endpoint) => (endpoint.urn ? [endpoint.urn] : []));
+
+  return {
+    type: "object",
+    required: ["name", "class", "targetEndpoint"],
+    properties: {
+      name: {
+        type: "string",
+        title: t("pipelines.field.id"),
+        pattern: DNS1123,
+        maxLength: 63,
+      },
+      title: { ...titleProperty, title: t("pipelines.field.title") },
+      class: {
+        type: "string",
+        title: t("pipelines.field.class"),
+        description: t("pipelines.field.classHint"),
+        enum: [...PIPELINE_CLASSES],
+        default: "auto",
+      },
+      schedule: {
+        type: "string",
+        title: t("pipelines.field.schedule"),
+        description: t("pipelines.field.scheduleHint"),
+        pattern: CRON_PATTERN,
+      },
+      period: {
+        type: "string",
+        title: t("pipelines.field.period"),
+        description: t("pipelines.field.periodHint"),
+        pattern: PERIOD_PATTERN,
+      },
+      source: {
+        type: "object",
+        title: t("pipelines.field.source"),
+        description: t("pipelines.field.sourceHint"),
+        properties: {
+          dataSourceRef: choice(
+            { type: "string", title: t("pipelines.field.dataSource"), pattern: DNS1123 },
+            dataSources,
+          ),
+          endpointRef: choice(
+            { type: "string", title: t("pipelines.field.sourceEndpoint"), pattern: DNS1123 },
+            endpoints.map((endpoint) => endpoint.name),
+          ),
+          query: {
+            type: "object",
+            title: t("pipelines.field.query"),
+            properties: {
+              type: entityType(t("pipelines.field.queryType")),
+              attrs: names(t("pipelines.field.attrs")),
+              q: { type: "string", title: t("pipelines.field.q") },
+              scopeQ: { type: "string", title: t("pipelines.field.scopeQ") },
+              geoQ: { type: "string", title: t("pipelines.field.geoQ") },
+              temporalQ: {
+                type: "object",
+                title: t("pipelines.field.temporalQ"),
+                properties: {
+                  window: {
+                    type: "string",
+                    title: t("pipelines.field.temporalWindow"),
+                    pattern: "^P",
+                  },
+                },
+              },
+            },
+          },
+          trigger: {
+            type: "object",
+            title: t("pipelines.field.trigger"),
+            properties: {
+              subscription: {
+                type: "object",
+                title: t("pipelines.field.subscription"),
+                properties: {
+                  type: entityType(t("pipelines.field.triggerType")),
+                  watchedAttributes: names(t("pipelines.field.watchedAttributes")),
+                },
+                // A subscription is its type; attributes alone name nothing to watch.
+                dependencies: { watchedAttributes: ["type"] },
+              },
+            },
+          },
+        },
+        // One input: the outside world through a DataSource or the platform's own spaces
+        // through an Endpoint, never both (PL-39).
+        not: { required: ["dataSourceRef", "endpointRef"] },
+      },
+      compute: {
+        type: "object",
+        title: t("pipelines.field.compute"),
+        description: t("pipelines.field.computeHint"),
+        properties: {
+          kind: {
+            type: "string",
+            title: t("pipelines.field.computeKind"),
+            enum: [...COMPUTE_KINDS],
+          },
+          module: { type: "string", title: t("pipelines.field.module") },
+          function: { type: "string", title: t("pipelines.field.function") },
+          mappingRef: { type: "string", title: t("pipelines.field.mappingRef"), pattern: DNS1123 },
+        },
+        dependencies: { module: ["kind"], function: ["kind"], mappingRef: ["kind"] },
+        allOf: [
+          {
+            if: { properties: { kind: { const: "wasm" } }, required: ["kind"] },
+            then: { required: ["module", "function"] },
+          },
+          {
+            if: { properties: { kind: { const: "mapping" } }, required: ["kind"] },
+            then: {
+              required: ["mappingRef"],
+              not: { anyOf: [{ required: ["module"] }, { required: ["function"] }] },
+            },
+          },
+        ],
+      },
+      targetEndpoint: choice(
+        {
+          type: "string",
+          title: t("pipelines.field.targetEndpoint"),
+          description: t("pipelines.field.targetEndpointHint"),
+          pattern: ENDPOINT_URN_PATTERN,
+        },
+        targets,
+      ),
+      output: {
+        type: "object",
+        title: t("pipelines.field.output"),
+        properties: {
+          type: entityType(t("pipelines.field.outputType")),
+          mode: {
+            type: "string",
+            title: t("pipelines.field.outputMode"),
+            enum: [...OUTPUT_MODES],
+          },
+        },
+        // The manifest takes both or neither.
+        dependencies: { type: ["mode"], mode: ["type"] },
+      },
+      allowFeedback: {
+        type: "boolean",
+        title: t("pipelines.field.allowFeedback"),
+        description: t("pipelines.field.allowFeedbackHint"),
+      },
+      secretRefs: {
+        type: "array",
+        title: t("pipelines.field.secrets"),
+        description: t("pipelines.field.secretsHint"),
+        items: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string", title: t("pipelines.field.secretName"), pattern: DNS1123 },
+            key: { type: "string", title: t("pipelines.field.secretKey") },
+            envVar: { type: "string", title: t("pipelines.field.envVar"), pattern: "^[A-Z_][A-Z0-9_]*$" },
+          },
+        },
+      },
+      quotas: {
+        type: "object",
+        title: t("pipelines.field.quotas"),
+        properties: {
+          maxMemoryMb: { type: "integer", title: t("pipelines.field.maxMemoryMb"), minimum: 1 },
+          cpuMillicores: { type: "integer", title: t("pipelines.field.cpuMillicores"), minimum: 1 },
+        },
+      },
+    },
+    allOf: [
+      {
+        if: { properties: { class: { const: "scheduled" } }, required: ["class"] },
+        then: { required: ["schedule"] },
+      },
+      {
+        if: { properties: { class: { const: "resident" } }, required: ["class"] },
+        then: { not: { required: ["schedule"] } },
+      },
+    ],
+  };
+}
+
+/** The manifest's own order, so the form reads like the YAML it writes. */
+export const pipelineUiSchema: UiSchema = {
+  "ui:order": [
+    "name",
+    "title",
+    "class",
+    "schedule",
+    "period",
+    "source",
+    "compute",
+    "targetEndpoint",
+    "output",
+    "allowFeedback",
+    "secretRefs",
+    "quotas",
+    "*",
+  ],
+  source: { "ui:order": ["dataSourceRef", "endpointRef", "query", "trigger", "*"] },
+  compute: { "ui:order": ["kind", "mappingRef", "module", "function", "*"] },
+};

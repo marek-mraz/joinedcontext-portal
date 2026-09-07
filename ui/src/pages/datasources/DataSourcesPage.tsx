@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
-import { asManifests, isChange, localized } from "../../api/manifest";
+import { asManifests, isChange, localized, prune } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { PlanDiffViewer } from "../../components/diff/PlanDiffViewer";
@@ -51,28 +51,6 @@ export function toForm(source: Manifest): DataSourceForm {
     ...(source.metadata.title ? { title: source.metadata.title } : {}),
     ...connection,
   };
-}
-
-/** rjsf leaves an empty object behind for every group the user opened and left alone. */
-function prune<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.filter((item) => item !== undefined && item !== "") as T;
-  }
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, member] of Object.entries(value)) {
-      const cleaned = prune(member);
-      const empty =
-        cleaned === undefined ||
-        cleaned === "" ||
-        (cleaned !== null && typeof cleaned === "object" && Object.keys(cleaned).length === 0);
-      if (!empty) {
-        out[key] = cleaned;
-      }
-    }
-    return out as T;
-  }
-  return value;
 }
 
 /** Where a source connects to, in one line of the table. */

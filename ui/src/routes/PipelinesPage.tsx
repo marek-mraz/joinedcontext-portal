@@ -7,6 +7,8 @@ import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ChangeNotice } from "../components/ChangeNotice";
+import { PipelineEditorDialog } from "../pages/pipelines/PipelineEditor";
+import type { toEnvelope } from "../pages/pipelines/PipelineEditor";
 import {
   Alert,
   Badge,
@@ -163,6 +165,9 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Manifest | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const list = useQuery({
     queryKey: queryKeys.list(project, "pipelines"),
@@ -208,6 +213,62 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
       );
     },
   });
+
+  /**
+   * A create is a POST, an edit a PUT at the manifest's own path; either one lands in the
+   * forge and in Approvals like every other write (AP-13). Every signed-in user may propose:
+   * the approval, not the button, is the gate.
+   */
+  const propose = useMutation({
+    mutationFn: async ({
+      envelope,
+      name,
+    }: {
+      envelope: ReturnType<typeof toEnvelope>;
+      name: string | null;
+    }) => {
+      setFormError(null);
+      const body = envelope as never;
+      return unwrap(
+        name === null
+          ? await api.POST("/api/v1/projects/{project}/{plural}", {
+              params: { path: { project, plural: "pipelines" } },
+              body,
+            })
+          : await api.PUT("/api/v1/projects/{project}/{plural}/{name}", {
+              params: { path: { project, plural: "pipelines", name } },
+              body,
+            }),
+      );
+    },
+    onSuccess: (result) => {
+      if (isChange(result)) {
+        setChange(result);
+      }
+      setDialogOpen(false);
+      setEditing(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, "pipelines") });
+    },
+    onError: (err) => {
+      setFormError(
+        err instanceof ApiError
+          ? (err.problem?.detail ?? err.message)
+          : t("app.error.generic"),
+      );
+    },
+  });
+
+  function openEditor(pipeline: Manifest | null) {
+    setEditing(pipeline);
+    setFormError(null);
+    setDialogOpen(true);
+  }
+
+  const newButton = (
+    <Button variant="primary" icon={<Icon name="plus" className="size-4" />} onClick={() => openEditor(null)}>
+      {t("pipelines.add")}
+    </Button>
+  );
 
   const head = (
     <TableHead>
@@ -265,7 +326,7 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
 
   return (
     <div className="flex flex-col gap-section">
-      <PageHeader title={t("pipelines.title")} description={t("pipelines.lead")} />
+      <PageHeader title={t("pipelines.title")} description={t("pipelines.lead")} actions={newButton} />
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
       {error ? (
@@ -328,6 +389,9 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
                   </TableCell>
                   <TableCell align="right">
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <Button size="sm" onClick={() => openEditor(pipeline)}>
+                        {t("pipelines.edit")}
+                      </Button>
                       <Button
                         size="sm"
                         disabled={toggle.isPending}
@@ -355,6 +419,24 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
           )}
         </TableBody>
       </Table>
+
+      {dialogOpen ? (
+        <PipelineEditorDialog
+          project={project}
+          onOpenChange={(open) => {
+            if (!open) {
+              setDialogOpen(false);
+              setEditing(null);
+            }
+          }}
+          editing={editing}
+          pending={propose.isPending}
+          error={formError}
+          onSubmit={(envelope) =>
+            propose.mutate({ envelope, name: editing ? editing.metadata.name : null })
+          }
+        />
+      ) : null}
     </div>
   );
 }

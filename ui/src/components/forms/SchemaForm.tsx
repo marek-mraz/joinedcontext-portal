@@ -27,7 +27,14 @@ const ajvErrorKeyMap: Record<string, string> = {
   pattern: "form.pattern",
   enum: "form.enum",
   format: "form.format",
+  not: "form.exclusive",
+  dependencies: "form.dependency",
 };
+
+/** The translation key of one validation error, by the keyword ajv reports it under. */
+export function errorMessageKey(error: RJSFValidationError): string {
+  return error.name && ajvErrorKeyMap[error.name] ? ajvErrorKeyMap[error.name] : "form.invalid";
+}
 
 /**
  * Every schema-driven form of the Portal: rjsf with the Portal's templates and widgets, live
@@ -51,14 +58,7 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
 
   const transformErrors = React.useCallback(
     (errors: RJSFValidationError[]): RJSFValidationError[] => {
-      return errors.map((error) => {
-        const key =
-          error.name && ajvErrorKeyMap[error.name] ? ajvErrorKeyMap[error.name] : "form.invalid";
-        return {
-          ...error,
-          message: t(key),
-        };
-      });
+      return errors.map((error) => ({ ...error, message: t(errorMessageKey(error)) }));
     },
     [t],
   );
