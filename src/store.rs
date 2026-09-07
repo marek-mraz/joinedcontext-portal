@@ -70,11 +70,14 @@ impl Mirror {
 
     /// Every project the repository holds, sorted: the distinct `metadata.namespace` of the
     /// mirrored manifests, since a project is exactly a `projects/<slug>/` directory with
-    /// something in it (PF-05). Cluster-scoped resources carry no namespace and are skipped.
+    /// something in it (PF-05). Cluster-scoped resources carry no namespace and are skipped;
+    /// so is the organization scope, whose manifests (`blueprints/`) carry the namespace `org`
+    /// and live in no project directory.
     pub fn namespaces(&self) -> Vec<String> {
         let lock = self.resources.read().unwrap_or_else(|p| p.into_inner());
         let mut names: Vec<String> = lock
             .keys()
+            .filter(|key| key.kind != "Blueprint")
             .map(|key| key.namespace.clone())
             .filter(|ns| !ns.is_empty())
             .collect();
@@ -456,6 +459,7 @@ metadata:
         mirror.upsert(sample("banskabystrica", "Endpoint", "public-air", &[]));
         mirror.upsert(sample("banskabystrica", "ContextSpace", "ovzdusie", &[]));
         mirror.upsert(sample("", "Organization", "hel", &[]));
+        mirror.upsert(sample("org", "Blueprint", "mqtt-feed", &[]));
         assert_eq!(mirror.namespaces(), vec!["banskabystrica", "helsinki"]);
         assert!(Mirror::new().namespaces().is_empty());
     }
