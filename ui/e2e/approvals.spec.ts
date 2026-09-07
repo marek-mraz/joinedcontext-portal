@@ -5,8 +5,8 @@ import { axeViolations } from "./axe";
 // `vite preview` serves the built bundle with no portal API behind it, so this journey answers
 // the API from the browser. The clicks, the routing and the rendering are the real ones; only
 // the Rust process is absent (its own journey arrives with the ci-full task that runs the binary).
-// The project is `helsinki`: the root route redirects to the shell's one known project
-// (KNOWN_PROJECTS in router.tsx, T-0479), so a journey that starts at `/` lands there.
+// The project is `helsinki`: the root route redirects to the first project `GET /api/v1/projects`
+// lists (PF-05), so a journey that starts at `/` lands there once the stub answers that list.
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -14,6 +14,12 @@ const IDENTITY = {
   name: "Jana Kováčová",
   email: "jana.kovacova@banskabystrica.sk",
   roles: ["portal-approver"],
+};
+
+const PROJECTS = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "ProjectList",
+  items: [{ name: "helsinki" }],
 };
 
 const PROPOSAL = {
@@ -58,6 +64,9 @@ async function stubApi(page: Page): Promise<{ approvals: string[] }> {
     if (url.pathname.endsWith("/approve")) {
       approvals.push(url.pathname);
       return json(APPROVED, 202);
+    }
+    if (url.pathname === "/api/v1/projects") {
+      return json(PROJECTS);
     }
     if (url.pathname.endsWith("/changes")) {
       return json({

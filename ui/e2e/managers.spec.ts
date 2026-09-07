@@ -4,7 +4,8 @@ import { axeViolations } from "./axe";
 
 // Same shape as the approvals journey: `vite preview` has no portal API behind it, so the API
 // is answered in the browser and everything above it — routing, forms, clicks — is the real thing.
-// The project is `helsinki`, where the root route sends the shell (KNOWN_PROJECTS, T-0479).
+// The project is `helsinki`: the root route goes to the first project `GET /api/v1/projects`
+// lists (PF-05), so the stub answers it with that one.
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -16,6 +17,12 @@ const IDENTITY = {
 
 const SOURCE_URL =
   "https://git.example.sk/bb/org/src/branch/main/projects/helsinki/spaces/ovzdusie/space.yaml";
+
+const PROJECTS = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "ProjectList",
+  items: [{ name: "helsinki" }],
+};
 
 const SPACES = {
   apiVersion: "joinedcontext.com/v1alpha1",
@@ -79,6 +86,9 @@ async function stubApi(page: Page): Promise<{ writes: string[] }> {
     if (request.method() !== "GET") {
       writes.push(`${request.method()} ${path} ${request.postData() ?? ""}`);
       return json(CHANGE, 202);
+    }
+    if (path === "/api/v1/projects") {
+      return json(PROJECTS);
     }
     if (path.endsWith("/spaces")) {
       return json(SPACES);
