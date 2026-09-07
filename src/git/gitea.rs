@@ -16,6 +16,10 @@ use crate::error::ApiError;
 #[derive(Clone)]
 pub struct GiteaClient {
     pub base: Url,
+    /// Where a browser reaches the same forge: the API talks to the cluster-internal service,
+    /// but a "Source" link opens in the user's browser, which resolves no `.svc.cluster.local`
+    /// name. `JC_GITEA_PUBLIC_URL`; the API base when unset.
+    pub public_base: Url,
     pub owner: String,
     pub repo: String,
     token: String,
@@ -353,6 +357,7 @@ impl GiteaClient {
             .map_err(|e| GitError::Transport(e.to_string()))?;
 
         Ok(Self {
+            public_base: base.clone(),
             base,
             owner: owner.into(),
             repo: repo.into(),
@@ -374,7 +379,12 @@ impl GiteaClient {
             (Some(url), Some(owner), Some(repo), Some(token)) => {
                 let base = Url::parse(&url)
                     .map_err(|e| GitError::Config(format!("invalid JC_GITEA_URL: {e}")))?;
-                Self::new(base, owner, repo, token).map(Some)
+                let mut client = Self::new(base, owner, repo, token)?;
+                if let Some(public) = lookup("JC_GITEA_PUBLIC_URL") {
+                    client.public_base = Url::parse(&public)
+                        .map_err(|e| GitError::Config(format!("invalid JC_GITEA_PUBLIC_URL: {e}")))?;
+                }
+                Ok(Some(client))
             }
             _ => Err(GitError::Config(
                 "JC_GITEA_URL, JC_GITEA_OWNER, JC_GITEA_REPO and JC_GITEA_TOKEN must be set together"
@@ -387,7 +397,7 @@ impl GiteaClient {
     pub fn browse_url(&self, path: &str, git_ref: &str) -> String {
         format!(
             "{}/{}/{}/src/branch/{}/{}",
-            self.base.as_str().trim_end_matches('/'),
+            self.public_base.as_str().trim_end_matches('/'),
             self.owner,
             self.repo,
             git_ref,
@@ -715,5 +725,49 @@ impl GiteaClient {
         let res = self.send(self.http.post(url).json(&payload)).await?;
         Self::check_status(res).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod browse_url_tests {
+    use super::GiteaClient;
+
+    fn env(public: Option<&str>) -> impl Fn(&str) -> Option<String> + '_ {
+        move |name| match name {
+            "JC_GITEA_URL" => Some("http://gitea-http.dev.svc.cluster.local:3000".to_string()),
+            "JC_GITEA_OWNER" => Some("joinedcontext".to_string()),
+            "JC_GITEA_REPO" => Some("configuration".to_string()),
+            "JC_GITEA_TOKEN" => Some("t".to_string()),
+            "JC_GITEA_PUBLIC_URL" => public.map(str::to_string),
+            _ => None,
+        }
+    }
+
+    /// A "Source" link opens in a browser, which resolves no cluster-internal name.
+    #[test]
+    fn the_source_link_uses_the_public_forge_url() {
+        let client = GiteaClient::from_env(env(Some("https://city.example/git")))
+            .expect("config")
+            .expect("configured");
+        assert_eq!(
+            client.browse_url("projects/helsinki/pipelines/p/pipeline.yaml", "main"),
+            "https://city.example/git/joinedcontext/configuration/src/branch/main/projects/helsinki/pipelines/p/pipeline.yaml"
+        );
+    }
+
+    /// Without a public URL the API base is the best the Portal knows.
+    #[test]
+    fn the_source_link_falls_back_to_the_api_base() {
+        let client = GiteaClient::from_env(env(None))
+            .expect("config")
+            .expect("configured");
+        assert!(client
+            .browse_url("a.yaml", "main")
+            .starts_with("http://gitea-http.dev.svc.cluster.local:3000/joinedcontext/configuration/src/branch/main/"));
+    }
+
+    #[test]
+    fn an_invalid_public_url_is_a_config_error() {
+        assert!(GiteaClient::from_env(env(Some("not a url"))).is_err());
     }
 }
