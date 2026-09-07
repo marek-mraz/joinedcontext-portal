@@ -115,19 +115,35 @@ impl AppState {
             if let Some(pool) = state.db.as_ref() {
                 syncer = syncer.with_leadership(Arc::new(Leadership::reconciler(pool.clone())));
             }
-            // Applying an app's objects needs both halves: a cluster to write into and the
-            // settings that say where. Either missing leaves the reconciler reading apps and
-            // deploying nothing, which is what a Portal on a laptop does (T-0411, AP-18).
+            // Applying an app's objects needs three halves, not two: a cluster to write into,
+            // the settings that say where, and the realm the sidecar logs users in against.
+            // Any one missing leaves the reconciler reading apps and deploying nothing, which
+            // is what a Portal on a laptop does (T-0411, AP-18, AP-27).
             match (
                 state.config.app_settings.clone(),
                 crate::apps::kube::KubeClient::in_cluster(),
+                state.config.oidc.as_ref(),
             ) {
-                (Some(settings), Ok(Some(kube))) => {
-                    syncer = syncer.with_converger(Arc::new(
-                        crate::apps::converge::Converger::new(kube, settings),
-                    ));
+                (Some(settings), Ok(Some(kube)), Some(oidc)) => {
+                    // The Portal's own confidential client; its service account is what the
+                    // realm grants `manage-clients` to (AP-27).
+                    match crate::apps::keycloak::AdminClient::new(
+                        reqwest::Client::new(),
+                        &oidc.issuer,
+                        &oidc.client_id,
+                        oidc.client_secret(),
+                    ) {
+                        Ok(keycloak) => {
+                            syncer = syncer.with_converger(Arc::new(
+                                crate::apps::converge::Converger::new(kube, keycloak, settings),
+                            ));
+                        }
+                        Err(err) => {
+                            tracing::warn!(error = %err, "the issuer names no realm, so no app is deployed")
+                        }
+                    }
                 }
-                (_, Err(err)) => {
+                (_, Err(err), _) => {
                     tracing::warn!(error = %err, "the ServiceAccount mount is unreadable, so no app is deployed")
                 }
                 _ => tracing::info!("no app settings or no cluster: apps are read, not deployed"),

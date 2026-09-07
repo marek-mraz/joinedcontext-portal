@@ -2,6 +2,7 @@
 
 /// The reconciler that compiles an App into its runtime and its grants (T-0227).
 pub mod converge;
+pub mod keycloak;
 pub mod kube;
 pub mod reconciler;
 pub mod static_host;

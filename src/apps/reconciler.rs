@@ -121,6 +121,12 @@ impl Credentials {
     pub fn endpoint_slug(&self) -> &str {
         self.endpoint_slug.as_str()
     }
+
+    /// The client secret, for the one caller that has to send it somewhere: the Admin API call
+    /// that puts the same value on the realm's copy of the client (AP-27).
+    pub fn client_secret(&self) -> &str {
+        &self.client_secret
+    }
 }
 
 impl fmt::Debug for Credentials {
@@ -455,6 +461,19 @@ fn app_container(
     })
 }
 
+/// The app's OIDC client id, which the sidecar sends and the realm holds (AP-27).
+pub fn oidc_client_id(name: &str) -> String {
+    format!("app-{name}")
+}
+
+/// The one URI the app's OIDC client may return to (AP-27).
+///
+/// The sidecar renders it into `--redirect-url` and the reconciler registers exactly this string
+/// on the realm, so the two cannot drift into a login that fails with `invalid_redirect_uri`.
+pub fn redirect_uri(name: &str, settings: &Settings) -> String {
+    format!("https://{}/apps/{name}/oauth2/callback", settings.host)
+}
+
 /// The login front: the only container of the pod that listens on the pod address (AP-26).
 fn sidecar_container(
     name: &str,
@@ -470,11 +489,8 @@ fn sidecar_container(
             "--oidc-issuer-url=https://idm.{}/realms/{}",
             settings.host, settings.realm
         ),
-        format!("--client-id=app-{name}"),
-        format!(
-            "--redirect-url=https://{}{prefix}/oauth2/callback",
-            settings.host
-        ),
+        format!("--client-id={}", oidc_client_id(name)),
+        format!("--redirect-url={}", redirect_uri(name, settings)),
         format!("--http-address=0.0.0.0:{SIDECAR_PORT}"),
         format!("--upstream=http://{APP_ADDRESS}:{APP_PORT}/"),
         format!("--proxy-prefix={prefix}/oauth2"),

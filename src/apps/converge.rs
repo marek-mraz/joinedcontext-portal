@@ -20,8 +20,9 @@ use jc_core::kinds::{AppLifecycle, AppSpec};
 use jcctl::loader::{RawManifest, Repository};
 use serde_json::Value;
 
+use super::keycloak::{AdminClient, KeycloakError};
 use super::kube::{KubeClient, KubeError};
-use super::reconciler::{render, Credentials, RenderError, Settings};
+use super::reconciler::{oidc_client_id, redirect_uri, render, Credentials, RenderError, Settings};
 
 /// The digest the build lane writes back when it publishes the image (AP-13a).
 pub const IMAGE_ANNOTATION: &str = "joinedcontext.com/image";
@@ -54,6 +55,9 @@ pub enum ConvergeError {
     /// The API server refused or could not be reached.
     #[error("{0}")]
     Kube(#[from] KubeError),
+    /// The realm would not take the app's OIDC client.
+    #[error("{0}")]
+    Keycloak(#[from] KeycloakError),
     /// The Secret exists and is not the one this reconciler wrote.
     #[error(
         "the secret app-{name}-oauth2 exists without the key {key}, so it is not this reconciler's"
@@ -69,13 +73,18 @@ pub enum ConvergeError {
 /// Applies the objects of every App in the repository.
 pub struct Converger {
     kube: KubeClient,
+    keycloak: AdminClient,
     settings: Settings,
 }
 
 impl Converger {
-    /// A converger for one installation's apps namespace.
-    pub fn new(kube: KubeClient, settings: Settings) -> Self {
-        Self { kube, settings }
+    /// A converger for one installation's apps namespace and its realm.
+    pub fn new(kube: KubeClient, keycloak: AdminClient, settings: Settings) -> Self {
+        Self {
+            kube,
+            keycloak,
+            settings,
+        }
     }
 
     /// Converges every App in the repository, in the loader's deterministic order.
@@ -110,6 +119,7 @@ impl Converger {
         // compile, only four objects to remove (AP-21).
         if spec.lifecycle == AppLifecycle::Retired {
             self.delete_objects(&name).await?;
+            self.keycloak.delete_client(&oidc_client_id(&name)).await?;
             return Ok(Outcome::Deleted);
         }
         if !matches!(
@@ -145,6 +155,18 @@ impl Converger {
                 "a static app is served by the Portal, not by a pod (AP-14)".to_owned(),
             ));
         };
+
+        // The realm before the cluster: a pod whose client does not exist yet answers every
+        // request with an OIDC error page, while a client whose pod does not exist yet is
+        // simply a client nobody uses. The secret sent here is the one the Secret below
+        // carries, so the two halves cannot disagree (AP-27).
+        self.keycloak
+            .ensure_client(
+                &oidc_client_id(&name),
+                &redirect_uri(&name, &self.settings),
+                credentials.client_secret(),
+            )
+            .await?;
 
         // The Secret first: the Deployment references it, and a pod that starts before its
         // secret exists is a pod in CreateContainerConfigError until the next run.
