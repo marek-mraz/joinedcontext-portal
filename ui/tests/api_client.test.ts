@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, csrfMiddleware, queryKeys, readCsrfToken, unwrap } from "../src/api/client";
+import {
+  ApiError,
+  createSessionMiddleware,
+  csrfMiddleware,
+  loginRedirectUrl,
+  queryKeys,
+  readCsrfToken,
+  unwrap,
+} from "../src/api/client";
 import type { ProblemDetails } from "../src/api/client";
 import { searchEntities } from "../src/api/gateway";
+import { redirectTarget } from "../src/routes/LoginPage";
 
 describe("readCsrfToken", () => {
   beforeEach(() => {
@@ -88,6 +97,70 @@ describe("csrfMiddleware", () => {
       const request = await run(method);
       expect(request.headers.get("x-csrf-token"), method).toBeNull();
     }
+  });
+});
+
+describe("sessionMiddleware", () => {
+  async function answer(path: string, status: number, navigate: (url: string) => void) {
+    const middleware = createSessionMiddleware(navigate);
+    const onResponse = middleware.onResponse;
+    if (!onResponse) {
+      throw new Error("sessionMiddleware has no onResponse hook");
+    }
+    const request = new Request(`${window.location.origin}${path}`);
+    const response = new Response(null, { status });
+    const result = await onResponse({ request, response } as Parameters<typeof onResponse>[0]);
+    return result instanceof Response ? result : response;
+  }
+
+  it("sends a 401 on a list call to the login page with the current location", async () => {
+    window.history.replaceState(null, "", "/projects/helsinki/spaces?page=2");
+    const navigate = vi.fn();
+
+    const response = await answer("/api/v1/projects/helsinki/spaces", 401, navigate);
+
+    expect(navigate).toHaveBeenCalledWith(
+      "/login?redirect_to=%2Fprojects%2Fhelsinki%2Fspaces%3Fpage%3D2"
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("leaves a 403 and a 200 alone so the page shows its own state", async () => {
+    window.history.replaceState(null, "", "/projects/helsinki/spaces");
+    const navigate = vi.fn();
+
+    await answer("/api/v1/projects/helsinki/spaces", 403, navigate);
+    await answer("/api/v1/projects/helsinki/spaces", 200, navigate);
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("treats a 401 from /auth/me as the anonymous answer, not a redirect", async () => {
+    window.history.replaceState(null, "", "/projects/helsinki/spaces");
+    const navigate = vi.fn();
+
+    await answer("/api/v1/auth/me", 401, navigate);
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("never loops from the login page itself", async () => {
+    window.history.replaceState(null, "", "/login?redirect_to=%2F");
+    const navigate = vi.fn();
+
+    await answer("/api/v1/projects/helsinki/spaces", 401, navigate);
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("the login page returns to the interrupted location and to same-origin paths only", () => {
+    expect(loginRedirectUrl("/a?b=1")).toBe("/login?redirect_to=%2Fa%3Fb%3D1");
+    expect(redirectTarget("?redirect_to=%2Fprojects%2Fhelsinki%2Fspaces%3Fpage%3D2")).toBe(
+      "/projects/helsinki/spaces?page=2"
+    );
+    expect(redirectTarget("?redirect_to=%2F%2Fevil.example")).toBe("/");
+    expect(redirectTarget("?redirect_to=https%3A%2F%2Fevil.example")).toBe("/");
+    expect(redirectTarget("")).toBe("/");
   });
 });
 

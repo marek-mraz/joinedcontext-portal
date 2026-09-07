@@ -42,6 +42,8 @@ fn make_session_cookie(
         expires_at: now + 3600,
         issued_at: now,
         id_token: "id-token-placeholder".into(),
+        access_expires_at: now + 3600,
+        refresh_token: None,
     };
     let jar = PrivateCookieJar::new(config.cookie_key.clone());
     let jar = session::store(jar, &s).expect("store session");

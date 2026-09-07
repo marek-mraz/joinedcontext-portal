@@ -1,6 +1,6 @@
 use axum::extract::Request;
 use axum::http::{header, HeaderName, HeaderValue};
-use axum::middleware::{from_fn, Next};
+use axum::middleware::{from_fn, from_fn_with_state, Next};
 use axum::response::Response;
 use axum::Router;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -8,6 +8,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use crate::api;
 use crate::apps;
 use crate::assets;
+use crate::auth;
 use crate::config::Config;
 use crate::openapi;
 use crate::state::AppState;
@@ -32,6 +33,9 @@ pub fn app(state: AppState) -> Router {
         .nest("/api/v1", api::router())
         .merge(openapi::router())
         .fallback(assets::static_handler)
+        // Every portal request, API or page, keeps the cookie session alive against the realm;
+        // outermost of the portal's own layers so a rotated cookie reaches every response.
+        .layer(from_fn_with_state(state.clone(), auth::refresh::middleware))
         .layer(SetResponseHeaderLayer::overriding(
             HeaderName::from_static("x-frame-options"),
             HeaderValue::from_static("SAMEORIGIN"),

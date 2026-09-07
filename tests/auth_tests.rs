@@ -296,3 +296,223 @@ async fn a_mutation_with_a_matching_csrf_token_passes_the_gate() {
         "the SPA needs somewhere to navigate: {target}"
     );
 }
+
+/// A token response the way Keycloak answers `grant_type=refresh_token`: the refresh token is a
+/// JWT whose `exp` is the SSO session's remaining life. Nothing is signed; the portal reads the
+/// refresh token's `exp` as a hint and never verifies it.
+fn refresh_token_with_exp(exp: i64) -> String {
+    use base64::engine::{general_purpose::URL_SAFE_NO_PAD, Engine};
+    format!(
+        "{}.{}.{}",
+        URL_SAFE_NO_PAD.encode(br#"{"alg":"HS512"}"#),
+        URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp},"typ":"Refresh"}}"#).as_bytes()),
+        URL_SAFE_NO_PAD.encode(b"not-a-signature"),
+    )
+}
+
+/// The cookies a browser would hold after a login, with the access token `access_in` seconds
+/// from expiry, encrypted with the test key `app_with_realm` configures.
+fn session_cookies(access_in: i64) -> String {
+    use axum::response::IntoResponse;
+    use axum_extra::extract::cookie::{Key, PrivateCookieJar};
+    use joinedcontext_portal::auth::session::{now_unix, store, Identity, Session};
+
+    let now = now_unix();
+    let session = Session {
+        identity: Identity {
+            subject: "f:1:demo.steward".into(),
+            username: "demo.steward".into(),
+            email: None,
+            name: None,
+            roles: vec!["portal-viewer".into()],
+        },
+        expires_at: now + 3600,
+        issued_at: now - 600,
+        id_token: "opaque-id-token-for-tests".into(),
+        access_expires_at: now + access_in,
+        refresh_token: Some("opaque-refresh-token-for-tests".into()),
+    };
+    let key = Key::from("k".repeat(64).as_bytes());
+    let jar = store(PrivateCookieJar::new(key), &session).expect("store");
+    let response = (jar, StatusCode::OK).into_response();
+    set_cookie_values(&response)
+        .iter()
+        .filter_map(|c| c.split(';').next().map(str::to_string))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+async fn mount_token_endpoint(realm: &MockServer, template: ResponseTemplate, expected: u64) {
+    Mock::given(method("POST"))
+        .and(path(format!("{REALM_PATH}/protocol/openid-connect/token")))
+        .and(wiremock::matchers::body_string_contains(
+            "grant_type=refresh_token",
+        ))
+        .and(wiremock::matchers::body_string_contains(
+            "refresh_token=opaque-refresh-token-for-tests",
+        ))
+        .respond_with(template)
+        .expect(expected)
+        .mount(realm)
+        .await;
+}
+
+#[tokio::test]
+async fn a_session_near_access_expiry_is_refreshed_and_both_cookies_rotate() {
+    let realm = realm().await;
+    let sso_ends = joinedcontext_portal::auth::session::now_unix() + 3000;
+    mount_token_endpoint(
+        &realm,
+        ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "fresh-access-token",
+            "token_type": "Bearer",
+            "expires_in": 300,
+            "refresh_token": refresh_token_with_exp(sso_ends),
+            "refresh_expires_in": 3000,
+            "session_state": "keycloak-adds-fields",
+        })),
+        1,
+    )
+    .await;
+    let app = app_with_realm(&realm).await;
+
+    // Past the access token, inside the leeway: the only thing that keeps the user signed in.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/me")
+                .header(header::ACCEPT, "application/json")
+                .header(header::COOKIE, session_cookies(-5))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "the refreshed session serves the request"
+    );
+    let cookies = set_cookie_values(&response);
+    let session = cookies
+        .iter()
+        .find(|c| c.starts_with("jc_session="))
+        .expect("rotated session cookie");
+    let refresh = cookies
+        .iter()
+        .find(|c| c.starts_with("jc_refresh="))
+        .expect("rotated refresh cookie");
+    for cookie in [session, refresh] {
+        assert!(cookie.contains("HttpOnly"), "{cookie}");
+        assert!(cookie.contains("Secure"), "{cookie}");
+        assert!(cookie.contains("SameSite=Lax"), "{cookie}");
+        assert!(!cookie.contains("Max-Age=0"), "{cookie}");
+        assert!(
+            cookie.len() < 4096,
+            "a cookie must stay under the browser limit"
+        );
+    }
+    // The session now lives as long as the SSO session: roughly 3000 s, not the 300 s token.
+    let max_age: i64 = session
+        .split(';')
+        .find_map(|p| p.trim().strip_prefix("Max-Age="))
+        .and_then(|v| v.parse().ok())
+        .expect("max-age");
+    assert!((2990..=3000).contains(&max_age), "{max_age}");
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let me: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(me["username"], "demo.steward");
+}
+
+#[tokio::test]
+async fn a_refused_refresh_ends_the_session_with_401_for_fetch_and_login_for_navigation() {
+    let realm = realm().await;
+    mount_token_endpoint(
+        &realm,
+        ResponseTemplate::new(400).set_body_json(json!({
+            "error": "invalid_grant",
+            "error_description": "Session not active"
+        })),
+        2,
+    )
+    .await;
+    let app = app_with_realm(&realm).await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/me")
+                .header(header::ACCEPT, "application/json")
+                .header(header::COOKIE, session_cookies(-5))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/problem+json"
+    );
+    let cookies = set_cookie_values(&response);
+    assert!(
+        cookies
+            .iter()
+            .any(|c| c.starts_with("jc_session=") && c.contains("Max-Age=0")),
+        "the session cookie is cleared: {cookies:?}"
+    );
+    assert!(
+        cookies
+            .iter()
+            .any(|c| c.starts_with("jc_refresh=") && c.contains("Max-Age=0")),
+        "the refresh cookie is cleared: {cookies:?}"
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/projects/helsinki/spaces?page=2")
+                .header(header::ACCEPT, "text/html,application/xhtml+xml")
+                .header(header::COOKIE, session_cookies(-5))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers().get(header::LOCATION).unwrap(),
+        "/login?redirect_to=%2Fprojects%2Fhelsinki%2Fspaces%3Fpage%3D2"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_refresh_inside_the_leeway_lets_the_live_token_serve_the_request() {
+    let realm = realm().await;
+    mount_token_endpoint(
+        &realm,
+        ResponseTemplate::new(400).set_body_json(json!({ "error": "invalid_grant" })),
+        1,
+    )
+    .await;
+    let app = app_with_realm(&realm).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/me")
+                .header(header::COOKIE, session_cookies(30))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        set_cookie_values(&response).is_empty(),
+        "nothing rotates and nothing is cleared while the access token still stands"
+    );
+}

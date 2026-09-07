@@ -172,6 +172,8 @@ impl BearerVerifier {
             expires_at: c.exp,
             issued_at: c.iat,
             id_token: String::new(),
+            access_expires_at: c.exp,
+            refresh_token: None,
         })
     }
 }

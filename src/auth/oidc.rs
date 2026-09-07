@@ -19,7 +19,8 @@ use openidconnect::core::{
 use openidconnect::{
     AdditionalProviderMetadata, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
     EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse,
-    PkceCodeChallenge, PkceCodeVerifier, ProviderMetadata, RedirectUrl, Scope, TokenResponse,
+    PkceCodeChallenge, PkceCodeVerifier, ProviderMetadata, RedirectUrl, RefreshToken, Scope,
+    TokenResponse,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -65,8 +66,10 @@ type PortalClient = CoreClient<
 
 /// How long a login may stay in flight before the PKCE verifier cookie expires.
 const FLOW_TTL_SECS: i64 = 600;
-/// Session lifetime when the token response does not state one.
+/// Session lifetime when the refresh token carries no `exp` of its own (an opaque one).
 const DEFAULT_SESSION_TTL_SECS: i64 = 3600;
+/// Access-token lifetime when the token response does not state one.
+const DEFAULT_ACCESS_TTL_SECS: i64 = 300;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OidcError {
@@ -152,6 +155,81 @@ impl OidcClient {
             http,
             end_session_endpoint,
         })
+    }
+
+    /// Trades the session's refresh token for a fresh access token at the realm's token
+    /// endpoint. The identity stays; the roles follow the new id token when the realm sends one
+    /// and it verifies. Any refusal is `401`: the session is over, only a login brings it back.
+    pub async fn refresh(&self, session: &Session) -> Result<Session, ApiError> {
+        let refresh_token = session
+            .refresh_token
+            .as_deref()
+            .ok_or(ApiError::Unauthorized)?;
+        let token_response = self
+            .client
+            .exchange_refresh_token(&RefreshToken::new(refresh_token.to_string()))
+            .map_err(|e| ApiError::Internal(format!("token endpoint is not configured: {e}")))?
+            .request_async(&self.http)
+            .await
+            .map_err(|e| {
+                tracing::info!(subject = %session.identity.subject, error = %e, "token refresh refused");
+                ApiError::Unauthorized
+            })?;
+        let mut identity = session.identity.clone();
+        let mut id_token = session.id_token.clone();
+        if let Some(fresh) = token_response.id_token() {
+            // Verified like the logout token: signature, issuer and audience, no nonce (there
+            // was no browser round trip to bind one to). Only a verified token changes anything.
+            match fresh.claims(&self.client.id_token_verifier(), |_: Option<&Nonce>| Ok(())) {
+                Ok(_) => {
+                    id_token = fresh.to_string();
+                    identity.roles = realm_roles(&id_token);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "id_token from the refresh did not verify; keeping the old one")
+                }
+            }
+        }
+        Ok(mint_session(
+            identity,
+            id_token,
+            session.issued_at,
+            &token_response,
+        ))
+    }
+}
+
+/// Builds the cookie session from a token response, at login and at every refresh.
+///
+/// The access token itself is not kept: the portal calls nothing with it. Its `expires_in` sets
+/// the refresh point; the refresh token's own `exp` (Keycloak slides it with the SSO session)
+/// sets how long the session lives without a login.
+fn mint_session(
+    identity: Identity,
+    id_token: String,
+    issued_at: i64,
+    token_response: &openidconnect::core::CoreTokenResponse,
+) -> Session {
+    let now = session::now_unix();
+    let access_ttl = token_response
+        .expires_in()
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(DEFAULT_ACCESS_TTL_SECS);
+    let refresh_token = token_response
+        .refresh_token()
+        .map(|t| t.secret().clone())
+        .filter(|t| !t.is_empty());
+    let expires_at = refresh_token
+        .as_deref()
+        .and_then(jwt_exp)
+        .unwrap_or(now + DEFAULT_SESSION_TTL_SECS);
+    Session {
+        identity,
+        expires_at,
+        issued_at,
+        id_token,
+        access_expires_at: now + access_ttl,
+        refresh_token,
     }
 }
 
@@ -298,10 +376,6 @@ pub async fn callback(
         })?;
 
     let issued_at = session::now_unix();
-    let ttl = token_response
-        .expires_in()
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(DEFAULT_SESSION_TTL_SECS);
     let identity = Identity {
         subject: claims.subject().to_string(),
         username: claims
@@ -315,12 +389,7 @@ pub async fn callback(
             .map(|n| n.to_string()),
         roles: realm_roles(id_token.to_string().as_str()),
     };
-    let session = Session {
-        identity,
-        expires_at: issued_at + ttl,
-        issued_at,
-        id_token: id_token.to_string(),
-    };
+    let session = mint_session(identity, id_token.to_string(), issued_at, &token_response);
     tracing::info!(subject = %session.identity.subject, "portal login");
 
     let jar = session::store(jar, &session)?;
@@ -328,11 +397,31 @@ pub async fn callback(
     Ok((jar, cookies, Redirect::to(&flow.redirect_to)).into_response())
 }
 
+/// The payload of a JWT-shaped string, decoded and nothing more: no signature is checked here,
+/// so a caller reads only what it has already verified or what it treats as a hint.
+fn jwt_payload<T: serde::de::DeserializeOwned>(token: &str) -> Option<T> {
+    let payload = token.split('.').nth(1)?;
+    let bytes =
+        base64::engine::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
+            .ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// `exp` of a JWT-shaped token; `None` for an opaque one. Keycloak's refresh tokens are JWTs
+/// whose `exp` is the SSO session's remaining life, which is exactly the session ceiling.
+fn jwt_exp(token: &str) -> Option<i64> {
+    #[derive(serde::Deserialize)]
+    struct Payload {
+        exp: Option<i64>,
+    }
+    jwt_payload::<Payload>(token)?.exp
+}
+
 /// Keycloak puts realm roles in `realm_access.roles`, which `openidconnect`'s core claim set does
 /// not model. Reading them back out of the token's payload is safe here and only here: the caller
-/// has already verified this exact token's signature and nonce, so the bytes are trusted. A
-/// malformed or role-less token yields an empty list, never an error — roles are display and
-/// enablement only (CC-42), and the resource API enforces the real boundary.
+/// has already verified this exact token's signature, so the bytes are trusted. A malformed or
+/// role-less token yields an empty list, never an error — roles are display and enablement only
+/// (CC-42), and the resource API enforces the real boundary.
 fn realm_roles(id_token: &str) -> Vec<String> {
     #[derive(serde::Deserialize)]
     struct RealmAccess {
@@ -343,17 +432,7 @@ fn realm_roles(id_token: &str) -> Vec<String> {
     struct Payload {
         realm_access: Option<RealmAccess>,
     }
-
-    let Some(payload) = id_token.split('.').nth(1) else {
-        return Vec::new();
-    };
-    let Ok(bytes) =
-        base64::engine::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
-    else {
-        return Vec::new();
-    };
-    serde_json::from_slice::<Payload>(&bytes)
-        .ok()
+    jwt_payload::<Payload>(id_token)
         .and_then(|p| p.realm_access)
         .map(|r| r.roles)
         .unwrap_or_default()
@@ -541,7 +620,7 @@ mod tests {
 
 #[cfg(test)]
 mod realm_roles_tests {
-    use super::realm_roles;
+    use super::{jwt_exp, realm_roles};
     use base64::engine::{general_purpose::URL_SAFE_NO_PAD, Engine};
 
     /// Builds a JWT-shaped string around `payload`. Nothing here is signed: `realm_roles` runs
@@ -566,6 +645,16 @@ mod realm_roles_tests {
         assert!(realm_roles(&token(r#"{"sub":"u1"}"#)).is_empty());
         assert!(realm_roles(&token(r#"{"sub":"u1","realm_access":{}}"#)).is_empty());
         assert!(realm_roles(&token(r#"{"sub":"u1","realm_access":{"roles":[]}}"#)).is_empty());
+    }
+
+    #[test]
+    fn the_refresh_token_exp_is_the_session_ceiling() {
+        assert_eq!(
+            jwt_exp(&token(r#"{"exp":1800000000}"#)),
+            Some(1_800_000_000)
+        );
+        assert_eq!(jwt_exp(&token(r#"{"sub":"u1"}"#)), None);
+        assert_eq!(jwt_exp("opaque-refresh-token"), None);
     }
 
     #[test]

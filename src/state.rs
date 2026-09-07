@@ -221,6 +221,8 @@ mod tests {
             expires_at: issued_at + 600,
             issued_at,
             id_token: String::new(),
+            access_expires_at: issued_at + 600,
+            refresh_token: None,
         }
     }
 

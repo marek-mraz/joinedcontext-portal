@@ -66,6 +66,40 @@ export const csrfMiddleware: Middleware = {
 
 api.use(csrfMiddleware);
 
+/** The login page with the interrupted location to come back to; same shape as the server's. */
+export function loginRedirectUrl(pathAndSearch: string): string {
+  return `/login?redirect_to=${encodeURIComponent(pathAndSearch)}`;
+}
+
+/**
+ * A 401 on any API call means the session is over (the server refreshes a live one itself):
+ * the browser goes to the login page with the current location, so no page is left rendering
+ * an empty list. `/auth/me` is exempt — a 401 there is the normal anonymous answer the
+ * AuthProvider turns into the login redirect through the router. A 403 passes through
+ * untouched and the page shows its forbidden state.
+ */
+export function createSessionMiddleware(navigate: (url: string) => void): Middleware {
+  return {
+    onResponse({ request, response }) {
+      if (response.status !== 401) {
+        return response;
+      }
+      const path = new URL(request.url, window.location.origin).pathname;
+      if (path === "/api/v1/auth/me" || window.location.pathname === "/login") {
+        return response;
+      }
+      navigate(loginRedirectUrl(`${window.location.pathname}${window.location.search}`));
+      return response;
+    },
+  };
+}
+
+export const sessionMiddleware = createSessionMiddleware((url) => {
+  window.location.assign(url);
+});
+
+api.use(sessionMiddleware);
+
 export async function unwrap<T>(result: {
   data?: T;
   error?: unknown;

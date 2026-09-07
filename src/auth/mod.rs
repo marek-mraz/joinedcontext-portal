@@ -8,6 +8,7 @@
 pub mod bearer;
 pub mod csrf;
 pub mod oidc;
+pub mod refresh;
 pub mod session;
 
 pub use session::{CurrentUser, Identity, Session};

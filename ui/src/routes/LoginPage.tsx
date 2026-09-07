@@ -5,6 +5,12 @@ import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { BrandMark } from "../components/layout/Shell";
 import { Button, Icon } from "../components/ui";
 
+/** Where to land after the login: the location the session ran out on, never another origin. */
+export function redirectTarget(search: string): string {
+  const candidate = new URLSearchParams(search).get("redirect_to");
+  return candidate && candidate.startsWith("/") && !candidate.startsWith("//") ? candidate : "/";
+}
+
 export function LoginPage(): React.JSX.Element {
   const { t } = useTranslation();
   const { signIn } = useAuth();
@@ -37,7 +43,7 @@ export function LoginPage(): React.JSX.Element {
             className="mt-8 w-full"
             icon={<Icon name="user" className="size-4" />}
             onClick={() => {
-              signIn("/");
+              signIn(redirectTarget(window.location.search));
             }}
           >
             {t("auth.signIn")}
