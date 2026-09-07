@@ -21,7 +21,7 @@ export interface RouterContext {
 }
 
 /** Until a Project list endpoint exists the shell offers the demo project only (T-0205 follows). */
-const KNOWN_PROJECTS = ["banskabystrica"];
+const KNOWN_PROJECTS = ["helsinki"];
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: Outlet,
