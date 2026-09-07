@@ -51,11 +51,11 @@
         "operationId": "me",
         "responses": {
           "200": {
-            "description": "The signed-in identity",
+            "description": "The signed-in identity and its front",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Identity"
+                  "$ref": "#/components/schemas/Me"
                 }
               }
             }
@@ -3515,6 +3515,15 @@
           }
         }
       },
+      "Front": {
+        "type": "string",
+        "description": "How a request authenticated: what `GET /api/v1/auth/me` reports so the UI knows whose\nlogout to call (ADR-N-019 §3.4).",
+        "enum": [
+          "portal",
+          "edge",
+          "bearer"
+        ]
+      },
       "GenerateRequest": {
         "type": "object",
         "description": "A LinkML source to compile.",
@@ -3803,6 +3812,26 @@
             "description": "Absolute URL: Keycloak's `end_session_endpoint`, or the portal itself when no realm is\nconfigured."
           }
         }
+      },
+      "Me": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Identity"
+          },
+          {
+            "type": "object",
+            "required": [
+              "front"
+            ],
+            "properties": {
+              "front": {
+                "$ref": "#/components/schemas/Front",
+                "description": "`portal` for the Portal's own cookie session, `edge` for the APISIX `openid-connect`\nsession, `bearer` for a token a service sent (ADR-N-019)."
+              }
+            }
+          }
+        ],
+        "description": "Who is signed in and through which front, so the UI knows whose logout to call."
       },
       "MintedKey": {
         "type": "object",

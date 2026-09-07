@@ -1,7 +1,12 @@
-//! The portal session: an encrypted cookie carrying the signed-in identity (CC-40).
+//! The portal session: an encrypted cookie carrying the signed-in identity (CC-40), and the
+//! two other ways a request may already be authenticated: a bearer token and the edge's
+//! `X-Access-Token` (ADR-N-019).
+
+use std::convert::Infallible;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use axum::http::{header, HeaderMap, HeaderName};
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar, SameSite};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -19,6 +24,49 @@ pub const FLOW_COOKIE: &str = "jc_oidc_flow";
 pub const REFRESH_COOKIE: &str = "jc_refresh";
 /// How long before the access token expires the next request refreshes it.
 pub const REFRESH_LEEWAY_SECS: i64 = 60;
+/// The user's access token as the APISIX `openid-connect` plugin hands it to its upstream
+/// (AP-28). The edge strips it from every client request first, so it is believed only when
+/// `Config::trust_edge_token` says there is an edge (ADR-N-019).
+pub const EDGE_TOKEN_HEADER: HeaderName = HeaderName::from_static("x-access-token");
+
+/// How a request authenticated: what `GET /api/v1/auth/me` reports so the UI knows whose
+/// logout to call (ADR-N-019 §3.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Front {
+    /// The Portal's own cookie session from its OIDC code flow; logout is `POST /api/v1/auth/logout`.
+    Portal,
+    /// The APISIX `openid-connect` session, seen as `X-Access-Token`; logout is the edge's
+    /// `/logout` path, which the Portal never sees.
+    Edge,
+    /// `Authorization: Bearer` from a service or a script; there is nothing to log out of.
+    Bearer,
+}
+
+impl Front {
+    /// Which front a request came through. `Authorization` wins over the edge header, which
+    /// wins over the cookie; the edge header counts only when the configuration trusts it.
+    pub fn of(headers: &HeaderMap, trust_edge_token: bool) -> Self {
+        if headers.contains_key(header::AUTHORIZATION) {
+            Self::Bearer
+        } else if trust_edge_token && headers.contains_key(&EDGE_TOKEN_HEADER) {
+            Self::Edge
+        } else {
+            Self::Portal
+        }
+    }
+}
+
+impl FromRequestParts<AppState> for Front {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(Self::of(&parts.headers, state.config.trust_edge_token))
+    }
+}
 
 /// Who is signed in. Returned by `GET /api/v1/auth/me` and used by every protected route.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -134,9 +182,22 @@ pub fn load(jar: &PrivateCookieJar) -> Option<Session> {
 }
 
 /// Removes the session cookies (sign-out and every failure path).
+///
+/// Unconditional on purpose: a jar's `remove` emits a removal only for a cookie the request
+/// carried, and a logout reached through the edge (`/logout`, which the Portal never sees) must
+/// still end whatever the Portal's own code flow left in the browser, session or not
+/// (ADR-N-019, AP-29). A removal cookie for a cookie that is not there costs one header line.
 pub fn clear(jar: PrivateCookieJar) -> PrivateCookieJar {
-    jar.remove(Cookie::build(SESSION_COOKIE).path("/").build())
-        .remove(Cookie::build(REFRESH_COOKIE).path("/").build())
+    jar.add(removal(SESSION_COOKIE))
+        .add(removal(REFRESH_COOKIE))
+}
+
+/// A cookie that tells the browser to drop `name`: empty, `Max-Age=0`, expired, on the same
+/// path and with the same flags the live one had.
+pub fn removal(name: &'static str) -> Cookie<'static> {
+    let mut cookie = secure_cookie(name, String::new(), 0);
+    cookie.make_removal();
+    cookie
 }
 
 /// Extractor for a protected route: 401 problem+json when there is no live session.
@@ -150,16 +211,27 @@ impl FromRequestParts<AppState> for CurrentUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        // A bearer token is a service or a script, verified by the Portal itself; a browser
-        // carries the encrypted session cookie. Neither falls back to the other.
-        if let Some(header) = parts.headers.get(axum::http::header::AUTHORIZATION) {
-            let token = header
-                .to_str()
-                .ok()
-                .and_then(|v| v.strip_prefix("Bearer "))
-                .map(str::trim)
-                .filter(|t| !t.is_empty())
-                .ok_or(ApiError::Unauthorized)?;
+        // A bearer token is a service or a script, and the edge's `X-Access-Token` is the user
+        // the APISIX plugin logged in; both are verified by the Portal itself, the same way. A
+        // browser without an edge carries the encrypted session cookie. None falls back to
+        // another: a bad token is 401, not a look at the cookie.
+        let front = Front::of(&parts.headers, state.config.trust_edge_token);
+        if front != Front::Portal {
+            let token = match front {
+                Front::Bearer => parts
+                    .headers
+                    .get(header::AUTHORIZATION)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.strip_prefix("Bearer ")),
+                Front::Edge => parts
+                    .headers
+                    .get(&EDGE_TOKEN_HEADER)
+                    .and_then(|v| v.to_str().ok()),
+                Front::Portal => None,
+            }
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .ok_or(ApiError::Unauthorized)?;
             let verifier = state.bearer.as_ref().ok_or(ApiError::Unauthorized)?;
             let session = verifier.verify(token).await?;
             if state.is_revoked(&session) {
@@ -299,6 +371,30 @@ mod tests {
         assert!(load(&jar).is_none());
     }
 
+    /// ADR-N-019, AP-29: clearing does not depend on what the request carried.
+    #[test]
+    fn clearing_removes_both_cookies_even_when_the_request_had_none() {
+        let jar = clear(PrivateCookieJar::new(Key::generate()));
+        let headers = {
+            use axum::response::IntoResponse;
+            let response = (jar, axum::http::StatusCode::OK).into_response();
+            response
+                .headers()
+                .get_all(axum::http::header::SET_COOKIE)
+                .iter()
+                .map(|v| v.to_str().expect("ascii").to_owned())
+                .collect::<Vec<_>>()
+        };
+        for name in [SESSION_COOKIE, REFRESH_COOKIE] {
+            let cookie = headers
+                .iter()
+                .find(|c| c.starts_with(&format!("{name}=")))
+                .unwrap_or_else(|| panic!("{name} is not cleared: {headers:?}"));
+            assert!(cookie.contains("Max-Age=0"), "{cookie}");
+            assert!(cookie.contains("Path=/"), "{cookie}");
+        }
+    }
+
     #[test]
     fn cookie_carries_the_required_flags() {
         let cookie = secure_cookie(SESSION_COOKIE, "v".into(), 60);
@@ -306,6 +402,27 @@ mod tests {
         assert!(cookie.secure().unwrap_or(false));
         assert_eq!(cookie.same_site(), Some(SameSite::Lax));
         assert_eq!(cookie.path(), Some("/"));
+    }
+
+    /// ADR-N-019: the edge header is a front only when the configuration says there is an edge.
+    #[test]
+    fn the_front_is_read_off_the_headers_and_the_trust_flag() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(Front::of(&headers, true), Front::Portal);
+        headers.insert(EDGE_TOKEN_HEADER, "t".parse().unwrap());
+        assert_eq!(Front::of(&headers, true), Front::Edge);
+        assert_eq!(
+            Front::of(&headers, false),
+            Front::Portal,
+            "without the flag the header is nobody's"
+        );
+        headers.insert(header::AUTHORIZATION, "Bearer t".parse().unwrap());
+        assert_eq!(Front::of(&headers, true), Front::Bearer);
+        assert_eq!(
+            serde_json::to_string(&Front::Edge).unwrap(),
+            "\"edge\"",
+            "the UI matches on the lowercase name"
+        );
     }
 
     #[test]

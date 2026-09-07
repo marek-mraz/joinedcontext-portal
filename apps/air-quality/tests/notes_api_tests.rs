@@ -45,14 +45,24 @@ fn entity() -> Value {
     })
 }
 
-/// A request as the sidecar would deliver it: the user's token and identity in headers.
+/// A request as the edge delivers it (AP-28): the user's access token in `X-Access-Token` and
+/// the userinfo, base64 JSON, in `X-Userinfo`.
 fn signed_in(method: &str, path: &str, body: Option<Value>) -> Request<Body> {
+    use base64::Engine as _;
+    let userinfo = base64::engine::general_purpose::STANDARD.encode(
+        json!({
+            "sub": "f:1:demo.steward",
+            "preferred_username": "demo.steward",
+            "email": "demo.steward@hel.fi",
+            "name": "Demo Steward",
+        })
+        .to_string(),
+    );
     let builder = Request::builder()
         .method(method)
         .uri(path)
-        .header("x-forwarded-access-token", TOKEN)
-        .header("x-forwarded-email", "demo.steward@hel.fi")
-        .header("x-forwarded-user", "demo.steward@hel.fi");
+        .header("x-access-token", TOKEN)
+        .header("x-userinfo", userinfo);
     match body {
         Some(body) => builder
             .header("content-type", "application/json")
@@ -120,10 +130,10 @@ async fn the_station_list_is_read_with_the_users_own_token_and_flattened_for_the
     assert_eq!(stations[0]["name"], json!("Kallio"));
 }
 
-/// AP-40, the property this whole app exists to demonstrate. Without a forwarded token there
-/// is no write, and no second attempt without one either.
+/// AP-40, the property this whole app exists to demonstrate. Without `X-Access-Token` there is
+/// no write, and no second attempt without one either.
 #[tokio::test]
-async fn a_note_without_a_forwarded_token_is_401_and_never_reaches_the_endpoint() {
+async fn a_note_without_an_access_token_is_401_and_never_reaches_the_endpoint() {
     let endpoint = MockServer::start().await;
 
     let (status, body) = call(
@@ -213,7 +223,7 @@ async fn the_endpoints_refusal_reaches_the_browser_word_for_word() {
 
 /// The note box follows the PDP, not a role read out of a token the app does not verify.
 #[tokio::test]
-async fn the_write_flag_comes_from_the_pdp_and_the_identity_from_the_sidecar() {
+async fn the_write_flag_comes_from_the_pdp_and_the_identity_from_the_edge() {
     let endpoint = MockServer::start().await;
     access_check(&endpoint, true).await;
 
@@ -227,7 +237,42 @@ async fn the_write_flag_comes_from_the_pdp_and_the_identity_from_the_sidecar() {
     let me: Value = serde_json::from_str(&body).expect("an identity");
     assert_eq!(me["signedIn"], json!(true));
     assert_eq!(me["email"], json!("demo.steward@hel.fi"));
+    assert_eq!(me["user"], json!("demo.steward"));
     assert_eq!(me["canWriteNote"], json!(true));
+}
+
+/// The pod's readiness probe: at the root, outside the base path, and never a data call.
+#[tokio::test]
+async fn the_readiness_probe_answers_at_the_root() {
+    let endpoint = MockServer::start().await;
+    let (status, body) = call(app_at(&endpoint), anonymous("GET", "/healthz", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, "ok");
+    assert!(endpoint
+        .received_requests()
+        .await
+        .is_some_and(|r| r.is_empty()));
+}
+
+/// A userinfo header that is not base64 JSON is nobody, not an error: the token still decides.
+#[tokio::test]
+async fn an_unreadable_userinfo_is_no_identity() {
+    let endpoint = MockServer::start().await;
+    access_check(&endpoint, false).await;
+    let request = Request::builder()
+        .method("GET")
+        .uri(format!("{BASE}api/me"))
+        .header("x-access-token", TOKEN)
+        .header("x-userinfo", "not base64 at all")
+        .body(Body::empty())
+        .expect("a request");
+
+    let (status, body) = call(app_at(&endpoint), request).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let me: Value = serde_json::from_str(&body).expect("an identity");
+    assert_eq!(me["signedIn"], json!(true));
+    assert_eq!(me["email"], json!(null));
+    assert_eq!(me["user"], json!(null));
 }
 
 #[tokio::test]
@@ -334,8 +379,8 @@ async fn the_history_asks_the_temporal_surface_for_the_last_day() {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
-/// The app lives under its base path and owns nothing above it: the sidecar routes one
-/// prefix, and a request outside it is not this app's to answer.
+/// The app lives under its base path and owns nothing above it: the edge routes one prefix,
+/// and a request outside it is not this app's to answer.
 #[tokio::test]
 async fn nothing_is_served_above_the_apps_own_base_path() {
     let endpoint = MockServer::start().await;

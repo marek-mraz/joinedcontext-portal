@@ -1,9 +1,15 @@
-//! Bearer-token verification for service callers (docs Architecture/12 §3, OPS-33).
+//! Bearer-token verification for service callers and for the edge's user token (docs
+//! Architecture/12 §3, OPS-33, ADR-N-019).
 //!
-//! The APISIX edge forwards `Authorization` untouched: the realm signs ES256 only and the
-//! `openid-connect` plugin cannot verify that, so the Portal is the verifier. Tokens are checked
-//! against the realm JWKS, cached in memory; an unknown `kid` triggers at most one refetch per
-//! minute, so a flood of forged tokens cannot turn the Portal into a Keycloak load generator.
+//! The APISIX edge forwards `Authorization` untouched and the Portal is the verifier. Tokens are
+//! checked against the realm JWKS, cached in memory; an unknown `kid` triggers at most one
+//! refetch per minute, so a flood of forged tokens cannot turn the Portal into a Keycloak load
+//! generator.
+//!
+//! Two signature algorithms and no third: the realm signs ES256 (TR-03187 AR-11), and the
+//! `edge` client the `openid-connect` plugin logs people in with is signed RS256 by per-client
+//! override, because lua-resty-openidc verifies RS and HS only. The user's access token reaches
+//! the Portal as `X-Access-Token` and is verified here like any bearer (AP-27, AP-28).
 
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
@@ -17,8 +23,22 @@ use url::Url;
 use crate::auth::session::{Identity, Session};
 use crate::error::ApiError;
 
-/// The only signature algorithm the realm uses (TR-03187 AR-11).
-const ALGORITHM: Algorithm = Algorithm::ES256;
+/// The signature algorithms the realm uses: ES256 for every client (TR-03187 AR-11) and RS256
+/// for the `edge` client alone (ADR-N-019). HS256 is never one of them: a shared secret would
+/// let anyone who holds it mint a token.
+const ALGORITHMS: [Algorithm; 2] = [Algorithm::ES256, Algorithm::RS256];
+
+/// Whether a JWK's `alg` (or, absent one, its key type) is one of [`ALGORITHMS`].
+fn usable(jwk: &jsonwebtoken::jwk::Jwk) -> bool {
+    match jwk.common.key_algorithm {
+        Some(alg) => matches!(alg.to_string().as_str(), "ES256" | "RS256"),
+        None => matches!(
+            jwk.algorithm,
+            jsonwebtoken::jwk::AlgorithmParameters::EllipticCurve(_)
+                | jsonwebtoken::jwk::AlgorithmParameters::RSA(_)
+        ),
+    }
+}
 /// Minimum distance between two JWKS fetches caused by unknown key ids.
 const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
@@ -78,16 +98,13 @@ impl BearerVerifier {
         }
     }
 
-    /// Replaces the cached keys with the ES256 keys of `set`; returns how many were usable.
+    /// Replaces the cached keys with the ES256 and RS256 keys of `set`; returns how many were
+    /// usable.
     pub fn install(&self, set: &JwkSet) -> usize {
         let keys: HashMap<String, DecodingKey> = set
             .keys
             .iter()
-            .filter(|jwk| {
-                jwk.common
-                    .key_algorithm
-                    .is_none_or(|alg| alg.to_string() == "ES256")
-            })
+            .filter(|jwk| usable(jwk))
             .filter_map(|jwk| {
                 let kid = jwk.common.key_id.clone()?;
                 DecodingKey::from_jwk(jwk).ok().map(|key| (kid, key))
@@ -130,11 +147,11 @@ impl BearerVerifier {
         self.keys.read().ok()?.get(kid).cloned()
     }
 
-    /// Verifies signature (ES256, known `kid`), `iss`, `aud`, `exp` and `nbf`; anything else is
-    /// `401`. The returned session carries no id token: bearer callers never log out.
+    /// Verifies signature (ES256 or RS256, known `kid`), `iss`, `aud`, `exp` and `nbf`; anything
+    /// else is `401`. The returned session carries no id token: bearer callers never log out.
     pub async fn verify(&self, token: &str) -> Result<Session, ApiError> {
         let header = decode_header(token).map_err(|_| ApiError::Unauthorized)?;
-        if header.alg != ALGORITHM {
+        if !ALGORITHMS.contains(&header.alg) {
             return Err(ApiError::Unauthorized);
         }
         let kid = header.kid.ok_or(ApiError::Unauthorized)?;
@@ -148,7 +165,10 @@ impl BearerVerifier {
                 self.key(&kid).ok_or(ApiError::Unauthorized)?
             }
         };
-        let mut validation = Validation::new(ALGORITHM);
+        // The token's own algorithm, which the header check above narrowed to the two allowed
+        // ones; `decode` refuses a key of the other family, so an RS256 header cannot be
+        // verified against an EC key or the other way round.
+        let mut validation = Validation::new(header.alg);
         validation.set_issuer(&[self.issuer.as_str()]);
         validation.set_audience(&[self.audience.as_str()]);
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
@@ -299,15 +319,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_es256_is_accepted() {
+    async fn a_shared_secret_algorithm_is_refused_even_with_the_right_claims() {
         let v = verifier();
+        let (_, set) = keypair("k1");
+        v.install(&set);
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some("k1".into());
         let hs = encode(
-            &Header::new(Algorithm::HS256),
+            &header,
             &claims(now() + 60),
             &EncodingKey::from_secret(b"shared"),
         )
         .unwrap();
         assert!(matches!(v.verify(&hs).await, Err(ApiError::Unauthorized)));
+    }
+
+    #[test]
+    fn a_jwk_of_another_algorithm_is_not_installed() {
+        let v = verifier();
+        let (_, mut set) = keypair("k1");
+        // Keycloak lists the realm's RSA keys with `alg: RS256`; an HMAC or an encryption key
+        // in the same set must not become a verification key.
+        let mut oct: serde_json::Value = serde_json::to_value(&set.keys[0]).unwrap();
+        oct["kid"] = json!("k-enc");
+        oct["alg"] = json!("RSA-OAEP");
+        set.keys.push(serde_json::from_value(oct).unwrap());
+        assert_eq!(v.install(&set), 1, "only the ES256 key is usable");
     }
 
     #[tokio::test]

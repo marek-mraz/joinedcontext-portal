@@ -12,6 +12,14 @@ use openidconnect::CsrfToken;
 
 /// Readable by the UI on purpose: the double-submit token is not a secret to the page.
 pub const CSRF_COOKIE: &str = "jc_csrf";
+
+/// A cookie that tells the browser to drop the CSRF token: same path, `Max-Age=0`, expired.
+/// Unconditional like the session's own removal (AP-29).
+pub fn removal() -> Cookie<'static> {
+    let mut cookie = Cookie::build((CSRF_COOKIE, "")).path("/").build();
+    cookie.make_removal();
+    cookie
+}
 pub const CSRF_HEADER: &str = "x-csrf-token";
 const CSRF_TTL_SECS: i64 = 12 * 60 * 60;
 

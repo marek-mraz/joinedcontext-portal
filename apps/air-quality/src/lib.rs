@@ -3,13 +3,14 @@
 //! It shows the stations of one Context Space with their latest values and a day of history,
 //! and lets a steward leave a note on one of them. Everything it serves comes from a single
 //! Endpoint whose URL it is handed at run time; it opens no other connection, holds no
-//! credential of its own and contains no authorization logic. The oauth2-proxy sidecar in
-//! front of it does the Keycloak login and forwards the user's access token, and the gateway
-//! behind it decides what that token may see (GW10).
+//! credential of its own and contains no login, session or authorization logic. The platform
+//! edge (APISIX `openid-connect`) in front of it does the Keycloak login and hands over the
+//! user as `X-Userinfo` and the user's access token as `X-Access-Token`, and the gateway behind
+//! it decides what that token may see (AP-28, GW10, ADR-N-019).
 //!
-//! The one rule worth stating twice: a write without `X-Forwarded-Access-Token` is refused
-//! here and never retried anonymously (AP-40). An app that fell back would hand its own
-//! reachability to whoever asked.
+//! The one rule worth stating twice: a write without `X-Access-Token` is refused here and
+//! never retried anonymously (AP-40). An app that fell back would hand its own reachability to
+//! whoever asked.
 
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -37,7 +39,7 @@ pub struct Config {
     pub base_path: String,
     /// `https://{host}/api/endpoint/{slug}/`, the only data surface it may call (AP-04).
     pub endpoint_url: String,
-    /// `true` on a `public` app, where a missing forwarded token is normal (AP-28).
+    /// `true` on a `public` app, where a missing `X-Access-Token` is normal (AP-28).
     pub anonymous: bool,
 }
 
@@ -92,11 +94,14 @@ pub fn router(app: Arc<App>) -> Router {
     let base = app.config.base_path.trim_end_matches('/').to_owned();
     let at = |tail: &str| format!("{base}{tail}");
     Router::new()
+        // The readiness probe of the pod, at the root and outside the base path: the kubelet
+        // asks it, not a browser (Architecture/16 §5).
+        .route("/healthz", get(healthz))
         .route(&at("/api/me"), get(me))
         .route(&at("/api/stations"), get(stations))
         .route(&at("/api/stations/{id}/history"), get(history))
         .route(&at("/api/stations/{id}/note"), post(write_note))
-        // Both spellings of the front page: the sidecar routes the prefix, and a person who
+        // Both spellings of the front page: the edge routes the prefix, and a person who
         // types it without the slash is not a different visitor.
         .route(&base, get(assets::static_handler))
         .route(&at("/"), get(assets::static_handler))
@@ -104,8 +109,9 @@ pub fn router(app: Arc<App>) -> Router {
         .with_state(app)
 }
 
-/// What the sidecar says about the caller. None of it is trusted for a decision: the token is
-/// forwarded to the gateway, which is what actually decides (AP-28).
+/// What the edge says about the caller (AP-28). None of it is trusted for a decision: the
+/// token is forwarded to the gateway, which is what actually decides; the userinfo is shown
+/// on the page and nowhere else.
 #[derive(Debug, Default)]
 struct Caller {
     token: Option<String>,
@@ -123,12 +129,35 @@ impl Caller {
                 .filter(|value| !value.is_empty())
                 .map(str::to_owned)
         };
+        let userinfo = header("x-userinfo")
+            .and_then(|encoded| decode_userinfo(&encoded))
+            .unwrap_or_default();
+        let field = |name: &str| userinfo.get(name)?.as_str().map(str::to_owned);
         Self {
-            token: header("x-forwarded-access-token"),
-            email: header("x-forwarded-email"),
-            user: header("x-forwarded-user"),
+            token: header("x-access-token"),
+            email: field("email"),
+            user: field("preferred_username")
+                .or_else(|| field("name"))
+                .or_else(|| field("sub")),
         }
     }
+}
+
+/// `X-Userinfo` is the userinfo document, base64 encoded, the way lua-resty-openidc sends it.
+/// Padded standard base64 is what it produces; the other three spellings cost one line each
+/// and a header that is none of them is simply no userinfo.
+fn decode_userinfo(encoded: &str) -> Option<Value> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+    [STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD]
+        .iter()
+        .find_map(|engine| engine.decode(encoded).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .filter(Value::is_object)
+}
+
+/// The readiness answer the pod's probe reads: the process is up and can serve.
+async fn healthz() -> &'static str {
+    "ok"
 }
 
 /// A failure the caller is allowed to see. The gateway's own problem document is passed
@@ -190,8 +219,8 @@ fn valid_urn(id: &str) -> bool {
 }
 
 impl App {
-    /// One GET against the endpoint, with the caller's own token when the sidecar forwarded
-    /// one. Without a token the call is anonymous, which is what a `public` app does (AP-28).
+    /// One GET against the endpoint, with the caller's own token when the edge handed one
+    /// over. Without a token the call is anonymous, which is what a `public` app does (AP-28).
     async fn get(
         &self,
         tail: &str,

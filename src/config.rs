@@ -12,6 +12,11 @@ pub struct Config {
     /// `None` disables login: no session can be minted, so every protected route
     /// answers 401. Configuration is fail-closed, never fail-open.
     pub oidc: Option<OidcConfig>,
+    /// Whether an `X-Access-Token` header is believed to come from the APISIX edge and is
+    /// verified as if it were `Authorization: Bearer` (ADR-N-019, AP-28). The deployment sets
+    /// it behind the edge, which strips the header from every client request first; a Portal
+    /// without an edge in front leaves it off and the header is ignored. Default `false`.
+    pub trust_edge_token: bool,
     pub cookie_key: Key,
     pub sync_interval: Duration,
     pub gitea_webhook_secret: Option<String>,
@@ -47,6 +52,7 @@ impl std::fmt::Debug for Config {
             .field("bind", &self.bind)
             .field("public_base_url", &self.public_base_url.as_str())
             .field("oidc", &self.oidc)
+            .field("trust_edge_token", &self.trust_edge_token)
             .field("cookie_key", &"[redacted]")
             .field("sync_interval", &self.sync_interval)
             .field(
@@ -69,34 +75,22 @@ impl std::fmt::Debug for Config {
 /// Where an App's Kubernetes objects are applied, or `None` when this Portal applies none
 /// (AP-13, AP-18, T-0411).
 ///
-/// All four values are needed together: the namespace to write into, the sidecar image to run,
-/// the organization domain that becomes a policy's assigner, and the realm the app's OIDC
-/// client lives in. The realm and the host are read off configuration the Portal already has,
-/// so an installation states two variables rather than five, and any missing one leaves the
-/// converger off instead of guessing a namespace and deploying into somebody else's.
+/// All three values are needed together: the namespace to write into, the organization domain
+/// that becomes a policy's assigner, and the host the app's endpoint is served on. The host is
+/// read off configuration the Portal already has, so an installation states two variables
+/// rather than three, and any missing one leaves the converger off instead of guessing a
+/// namespace and deploying into somebody else's.
 fn app_settings(
     lookup: &impl Fn(&str) -> Option<String>,
     public_base_url: &Url,
-    oidc: Option<&OidcConfig>,
 ) -> Option<crate::apps::reconciler::Settings> {
     let namespace = lookup("JC_PORTAL_APPS_NAMESPACE").filter(|v| !v.trim().is_empty())?;
-    let oauth2_proxy_image =
-        lookup("JC_PORTAL_APPS_OAUTH2_PROXY_IMAGE").filter(|v| !v.trim().is_empty())?;
     let org_domain = lookup("JC_PORTAL_ORG_DOMAIN").filter(|v| !v.trim().is_empty())?;
     let host = public_base_url.host_str()?.to_owned();
-    // `https://idm.{host}/realms/{realm}`: the realm is the last segment of the issuer, which
-    // is the same realm the app's confidential client is created in (AP-27).
-    let realm = oidc?
-        .issuer
-        .path_segments()?
-        .rfind(|segment| !segment.is_empty())?
-        .to_owned();
     Some(crate::apps::reconciler::Settings {
         host,
         namespace,
-        realm,
         org_domain,
-        oauth2_proxy_image,
     })
 }
 
@@ -272,8 +266,11 @@ impl Config {
             None => None,
         };
 
+        // Only the literal `true` turns it on: a misspelling must not open the door (ADR-N-019).
+        let trust_edge_token = lookup("JC_TRUST_EDGE_TOKEN").is_some_and(|v| v.trim() == "true");
+
         let apps_dir = lookup("JC_PORTAL_APPS_DIR");
-        let app_settings = app_settings(&lookup, &public_base_url, oidc.as_ref());
+        let app_settings = app_settings(&lookup, &public_base_url);
         let branding_file = lookup("JC_BRANDING_FILE").filter(|path| !path.trim().is_empty());
         let database_url = lookup("JC_PORTAL_DATABASE_URL").filter(|url| !url.trim().is_empty());
 
@@ -281,6 +278,7 @@ impl Config {
             bind,
             public_base_url,
             oidc,
+            trust_edge_token,
             cookie_key,
             sync_interval,
             gitea_webhook_secret,
@@ -299,6 +297,7 @@ impl Config {
             public_base_url: Url::parse("http://localhost:8080")
                 .unwrap_or_else(|_| unreachable!("valid test url")),
             oidc: None,
+            trust_edge_token: false,
             cookie_key: Key::generate(),
             sync_interval: Duration::ZERO,
             gitea_webhook_secret: None,
@@ -525,14 +524,10 @@ mod tests {
     /// T-0411, AP-18: a Portal deploys an app only when it is told where. Guessing a namespace
     /// would mean writing a Deployment into somebody else's.
     #[test]
-    fn app_settings_need_every_part_and_derive_the_two_they_can() {
+    fn app_settings_need_every_part_and_derive_the_one_they_can() {
         let complete = |k: &str| match k {
-            "JC_OIDC_ISSUER" => Some("https://idm.example.sk/realms/bb".to_string()),
-            "JC_OIDC_CLIENT_ID" => Some("portal".to_string()),
-            "JC_OIDC_CLIENT_SECRET" => Some("s3cr3t".to_string()),
             "JC_PORTAL_PUBLIC_URL" => Some("https://bb.example.sk".to_string()),
             "JC_PORTAL_APPS_NAMESPACE" => Some("joinedcontext".to_string()),
-            "JC_PORTAL_APPS_OAUTH2_PROXY_IMAGE" => Some("quay.io/p@sha256:aa".to_string()),
             "JC_PORTAL_ORG_DOMAIN" => Some("banskabystrica.sk".to_string()),
             _ => None,
         };
@@ -542,28 +537,37 @@ mod tests {
             .expect("every part is there");
         assert_eq!(settings.namespace, "joinedcontext");
         assert_eq!(settings.org_domain, "banskabystrica.sk");
-        // Neither of these is a variable of its own: the host is the Portal's public URL and
-        // the realm is the last segment of the issuer it already logs people in against.
+        // Not a variable of its own: the host is the Portal's public URL. No realm and no
+        // sidecar image any more: the login front is the edge's one `edge` client (ADR-N-019).
         assert_eq!(settings.host, "bb.example.sk");
-        assert_eq!(settings.realm, "bb");
 
-        for missing in [
-            "JC_PORTAL_APPS_NAMESPACE",
-            "JC_PORTAL_APPS_OAUTH2_PROXY_IMAGE",
-            "JC_PORTAL_ORG_DOMAIN",
-            "JC_OIDC_ISSUER",
-        ] {
+        for missing in ["JC_PORTAL_APPS_NAMESPACE", "JC_PORTAL_ORG_DOMAIN"] {
             let config = Config::from_vars(|k| match k == missing {
                 true => None,
                 false => complete(k),
-            });
-            // A missing issuer is a configuration error, not a Portal without apps: the other
-            // two OIDC variables are set, and stating two of three is a typo (CC-40).
-            let settings = match config {
-                Ok(config) => config.app_settings,
-                Err(_) => None,
-            };
-            assert!(settings.is_none(), "{missing} was not needed");
+            })
+            .expect("a Portal without apps is still a Portal");
+            assert!(config.app_settings.is_none(), "{missing} was not needed");
         }
+    }
+
+    /// ADR-N-019: the edge token is trusted on the literal `true` and on nothing else.
+    #[test]
+    fn the_edge_token_is_trusted_only_when_asked_for_in_so_many_words() {
+        assert!(!Config::from_vars(|_| None).unwrap().trust_edge_token);
+        for value in ["1", "yes", "TRUE", ""] {
+            let config = Config::from_vars(|k| match k {
+                "JC_TRUST_EDGE_TOKEN" => Some(value.to_string()),
+                _ => None,
+            })
+            .unwrap();
+            assert!(!config.trust_edge_token, "{value:?} opened the door");
+        }
+        let config = Config::from_vars(|k| match k {
+            "JC_TRUST_EDGE_TOKEN" => Some("true".to_string()),
+            _ => None,
+        })
+        .unwrap();
+        assert!(config.trust_edge_token);
     }
 }

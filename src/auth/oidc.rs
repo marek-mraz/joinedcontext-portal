@@ -297,7 +297,7 @@ pub async fn login(
             CsrfToken::new_random,
             Nonce::new_random,
         )
-        .add_scope(Scope::new("openid".to_string()))
+        // `openid` is already in the request; the client adds it itself.
         .add_scope(Scope::new("profile".to_string()))
         .add_scope(Scope::new("email".to_string()))
         .set_pkce_challenge(challenge)
@@ -438,18 +438,31 @@ fn realm_roles(id_token: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Who is signed in and through which front, so the UI knows whose logout to call.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct Me {
+    #[serde(flatten)]
+    pub identity: Identity,
+    /// `portal` for the Portal's own cookie session, `edge` for the APISIX `openid-connect`
+    /// session, `bearer` for a token a service sent (ADR-N-019).
+    pub front: session::Front,
+}
+
 /// `GET /api/v1/auth/me` — who is signed in.
 #[utoipa::path(
     get,
     path = "/api/v1/auth/me",
     tag = "auth",
     responses(
-        (status = 200, description = "The signed-in identity", body = Identity),
+        (status = 200, description = "The signed-in identity and its front", body = Me),
         (status = 401, description = "No live session", body = crate::error::ProblemDetails)
     )
 )]
-pub async fn me(user: crate::auth::CurrentUser) -> Json<Identity> {
-    Json(user.0.identity)
+pub async fn me(user: crate::auth::CurrentUser, front: session::Front) -> Json<Me> {
+    Json(Me {
+        identity: user.0.identity,
+        front,
+    })
 }
 
 /// The URL the browser must visit to finish an RP-initiated logout at Keycloak.
@@ -479,9 +492,12 @@ pub async fn logout(
     jar: PrivateCookieJar,
     cookies: CookieJar,
 ) -> Result<Response, ApiError> {
+    // All three cookies go, whether or not a session was loadable: behind the edge this is
+    // the first half of a single logout, and the edge's own `/logout` clears none of them
+    // (ADR-N-019, AP-29).
     let session = session::load(&jar);
     let jar = session::clear(jar);
-    let cookies = cookies.remove(Cookie::build(csrf::CSRF_COOKIE).path("/").build());
+    let cookies = cookies.add(csrf::removal());
 
     let target = state
         .oidc

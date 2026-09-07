@@ -122,6 +122,7 @@ name = "air-quality"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.23.1",
  "http-body-util",
  "mime_guess",
  "reqwest",
@@ -1997,6 +1998,7 @@ dependencies = [
  "p256",
  "rand_core 0.6.4",
  "reqwest",
+ "rsa",
  "rust-embed",
  "schemars 0.8.22",
  "serde",

@@ -72,6 +72,8 @@ metrics-exporter-prometheus = { version = "0.17", default-features = false }
 http-body-util = "0.1"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "jwk"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
+# Only to mint an RS256 test key for the edge client's tokens (ADR-N-019); already in the tree.
+rsa = "0.9"
 tower = { version = "0.5", features = ["util"] }
 wiremock = "0.6"
 

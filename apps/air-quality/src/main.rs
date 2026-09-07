@@ -1,7 +1,8 @@
-//! The app process: read the four variables the reconciler sets, bind loopback, serve.
+//! The app process: read the four variables the reconciler sets, bind, serve.
 //!
-//! The bind address is loopback because the oauth2-proxy sidecar is the only entrance to the
-//! pod (AP-26). Nothing here opens a port for anybody else, and the container declares none.
+//! In the pod the reconciler sets `JC_BIND_ADDRESS` to `0.0.0.0:8080`, the port the APISIX edge
+//! upstreams to and the NetworkPolicy opens to nobody else (AP-26). The loopback default is for
+//! a laptop, where nothing stands in front of the process.
 
 use std::sync::Arc;
 

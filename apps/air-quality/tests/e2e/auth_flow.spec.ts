@@ -4,11 +4,12 @@ const BASE = "/apps/air-quality/";
 const ID = "urn:ngsi-ld:AirQualityObserved:hel.fi:air-quality:station-01";
 const SAVE = "Save note";
 
-/** The headers oauth2-proxy puts in front of the app for a signed-in person (AP-28). */
-const sidecar = (who: string) => ({
-  "x-forwarded-access-token": `token-for-${who}`,
-  "x-forwarded-email": `demo.${who}@hel.fi`,
-  "x-forwarded-user": `demo.${who}@hel.fi`,
+/** The headers the edge puts in front of the app for a signed-in person (AP-28, ADR-N-019). */
+const edge = (who: string) => ({
+  "x-access-token": `token-for-${who}`,
+  "x-userinfo": Buffer.from(
+    JSON.stringify({ sub: `f:1:demo.${who}`, preferred_username: `demo.${who}`, email: `demo.${who}@hel.fi` }),
+  ).toString("base64"),
 });
 
 test.describe("who may write a station note", () => {
@@ -22,7 +23,7 @@ test.describe("who may write a station note", () => {
   });
 
   test("a signed-in viewer is named on the page and still has no note box", async ({ page }) => {
-    await page.setExtraHTTPHeaders(sidecar("viewer"));
+    await page.setExtraHTTPHeaders(edge("viewer"));
     await page.goto(BASE);
 
     await expect(page.getByText("demo.viewer@hel.fi")).toBeVisible();
@@ -30,7 +31,7 @@ test.describe("who may write a station note", () => {
   });
 
   test("a steward types a note and the station shows it", async ({ page }) => {
-    await page.setExtraHTTPHeaders(sidecar("steward"));
+    await page.setExtraHTTPHeaders(edge("steward"));
     await page.goto(BASE);
 
     await expect(page.getByText("demo.steward@hel.fi")).toBeVisible();
@@ -44,7 +45,7 @@ test.describe("who may write a station note", () => {
 
   // The button is a convenience; the refusal is the control. These two call the app the way a
   // script would, with no page in the way, so what is asserted is the server's own answer.
-  test("the app refuses a note with no forwarded token and does not retry anonymously", async ({
+  test("the app refuses a note with no access token and does not retry anonymously", async ({
     request,
   }) => {
     const response = await request.post(`${BASE}api/stations/${encodeURIComponent(ID)}/note`, {
@@ -59,7 +60,7 @@ test.describe("who may write a station note", () => {
     request,
   }) => {
     const response = await request.post(`${BASE}api/stations/${encodeURIComponent(ID)}/note`, {
-      headers: sidecar("viewer"),
+      headers: edge("viewer"),
       data: { note: "Trying anyway." },
     });
 

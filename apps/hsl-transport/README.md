@@ -25,7 +25,7 @@ disappearing, which is the honest thing to show.
 | `JC_ENDPOINT_URL` | the Endpoint this app reads, the only host it calls. Required |
 | `JC_BASE_PATH` | the path it is served under, `/apps/hsl-transport/`. Defaults to `/` |
 | `JC_POLL_SECONDS` | seconds between two polls. Defaults to 2 |
-| `JC_BIND_ADDRESS` | defaults to `127.0.0.1:8080`, because the sidecar is the only entrance |
+| `JC_BIND_ADDRESS` | defaults to `127.0.0.1:8080` on a laptop; the reconciler sets `0.0.0.0:8080` in the pod, where the edge is the only caller |
 
 ## Running it
 

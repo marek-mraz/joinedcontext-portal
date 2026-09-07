@@ -1,7 +1,9 @@
 //! T-0181: Keycloak OIDC authorization code flow with PKCE and encrypted cookie sessions.
+//! T-0508: the edge's `X-Access-Token` verified like a bearer, ES256 and RS256 (ADR-N-019).
 //!
 //! The realm is a wiremock stand-in: discovery is enough to exercise the flow start,
-//! the state check and the failure paths without a live Keycloak.
+//! the state check and the failure paths without a live Keycloak, and its JWKS carries one
+//! ES256 and one RS256 key, the way a realm with the `edge` client's override does.
 
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
@@ -42,24 +44,112 @@ async fn realm() -> MockServer {
         .await;
     Mock::given(method("GET"))
         .and(path(format!("{REALM_PATH}/protocol/openid-connect/certs")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "keys": [] })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(keys::jwks()))
         .mount(&server)
         .await;
     server
 }
 
 async fn app_with_realm(server: &MockServer) -> axum::Router {
+    app_behind(server, false).await
+}
+
+/// `edge` is what the deployment sets behind APISIX: `JC_TRUST_EDGE_TOKEN=true` (ADR-N-019).
+async fn app_behind(server: &MockServer, edge: bool) -> axum::Router {
     let mut config = Config::from_vars(|k| match k {
         "JC_OIDC_ISSUER" => Some(issuer_of(server)),
         "JC_OIDC_CLIENT_ID" => Some("joinedcontext-portal".to_string()),
         "JC_OIDC_CLIENT_SECRET" => Some("test-secret".to_string()),
         "JC_PORTAL_COOKIE_KEY" => Some("k".repeat(64)),
+        "JC_TRUST_EDGE_TOKEN" if edge => Some("true".to_string()),
         _ => None,
     })
     .expect("config");
     config.public_base_url = "https://portal.test".parse().expect("url");
     let state = AppState::from_config(config).await.expect("discovery");
     server::app(state)
+}
+
+/// The realm's two signing keys, generated once per test binary: ES256 for every client and
+/// RS256 for the `edge` client (AP-27). Generated rather than committed: a private key literal
+/// in the repository trips gitleaks, and rightly so.
+mod keys {
+    use std::sync::OnceLock;
+
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use p256::pkcs8::EncodePrivateKey as _;
+    use rsa::pkcs1::EncodeRsaPrivateKey as _;
+    use rsa::traits::PublicKeyParts as _;
+    use serde_json::{json, Value};
+
+    struct Realm {
+        es256: EncodingKey,
+        rs256: EncodingKey,
+        jwks: Value,
+    }
+
+    fn realm() -> &'static Realm {
+        static REALM: OnceLock<Realm> = OnceLock::new();
+        REALM.get_or_init(|| {
+            let ec = p256::SecretKey::random(&mut rand_core::OsRng);
+            let mut ec_jwk: Value =
+                serde_json::from_str(&ec.public_key().to_jwk_string()).expect("a jwk");
+            ec_jwk["kid"] = json!("realm-es256");
+            ec_jwk["alg"] = json!("ES256");
+            ec_jwk["use"] = json!("sig");
+
+            let rsa = rsa::RsaPrivateKey::new(&mut rand_core::OsRng, 2048).expect("an rsa key");
+            let rsa_jwk = json!({
+                "kty": "RSA",
+                "kid": "realm-rs256",
+                "alg": "RS256",
+                "use": "sig",
+                "n": URL_SAFE_NO_PAD.encode(rsa.n().to_bytes_be()),
+                "e": URL_SAFE_NO_PAD.encode(rsa.e().to_bytes_be()),
+            });
+
+            Realm {
+                es256: EncodingKey::from_ec_der(ec.to_pkcs8_der().expect("der").as_bytes()),
+                rs256: EncodingKey::from_rsa_der(rsa.to_pkcs1_der().expect("der").as_bytes()),
+                jwks: json!({ "keys": [ec_jwk, rsa_jwk] }),
+            }
+        })
+    }
+
+    pub fn jwks() -> Value {
+        realm().jwks.clone()
+    }
+
+    fn now() -> i64 {
+        joinedcontext_portal::auth::session::now_unix()
+    }
+
+    /// An access token of `issuer` for the Portal, as Keycloak would mint it for `username`.
+    pub fn token(algorithm: Algorithm, issuer: &str, username: &str, expires_in: i64) -> String {
+        let (kid, key) = match algorithm {
+            Algorithm::ES256 => ("realm-es256", &realm().es256),
+            Algorithm::RS256 => ("realm-rs256", &realm().rs256),
+            other => panic!("the realm does not sign {other:?}"),
+        };
+        let mut header = Header::new(algorithm);
+        header.kid = Some(kid.into());
+        encode(
+            &header,
+            &json!({
+                "iss": issuer,
+                "aud": "joinedcontext-portal",
+                "sub": format!("f:1:{username}"),
+                "preferred_username": username,
+                "exp": now() + expires_in,
+                "iat": now(),
+                "realm_access": { "roles": ["portal-viewer"] },
+            }),
+            key,
+        )
+        .expect("a signed token")
+    }
 }
 
 fn set_cookie_values(response: &axum::response::Response) -> Vec<String> {
@@ -287,6 +377,18 @@ async fn a_mutation_with_a_matching_csrf_token_passes_the_gate() {
         "application/json"
     );
 
+    // ADR-N-019, AP-29: no session cookie came with the request, and all three Portal cookies
+    // are still told to go, because the edge's own logout never reaches this handler.
+    let cookies = set_cookie_values(&response);
+    for name in ["jc_session", "jc_refresh", "jc_csrf"] {
+        assert!(
+            cookies
+                .iter()
+                .any(|c| c.starts_with(&format!("{name}=")) && c.contains("Max-Age=0")),
+            "{name} is not cleared: {cookies:?}"
+        );
+    }
+
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let target: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert!(
@@ -295,6 +397,35 @@ async fn a_mutation_with_a_matching_csrf_token_passes_the_gate() {
             .is_some_and(|u| !u.is_empty()),
         "the SPA needs somewhere to navigate: {target}"
     );
+}
+
+/// The authorization request names each scope once (the client adds `openid` itself).
+#[tokio::test]
+async fn the_login_asks_for_each_scope_once() {
+    let realm = realm().await;
+    let app = app_with_realm(&realm).await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/auth/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let scope = url::Url::parse(location)
+        .unwrap()
+        .query_pairs()
+        .find(|(k, _)| k == "scope")
+        .map(|(_, v)| v.into_owned())
+        .expect("a scope");
+    assert_eq!(scope, "openid profile email", "{location}");
 }
 
 /// A token response the way Keycloak answers `grant_type=refresh_token`: the refresh token is a
@@ -515,4 +646,152 @@ async fn a_refused_refresh_inside_the_leeway_lets_the_live_token_serve_the_reque
         set_cookie_values(&response).is_empty(),
         "nothing rotates and nothing is cleared while the access token still stands"
     );
+}
+
+async fn me_with(app: axum::Router, headers: &[(&str, String)]) -> (StatusCode, serde_json::Value) {
+    let mut request = Request::builder()
+        .uri("/api/v1/auth/me")
+        .header(header::ACCEPT, "application/json");
+    for (name, value) in headers {
+        request = request.header(*name, value);
+    }
+    let response = app
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&body).unwrap_or(json!(null)))
+}
+
+/// ADR-N-019, AP-28: behind the edge the user's token arrives as `X-Access-Token` and is
+/// verified exactly as `Authorization: Bearer` would be; `me` says which front it came through.
+#[tokio::test]
+async fn the_edge_token_is_verified_like_a_bearer_when_the_deployment_trusts_the_edge() {
+    let realm = realm().await;
+    let app = app_behind(&realm, true).await;
+    let token = keys::token(
+        jsonwebtoken::Algorithm::RS256,
+        &issuer_of(&realm),
+        "demo.steward",
+        300,
+    );
+
+    let (status, me) = me_with(app.clone(), &[("x-access-token", token.clone())]).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    assert_eq!(me["username"], "demo.steward");
+    assert_eq!(me["subject"], "f:1:demo.steward");
+    assert_eq!(me["roles"], json!(["portal-viewer"]));
+    assert_eq!(me["front"], "edge", "the UI routes logout by this: {me}");
+
+    // The same token as a bearer is the same person through the other front.
+    let (status, me) = me_with(app.clone(), &[("authorization", format!("Bearer {token}"))]).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    assert_eq!(me["front"], "bearer");
+
+    // A protected resource route takes the edge token through the same extractor.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects")
+                .header("x-access-token", &token)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "the edge token authenticates every protected route, not only /me"
+    );
+}
+
+/// ADR-N-019 §3.4: a Portal without APISIX in front never trusts the header, whatever it says.
+#[tokio::test]
+async fn the_edge_header_is_ignored_when_the_deployment_does_not_trust_the_edge() {
+    let realm = realm().await;
+    let app = app_with_realm(&realm).await;
+    let token = keys::token(
+        jsonwebtoken::Algorithm::RS256,
+        &issuer_of(&realm),
+        "demo.steward",
+        300,
+    );
+
+    let (status, body) = me_with(app.clone(), &[("x-access-token", token.clone())]).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+
+    // The flag is about the header, not the algorithm: the same token is still a good bearer.
+    let (status, me) = me_with(app, &[("authorization", format!("Bearer {token}"))]).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+}
+
+/// AP-27: the `edge` client signs RS256 by per-client override while the realm stays ES256, so
+/// the verifier takes both and nothing else.
+#[tokio::test]
+async fn rs256_and_es256_tokens_are_both_accepted_and_hs256_is_not() {
+    let realm = realm().await;
+    let app = app_behind(&realm, true).await;
+    for algorithm in [
+        jsonwebtoken::Algorithm::ES256,
+        jsonwebtoken::Algorithm::RS256,
+    ] {
+        let token = keys::token(algorithm, &issuer_of(&realm), "demo.viewer", 300);
+        let (status, me) = me_with(app.clone(), &[("x-access-token", token)]).await;
+        assert_eq!(status, StatusCode::OK, "{algorithm:?}: {me}");
+        assert_eq!(me["username"], "demo.viewer");
+    }
+
+    // A token signed with a shared secret names one of the realm's kids and is still refused.
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    header.kid = Some("realm-rs256".into());
+    let forged = jsonwebtoken::encode(
+        &header,
+        &json!({
+            "iss": issuer_of(&realm), "aud": "joinedcontext-portal", "sub": "f:1:mallory",
+            "exp": joinedcontext_portal::auth::session::now_unix() + 300,
+        }),
+        &jsonwebtoken::EncodingKey::from_secret(b"guessable"),
+    )
+    .unwrap();
+    let (status, _) = me_with(app, &[("x-access-token", forged)]).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// A bad edge token is 401 like a bad bearer, and never a look at the cookie beside it.
+#[tokio::test]
+async fn a_bad_edge_token_is_refused_and_does_not_fall_back_to_the_cookie() {
+    let realm = realm().await;
+    let app = app_behind(&realm, true).await;
+    let expired = keys::token(
+        jsonwebtoken::Algorithm::RS256,
+        &issuer_of(&realm),
+        "demo.steward",
+        -300,
+    );
+
+    for bad in [expired, "not-a-jwt".to_string(), String::new()] {
+        let (status, body) = me_with(
+            app.clone(),
+            &[
+                ("x-access-token", bad.clone()),
+                ("cookie", session_cookies(300)),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{bad:?}: {body}");
+    }
+}
+
+/// The Portal's own cookie session is the `portal` front, and `me` says so.
+#[tokio::test]
+async fn a_cookie_session_reports_the_portal_front() {
+    let realm = realm().await;
+    let app = app_behind(&realm, true).await;
+
+    let (status, me) = me_with(app, &[("cookie", session_cookies(300))]).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    assert_eq!(me["username"], "demo.steward");
+    assert_eq!(me["front"], "portal");
 }

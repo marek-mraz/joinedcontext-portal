@@ -1,25 +1,22 @@
 //! Compiling `kind: App` into what runs it and what it may read (T-0227, AP-04, AP-05,
-//! AP-25…AP-29, AP-13, AP-15, ADR-N-017).
+//! AP-25…AP-29, AP-13, AP-15, ADR-N-019).
 //!
 //! An app declares needs, never grants: `spec.dataNeeds` is the input, one `Endpoint` and one
 //! `Policy` per need is the output, and the app reaches context data through nothing else
-//! (AP-04). The pod-shaped half is the second half of the same idea: the app container listens
-//! on the loopback address only and an oauth2-proxy sidecar is the pod's single entrance, so the
-//! generated application carries no authentication code at all (AP-26, ADR-N-017).
+//! (AP-04). The pod-shaped half is the second half of the same idea: the app container is the
+//! pod's only container, reachable from the APISIX edge alone, and the edge's `openid-connect`
+//! plugin is the login front, so the application carries no authentication code at all (AP-26,
+//! ADR-N-019).
 //!
 //! Rendering is a pure function of the manifest, the installation settings, the image CI built
-//! and the reconciler-owned [`crate::apps::reconciler::Credentials`] — spelled out because
-//! `apps/mod.rs` also documents `pub mod reconciler;` from the outside, and rustdoc resolves
-//! the two doc blocks merged, in the parent scope, where a bare name here is not an item.
-//! Nothing here reaches a cluster: `render` returns the
-//! objects, and applying them is the caller's business.
+//! and the reconciler-owned endpoint slug — spelled out because `apps/mod.rs` also documents
+//! `pub mod reconciler;` from the outside, and rustdoc resolves the two doc blocks merged, in
+//! the parent scope, where a bare name here is not an item. Nothing here reaches a cluster:
+//! `render` returns the objects, and applying them is the caller's business.
 
 use std::collections::BTreeSet;
-use std::fmt;
 
 use argon2::password_hash::rand_core::{OsRng, RngCore};
-use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
-use base64::Engine as _;
 use jc_core::annotations::GENERATED_BY;
 use jc_core::kinds::{
     AppClass, AppLifecycle, AppSpec, AppVisibility, DataNeed, EndpointSlug, Representation,
@@ -31,18 +28,20 @@ use serde_json::{json, Map, Value};
 /// The tool the generated manifests name as their origin (MF-08).
 pub const GENERATOR: &str = "portal/app-reconciler";
 
-/// The port the oauth2-proxy sidecar listens on; the only port of the pod (AP-26).
+/// The port the app container serves on and the Service publishes; the only port of the pod
+/// (AP-26).
 ///
 /// `jcctl::apisix` already routes `/apps/{name}/*` to `app-{name}` on this port, so the Service
 /// rendered here and the routing table rendered there have to agree on it.
-pub const SIDECAR_PORT: u16 = 4180;
-
-/// The port the app container serves on, bound to the loopback address (AP-26).
 pub const APP_PORT: u16 = 8080;
 
-/// The address the app container must bind. Not a suggestion: it is the reason the sidecar
-/// cannot be bypassed (AP-26).
-pub const APP_ADDRESS: &str = "127.0.0.1";
+/// The address the app container must bind: every interface of the pod, because APISIX opens
+/// the connection from another pod (AP-26). The NetworkPolicy is what keeps everyone else out.
+pub const APP_ADDRESS: &str = "0.0.0.0";
+
+/// The pod label the edge's own NetworkPolicy selects app pods by for its egress
+/// (Deployment/10 §4): one value for every app, the name is in `app.kubernetes.io/name`.
+pub const APP_LABEL: &str = "joinedcontext.com/app";
 
 /// Base32 alphabet of RFC 4648 in the lowercase form [`EndpointSlug`] accepts (EP-02).
 const SLUG_ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
@@ -53,101 +52,41 @@ const SLUG_LEN: usize = 26;
 /// Where the rendered objects run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
-    /// The primary domain, `city.example.com`. Keycloak lives on `idm.{host}`.
+    /// The primary domain, `city.example.com`, which the app's endpoint is served on.
     pub host: String,
     /// The Kubernetes namespace apps run in.
     pub namespace: String,
-    /// The Keycloak realm of the organization; one confidential client per app lives in it.
-    pub realm: String,
     /// The organization's domain, which becomes the policy assigner (`did:web:{domain}`).
     pub org_domain: String,
-    /// The oauth2-proxy image, pinned by digest like every other image (AP-13).
-    pub oauth2_proxy_image: String,
 }
 
-/// What the reconciler owns and Git never sees (AP-27, EP-02).
+/// A fresh endpoint slug for an app that has none yet (EP-02).
 ///
-/// The two secrets configure the sidecar's OIDC client; the slug addresses the app's endpoint.
-/// All three are unguessable and all three outlive a single render, so a second reconcile of an
-/// unchanged app must pass the same values back rather than mint new ones — otherwise every run
-/// would log every user out and move the endpoint.
-#[derive(Clone)]
-pub struct Credentials {
-    client_secret: String,
-    cookie_secret: String,
-    endpoint_slug: EndpointSlug,
-}
-
-impl Credentials {
-    /// Fresh credentials for an app that has none yet.
-    pub fn generate() -> Self {
-        let mut client_bytes = [0u8; 32];
-        let mut cookie_bytes = [0u8; 32];
-        let mut slug_bytes = [0u8; SLUG_LEN];
-        OsRng.fill_bytes(&mut client_bytes);
-        OsRng.fill_bytes(&mut cookie_bytes);
-        OsRng.fill_bytes(&mut slug_bytes);
-
-        // 32 is a divisor of 256, so masking five bits off a random byte draws from the
-        // alphabet without bias and without a rejection loop.
-        let slug: String = slug_bytes
-            .iter()
-            .map(|byte| char::from(SLUG_ALPHABET[usize::from(byte & 0x1f)]))
-            .collect();
-
-        Self {
-            client_secret: URL_SAFE_NO_PAD.encode(client_bytes),
-            // oauth2-proxy decodes the cookie secret and insists on 16, 24 or 32 raw bytes;
-            // standard base64 of 32 bytes is what its own documentation tells operators to make.
-            cookie_secret: STANDARD.encode(cookie_bytes),
-            endpoint_slug: EndpointSlug::new(&slug).expect("the alphabet and length are EP-02's"),
-        }
-    }
-
-    /// The credentials an app already has, as read back from the cluster and the repository.
-    pub fn existing(
-        client_secret: impl Into<String>,
-        cookie_secret: impl Into<String>,
-        endpoint_slug: &str,
-    ) -> Result<Self, RenderError> {
-        Ok(Self {
-            client_secret: client_secret.into(),
-            cookie_secret: cookie_secret.into(),
-            endpoint_slug: EndpointSlug::new(endpoint_slug).map_err(RenderError::Slug)?,
-        })
-    }
-
-    /// The endpoint slug, the only member that is not a secret.
-    pub fn endpoint_slug(&self) -> &str {
-        self.endpoint_slug.as_str()
-    }
-
-    /// The client secret, for the one caller that has to send it somewhere: the Admin API call
-    /// that puts the same value on the realm's copy of the client (AP-27).
-    pub fn client_secret(&self) -> &str {
-        &self.client_secret
-    }
-}
-
-impl fmt::Debug for Credentials {
-    /// Prints no secret. A rendered app ends up in logs and error reports; these do not.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Credentials")
-            .field("client_secret", &"redacted")
-            .field("cookie_secret", &"redacted")
-            .field("endpoint_slug", &self.endpoint_slug.as_str())
-            .finish()
-    }
+/// The slug is the one value the reconciler owns and Git never sees: it addresses the app's
+/// endpoint, it is unguessable, and it outlives a single render, so a second reconcile of an
+/// unchanged app must pass the same one back rather than mint a new one — otherwise every run
+/// would move the endpoint under its own users. The Secret `app-{name}-endpoint` is where it is
+/// kept between runs.
+pub fn generate_slug() -> EndpointSlug {
+    let mut slug_bytes = [0u8; SLUG_LEN];
+    OsRng.fill_bytes(&mut slug_bytes);
+    // 32 is a divisor of 256, so masking five bits off a random byte draws from the alphabet
+    // without bias and without a rejection loop.
+    let slug: String = slug_bytes
+        .iter()
+        .map(|byte| char::from(SLUG_ALPHABET[usize::from(byte & 0x1f)]))
+        .collect();
+    EndpointSlug::new(&slug).expect("the alphabet and length are EP-02's")
 }
 
 /// The Kubernetes objects a pod-backed app needs; `static` apps have none (AP-14).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Workload {
-    /// App container plus oauth2-proxy sidecar (AP-26).
+    /// The app container alone, on [`APP_PORT`] (AP-26).
     pub deployment: Value,
-    /// `app-{name}` on [`SIDECAR_PORT`], the name the APISIX upstream points at.
+    /// `app-{name}` on [`APP_PORT`], the name the APISIX upstream points at.
     pub service: Value,
-    /// The client and cookie secrets of the sidecar's OIDC client (AP-27).
+    /// `app-{name}-endpoint`: the endpoint slug, kept between runs (EP-02).
     pub secret: Value,
     /// Default-deny in both directions, with the two exceptions the app cannot work without
     /// (AP-15).
@@ -206,7 +145,7 @@ pub enum RenderError {
         /// The first space that differs from it.
         second: String,
     },
-    /// The endpoint slug handed in is not a slug.
+    /// The endpoint slug read back from the cluster is not a slug.
     #[error("the endpoint slug is not usable: {0}")]
     Slug(jc_core::Error),
 }
@@ -215,10 +154,11 @@ pub enum RenderError {
 /// pod that serves it.
 ///
 /// `image` is the digest-pinned reference CI built from `spec.source`; a `static` app ignores it.
+/// `slug` is the app's endpoint slug, read back from the cluster or freshly generated.
 pub fn render(
     manifest: &RawManifest,
     image: Option<&str>,
-    credentials: &Credentials,
+    slug: &EndpointSlug,
     settings: &Settings,
 ) -> Result<Rendered, RenderError> {
     if manifest.kind != "App" {
@@ -255,19 +195,14 @@ pub fn render(
                 class: class.to_string(),
             })?;
             Some(render_workload(
-                name,
-                project,
-                &spec,
-                image,
-                credentials,
-                settings,
+                name, project, &spec, image, slug, settings,
             )?)
         }
     };
 
     Ok(Rendered {
         workload,
-        endpoint: endpoint(name, project, space, &spec, credentials),
+        endpoint: endpoint(name, project, space, &spec, slug),
         policies: spec
             .data_needs
             .iter()
@@ -311,15 +246,13 @@ fn render_workload(
     project: &str,
     spec: &AppSpec,
     image: &str,
-    credentials: &Credentials,
+    slug: &EndpointSlug,
     settings: &Settings,
 ) -> Result<Workload, RenderError> {
-    for reference in [image, settings.oauth2_proxy_image.as_str()] {
-        if !pinned(reference) {
-            return Err(RenderError::UnpinnedImage {
-                image: reference.to_owned(),
-            });
-        }
+    if !pinned(image) {
+        return Err(RenderError::UnpinnedImage {
+            image: image.to_owned(),
+        });
     }
 
     let workload_name = format!("app-{name}");
@@ -327,11 +260,11 @@ fn render_workload(
         "app.kubernetes.io/name": workload_name,
         "app.kubernetes.io/part-of": "joinedcontext",
         "app.kubernetes.io/managed-by": "joinedcontext-portal",
-        "joinedcontext.com/app": name,
+        APP_LABEL: "true",
         "joinedcontext.com/project": project,
     });
     let selector = json!({ "app.kubernetes.io/name": workload_name });
-    let secret_name = format!("{workload_name}-oauth2");
+    let secret_name = format!("{workload_name}-endpoint");
 
     let deployment = json!({
         "apiVersion": "apps/v1",
@@ -354,14 +287,8 @@ fn render_workload(
                         "runAsNonRoot": true,
                         "seccompProfile": { "type": "RuntimeDefault" },
                     },
-                    "containers": [
-                        app_container(name, image, spec, credentials, settings),
-                        sidecar_container(name, project, spec, &secret_name, settings),
-                    ],
-                    "volumes": [
-                        { "name": "tmp-app", "emptyDir": {} },
-                        { "name": "tmp-sidecar", "emptyDir": {} },
-                    ],
+                    "containers": [app_container(name, image, spec, slug, settings)],
+                    "volumes": [{ "name": "tmp-app", "emptyDir": {} }],
                 },
             },
         },
@@ -376,8 +303,8 @@ fn render_workload(
             "selector": selector,
             "ports": [{
                 "name": "http",
-                "port": SIDECAR_PORT,
-                "targetPort": SIDECAR_PORT,
+                "port": APP_PORT,
+                "targetPort": "http",
                 "protocol": "TCP",
             }],
         },
@@ -389,14 +316,11 @@ fn render_workload(
         "metadata": object_meta(&secret_name, settings, &labels),
         "type": "Opaque",
         // The slug is here and not only in the rendered Endpoint because this Secret is what
-        // the reconciler owns and reads back: all three values outlive a render, and a slug
-        // regenerated on the next run would move the app's endpoint under its own users
-        // (EP-02, AP-27).
-        "stringData": {
-            "client-secret": credentials.client_secret,
-            "cookie-secret": credentials.cookie_secret,
-            "endpoint-slug": credentials.endpoint_slug.as_str(),
-        },
+        // the reconciler owns and reads back: the slug outlives a render, and one regenerated
+        // on the next run would move the app's endpoint under its own users (EP-02). No client
+        // secret and no cookie secret beside it: the login front is the edge's, not the
+        // pod's (AP-27, ADR-N-019).
+        "stringData": { "endpoint-slug": slug.as_str() },
     });
 
     Ok(Workload {
@@ -416,17 +340,13 @@ fn object_meta(name: &str, settings: &Settings, labels: &Value) -> Value {
     })
 }
 
-/// The app itself: bound to the loopback address, with no port published and no probe.
-///
-/// A container the kubelet cannot reach cannot be probed by the kubelet either — `httpGet` opens
-/// the connection to the pod address, which this container deliberately does not answer on. The
-/// sidecar's readiness is what gates traffic, and the sidecar cannot be ready without its
-/// upstream. That is the price of AP-26 and it is the right way round.
+/// The app itself: the pod's only container, on [`APP_PORT`], with a readiness probe on
+/// `/healthz` so no traffic reaches it before it can answer (Architecture/16 §5).
 fn app_container(
     name: &str,
     image: &str,
     spec: &AppSpec,
-    credentials: &Credentials,
+    slug: &EndpointSlug,
     settings: &Settings,
 ) -> Value {
     let mut env = vec![
@@ -434,12 +354,12 @@ fn app_container(
         json!({ "name": "JC_BASE_PATH", "value": format!("/apps/{name}/") }),
         json!({
             "name": "JC_ENDPOINT_URL",
-            "value": format!("https://{}/api/endpoint/{}/", settings.host, credentials.endpoint_slug()),
+            "value": format!("https://{}/api/endpoint/{}/", settings.host, slug.as_str()),
         }),
     ];
     if spec.visibility == AppVisibility::Public {
         // A public app is called by people who never logged in, so the backend has to know that
-        // an absent `X-Forwarded-Access-Token` is normal rather than a bug (AP-28).
+        // an absent `X-Access-Token` is normal rather than a bug (AP-28).
         env.push(json!({ "name": "JC_ANONYMOUS", "value": "true" }));
     }
 
@@ -448,6 +368,12 @@ fn app_container(
         "image": image,
         "imagePullPolicy": "IfNotPresent",
         "env": env,
+        "ports": [{ "name": "http", "containerPort": APP_PORT, "protocol": "TCP" }],
+        "readinessProbe": {
+            "httpGet": { "path": "/healthz", "port": "http" },
+            "periodSeconds": 5,
+            "timeoutSeconds": 3,
+        },
         "securityContext": {
             "readOnlyRootFilesystem": true,
             "allowPrivilegeEscalation": false,
@@ -461,112 +387,6 @@ fn app_container(
     })
 }
 
-/// The app's OIDC client id, which the sidecar sends and the realm holds (AP-27).
-pub fn oidc_client_id(name: &str) -> String {
-    format!("app-{name}")
-}
-
-/// The one URI the app's OIDC client may return to (AP-27).
-///
-/// The sidecar renders it into `--redirect-url` and the reconciler registers exactly this string
-/// on the realm, so the two cannot drift into a login that fails with `invalid_redirect_uri`.
-pub fn redirect_uri(name: &str, settings: &Settings) -> String {
-    format!("https://{}/apps/{name}/oauth2/callback", settings.host)
-}
-
-/// The login front: the only container of the pod that listens on the pod address (AP-26).
-fn sidecar_container(
-    name: &str,
-    project: &str,
-    spec: &AppSpec,
-    secret_name: &str,
-    settings: &Settings,
-) -> Value {
-    let prefix = format!("/apps/{name}");
-    let mut args = vec![
-        "--provider=keycloak-oidc".to_owned(),
-        format!(
-            "--oidc-issuer-url=https://idm.{}/realms/{}",
-            settings.host, settings.realm
-        ),
-        format!("--client-id={}", oidc_client_id(name)),
-        format!("--redirect-url={}", redirect_uri(name, settings)),
-        format!("--http-address=0.0.0.0:{SIDECAR_PORT}"),
-        format!("--upstream=http://{APP_ADDRESS}:{APP_PORT}/"),
-        format!("--proxy-prefix={prefix}/oauth2"),
-        format!("--cookie-name=_oauth2_proxy_{name}"),
-        format!("--cookie-path={prefix}/"),
-        "--cookie-secure=true".to_owned(),
-        "--cookie-httponly=true".to_owned(),
-        "--cookie-samesite=lax".to_owned(),
-        // A cookie session cannot be revoked from Keycloak, so it is kept short and re-checked
-        // against the provider every quarter of an hour instead: a back-channel logout ends the
-        // app session within that window rather than instantly (AP-29).
-        "--cookie-expire=1h".to_owned(),
-        "--cookie-refresh=15m".to_owned(),
-        "--code-challenge-method=S256".to_owned(),
-        // APISIX terminates TLS and is the only client of this port; without this the proxy
-        // builds its redirect from the pod address and the login leaves the platform host.
-        "--reverse-proxy=true".to_owned(),
-        "--skip-provider-button=true".to_owned(),
-        "--email-domain=*".to_owned(),
-        "--pass-basic-auth=false".to_owned(),
-        // What AP-28 is about: the app calls its endpoint with the caller's own token, so the
-        // grant is the intersection of the user and the endpoint (GW10).
-        "--pass-access-token=true".to_owned(),
-        "--pass-user-headers=true".to_owned(),
-        "--silence-ping-logging=true".to_owned(),
-    ];
-    match spec.visibility {
-        // Anonymous callers pass through; the login route stays reachable for those who want it
-        // and the endpoint enforces the public grant anyway (AP-28, GW22).
-        AppVisibility::Public => args.push("--skip-auth-route=^/".to_owned()),
-        // The realm is the organization, so membership of it is the whole check.
-        AppVisibility::Organization => {}
-        AppVisibility::Project | AppVisibility::Private => {
-            args.push(format!("--allowed-groups=/{project}"));
-        }
-    }
-
-    json!({
-        "name": "oauth2-proxy",
-        "image": settings.oauth2_proxy_image,
-        "imagePullPolicy": "IfNotPresent",
-        "args": args,
-        "env": [
-            {
-                "name": "OAUTH2_PROXY_CLIENT_SECRET",
-                "valueFrom": { "secretKeyRef": { "name": secret_name, "key": "client-secret" } },
-            },
-            {
-                "name": "OAUTH2_PROXY_COOKIE_SECRET",
-                "valueFrom": { "secretKeyRef": { "name": secret_name, "key": "cookie-secret" } },
-            },
-        ],
-        "ports": [{ "name": "http", "containerPort": SIDECAR_PORT, "protocol": "TCP" }],
-        "readinessProbe": {
-            "httpGet": { "path": "/ready", "port": SIDECAR_PORT },
-            "periodSeconds": 5,
-            "timeoutSeconds": 3,
-        },
-        "livenessProbe": {
-            "httpGet": { "path": "/ping", "port": SIDECAR_PORT },
-            "periodSeconds": 15,
-            "timeoutSeconds": 3,
-        },
-        "securityContext": {
-            "readOnlyRootFilesystem": true,
-            "allowPrivilegeEscalation": false,
-            "capabilities": { "drop": ["ALL"] },
-        },
-        "resources": {
-            "requests": { "cpu": "10m", "memory": "32Mi" },
-            "limits": { "cpu": "200m", "memory": "128Mi" },
-        },
-        "volumeMounts": [{ "name": "tmp-sidecar", "mountPath": "/tmp" }],
-    })
-}
-
 /// Default-deny in both directions with two holes: APISIX in, and the platform host out
 /// (AP-15, AP-26).
 fn network_policy(name: &str, settings: &Settings, labels: &Value, selector: &Value) -> Value {
@@ -577,14 +397,14 @@ fn network_policy(name: &str, settings: &Settings, labels: &Value, selector: &Va
         "spec": {
             "podSelector": { "matchLabels": selector },
             "policyTypes": ["Ingress", "Egress"],
-            // Only the gateway may open a connection into the pod, and only on the sidecar's
-            // port: the app container has no reachable port at all (AP-26).
+            // Only the gateway may open a connection into the pod, and only on the app's port:
+            // the edge is the login front, so the port is not a door for anyone else (AP-26).
             "ingress": [{
                 "from": [{
                     "namespaceSelector": { "matchLabels": { "kubernetes.io/metadata.name": "apisix" } },
                     "podSelector": { "matchLabels": { "app.kubernetes.io/name": "apisix" } },
                 }],
-                "ports": [{ "protocol": "TCP", "port": SIDECAR_PORT }],
+                "ports": [{ "protocol": "TCP", "port": APP_PORT }],
             }],
             "egress": [
                 {
@@ -597,11 +417,11 @@ fn network_policy(name: &str, settings: &Settings, labels: &Value, selector: &Va
                         { "protocol": "TCP", "port": 53 },
                     ],
                 },
-                // Both calls an app pod makes — the sidecar's OIDC discovery and the backend's
-                // own endpoint — carry the public host in the URL, so both are DNATed to the
-                // ingress controller before this rule is evaluated and neither can be written as
-                // a pod selector. The same trap the Portal's own policy documents; 443 and the
-                // controller's container port are what the rule can narrow to.
+                // The one call an app pod makes, its own endpoint, carries the public host in
+                // the URL, so it is DNATed to the ingress controller before this rule is
+                // evaluated and cannot be written as a pod selector. The same trap the Portal's
+                // own policy documents; 443 and the controller's container port are what the
+                // rule can narrow to.
                 {
                     "to": [{ "ipBlock": { "cidr": "0.0.0.0/0" } }],
                     "ports": [
@@ -620,7 +440,7 @@ fn endpoint(
     project: &str,
     space: &str,
     spec: &AppSpec,
-    credentials: &Credentials,
+    slug: &EndpointSlug,
 ) -> RawManifest {
     let representations: Vec<&str> = {
         let declared: BTreeSet<Representation> = spec.representations();
@@ -643,7 +463,7 @@ fn endpoint(
 
     let mut endpoint_spec = json!({
         "contextSpaceRef": { "kind": "ContextSpace", "name": space },
-        "slug": credentials.endpoint_slug(),
+        "slug": slug.as_str(),
         "audience": audience,
         "enabledRepresentations": representations,
     });

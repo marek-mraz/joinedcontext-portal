@@ -1,28 +1,25 @@
-//! What an `App` manifest compiles into (T-0227, AP-04, AP-05, AP-13, AP-18, AP-25…AP-28).
+//! What an `App` manifest compiles into (T-0227, T-0508, AP-04, AP-05, AP-13, AP-18, AP-25…AP-28,
+//! ADR-N-019).
 //!
 //! Two properties carry the security of this kind and both are asserted here: the app container
-//! has no way in except through the oauth2-proxy sidecar, and the rendered grants say exactly
-//! what the app declared it needs and nothing more.
+//! is the pod's only container and has no way in except from the APISIX edge, which is the login
+//! front; and the rendered grants say exactly what the app declared it needs and nothing more.
 
-use jc_core::kinds::{EndpointSpec, PolicySpec};
+use jc_core::kinds::{EndpointSlug, EndpointSpec, PolicySpec};
 use jcctl::loader::RawManifest;
 use joinedcontext_portal::apps::reconciler::{
-    render, Credentials, RenderError, Settings, APP_PORT, SIDECAR_PORT,
+    generate_slug, render, RenderError, Settings, APP_LABEL, APP_PORT,
 };
 use serde_json::{json, Value};
 
 const APP_IMAGE: &str =
     "ghcr.io/bb/apps/air-quality@sha256:1111111111111111111111111111111111111111111111111111111111111111";
-const PROXY_IMAGE: &str =
-    "quay.io/oauth2-proxy/oauth2-proxy@sha256:2222222222222222222222222222222222222222222222222222222222222222";
 
 fn settings() -> Settings {
     Settings {
         host: "bb.example.com".into(),
         namespace: "joinedcontext".into(),
-        realm: "banskabystrica".into(),
         org_domain: "banskabystrica.sk".into(),
-        oauth2_proxy_image: PROXY_IMAGE.into(),
     }
 }
 
@@ -69,15 +66,6 @@ fn container<'a>(deployment: &'a Value, name: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no container named {name}"))
 }
 
-fn args(container: &Value) -> Vec<String> {
-    container["args"]
-        .as_array()
-        .expect("the sidecar is configured by flags")
-        .iter()
-        .map(|a| a.as_str().expect("a flag is a string").to_owned())
-        .collect()
-}
-
 fn env(container: &Value, name: &str) -> Value {
     container["env"]
         .as_array()
@@ -89,11 +77,11 @@ fn env(container: &Value, name: &str) -> Value {
 }
 
 #[test]
-fn the_pod_is_an_app_behind_an_oauth2_proxy_sidecar() {
+fn the_pod_is_the_app_container_alone_behind_the_edge() {
     let rendered = render(
         &app(json!({})),
         Some(APP_IMAGE),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect("the app renders");
@@ -105,68 +93,85 @@ fn the_pod_is_an_app_behind_an_oauth2_proxy_sidecar() {
         .collect();
     assert_eq!(
         names,
-        vec!["app", "oauth2-proxy"],
-        "every service and fullstack pod carries the login front (AP-26)"
+        vec!["app"],
+        "no sidecar: the login front is the edge's openid-connect plugin (AP-26, ADR-N-019)"
+    );
+    let pod = &workload.deployment["spec"]["template"];
+    assert_eq!(
+        pod["metadata"]["labels"][APP_LABEL], "true",
+        "the label the edge's own egress policy selects app pods by"
+    );
+    assert_eq!(
+        pod["metadata"]["labels"]["app.kubernetes.io/name"],
+        "app-air-quality-today"
+    );
+    assert_eq!(
+        pod["spec"]["volumes"],
+        json!([{ "name": "tmp-app", "emptyDir": {} }]),
+        "one container, one scratch volume"
     );
 
-    let sidecar = container(&workload.deployment, "oauth2-proxy");
-    assert_eq!(sidecar["image"], PROXY_IMAGE);
-    let flags = args(sidecar);
-    assert!(flags.contains(&format!("--http-address=0.0.0.0:{SIDECAR_PORT}")));
-    assert!(flags.contains(&format!("--upstream=http://127.0.0.1:{APP_PORT}/")));
-    assert!(flags.contains(&"--provider=keycloak-oidc".to_string()));
-    assert!(flags.contains(&"--client-id=app-air-quality-today".to_string()));
-    assert!(flags.contains(
-        &"--oidc-issuer-url=https://idm.bb.example.com/realms/banskabystrica".to_string()
-    ));
-    assert!(
-        flags.contains(&"--pass-access-token=true".to_string()),
-        "the app calls its endpoint with the caller's own token (AP-28)"
+    let app = container(&workload.deployment, "app");
+    assert_eq!(app["image"], APP_IMAGE);
+    assert_eq!(
+        env(app, "JC_BIND_ADDRESS")["value"],
+        format!("0.0.0.0:{APP_PORT}"),
+        "the app listens on the pod address; APISIX opens the connection from another pod (AP-26)"
     );
-    assert!(
-        flags.contains(&"--cookie-path=/apps/air-quality-today/".to_string())
-            && flags.contains(&"--cookie-secure=true".to_string())
-            && flags.contains(&"--cookie-httponly=true".to_string())
-            && flags.contains(&"--cookie-samesite=lax".to_string()),
-        "the session cookie is scoped to the app and hardened (AP-29)"
+    assert_eq!(
+        env(app, "JC_BASE_PATH")["value"],
+        "/apps/air-quality-today/"
     );
-    assert!(
-        flags.contains(
-            &"--redirect-url=https://bb.example.com/apps/air-quality-today/oauth2/callback"
-                .to_string()
-        ),
-        "the login returns to the platform host, not to the pod"
+    assert_eq!(
+        app["ports"],
+        json!([{ "name": "http", "containerPort": APP_PORT, "protocol": "TCP" }]),
+        "port 8080, named http, and no other"
     );
+    assert_eq!(app["readinessProbe"]["httpGet"]["path"], "/healthz");
+    assert_eq!(app["readinessProbe"]["httpGet"]["port"], "http");
+    assert!(
+        app.get("livenessProbe").is_none(),
+        "readiness gates traffic; a liveness probe on a busy app would only restart it"
+    );
+
+    let dumped = workload.deployment.to_string();
+    for stale in [
+        "oauth2",
+        "OAUTH2",
+        "client-secret",
+        "cookie-secret",
+        "keycloak",
+        "4180",
+    ] {
+        assert!(
+            !dumped.contains(stale),
+            "{stale} survived in the Deployment"
+        );
+    }
 }
 
 #[test]
-fn the_app_container_listens_on_the_loopback_address_only() {
+fn the_service_publishes_the_app_port_the_edge_upstreams_to() {
     let rendered = render(
         &app(json!({})),
         Some(APP_IMAGE),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect("the app renders");
-    let deployment = rendered.workload.expect("a pod").deployment;
+    let service = rendered.workload.expect("a pod").service;
 
-    let app_container = container(&deployment, "app");
+    assert_eq!(service["metadata"]["name"], "app-air-quality-today");
+    assert_eq!(service["spec"]["type"], "ClusterIP");
     assert_eq!(
-        env(app_container, "JC_BIND_ADDRESS")["value"],
-        format!("127.0.0.1:{APP_PORT}"),
-        "the app binds the loopback address; the sidecar is the only entrance (AP-26)"
+        service["spec"]["selector"],
+        json!({ "app.kubernetes.io/name": "app-air-quality-today" })
     );
-    assert!(
-        app_container.get("ports").is_none(),
-        "the app publishes no container port at all (AP-26)"
+    assert_eq!(
+        service["spec"]["ports"],
+        json!([{ "name": "http", "port": APP_PORT, "targetPort": "http", "protocol": "TCP" }]),
+        "8080, the port jcctl's route table points app-{{name}} at (AP-26)"
     );
-
-    let sidecar_ports = container(&deployment, "oauth2-proxy")["ports"]
-        .as_array()
-        .expect("the sidecar publishes its port")
-        .clone();
-    assert_eq!(sidecar_ports.len(), 1);
-    assert_eq!(sidecar_ports[0]["containerPort"], SIDECAR_PORT);
 }
 
 #[test]
@@ -174,7 +179,7 @@ fn only_the_gateway_may_open_a_connection_into_the_pod() {
     let rendered = render(
         &app(json!({})),
         Some(APP_IMAGE),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect("the app renders");
@@ -184,14 +189,46 @@ fn only_the_gateway_may_open_a_connection_into_the_pod() {
         .as_array()
         .expect("both directions");
     assert!(types.contains(&json!("Ingress")) && types.contains(&json!("Egress")));
+    assert_eq!(
+        policy["spec"]["podSelector"],
+        json!({ "matchLabels": { "app.kubernetes.io/name": "app-air-quality-today" } })
+    );
 
     let ingress = policy["spec"]["ingress"].as_array().expect("one hole in");
     assert_eq!(ingress.len(), 1, "APISIX is the only source admitted");
     assert_eq!(
-        ingress[0]["from"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
-        "apisix"
+        ingress[0]["from"],
+        json!([{
+            "namespaceSelector": { "matchLabels": { "kubernetes.io/metadata.name": "apisix" } },
+            "podSelector": { "matchLabels": { "app.kubernetes.io/name": "apisix" } },
+        }]),
+        "the label the apisix component's own pods carry"
     );
-    assert_eq!(ingress[0]["ports"][0]["port"], SIDECAR_PORT);
+    assert_eq!(
+        ingress[0]["ports"],
+        json!([{ "protocol": "TCP", "port": APP_PORT }]),
+        "the app port, no other"
+    );
+
+    // Out: DNS, and the platform host for the endpoint (443 and the controller's port), which
+    // is where both APISIX and Keycloak are reached from a pod.
+    let egress = policy["spec"]["egress"].as_array().expect("two holes out");
+    assert_eq!(egress.len(), 2);
+    assert_eq!(
+        egress[0]["to"][0]["podSelector"]["matchLabels"]["k8s-app"],
+        "kube-dns"
+    );
+    assert_eq!(
+        egress[1]["to"],
+        json!([{ "ipBlock": { "cidr": "0.0.0.0/0" } }])
+    );
+    assert_eq!(
+        egress[1]["ports"],
+        json!([
+            { "protocol": "TCP", "port": 443 },
+            { "protocol": "TCP", "port": 8443 },
+        ])
+    );
 }
 
 #[test]
@@ -218,7 +255,7 @@ fn every_data_need_becomes_one_policy_that_grants_no_more_than_it_asked() {
             ]
         })),
         Some(APP_IMAGE),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect("the app renders");
@@ -274,9 +311,9 @@ fn every_data_need_becomes_one_policy_that_grants_no_more_than_it_asked() {
 
 #[test]
 fn the_endpoint_is_the_union_of_what_the_needs_asked_for() {
-    let credentials = Credentials::generate();
-    let rendered = render(&app(json!({})), Some(APP_IMAGE), &credentials, &settings())
-        .expect("the app renders");
+    let slug = generate_slug();
+    let rendered =
+        render(&app(json!({})), Some(APP_IMAGE), &slug, &settings()).expect("the app renders");
 
     let endpoint = &rendered.endpoint;
     assert_eq!(endpoint.kind, "Endpoint");
@@ -284,7 +321,7 @@ fn the_endpoint_is_the_union_of_what_the_needs_asked_for() {
         endpoint.metadata.name, "app-air-quality-today",
         "the name the APISIX upstream and the app's own configuration both point at (AP-05)"
     );
-    assert_eq!(endpoint.spec["slug"], credentials.endpoint_slug());
+    assert_eq!(endpoint.spec["slug"], slug.as_str());
     assert_eq!(
         endpoint.spec["enabledRepresentations"],
         json!(["ngsi-ld", "geojson"]),
@@ -301,31 +338,30 @@ fn the_endpoint_is_the_union_of_what_the_needs_asked_for() {
     let parsed: EndpointSpec =
         serde_json::from_value(endpoint.spec.clone()).expect("a rendered endpoint parses");
     parsed.validate().expect("a rendered endpoint is valid");
+
+    // The pod is told the same endpoint, and nothing else about the platform.
+    let app = rendered.workload.expect("a pod").deployment;
+    assert_eq!(
+        env(container(&app, "app"), "JC_ENDPOINT_URL")["value"],
+        format!("https://bb.example.com/api/endpoint/{}/", slug.as_str())
+    );
 }
 
 #[test]
-fn a_public_app_passes_anonymous_callers_through_and_grants_the_public_role() {
+fn a_public_app_tells_its_container_that_anonymous_callers_are_normal() {
     let rendered = render(
         &app(json!({ "visibility": "public" })),
         Some(APP_IMAGE),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect("the app renders");
 
     let deployment = rendered.workload.expect("a pod").deployment;
-    let flags = args(container(&deployment, "oauth2-proxy"));
-    assert!(
-        flags.iter().any(|f| f.starts_with("--skip-auth-route=")),
-        "a public app answers callers who never logged in (AP-28)"
-    );
-    assert!(
-        !flags.iter().any(|f| f.starts_with("--allowed-groups=")),
-        "a public app admits everyone, so it restricts no group"
-    );
     assert_eq!(
         env(container(&deployment, "app"), "JC_ANONYMOUS")["value"],
-        "true"
+        "true",
+        "the edge passes anonymous requests through without X-Access-Token (AP-28)"
     );
 
     assert_eq!(rendered.endpoint.spec["audience"], "public");
@@ -334,6 +370,24 @@ fn a_public_app_passes_anonymous_callers_through_and_grants_the_public_role() {
         json!({ "kind": "role", "id": "public" }),
         "anonymous callers act under the synthetic public role (GW22)"
     );
+
+    // A project app has no such flag: an absent token there is the edge's `unauth_action: auth`
+    // never having let the request through, which is a bug worth seeing.
+    let project = render(
+        &app(json!({})),
+        Some(APP_IMAGE),
+        &generate_slug(),
+        &settings(),
+    )
+    .expect("the app renders")
+    .workload
+    .expect("a pod")
+    .deployment;
+    assert!(container(&project, "app")["env"]
+        .as_array()
+        .expect("env")
+        .iter()
+        .all(|e| e["name"] != "JC_ANONYMOUS"));
 }
 
 #[test]
@@ -341,7 +395,7 @@ fn a_service_app_is_granted_through_its_own_account() {
     let rendered = render(
         &app(json!({ "kind": "service" })),
         Some(APP_IMAGE),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect("the app renders");
@@ -353,51 +407,34 @@ fn a_service_app_is_granted_through_its_own_account() {
     );
     assert!(
         rendered.workload.is_some(),
-        "a service app runs behind the same sidecar as a fullstack one (AP-26)"
+        "a service app runs in the same kind of pod as a fullstack one (AP-26)"
     );
 }
 
 #[test]
-fn the_two_secrets_are_reconciler_owned_and_reach_the_pod_by_reference() {
-    let slug = Credentials::generate().endpoint_slug().to_owned();
-    let credentials = Credentials::existing("client-secret-abc", "cookie-secret-xyz", &slug)
-        .expect("the slug of an app that already has one");
+fn the_secret_holds_the_slug_alone_and_the_pod_does_not_reference_it() {
+    let slug = EndpointSlug::new(generate_slug().as_str()).expect("a slug the app already has");
 
-    let rendered = render(&app(json!({})), Some(APP_IMAGE), &credentials, &settings())
-        .expect("the app renders");
+    let rendered =
+        render(&app(json!({})), Some(APP_IMAGE), &slug, &settings()).expect("the app renders");
     let workload = rendered.workload.expect("a pod");
 
     assert_eq!(workload.secret["kind"], "Secret");
     assert_eq!(
         workload.secret["metadata"]["name"],
-        "app-air-quality-today-oauth2"
+        "app-air-quality-today-endpoint"
     );
     assert_eq!(
-        workload.secret["stringData"]["client-secret"],
-        "client-secret-abc"
-    );
-    assert_eq!(
-        workload.secret["stringData"]["cookie-secret"],
-        "cookie-secret-xyz"
+        workload.secret["stringData"],
+        json!({ "endpoint-slug": slug.as_str() }),
+        "no client secret, no cookie secret: the reconciler owns no OIDC secret (AP-27)"
     );
 
     let deployment = workload.deployment.to_string();
     assert!(
-        !deployment.contains("client-secret-abc") && !deployment.contains("cookie-secret-xyz"),
-        "the Deployment names the Secret, it does not carry it (AP-27)"
+        !deployment.contains("secretKeyRef") && !deployment.contains("secretName"),
+        "the pod reads nothing from the Secret; the slug reaches it as JC_ENDPOINT_URL"
     );
-    let sidecar = container(&workload.deployment, "oauth2-proxy");
-    assert_eq!(
-        env(sidecar, "OAUTH2_PROXY_CLIENT_SECRET")["valueFrom"]["secretKeyRef"],
-        json!({ "name": "app-air-quality-today-oauth2", "key": "client-secret" })
-    );
-
-    let printed = format!("{credentials:?}");
-    assert!(
-        !printed.contains("client-secret-abc") && !printed.contains("cookie-secret-xyz"),
-        "a rendered app ends up in logs; its secrets do not"
-    );
-    assert!(printed.contains(&slug), "the slug is not a secret");
 }
 
 #[test]
@@ -405,7 +442,7 @@ fn a_static_app_gets_its_grants_and_no_pod() {
     let rendered = render(
         &app(json!({ "kind": "static", "visibility": "organization" })),
         None,
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect("a static app renders without an image");
@@ -423,7 +460,7 @@ fn an_image_that_is_not_pinned_by_digest_is_refused() {
     let refused = render(
         &app(json!({})),
         Some("ghcr.io/bb/apps/air-quality:latest"),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect_err("a tag can be moved under a running pod");
@@ -431,17 +468,6 @@ fn an_image_that_is_not_pinned_by_digest_is_refused() {
         matches!(refused, RenderError::UnpinnedImage { .. }),
         "got {refused:?}"
     );
-
-    let mut loose = settings();
-    loose.oauth2_proxy_image = "quay.io/oauth2-proxy/oauth2-proxy:v7.13.0".into();
-    let refused = render(
-        &app(json!({})),
-        Some(APP_IMAGE),
-        &Credentials::generate(),
-        &loose,
-    )
-    .expect_err("the sidecar image is pinned like every other (AP-13)");
-    assert!(matches!(refused, RenderError::UnpinnedImage { .. }));
 }
 
 #[test]
@@ -450,7 +476,7 @@ fn an_app_that_is_not_deployed_yet_renders_nothing() {
         let refused = render(
             &app(json!({ "lifecycle": state })),
             Some(APP_IMAGE),
-            &Credentials::generate(),
+            &generate_slug(),
             &settings(),
         )
         .expect_err("only preview and published apps run (AP-18, AP-21)");
@@ -479,7 +505,7 @@ fn needs_reaching_into_two_spaces_do_not_become_one_endpoint() {
             ]
         })),
         Some(APP_IMAGE),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect_err("an app reads through exactly one endpoint (AP-04)");
@@ -513,7 +539,7 @@ fn a_manifest_with_nowhere_to_put_a_secret_stays_that_way() {
         }))
         .expect("a manifest envelope"),
         Some(APP_IMAGE),
-        &Credentials::generate(),
+        &generate_slug(),
         &settings(),
     )
     .expect_err("an app has nowhere to put a secret (AP-16)");
@@ -522,19 +548,19 @@ fn a_manifest_with_nowhere_to_put_a_secret_stays_that_way() {
 
 #[test]
 fn a_generated_slug_is_unguessable_and_never_the_same_twice() {
-    let first = Credentials::generate();
-    let second = Credentials::generate();
-    assert_ne!(first.endpoint_slug(), second.endpoint_slug());
+    let first = generate_slug();
+    let second = generate_slug();
+    assert_ne!(first, second);
     assert!(
-        first.endpoint_slug().len() >= 26
+        first.as_str().len() >= 26
             && first
-                .endpoint_slug()
+                .as_str()
                 .chars()
                 .all(|c| matches!(c, 'a'..='z' | '2'..='7')),
         "the slug is base32 and carries at least 128 bits (EP-02)"
     );
     assert!(
-        Credentials::existing("a", "b", "ovzdusie").is_err(),
+        EndpointSlug::new("ovzdusie").is_err(),
         "a readable slug is not a slug (EP-02, EP-03)"
     );
 }

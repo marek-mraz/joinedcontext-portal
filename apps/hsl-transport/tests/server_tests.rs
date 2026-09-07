@@ -101,7 +101,7 @@ async fn the_poll_carries_no_credential_at_all() {
 
     let requests = endpoint.received_requests().await.expect("the requests");
     assert_eq!(requests.len(), 1);
-    for name in ["authorization", "cookie", "x-forwarded-access-token"] {
+    for name in ["authorization", "cookie", "x-access-token"] {
         assert!(
             requests[0].headers.get(name).is_none(),
             "the poll sent a `{name}` header"
@@ -357,4 +357,25 @@ async fn the_front_page_answers_on_both_spellings_of_the_prefix() {
             .expect("a response");
         assert_eq!(response.status(), StatusCode::OK, "{uri} did not answer");
     }
+}
+
+/// The pod's readiness probe: at the root, outside the base path, and never a query.
+#[tokio::test]
+async fn the_readiness_probe_answers_at_the_root_without_a_query() {
+    let endpoint = MockServer::start().await;
+    let response = router(app_at(&endpoint))
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("the app answers");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(text_of(response).await, "ok");
+    assert!(endpoint
+        .received_requests()
+        .await
+        .is_some_and(|r| r.is_empty()));
 }

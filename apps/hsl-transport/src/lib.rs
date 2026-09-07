@@ -262,9 +262,12 @@ pub fn router(app: Arc<App>) -> Router {
     let base = app.config.base_path.trim_end_matches('/').to_owned();
     let at = |tail: &str| format!("{base}{tail}");
     Router::new()
+        // The readiness probe of the pod, at the root and outside the base path
+        // (Architecture/16 §5).
+        .route("/healthz", get(|| async { "ok" }))
         .route(&at("/api/vehicles"), get(fleet))
         .route(&at("/api/stream"), get(stream))
-        // Both spellings of the front page: the sidecar routes the prefix, and a person who
+        // Both spellings of the front page: the edge routes the prefix, and a person who
         // types it without the slash is not a different visitor.
         .route(&base, get(assets::static_handler))
         .route(&at("/"), get(assets::static_handler))

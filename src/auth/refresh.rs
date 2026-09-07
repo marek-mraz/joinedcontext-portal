@@ -11,7 +11,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum_extra::extract::cookie::PrivateCookieJar;
 
-use crate::auth::session;
+use crate::auth::session::{self, Front};
 use crate::error::ApiError;
 use crate::state::AppState;
 
@@ -43,8 +43,11 @@ pub fn login_redirect(path_and_query: &str) -> String {
 /// Middleware over the portal routes: refreshes a session that is due, ends one that cannot be.
 pub async fn middleware(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
-    // A bearer caller is verified per request and never refreshed by the portal.
-    if is_exempt(&path) || request.headers().contains_key(header::AUTHORIZATION) {
+    // A bearer caller and the edge's user token are verified per request and never refreshed
+    // by the portal: the edge refreshes its own session (ADR-N-019).
+    if is_exempt(&path)
+        || Front::of(request.headers(), state.config.trust_edge_token) != Front::Portal
+    {
         return next.run(request).await;
     }
     let jar = PrivateCookieJar::from_headers(request.headers(), state.config.cookie_key.clone());

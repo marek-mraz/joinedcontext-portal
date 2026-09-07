@@ -3,26 +3,26 @@
 //!
 //! Rendering is a pure function; this is the half with a side effect. One App manifest becomes
 //! four server-side applied objects, a retired one becomes four deletions, and everything else
-//! is a documented skip rather than a silent nothing.
+//! is a documented skip rather than a silent nothing. Nothing is written to the realm: the
+//! login front is the edge's one `edge` client, so an app has no OIDC client of its own
+//! (AP-27, ADR-N-019).
 //!
 //! Two properties make a second run cheap and safe. Server-side apply is idempotent by
-//! construction, so an unchanged app converges to no change at the API server. And the three
-//! values the reconciler owns and Git never sees — the two OIDC secrets and the endpoint slug —
-//! are read back from the Secret before rendering, so a second run does not log every user out
-//! and move the app's endpoint (AP-27, EP-02).
+//! construction, so an unchanged app converges to no change at the API server. And the one
+//! value the reconciler owns and Git never sees — the endpoint slug — is read back from the
+//! Secret before rendering, so a second run does not move the app's endpoint (EP-02).
 //!
 //! One app's failure never stops another's: the loop reports per app and keeps going, because a
 //! single broken manifest should not freeze every other app on the cluster.
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use jc_core::kinds::{AppLifecycle, AppSpec};
+use jc_core::kinds::{AppLifecycle, AppSpec, EndpointSlug};
 use jcctl::loader::{RawManifest, Repository};
 use serde_json::Value;
 
-use super::keycloak::{AdminClient, KeycloakError};
 use super::kube::{KubeClient, KubeError};
-use super::reconciler::{oidc_client_id, redirect_uri, render, Credentials, RenderError, Settings};
+use super::reconciler::{generate_slug, render, RenderError, Settings};
 
 /// The digest the build lane writes back when it publishes the image (AP-13a).
 pub const IMAGE_ANNOTATION: &str = "joinedcontext.com/image";
@@ -55,36 +55,26 @@ pub enum ConvergeError {
     /// The API server refused or could not be reached.
     #[error("{0}")]
     Kube(#[from] KubeError),
-    /// The realm would not take the app's OIDC client.
-    #[error("{0}")]
-    Keycloak(#[from] KeycloakError),
     /// The Secret exists and is not the one this reconciler wrote.
     #[error(
-        "the secret app-{name}-oauth2 exists without the key {key}, so it is not this reconciler's"
+        "the secret app-{name}-endpoint exists without the key endpoint-slug, so it is not this reconciler's"
     )]
     ForeignSecret {
         /// The app whose secret it should have been.
         name: String,
-        /// The key that is missing.
-        key: &'static str,
     },
 }
 
 /// Applies the objects of every App in the repository.
 pub struct Converger {
     kube: KubeClient,
-    keycloak: AdminClient,
     settings: Settings,
 }
 
 impl Converger {
-    /// A converger for one installation's apps namespace and its realm.
-    pub fn new(kube: KubeClient, keycloak: AdminClient, settings: Settings) -> Self {
-        Self {
-            kube,
-            keycloak,
-            settings,
-        }
+    /// A converger for one installation's apps namespace.
+    pub fn new(kube: KubeClient, settings: Settings) -> Self {
+        Self { kube, settings }
     }
 
     /// Converges every App in the repository, in the loader's deterministic order.
@@ -119,7 +109,6 @@ impl Converger {
         // compile, only four objects to remove (AP-21).
         if spec.lifecycle == AppLifecycle::Retired {
             self.delete_objects(&name).await?;
-            self.keycloak.delete_client(&oidc_client_id(&name)).await?;
             return Ok(Outcome::Deleted);
         }
         if !matches!(
@@ -148,28 +137,17 @@ impl Converger {
             }
         };
 
-        let credentials = self.credentials_of(&name).await?;
-        let rendered = render(manifest, Some(&image), &credentials, &self.settings)?;
+        let slug = self.slug_of(&name).await?;
+        let rendered = render(manifest, Some(&image), &slug, &self.settings)?;
         let Some(workload) = rendered.workload else {
             return Ok(Outcome::Skipped(
                 "a static app is served by the Portal, not by a pod (AP-14)".to_owned(),
             ));
         };
 
-        // The realm before the cluster: a pod whose client does not exist yet answers every
-        // request with an OIDC error page, while a client whose pod does not exist yet is
-        // simply a client nobody uses. The secret sent here is the one the Secret below
-        // carries, so the two halves cannot disagree (AP-27).
-        self.keycloak
-            .ensure_client(
-                &oidc_client_id(&name),
-                &redirect_uri(&name, &self.settings),
-                credentials.client_secret(),
-            )
-            .await?;
-
-        // The Secret first: the Deployment references it, and a pod that starts before its
-        // secret exists is a pod in CreateContainerConfigError until the next run.
+        // The Secret first: it is the slug's home between runs, and a run that wrote the pod
+        // and then failed before the Secret would mint a second slug next time and move the
+        // endpoint under the pod it just deployed (EP-02).
         for object in [
             &workload.secret,
             &workload.network_policy,
@@ -181,36 +159,27 @@ impl Converger {
         Ok(Outcome::Applied)
     }
 
-    /// The credentials this app already has, or fresh ones the first time it is deployed.
-    async fn credentials_of(&self, name: &str) -> Result<Credentials, ConvergeError> {
-        let secret_name = format!("app-{name}-oauth2");
+    /// The endpoint slug this app already has, or a fresh one the first time it is deployed.
+    async fn slug_of(&self, name: &str) -> Result<EndpointSlug, ConvergeError> {
+        let secret_name = format!("app-{name}-endpoint");
         let Some(secret) = self
             .kube
             .get("v1", "Secret", &self.settings.namespace, &secret_name)
             .await?
         else {
-            return Ok(Credentials::generate());
+            return Ok(generate_slug());
         };
-
-        let read = |key: &'static str| -> Result<String, ConvergeError> {
-            secret_value(&secret, key).ok_or(ConvergeError::ForeignSecret {
-                name: name.to_owned(),
-                key,
-            })
-        };
-        Credentials::existing(
-            read("client-secret")?,
-            read("cookie-secret")?,
-            &read("endpoint-slug")?,
-        )
-        .map_err(ConvergeError::Render)
+        let slug = secret_value(&secret, "endpoint-slug").ok_or(ConvergeError::ForeignSecret {
+            name: name.to_owned(),
+        })?;
+        EndpointSlug::new(&slug).map_err(|err| ConvergeError::Render(RenderError::Slug(err)))
     }
 
     /// Removes the four objects of one app; removing what is not there succeeds (CC-18).
     async fn delete_objects(&self, name: &str) -> Result<(), ConvergeError> {
         for (api_version, kind) in OBJECTS {
             let object_name = match kind {
-                "Secret" => format!("app-{name}-oauth2"),
+                "Secret" => format!("app-{name}-endpoint"),
                 _ => format!("app-{name}"),
             };
             self.kube

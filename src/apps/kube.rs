@@ -38,7 +38,7 @@ pub const FIELD_MANAGER: &str = "portal-app-reconciler";
 /// Server-side apply's content type; the body is JSON, which is YAML.
 const APPLY_PATCH: &str = "application/apply-patch+yaml";
 
-/// The four kinds an App compiles into (AP-13, AP-15, AP-26, AP-27), and nothing else.
+/// The four kinds an App compiles into (AP-13, AP-15, AP-26, EP-02), and nothing else.
 const KINDS: [(&str, &str, &str); 4] = [
     ("apps/v1", "Deployment", "deployments"),
     ("v1", "Service", "services"),

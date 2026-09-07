@@ -19,8 +19,8 @@ use crate::api::preferences::Preferences;
 use crate::api::projects::{ProjectList, ProjectSummary};
 use crate::api::resources::{ListMeta, ResourceList};
 use crate::api::service_accounts::{KeyInfo, KeyList, MintedKey};
-use crate::auth::oidc::LogoutTarget;
-use crate::auth::Identity;
+use crate::auth::oidc::{LogoutTarget, Me};
+use crate::auth::{Front, Identity};
 use crate::branding::{Branding, Colours, Fonts, Languages};
 use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSummary};
 use crate::error::ProblemDetails;
@@ -94,6 +94,8 @@ use crate::tools::model_tools::{
         EdgeKind,
         RegistrationCard,
         Identity,
+        Me,
+        Front,
         LogoutTarget,
         ProblemDetails,
         ResourceEnvelope,

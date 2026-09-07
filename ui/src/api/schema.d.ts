@@ -912,6 +912,12 @@ export interface components {
              */
             heading: string;
         };
+        /**
+         * @description How a request authenticated: what `GET /api/v1/auth/me` reports so the UI knows whose
+         *     logout to call (ADR-N-019 §3.4).
+         * @enum {string}
+         */
+        Front: "portal" | "edge" | "bearer";
         /** @description A LinkML source to compile. */
         GenerateRequest: {
             /** @description LinkML YAML, exactly as the editor holds it. */
@@ -1022,6 +1028,14 @@ export interface components {
              *     configured.
              */
             endSessionUrl: string;
+        };
+        /** @description Who is signed in and through which front, so the UI knows whose logout to call. */
+        Me: components["schemas"]["Identity"] & {
+            /**
+             * @description `portal` for the Portal's own cookie session, `edge` for the APISIX `openid-connect`
+             *     session, `bearer` for a token a service sent (ADR-N-019).
+             */
+            front: components["schemas"]["Front"];
         };
         /** @description A minted key. The only place a raw token ever appears (PF-36). */
         MintedKey: {
@@ -1335,13 +1349,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The signed-in identity */
+            /** @description The signed-in identity and its front */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Identity"];
+                    "application/json": components["schemas"]["Me"];
                 };
             };
             /** @description No live session */

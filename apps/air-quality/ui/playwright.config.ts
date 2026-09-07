@@ -6,8 +6,9 @@ const BASE_PATH = "/apps/air-quality/";
 const BASE_URL = `http://127.0.0.1:${APP_PORT}`;
 
 // The flow runs against the real binary behind its real base path, with a stub in the
-// endpoint's place. Playwright plays the sidecar: it sets the forwarded headers oauth2-proxy
-// would set, which is the only way to see the difference between a steward and a viewer.
+// endpoint's place. Playwright plays the edge: it sets the X-Access-Token and X-Userinfo headers
+// the openid-connect plugin would set, which is the only way to see the difference between a
+// steward and a viewer.
 export default defineConfig({
   testDir: "../tests/e2e",
   fullyParallel: false,

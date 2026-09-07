@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,15 +39,30 @@ function renderApp(client: QueryClient) {
 }
 
 function Probe() {
-  const { status, roles, hasRole } = useAuth();
+  const { status, roles, hasRole, signOut } = useAuth();
   return (
     <ul>
       <li data-testid="status">{status}</li>
       <li data-testid="roles">{roles.join(",")}</li>
       <li data-testid="editor">{hasRole("space-editor") ? "yes" : "no"}</li>
       <li data-testid="admin">{hasRole("city-admin") ? "yes" : "no"}</li>
+      <li>
+        <button type="button" onClick={() => void signOut()}>
+          Sign out
+        </button>
+      </li>
     </ul>
   );
+}
+
+/** jsdom does not navigate; the assignment is what the test reads. */
+function stubNavigation(): ReturnType<typeof vi.fn> {
+  const assign = vi.fn();
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: { ...window.location, assign, origin: "http://localhost:3000", pathname: "/" },
+  });
+  return assign;
 }
 
 describe("authentication", () => {
@@ -114,6 +130,77 @@ describe("authentication", () => {
     expect(screen.getByTestId("roles")).toHaveTextContent("portal-viewer,space-editor");
     expect(screen.getByTestId("editor")).toHaveTextContent("yes");
     expect(screen.getByTestId("admin")).toHaveTextContent("no");
+  });
+
+  // ADR-N-019, AP-29: behind the edge the logout ends at the plugin's `/logout`, after the
+  // Portal's own cookies are cleared: an earlier code-flow login may have left them, and the
+  // edge's logout never reaches the Portal.
+  it("signs out through the Portal and then the edge's logout path when the session came from the edge", async () => {
+    const assign = stubNavigation();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/auth/logout")) {
+        return Promise.resolve(json({ endSessionUrl: "https://idm.example.test/logout" }));
+      }
+      return Promise.resolve(json({ ...IDENTITY, front: "edge" }));
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <AuthProvider>
+            <Probe />
+          </AuthProvider>
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+    await waitFor(() => {
+      expect(assign).toHaveBeenCalledWith("/logout");
+    });
+    expect(assign).not.toHaveBeenCalledWith("https://idm.example.test/logout");
+    const posted = fetchMock.mock.calls.filter((call: unknown[]) => {
+      const input = call[0] as RequestInfo | URL;
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return url.includes("/auth/logout");
+    });
+    expect(posted).toHaveLength(1);
+    expect((posted[0][1] as RequestInit).method).toBe("POST");
+  });
+
+  it("signs out through the Portal and on to Keycloak when the session is the Portal's own", async () => {
+    const assign = stubNavigation();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/auth/logout")) {
+        return Promise.resolve(json({ endSessionUrl: "https://idm.example.test/logout" }));
+      }
+      return Promise.resolve(json({ ...IDENTITY, front: "portal" }));
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <AuthProvider>
+            <Probe />
+          </AuthProvider>
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("status")).toHaveTextContent("authenticated");
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+    await waitFor(() => {
+      expect(assign).toHaveBeenCalledWith("https://idm.example.test/logout");
+    });
   });
 
   it("renders the protected shell for a live session", async () => {
