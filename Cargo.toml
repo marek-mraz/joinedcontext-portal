@@ -31,7 +31,7 @@ jc-core = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", ta
 jcctl = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", tag = "jc-core-v0.6.1", version = "0.1.0", default-features = false }
 # Only to render jc-core's schemas into the OpenAPI document; the Portal's own types use utoipa.
 schemars = "0.8"
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "multipart"] }
 axum-extra = { version = "0.12", features = ["cookie-private"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["set-header", "trace"] }

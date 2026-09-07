@@ -7,6 +7,7 @@ pub mod dry_run;
 pub mod export;
 pub mod federation;
 pub mod health;
+pub mod import;
 pub mod mutate;
 pub mod pipelines;
 pub mod preferences;
@@ -34,6 +35,7 @@ pub fn router() -> Router<AppState> {
         .merge(ckan::router())
         .merge(export::router())
         .merge(federation::router())
+        .merge(import::router())
         .merge(resources::router())
         .merge(pipelines::router())
         .merge(preferences::router())
