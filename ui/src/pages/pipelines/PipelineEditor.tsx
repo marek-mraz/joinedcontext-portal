@@ -11,6 +11,7 @@ import type { ManifestSource } from "../../components/ResourceFormDialog";
 import { Alert, buttonClass, Icon } from "../../components/ui";
 import { pipelineSchema, pipelineUiSchema } from "../../schemas/kinds";
 import type { EndpointOption } from "../../schemas/kinds";
+import { PipelineStudio } from "./PipelineStudio";
 
 /** The form of a pipeline: `PipelineSpec` with every reference flattened to its name. */
 export interface PipelineForm {
@@ -203,16 +204,18 @@ export function PipelineEditorDialog({
       ),
   });
 
+  const dataSourceList = useMemo(() => asManifests(dataSources.data?.items ?? []), [dataSources.data]);
+  const endpointList = useMemo(() => asManifests(endpoints.data?.items ?? []), [endpoints.data]);
   const dataSourceNames = useMemo(
     () =>
       withCurrent(
-        asManifests(dataSources.data?.items ?? []).map((source) => source.metadata.name),
+        dataSourceList.map((source) => source.metadata.name),
         draft?.source?.dataSourceRef,
       ),
-    [dataSources.data, draft?.source?.dataSourceRef],
+    [dataSourceList, draft?.source?.dataSourceRef],
   );
   const endpointOptions = useMemo<EndpointOption[]>(() => {
-    const known = asManifests(endpoints.data?.items ?? []).map((endpoint) => ({
+    const known = endpointList.map((endpoint) => ({
       name: endpoint.metadata.name,
       urn: endpointUrn(orgDomain, endpoint),
     }));
@@ -225,7 +228,7 @@ export function PipelineEditorDialog({
       ...(current && !names.includes(current) ? [{ name: current }] : []),
       ...(target && !urns.includes(target) ? [{ name: `urn:${target}`, urn: target }] : []),
     ];
-  }, [endpoints.data, orgDomain, draft?.source?.endpointRef, draft?.targetEndpoint]);
+  }, [endpointList, orgDomain, draft?.source?.endpointRef, draft?.targetEndpoint]);
 
   const schema = useMemo(
     () => pipelineSchema(t, dataSourceNames, endpointOptions),
@@ -261,6 +264,13 @@ export function PipelineEditorDialog({
       onChange={setDraft}
       onSubmit={(form) => onSubmit(toEnvelope(project, form, editing ?? undefined))}
     >
+      <PipelineStudio
+        project={project}
+        draft={draft}
+        onChange={setDraft}
+        dataSources={dataSourceList}
+        endpoints={endpointList}
+      />
       {draft?.compute?.kind === "bloblang" ? (
         <Alert
           tone="info"

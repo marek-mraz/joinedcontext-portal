@@ -340,6 +340,8 @@
       "query": "Dopyt",
       "queryType": "Typ entity",
       "attrs": "Atribúty",
+      "ids": "Entity",
+      "idsHint": "URN entít, ktoré sa čítajú namiesto celého typu; štúdio ich vyplní z označených riadkov.",
       "q": "Filter (q)",
       "scopeQ": "Filter rozsahu (scopeQ)",
       "geoQ": "Geo filter (geoQ)",
@@ -393,7 +395,37 @@
       "lead": "Formulár a manifest, ktorý zapisuje: obe podoby opisujú tú istú pipelinu a návrh ide do Schvaľovania ako každá iná zmena."
     },
     "bloblangHint": "Bloblang mapovanie sa upravuje tu a ukladá do manifestu; prázdne ostáva v bento.yaml vedľa tohto manifestu vo forge.",
-    "bloblangFile": "Otvoriť bento.yaml"
+    "bloblangFile": "Otvoriť bento.yaml",
+    "studio": {
+      "source": "1. Zdroj",
+      "sourceKind": "Čítať z",
+      "kind": {
+        "none": "Vyberte…",
+        "datasource": "Dátový zdroj tohto projektu (externý feed)",
+        "space": "Context space tohto projektu"
+      },
+      "space": "Context space",
+      "readThrough": "Čítať cez endpoint",
+      "readThroughHint": "Policy endpointu rozhoduje, čo pipeline vidí.",
+      "entities": "2. Entity",
+      "typePlaceholder": "Typ entity, napr. AirQualityObserved",
+      "qHint": "NGSI-LD filter, napr. pm10>50",
+      "loadSample": "Načítať vzorku",
+      "sampleHint": "Najviac {count} entít, čítané vaším prihlásením; označte riadky, ak sa má spracovať len tie.",
+      "noEndpoint": "Tento space zatiaľ nečíta žiadny endpoint.",
+      "noEntities": "Endpoint nevrátil žiadne entity tohto typu.",
+      "sample": "Vzorka",
+      "tick": "Vybrať",
+      "ticked": "Označených entít: {count}; pipeline číta len tie (source.query.ids).",
+      "process": "3. Spracovanie",
+      "processHint": "Úryvok zapíše Bloblang nižšie; potom ho upravte alebo vo formulári zvoľte iný druh výpočtu.",
+      "attribute": "Atribút",
+      "aggregate": {
+        "sum": "Súčet",
+        "average": "Priemer",
+        "count": "Počet"
+      }
+    }
   },
   "dashboards": {
     "lead": "Mapy nakreslené z endpointov tohto projektu.",

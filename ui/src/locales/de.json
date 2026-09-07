@@ -340,6 +340,8 @@
       "query": "Abfrage",
       "queryType": "Entitätstyp",
       "attrs": "Attribute",
+      "ids": "Entitäten",
+      "idsHint": "URNs der Entitäten, die statt des ganzen Typs gelesen werden; das Studio füllt sie aus den markierten Zeilen.",
       "q": "Filter (q)",
       "scopeQ": "Scope-Filter (scopeQ)",
       "geoQ": "Geo-Filter (geoQ)",
@@ -393,7 +395,37 @@
       "lead": "Ein Formular und das Manifest, das es schreibt: beide beschreiben dieselbe Pipeline, und der Vorschlag geht wie jede andere Änderung in die Freigaben."
     },
     "bloblangHint": "Das Bloblang-Mapping wird hier bearbeitet und landet im Manifest; leer bleibt es in bento.yaml neben diesem Manifest im Forge.",
-    "bloblangFile": "bento.yaml öffnen"
+    "bloblangFile": "bento.yaml öffnen",
+    "studio": {
+      "source": "1. Quelle",
+      "sourceKind": "Lesen aus",
+      "kind": {
+        "none": "Auswählen…",
+        "datasource": "Eine Datenquelle dieses Projekts (externer Feed)",
+        "space": "Ein Context Space dieses Projekts"
+      },
+      "space": "Context Space",
+      "readThrough": "Lesen über Endpoint",
+      "readThroughHint": "Die Policy des Endpoints entscheidet, was die Pipeline sieht.",
+      "entities": "2. Entitäten",
+      "typePlaceholder": "Entitätstyp, z. B. AirQualityObserved",
+      "qHint": "NGSI-LD-Filter, z. B. pm10>50",
+      "loadSample": "Stichprobe laden",
+      "sampleHint": "Bis zu {count} Entitäten, gelesen mit Ihrer Sitzung; markieren Sie Zeilen, um nur diese zu verarbeiten.",
+      "noEndpoint": "Noch kein Endpoint liest diesen Space.",
+      "noEntities": "Der Endpoint lieferte keine Entitäten dieses Typs.",
+      "sample": "Stichprobe",
+      "tick": "Auswählen",
+      "ticked": "{count} Entitäten markiert: die Pipeline liest nur diese (source.query.ids).",
+      "process": "3. Verarbeitung",
+      "processHint": "Ein Schnipsel schreibt das Bloblang unten; danach bearbeiten oder im Formular eine andere Rechenart wählen.",
+      "attribute": "Attribut",
+      "aggregate": {
+        "sum": "Summe",
+        "average": "Mittelwert",
+        "count": "Anzahl"
+      }
+    }
   },
   "dashboards": {
     "lead": "Karten, gezeichnet aus den Endpunkten dieses Projekts.",

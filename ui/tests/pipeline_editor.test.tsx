@@ -28,6 +28,9 @@ const { App } = await import("../src/App");
 const { endpointUrn, fromManifest, toEnvelope, toForm } = await import(
   "../src/pages/pipelines/PipelineEditor"
 );
+const { aggregateBloblang, attributesOf, sourceKindOf } = await import(
+  "../src/pages/pipelines/PipelineStudio"
+);
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -104,6 +107,47 @@ const ENDPOINTS = list([
   },
 ]);
 
+const SPACES = list([
+  {
+    apiVersion: "joinedcontext.com/v1alpha1",
+    kind: "ContextSpace",
+    metadata: { name: "ovzdusie", namespace: "banskabystrica", title: { en: "Air quality" } },
+    spec: { dataModelRef: "bb-air-quality" },
+  },
+]);
+
+const AIR_MODEL = [
+  "id: https://banskabystrica.sk/models/air",
+  "name: bb-air-quality",
+  "classes:",
+  "  AirQualityObserved:",
+  "    slots: [id, pm10, pm25, refDistrict]",
+  "  AirQualityStation:",
+  "    slots: [id, name]",
+  "slots:",
+  "  id: {}",
+  "  pm10: { range: float }",
+  "  pm25: { range: float }",
+  "  refDistrict: { range: string }",
+  "  name: { range: string }",
+  "",
+].join("\n");
+
+const MODELS = list([
+  {
+    apiVersion: "joinedcontext.com/v1alpha1",
+    kind: "DataModel",
+    metadata: { name: "bb-air-quality", namespace: "banskabystrica" },
+    spec: { linkml: AIR_MODEL, version: "2.1.0" },
+  },
+]);
+
+const SAMPLE = [
+  { id: "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:radvan-01", type: "AirQualityObserved", pm10: 12, pm25: 4 },
+  { id: "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:radvan-02", type: "AirQualityObserved", pm10: 9, pm25: 3 },
+  { id: "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:sasova-01", type: "AirQualityObserved", pm10: 30, pm25: 11 },
+];
+
 const CHANGE = {
   apiVersion: "joinedcontext.com/v1alpha1",
   kind: "Change",
@@ -132,8 +176,17 @@ function renderPipelines() {
     if (request.method !== "GET") {
       return json(CHANGE, 202);
     }
+    if (path.startsWith("/api/endpoint/")) {
+      return json(SAMPLE);
+    }
     if (path.endsWith("/pipelines")) {
       return json(list([EXISTING]));
+    }
+    if (path.endsWith("/spaces")) {
+      return json(SPACES);
+    }
+    if (path.endsWith("/datamodels")) {
+      return json(MODELS);
     }
     if (path.endsWith("/datasources")) {
       return json(DATASOURCES);
@@ -366,6 +419,94 @@ describe("pipeline editor", () => {
     const alerts = await within(dialog).findAllByRole("alert");
     expect(alerts.filter((alert) => alert.textContent?.includes(en.form.required)).length)
       .toBeGreaterThanOrEqual(2);
+  });
+
+it("tells a feed from a space and reads the attributes of a class from an inline model", () => {
+    expect(sourceKindOf(undefined)).toBe("none");
+    expect(sourceKindOf({ source: { dataSourceRef: "mqtt-mesto" } })).toBe("datasource");
+    expect(sourceKindOf({ source: { endpointRef: "public-air" } })).toBe("space");
+    const model = MODELS.items[0] as Manifest;
+    expect(attributesOf(model, "AirQualityObserved")).toEqual(["pm10", "pm25", "refDistrict"]);
+    expect(attributesOf(model, "Nope")).toEqual([]);
+    expect(attributesOf(undefined, "AirQualityObserved")).toEqual([]);
+  });
+
+  it("writes an aggregate as one derived entity in an array, with provenance", () => {
+    const sum = aggregateBloblang("sum", {
+      type: "AirQualityObserved",
+      attribute: "pm10",
+      space: "ovzdusie",
+      outputType: "AirQualityObservedAggregate",
+    });
+    expect(sum).toContain('"pm10Sum": { "type": "Property", "value": this.map_each(e -> e.pm10.value.number().catch(0)).sum()');
+    expect(sum).toContain('"derivedFrom": { "type": "Relationship", "object": this.map_each(e -> e.id) }');
+    expect(sum).toContain('"type": "AirQualityObservedAggregate"');
+    expect(sum.trim().startsWith("#")).toBe(true);
+    const count = aggregateBloblang("count", {
+      type: "AirQualityObserved",
+      attribute: "pm10",
+      space: "ovzdusie",
+      outputType: "AirQualityObservedAggregate",
+    });
+    expect(count).toContain('"pm10Count": { "type": "Property", "value": this.length()');
+    const average = aggregateBloblang("average", {
+      type: "AirQualityObserved",
+      attribute: "pm25",
+      space: "ovzdusie",
+      outputType: "X",
+    });
+    expect(average).toContain("if this.length() == 0 { 0 } else {");
+  });
+
+  it("guides source, entities, a ticked sample and a sum into one proposed manifest (UI-32)", async () => {
+    const fetchMock = renderPipelines();
+    const dialog = await openNew();
+    const studio = within(dialog).getByTestId("pipeline-studio");
+
+    await userEvent.selectOptions(within(studio).getByLabelText(en.pipelines.studio.sourceKind), "space");
+    await userEvent.selectOptions(within(studio).getByLabelText(en.pipelines.studio.space), "ovzdusie");
+    // The read endpoint of the space is picked for the author, and stays a choice.
+    expect(within(studio).getByLabelText(en.pipelines.studio.readThrough)).toHaveValue("public-air");
+    await userEvent.selectOptions(within(studio).getByLabelText(en.pipelines.field.queryType), "AirQualityObserved");
+    // The class's attributes come from the inline model.
+    await userEvent.click(within(studio).getByLabelText("pm10"));
+
+    await userEvent.click(within(studio).getByRole("button", { name: en.pipelines.studio.loadSample }));
+    const first = await within(studio).findByLabelText(SAMPLE[0].id);
+    await userEvent.click(first);
+    await userEvent.click(within(studio).getByLabelText(SAMPLE[2].id));
+    expect(within(studio).getByText(/2 entities ticked/)).toBeInTheDocument();
+    const gatewayCalls = fetchMock.mock.calls
+      .map((call) => new URL((call[0] as Request).url))
+      .filter((url) => url.pathname.startsWith("/api/endpoint/"));
+    expect(gatewayCalls).toHaveLength(1);
+    expect(gatewayCalls[0].pathname).toBe("/api/endpoint/k7m2qz4tv6xh3n5jb2ryd3wcfa/ngsi-ld/v1/entities");
+    expect(gatewayCalls[0].searchParams.get("options")).toBe("keyValues");
+    expect(gatewayCalls[0].searchParams.get("attrs")).toBe("pm10");
+
+    await userEvent.click(within(studio).getByRole("button", { name: en.pipelines.studio.aggregate.sum }));
+
+    await userEvent.type(within(dialog).getByLabelText(/^Name/), "pm10-sum");
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText(/^Target endpoint/),
+      "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const body = (await writes(fetchMock)[0].clone().json()) as { spec: Record<string, unknown> };
+    expect(body.spec).toMatchObject({
+      class: "auto",
+      period: "1h",
+      source: {
+        endpointRef: { kind: "Endpoint", name: "public-air" },
+        query: { type: "AirQualityObserved", attrs: ["pm10"], ids: [SAMPLE[0].id, SAMPLE[2].id] },
+      },
+      compute: { kind: "bloblang" },
+      output: { type: "AirQualityObservedAggregate", mode: "upsert" },
+      targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
+    });
+    expect((body.spec.compute as { bloblang: string }).bloblang).toContain("pm10Sum");
   });
 
   it("edits an existing pipeline at its own path, keeping what the form does not show", async () => {

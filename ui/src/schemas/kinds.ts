@@ -590,6 +590,13 @@ export function pipelineSchema(
             properties: {
               type: entityType(t("pipelines.field.queryType")),
               attrs: names(t("pipelines.field.attrs")),
+              // The ticked entities of the studio's sample (PL-42): PF-42 URNs.
+              ids: {
+                type: "array",
+                title: t("pipelines.field.ids"),
+                description: t("pipelines.field.idsHint"),
+                items: { type: "string", pattern: "^urn:ngsi-ld:[^:]+:[^:]+:[^:]+:[A-Za-z0-9._~-]{1,128}$" },
+              },
               q: { type: "string", title: t("pipelines.field.q") },
               scopeQ: { type: "string", title: t("pipelines.field.scopeQ") },
               geoQ: { type: "string", title: t("pipelines.field.geoQ") },

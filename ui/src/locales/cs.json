@@ -340,6 +340,8 @@
       "query": "Dotaz",
       "queryType": "Typ entity",
       "attrs": "Atributy",
+      "ids": "Entity",
+      "idsHint": "URN entit, které se čtou místo celého typu; studio je vyplní z označených řádků.",
       "q": "Filtr (q)",
       "scopeQ": "Filtr rozsahu (scopeQ)",
       "geoQ": "Geo filtr (geoQ)",
@@ -393,7 +395,37 @@
       "lead": "Formulář a manifest, který zapisuje: obě podoby popisují tutéž pipelinu a návrh jde do Schvalování jako každá jiná změna."
     },
     "bloblangHint": "Bloblang mapování se upravuje zde a ukládá do manifestu; prázdné zůstává v bento.yaml vedle tohoto manifestu ve forge.",
-    "bloblangFile": "Otevřít bento.yaml"
+    "bloblangFile": "Otevřít bento.yaml",
+    "studio": {
+      "source": "1. Zdroj",
+      "sourceKind": "Číst z",
+      "kind": {
+        "none": "Vyberte…",
+        "datasource": "Datový zdroj tohoto projektu (externí feed)",
+        "space": "Context space tohoto projektu"
+      },
+      "space": "Context space",
+      "readThrough": "Číst přes endpoint",
+      "readThroughHint": "Policy endpointu rozhoduje, co pipeline vidí.",
+      "entities": "2. Entity",
+      "typePlaceholder": "Typ entity, např. AirQualityObserved",
+      "qHint": "NGSI-LD filtr, např. pm10>50",
+      "loadSample": "Načíst vzorek",
+      "sampleHint": "Nejvýše {count} entit, čtené vaším přihlášením; označte řádky, má-li se zpracovat jen ty.",
+      "noEndpoint": "Tento space zatím nečte žádný endpoint.",
+      "noEntities": "Endpoint nevrátil žádné entity tohoto typu.",
+      "sample": "Vzorek",
+      "tick": "Vybrat",
+      "ticked": "Označených entit: {count}; pipeline čte jen ty (source.query.ids).",
+      "process": "3. Zpracování",
+      "processHint": "Úryvek zapíše Bloblang níže; poté jej upravte nebo ve formuláři zvolte jiný druh výpočtu.",
+      "attribute": "Atribut",
+      "aggregate": {
+        "sum": "Součet",
+        "average": "Průměr",
+        "count": "Počet"
+      }
+    }
   },
   "dashboards": {
     "lead": "Mapy nakreslené z endpointů tohoto projektu.",

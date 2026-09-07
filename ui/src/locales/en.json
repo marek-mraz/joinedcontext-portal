@@ -340,6 +340,8 @@
       "query": "Query",
       "queryType": "Entity type",
       "attrs": "Attributes",
+      "ids": "Entities",
+      "idsHint": "URNs of the entities to read instead of the whole type; the studio fills them from the rows you tick.",
       "q": "Filter (q)",
       "scopeQ": "Scope filter (scopeQ)",
       "geoQ": "Geo filter (geoQ)",
@@ -393,7 +395,37 @@
       "lead": "A form and the manifest it writes: both describe the same pipeline, and the proposal goes to Approvals like every other change."
     },
     "bloblangHint": "The Bloblang mapping is edited here and lands in the manifest; left empty, it stays in bento.yaml beside this manifest in the forge.",
-    "bloblangFile": "Open bento.yaml"
+    "bloblangFile": "Open bento.yaml",
+    "studio": {
+      "source": "1. Source",
+      "sourceKind": "Read from",
+      "kind": {
+        "none": "Choose…",
+        "datasource": "A data source of this project (external feed)",
+        "space": "A context space of this project"
+      },
+      "space": "Context space",
+      "readThrough": "Read through endpoint",
+      "readThroughHint": "The endpoint's Policy decides what the pipeline sees.",
+      "entities": "2. Entities",
+      "typePlaceholder": "Entity type, e.g. AirQualityObserved",
+      "qHint": "NGSI-LD filter, e.g. pm10>50",
+      "loadSample": "Load sample",
+      "sampleHint": "Up to {count} entities, read with your session; tick rows to process only those.",
+      "noEndpoint": "No endpoint reads this space yet.",
+      "noEntities": "The endpoint returned no entities of this type.",
+      "sample": "Sample",
+      "tick": "Select",
+      "ticked": "{count} entities ticked: the pipeline reads only these (source.query.ids).",
+      "process": "3. Process",
+      "processHint": "A snippet writes the Bloblang below; edit it afterwards or pick another compute kind in the form.",
+      "attribute": "Attribute",
+      "aggregate": {
+        "sum": "Sum",
+        "average": "Average",
+        "count": "Count"
+      }
+    }
   },
   "dashboards": {
     "lead": "Maps drawn from the endpoints of this project.",
