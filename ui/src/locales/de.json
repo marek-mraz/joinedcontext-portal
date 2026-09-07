@@ -465,7 +465,8 @@
       "import": "Import",
       "structure": "Struktur",
       "source": "Quelle",
-      "preview": "Vorschau"
+      "preview": "Vorschau",
+      "mappings": "Mappings"
     },
     "sdm": {
       "browse": "Smart-Data-Models-Katalog",
@@ -644,6 +645,38 @@
       "title": "Ausgewähltes Objekt",
       "health": "Zustand",
       "noCredential": "Eine Karte zeigt, dass sich eine Registrierung authentifiziert und wie. Das Konto, unter dem weitergereicht wird, wird erst bei der Abfrage aufgelöst, und an diese Seite geht nie ein Geheimnis."
+    }
+  },
+  "mappings": {
+    "pair": "Modelle",
+    "source": "Quellmodell",
+    "target": "Zielmodell",
+    "lane": "Prüfspur:",
+    "canvas": "Slot-Ableitungen",
+    "unfilled": "Pflicht-Zielslots, die nichts füllt: {slots}. Model Tools lehnt dieses Mapping ab (DM-34).",
+    "targetSlot": "Zielslot",
+    "sourceSlot": "Quellslot",
+    "origin": "Vorbelegt aus",
+    "unit": "Einheitenumrechnung",
+    "sourceFor": "Quellslot für {slot}",
+    "unmapped": "— nicht zugeordnet —",
+    "native": "natives Bloblang, ungeprüft",
+    "unitFor": "Zieleinheit für {slot}",
+    "factorFor": "Umrechnungsfaktor für {slot}",
+    "golden": "Golden Test",
+    "input": "Eingabebeispiel (JSON)",
+    "output": "Transformierte Ausgabe",
+    "unchecked": "Hier nicht ausgewertet, sie stammen aus nativem Bloblang: {slots}. CI führt sie über Bento aus.",
+    "missing": "Das Eingabebeispiel enthält keinen Wert für: {slots}.",
+    "laneRaised": "{count} native Blöcke heben die Prüfspur um eine Stufe (DM-38).",
+    "exampleNotJson": "Das Beispiel ist kein gültiges JSON.",
+    "exampleNotAnObject": "Das Beispiel muss ein JSON-Objekt sein.",
+    "originOf": {
+      "identical": "gleicher Name",
+      "exact": "exakte Übereinstimmung",
+      "close": "nahe Übereinstimmung",
+      "alignment": "SSSOM-Abgleich",
+      "manual": "von Ihnen gewählt"
     }
   }
 }

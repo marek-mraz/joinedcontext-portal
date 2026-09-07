@@ -465,7 +465,8 @@
       "import": "Import",
       "structure": "Structure",
       "source": "Source",
-      "preview": "Preview"
+      "preview": "Preview",
+      "mappings": "Mappings"
     },
     "sdm": {
       "browse": "Smart Data Models catalogue",
@@ -644,6 +645,38 @@
       "title": "Selected object",
       "health": "Health",
       "noCredential": "A card shows that a registration authenticates and how. The account it forwards as is resolved when a query is made, and no credential is ever sent to this page."
+    }
+  },
+  "mappings": {
+    "pair": "Models",
+    "source": "Source model",
+    "target": "Target model",
+    "lane": "Review lane:",
+    "canvas": "Slot derivations",
+    "unfilled": "Required target slots nothing fills: {slots}. Model Tools refuses this mapping (DM-34).",
+    "targetSlot": "Target slot",
+    "sourceSlot": "Source slot",
+    "origin": "Pre-filled from",
+    "unit": "Unit conversion",
+    "sourceFor": "Source slot for {slot}",
+    "unmapped": "— not mapped —",
+    "native": "native bloblang, unchecked",
+    "unitFor": "Target unit for {slot}",
+    "factorFor": "Conversion factor for {slot}",
+    "golden": "Golden test",
+    "input": "Input example (JSON)",
+    "output": "Transformed output",
+    "unchecked": "Not evaluated here, they come from native bloblang: {slots}. CI runs them through Bento.",
+    "missing": "The input example carries no value for: {slots}.",
+    "laneRaised": "{count} native block(s) raise the review lane by one (DM-38).",
+    "exampleNotJson": "The example is not valid JSON.",
+    "exampleNotAnObject": "The example has to be a JSON object.",
+    "originOf": {
+      "identical": "identical name",
+      "exact": "exact match",
+      "close": "close match",
+      "alignment": "SSSOM alignment",
+      "manual": "chosen by you"
     }
   }
 }

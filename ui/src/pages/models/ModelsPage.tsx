@@ -7,6 +7,8 @@ import { asManifests } from "../../api/manifest";
 import { LinkmlPreviewPanel } from "./LinkmlPreviewPanel";
 import { LinkmlSourceEditor } from "./LinkmlSourceEditor";
 import { LinkmlVisualEditor } from "./LinkmlVisualEditor";
+import { MappingsEditor } from "./MappingsEditor";
+import type { MappingModel } from "./MappingsEditor";
 import { SmartDataModelsImport } from "./SmartDataModelsImport";
 import type { CatalogueModel } from "./SmartDataModelsImport";
 import { blankSource, diagnose, parseModel } from "./linkml";
@@ -36,16 +38,22 @@ export interface ModelsPageProps {
    * the `DataModel` manifest, which is where a published model's source and version live.
    */
   baseline?: { source: string; version: string; lifecycle: Lifecycle; name: string };
+  /**
+   * The other models this one can be mapped to and from (DM-33). The document being edited is
+   * always among them, so a mapping can be written before it is published.
+   */
+  mappable?: MappingModel[];
 }
 
-type Tab = "structure" | "source" | "preview" | "import";
+type Tab = "structure" | "source" | "preview" | "import" | "mappings";
 
-const TABS: Tab[] = ["import", "structure", "source", "preview"];
+const TABS: Tab[] = ["import", "structure", "source", "preview", "mappings"];
 
 export function ModelsPage({
   project,
   locales = ["sk", "en", "de", "cs"],
   baseline,
+  mappable = [],
 }: ModelsPageProps): JSX.Element {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>(baseline ? "structure" : "import");
@@ -196,6 +204,14 @@ export function ModelsPage({
           <LinkmlSourceEditor source={source} onChange={setSource} diagnostics={diagnostics} />
         ) : null}
         {tab === "preview" ? <LinkmlPreviewPanel source={source} /> : null}
+        {tab === "mappings" ? (
+          <MappingsEditor
+            models={[
+              { name: model.name ?? "draft", version: nextVersion, source },
+              ...mappable.filter((candidate) => candidate.name !== model.name),
+            ]}
+          />
+        ) : null}
       </div>
     </div>
   );

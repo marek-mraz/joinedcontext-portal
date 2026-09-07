@@ -465,7 +465,8 @@
       "import": "Import",
       "structure": "Štruktúra",
       "source": "Zdroj",
-      "preview": "Náhľad"
+      "preview": "Náhľad",
+      "mappings": "Mapovania"
     },
     "sdm": {
       "browse": "Katalóg Smart Data Models",
@@ -644,6 +645,38 @@
       "title": "Vybraný objekt",
       "health": "Stav",
       "noCredential": "Karta ukazuje, že sa registrácia autentifikuje a ako. Účet, pod ktorým sa dopyt posiela, sa vyhodnocuje až pri dopyte a na túto stránku sa žiadny prihlasovací údaj nikdy neposiela."
+    }
+  },
+  "mappings": {
+    "pair": "Modely",
+    "source": "Zdrojový model",
+    "target": "Cieľový model",
+    "lane": "Kontrolná dráha:",
+    "canvas": "Odvodenia slotov",
+    "unfilled": "Povinné cieľové sloty, ktoré nič nenapĺňa: {slots}. Model Tools takéto mapovanie odmietne (DM-34).",
+    "targetSlot": "Cieľový slot",
+    "sourceSlot": "Zdrojový slot",
+    "origin": "Predvyplnené podľa",
+    "unit": "Prevod jednotky",
+    "sourceFor": "Zdrojový slot pre {slot}",
+    "unmapped": "— nemapované —",
+    "native": "natívny bloblang, neskontrolované",
+    "unitFor": "Cieľová jednotka pre {slot}",
+    "factorFor": "Prevodný koeficient pre {slot}",
+    "golden": "Zlatý test",
+    "input": "Vstupný príklad (JSON)",
+    "output": "Transformovaný výstup",
+    "unchecked": "Tu sa nevyhodnocujú, pochádzajú z natívneho bloblangu: {slots}. CI ich spustí cez Bento.",
+    "missing": "Vstupný príklad neobsahuje hodnotu pre: {slots}.",
+    "laneRaised": "Natívne bloky ({count}) zvyšujú kontrolnú dráhu o jeden stupeň (DM-38).",
+    "exampleNotJson": "Príklad nie je platný JSON.",
+    "exampleNotAnObject": "Príklad musí byť JSON objekt.",
+    "originOf": {
+      "identical": "zhodný názov",
+      "exact": "presná zhoda",
+      "close": "blízka zhoda",
+      "alignment": "zarovnanie SSSOM",
+      "manual": "zvolené vami"
     }
   }
 }
