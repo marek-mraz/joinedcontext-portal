@@ -17,6 +17,7 @@ import { ApprovalsPage } from "./routes/ApprovalsPage";
 import { ApprovalDetailPage } from "./routes/ApprovalDetailPage";
 import { FederationPlayground } from "./components/visualization/FederationPlayground";
 import { ModelsPage } from "./pages/models/ModelsPage";
+import { ExplorePage } from "./pages/explore/ExplorePage";
 import { CkanPage } from "./pages/ckan/CkanPage";
 import { FederationPage } from "./pages/federation/FederationPage";
 import { SpaceInside } from "./pages/spaces/SpaceInside";
@@ -166,6 +167,19 @@ const modelsRoute = createRoute({
   },
 });
 
+const exploreRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/explore",
+  component: function ExploreRoute() {
+    const { project } = exploreRoute.useParams();
+    return (
+      <Shell project={project}>
+        <ExplorePage project={project} />
+      </Shell>
+    );
+  },
+});
+
 const ckanRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/ckan",
@@ -228,6 +242,7 @@ export const routeTree = rootRoute.addChildren([
     playgroundRoute,
     allEndpointsRoute,
     modelsRoute,
+    exploreRoute,
     ckanRoute,
     federationRoute,
     spaceInsideRoute,

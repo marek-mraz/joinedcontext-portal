@@ -27,7 +27,8 @@
     "ckan": "Offene Daten",
     "federation": "Föderation",
     "allEndpoints": "Alle Endpunkte",
-    "shared": "Geteilte Referenzen"
+    "shared": "Geteilte Referenzen",
+    "explore": "Daten erkunden"
   },
   "auth": {
     "lead": "Melden Sie sich mit dem Konto Ihrer Organisation an, um diese Plattform zu verwalten.",
@@ -869,5 +870,41 @@
       "title": "Das Repository enthält kein Projekt",
       "description": "Legen Sie im Konfigurations-Repository ein Verzeichnis projects/<slug>/ mit mindestens einem Manifest an; das Portal zeigt es nach der nächsten Synchronisation."
     }
+  },
+  "entities": {
+    "type": "Entitätstyp",
+    "typePlaceholder": "Entitätstyp, z. B. AirQualityObserved",
+    "scopeQ": "Bereich (scope)",
+    "scopeQHint": "NGSI-LD scopeQ, z. B. /district/1",
+    "filters": "Filter",
+    "attribute": "Attribut",
+    "operator": "Operator",
+    "value": "Wert",
+    "addFilter": "Filter hinzufügen",
+    "remove": "Entfernen",
+    "advanced": "Dieses q verwendet | oder Klammern, die die Zeilen nicht zeigen können; als Text bearbeiten.",
+    "q": "Abfrage (q)",
+    "qHint": "Das NGSI-LD q, das die Zeilen bilden; hier oder im YAML bearbeiten.",
+    "attrs": "Gelesene Attribute"
+  },
+  "explore": {
+    "title": "Daten erkunden",
+    "description": "Entitäten eines Kontextraums über einen seiner Endpunkte mit Ihrer Sitzung lesen; die Policy des Endpunkts bestimmt, was Sie sehen.",
+    "space": "Kontextraum",
+    "endpoint": "Über Endpunkt lesen",
+    "noEndpoint": "Dieser Raum hat keinen Endpunkt zum Lesen.",
+    "noType": "Wählen Sie einen Entitätstyp, um Entitäten zu laden.",
+    "count": "{count} Entitäten",
+    "countUnknown": "Anzahl nicht gemeldet",
+    "pageSize": "Zeilen pro Seite",
+    "prev": "Zurück",
+    "next": "Weiter",
+    "page": "Zeilen {from}–{to}",
+    "noEntities": "Keine Entität passt.",
+    "entities": "Entitäten",
+    "detail": "Entität",
+    "open": "Öffnen",
+    "close": "Schließen",
+    "loadFailed": "Laden fehlgeschlagen"
   }
 }

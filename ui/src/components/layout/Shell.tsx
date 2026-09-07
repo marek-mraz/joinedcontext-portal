@@ -174,6 +174,7 @@ export function Shell({
   const playgroundActive = Boolean(matchRoute({ to: "/playground" }));
   const allEndpointsActive = Boolean(matchRoute({ to: "/endpoints" }));
   const modelsActive = Boolean(matchRoute({ to: "/projects/$project/models", params: { project } }));
+  const exploreActive = Boolean(matchRoute({ to: "/projects/$project/explore", params: { project } }));
   const ckanActive = Boolean(matchRoute({ to: "/projects/$project/ckan", params: { project } }));
   const federationActive = Boolean(
     matchRoute({ to: "/projects/$project/federation", params: { project } }),
@@ -306,6 +307,17 @@ export function Shell({
                 className={navLinkClass(modelsActive)}
               >
                 <NavLabel icon="models" label={t("nav.models")} />
+              </Link>
+            </li>
+            <li>
+              <Link
+                to="/projects/$project/explore"
+                params={{ project }}
+                onClick={closeNav}
+                aria-current={exploreActive ? "page" : undefined}
+                className={navLinkClass(exploreActive)}
+              >
+                <NavLabel icon="explore" label={t("nav.explore")} />
               </Link>
             </li>
             <li>

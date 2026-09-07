@@ -27,7 +27,8 @@
     "ckan": "Otevřená data",
     "federation": "Federace",
     "allEndpoints": "Všechny koncové body",
-    "shared": "Sdílené odkazy"
+    "shared": "Sdílené odkazy",
+    "explore": "Procházet data"
   },
   "auth": {
     "lead": "Přihlaste se účtem své organizace a spravujte tuto platformu.",
@@ -869,5 +870,41 @@
       "title": "Repozitář neobsahuje žádný projekt",
       "description": "Přidejte do konfiguračního repozitáře adresář projects/<slug>/ alespoň s jedním manifestem; Portál jej zobrazí po další synchronizaci."
     }
+  },
+  "entities": {
+    "type": "Typ entity",
+    "typePlaceholder": "Typ entity, např. AirQualityObserved",
+    "scopeQ": "Rozsah (scope)",
+    "scopeQHint": "NGSI-LD scopeQ, např. /district/1",
+    "filters": "Filtry",
+    "attribute": "Atribut",
+    "operator": "Operátor",
+    "value": "Hodnota",
+    "addFilter": "Přidat filtr",
+    "remove": "Odebrat",
+    "advanced": "Toto q používá | nebo závorky, které řádky nezobrazí; upravte ho jako text.",
+    "q": "Dotaz (q)",
+    "qHint": "NGSI-LD q, které řádky skládají; upravte ho zde nebo v YAML.",
+    "attrs": "Čtené atributy"
+  },
+  "explore": {
+    "title": "Procházet data",
+    "description": "Čtěte entity kontextového prostoru přes jeden z jeho endpointů, s vaší relací; co vidíte, určuje Policy endpointu.",
+    "space": "Kontextový prostor",
+    "endpoint": "Číst přes endpoint",
+    "noEndpoint": "Tento prostor nemá endpoint, přes který lze číst.",
+    "noType": "Vyberte typ entity, aby se načetly entity.",
+    "count": "{count} entit",
+    "countUnknown": "Počet nebyl vrácen",
+    "pageSize": "Řádků na stránku",
+    "prev": "Předchozí",
+    "next": "Další",
+    "page": "Řádky {from}–{to}",
+    "noEntities": "Žádná entita nevyhovuje.",
+    "entities": "Entity",
+    "detail": "Entita",
+    "open": "Otevřít",
+    "close": "Zavřít",
+    "loadFailed": "Načtení selhalo"
   }
 }

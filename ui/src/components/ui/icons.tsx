@@ -17,6 +17,7 @@ const PATHS: Record<string, string> = {
   approvals: "M9 12l2 2 4-4M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z",
   access: "M8 11V8a4 4 0 1 1 8 0v3M5 11h14v10H5zM12 15v2",
   models: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
+  explore: "M4 5h16v14H4zM4 10h16M4 15h16M10 5v14",
   ckan: "M4 5h16v14H4zM8 9h8M8 13h5",
   federation: "M6 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM18 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 15a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7.5 8.5l3.5 5.5M16.5 8.5 13 14",
   playground: "M4 17l4-8 4 5 3-3 5 6H4z",

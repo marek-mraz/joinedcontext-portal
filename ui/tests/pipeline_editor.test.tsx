@@ -467,7 +467,7 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     await userEvent.selectOptions(within(studio).getByLabelText(en.pipelines.studio.space), "ovzdusie");
     // The read endpoint of the space is picked for the author, and stays a choice.
     expect(within(studio).getByLabelText(en.pipelines.studio.readThrough)).toHaveValue("public-air");
-    await userEvent.selectOptions(within(studio).getByLabelText(en.pipelines.field.queryType), "AirQualityObserved");
+    await userEvent.selectOptions(within(studio).getByLabelText(en.entities.type), "AirQualityObserved");
     // The class's attributes come from the inline model.
     await userEvent.click(within(studio).getByLabelText("pm10"));
 

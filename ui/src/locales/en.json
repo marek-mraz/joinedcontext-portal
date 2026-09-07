@@ -27,7 +27,8 @@
     "ckan": "Open data",
     "federation": "Federation",
     "allEndpoints": "All endpoints",
-    "shared": "Shared references"
+    "shared": "Shared references",
+    "explore": "Explore data"
   },
   "auth": {
     "lead": "Sign in with your organisation account to manage this platform.",
@@ -869,5 +870,41 @@
       "title": "The repository holds no project",
       "description": "Add a projects/<slug>/ directory with at least one manifest to the configuration repository; the Portal lists it after the next sync."
     }
+  },
+  "entities": {
+    "type": "Entity type",
+    "typePlaceholder": "Entity type, e.g. AirQualityObserved",
+    "scopeQ": "Scope",
+    "scopeQHint": "NGSI-LD scopeQ, e.g. /district/1",
+    "filters": "Filters",
+    "attribute": "Attribute",
+    "operator": "Operator",
+    "value": "Value",
+    "addFilter": "Add filter",
+    "remove": "Remove",
+    "advanced": "This q uses | or brackets, which the rows cannot show; edit it as text.",
+    "q": "Query (q)",
+    "qHint": "The NGSI-LD q the rows compose; edit it here or in YAML.",
+    "attrs": "Attributes to read"
+  },
+  "explore": {
+    "title": "Explore data",
+    "description": "Read the entities of a context space through one of its endpoints, with your session; the endpoint's Policy decides what you see.",
+    "space": "Context space",
+    "endpoint": "Read through endpoint",
+    "noEndpoint": "This space has no endpoint to read through.",
+    "noType": "Choose an entity type to load entities.",
+    "count": "{count} entities",
+    "countUnknown": "Count not reported",
+    "pageSize": "Rows per page",
+    "prev": "Previous",
+    "next": "Next",
+    "page": "Rows {from}–{to}",
+    "noEntities": "No entities match.",
+    "entities": "Entities",
+    "detail": "Entity",
+    "open": "Open",
+    "close": "Close",
+    "loadFailed": "Loading failed"
   }
 }

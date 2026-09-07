@@ -5,9 +5,10 @@ import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
-import { endpointUrl } from "../../components/endpoints/links";
+import { EntityFilters } from "../../components/entities/EntityFilters";
+import { fetchEntities, filterSlotsOf } from "../../components/entities/filters";
+import type { Entity, EntityQuery, FilterSlot } from "../../components/entities/filters";
 import { Alert, Button, Field, Input, Select } from "../../components/ui";
-import { parseModel } from "../models/linkml";
 import { entityTypesOf, pickReadEndpoint, spaceOf } from "../spaces/SpaceInside";
 import type { PipelineForm } from "./PipelineEditor";
 
@@ -21,7 +22,7 @@ export type Aggregate = "sum" | "average" | "count";
 export const AGGREGATES: Aggregate[] = ["sum", "average", "count"];
 
 /** One row of a keyValues sample: the id plus whatever attributes the entity carries. */
-export type SampleRow = Record<string, unknown> & { id: string };
+export type SampleRow = Entity;
 
 /** Where the form's source points: a feed, a space, or nowhere yet. */
 export function sourceKindOf(form: PipelineForm | undefined): SourceKind {
@@ -36,12 +37,7 @@ export function sourceKindOf(form: PipelineForm | undefined): SourceKind {
 
 /** The attributes of one class of an inline LinkML model, `[]` when the model is not inline. */
 export function attributesOf(model: Manifest | undefined, type: string | undefined): string[] {
-  const source = model?.spec.linkml ?? model?.spec.source;
-  if (!type || typeof source !== "string" || !source.includes("\n")) {
-    return [];
-  }
-  const cls = parseModel(source).classes.find((c) => c.name === type);
-  return (cls?.slots ?? []).filter((slot) => !["id", "type", "@context"].includes(slot));
+  return filterSlotsOf(model, type).map((slot) => slot.name);
 }
 
 /**
@@ -73,37 +69,6 @@ export function aggregateBloblang(
     `}]`,
     "",
   ].join("\n");
-}
-
-/** A keyValues page read through the endpoint with the signed-in session, like the look-inside. */
-export async function fetchSample(
-  slug: string,
-  query: { type: string; q?: string; attrs?: string[] },
-): Promise<SampleRow[]> {
-  const params = new URLSearchParams({
-    type: query.type,
-    limit: String(SAMPLE_LIMIT),
-    options: "keyValues",
-  });
-  if (query.q?.trim()) {
-    params.set("q", query.q.trim());
-  }
-  if (query.attrs && query.attrs.length > 0) {
-    params.set("attrs", query.attrs.join(","));
-  }
-  const response = await globalThis.fetch(
-    new Request(endpointUrl(slug, `/ngsi-ld/v1/entities?${params.toString()}`), {
-      headers: { Accept: "application/ld+json" },
-    }),
-  );
-  if (!response.ok) {
-    throw new ApiError(response.status, response.statusText || `HTTP ${response.status}`);
-  }
-  const body: unknown = await response.json();
-  return (Array.isArray(body) ? body : []).filter(
-    (item): item is SampleRow =>
-      typeof item === "object" && item !== null && typeof (item as SampleRow).id === "string",
-  );
 }
 
 function cell(value: unknown): string {
@@ -174,17 +139,24 @@ export function PipelineStudio({
   const model = modelList.find((m) => m.metadata.name === spaceManifest?.spec.dataModelRef);
   const types = model ? entityTypesOf(model) : [];
   const type = draft?.source?.query?.type as string | undefined;
-  const attributes = attributesOf(model, type);
-  if (attributes.length === 0) {
+  const slots: FilterSlot[] = filterSlotsOf(model, type);
+  if (slots.length === 0) {
     // No inline model: the sample's own keys are the attributes there are.
     for (const row of sample ?? []) {
       for (const key of Object.keys(row)) {
-        if (!["id", "type", "@context"].includes(key) && !attributes.includes(key)) {
-          attributes.push(key);
+        if (!["id", "type", "@context"].includes(key) && !slots.some((slot) => slot.name === key)) {
+          slots.push({ name: key, kind: "Property" });
         }
       }
     }
   }
+  const attributes = slots.map((slot) => slot.name);
+  const query: EntityQuery = {
+    type,
+    attrs: draft?.source?.query?.attrs as string[] | undefined,
+    q: draft?.source?.query?.q as string | undefined,
+    scopeQ: draft?.source?.query?.scopeQ as string | undefined,
+  };
   const slug = typeof endpoint?.spec.slug === "string" ? (endpoint.spec.slug as string) : undefined;
   const ids = (draft?.source?.query?.ids as string[] | undefined) ?? [];
 
@@ -230,15 +202,14 @@ export function PipelineStudio({
     update((form) => ({ ...form, source: { ...form.source, endpointRef: name, query: undefined } }));
   }
 
-  function chooseType(next: string) {
-    setSample(null);
-    setQuery({ type: next || undefined, attrs: undefined, ids: undefined });
-  }
-
-  function toggleAttribute(attribute: string, on: boolean) {
-    const current = (draft?.source?.query?.attrs as string[] | undefined) ?? [];
-    const next = on ? [...current, attribute] : current.filter((a) => a !== attribute);
-    setQuery({ attrs: next.length > 0 ? next : undefined });
+  function changeQuery(next: EntityQuery) {
+    if (next.type !== type) {
+      // Another type: the sample and the ticked ids belonged to the old one.
+      setSample(null);
+      setQuery({ ...next, ids: undefined });
+      return;
+    }
+    setQuery({ ...next });
   }
 
   function toggleId(id: string, on: boolean) {
@@ -253,13 +224,7 @@ export function PipelineStudio({
     setLoading(true);
     setSampleError(null);
     try {
-      setSample(
-        await fetchSample(slug, {
-          type,
-          q: draft?.source?.query?.q as string | undefined,
-          attrs: draft?.source?.query?.attrs as string[] | undefined,
-        }),
-      );
+      setSample((await fetchEntities(slug, query, { limit: SAMPLE_LIMIT })).rows);
     } catch (err) {
       setSample(null);
       setSampleError(err instanceof ApiError ? err.message : t("app.error.generic"));
@@ -363,52 +328,7 @@ export function PipelineStudio({
           <h3 id="studio-entities" className="text-body font-semibold text-fg">
             {t("pipelines.studio.entities")}
           </h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field id="studio-type" label={t("pipelines.field.queryType")}>
-              {types.length > 0 ? (
-                <Select id="studio-type" value={type ?? ""} onChange={(event) => chooseType(event.target.value)}>
-                  <option value="">—</option>
-                  {types.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Input
-                  id="studio-type"
-                  value={type ?? ""}
-                  placeholder={t("pipelines.studio.typePlaceholder")}
-                  onChange={(event) => chooseType(event.target.value)}
-                />
-              )}
-            </Field>
-            <Field id="studio-q" label={t("pipelines.field.q")} description={t("pipelines.studio.qHint")}>
-              <Input
-                id="studio-q"
-                value={(draft?.source?.query?.q as string | undefined) ?? ""}
-                onChange={(event) => setQuery({ q: event.target.value || undefined })}
-              />
-            </Field>
-          </div>
-          {attributes.length > 0 ? (
-            <fieldset className="flex flex-wrap gap-2">
-              <legend className="mb-1 text-caption text-fg-muted">{t("pipelines.field.attrs")}</legend>
-              {attributes.map((attribute) => {
-                const on = ((draft?.source?.query?.attrs as string[] | undefined) ?? []).includes(attribute);
-                return (
-                  <label key={attribute} className="inline-flex items-center gap-1 font-mono text-caption">
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={(event) => toggleAttribute(attribute, event.target.checked)}
-                    />
-                    {attribute}
-                  </label>
-                );
-              })}
-            </fieldset>
-          ) : null}
+          <EntityFilters id="studio" types={types} slots={slots} value={query} onChange={changeQuery} />
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
