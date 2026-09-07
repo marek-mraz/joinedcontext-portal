@@ -345,3 +345,136 @@ export function dataSourceSchema(
 export const dataSourceUiSchema: UiSchema = {
   webSocket: { openMessage: { "ui:widget": "textarea" } },
 };
+
+/** How a registration's answer relates to the broker's own data (CIM 009 clause 5.2.9). */
+export const REGISTRATION_MODES = ["inclusive", "exclusive", "auxiliary", "redirect"] as const;
+
+export type RegistrationMode = (typeof REGISTRATION_MODES)[number];
+
+/** Which identity a forwarded request carries (PF-48). */
+export const FEDERATION_IDENTITIES = ["serviceAccount", "caller"] as const;
+
+/**
+ * `ContextSourceRegistrationSpec`, field for field (MF-36).
+ *
+ * The two targets are separate fields rather than one, because that is what the manifest has
+ * and a form that merged them would have to guess which the author meant. jc-core refuses a
+ * registration naming both, so the hint says so where the author is typing.
+ */
+export function contextSourceRegistrationSchema(t: (key: string) => string): JsonSchema {
+  return {
+    type: "object",
+    required: ["name", "contextSpaceRef", "information"],
+    properties: {
+      name: {
+        type: "string",
+        title: t("federation.field.name"),
+        pattern: DNS1123,
+        maxLength: 63,
+      },
+      title: { ...titleProperty, title: t("federation.field.title") },
+      contextSpaceRef: {
+        type: "string",
+        title: t("federation.field.space"),
+        description: t("federation.field.spaceHint"),
+        pattern: DNS1123,
+      },
+      endpointRef: {
+        type: "object",
+        title: t("federation.field.endpointRef"),
+        description: t("federation.field.targetHint"),
+        properties: {
+          kind: { type: "string", default: "Endpoint", readOnly: true },
+          name: { type: "string", title: t("federation.field.name"), pattern: DNS1123 },
+        },
+      },
+      endpoint: {
+        type: "string",
+        title: t("federation.field.endpoint"),
+        description: t("federation.field.targetHint"),
+        pattern: "^https?://.+",
+      },
+      information: {
+        type: "array",
+        title: t("federation.field.information"),
+        description: t("federation.field.informationHint"),
+        minItems: 1,
+        // One empty claim to start with. The field is required, so a form that opened with an
+        // empty array would show the author an "Add" button and no reason to press it.
+        default: [{ entities: [{}] }],
+        items: {
+          type: "object",
+          required: ["entities"],
+          properties: {
+            entities: {
+              type: "array",
+              title: t("federation.field.entities"),
+              minItems: 1,
+              items: {
+                type: "object",
+                required: ["type"],
+                properties: {
+                  type: { type: "string", title: t("federation.field.entityType") },
+                  idPattern: { type: "string", title: t("federation.field.idPattern") },
+                },
+              },
+            },
+            propertyNames: {
+              type: "array",
+              title: t("federation.field.propertyNames"),
+              items: { type: "string" },
+            },
+          },
+        },
+      },
+      mode: {
+        type: "string",
+        title: t("federation.field.mode"),
+        enum: [...REGISTRATION_MODES],
+        default: "inclusive",
+      },
+      operations: {
+        type: "array",
+        title: t("federation.field.operations"),
+        description: t("federation.field.operationsHint"),
+        items: { type: "string", minLength: 1 },
+      },
+      federation: {
+        type: "object",
+        title: t("federation.field.federation"),
+        properties: {
+          identity: {
+            type: "string",
+            title: t("federation.field.identity"),
+            description: t("federation.field.identityHint"),
+            enum: [...FEDERATION_IDENTITIES],
+            default: "serviceAccount",
+          },
+          serviceAccountRef: {
+            type: "object",
+            title: t("federation.field.serviceAccount"),
+            properties: {
+              kind: { type: "string", default: "ServiceAccount", readOnly: true },
+              name: { type: "string", title: t("federation.field.name"), pattern: DNS1123 },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+export const contextSourceRegistrationUiSchema: UiSchema = {
+  "ui:order": [
+    "name",
+    "title",
+    "contextSpaceRef",
+    "endpointRef",
+    "endpoint",
+    "information",
+    "mode",
+    "operations",
+    "federation",
+    "*",
+  ],
+};

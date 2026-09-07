@@ -23,7 +23,8 @@
     "playground": "Playground",
     "flows": "Flows",
     "models": "Data models",
-    "ckan": "Open data"
+    "ckan": "Open data",
+    "federation": "Federation"
   },
   "auth": {
     "signIn": "Sign in",
@@ -572,6 +573,77 @@
       "datastore": "DataStore mirror from {representation}, refreshed {refresh}.",
       "publishedTo": "published to {instance}",
       "missingInstance": "catalogue {instance} is missing"
+    }
+  },
+  "federation": {
+    "title": "Federation",
+    "lead": "Which sources answer inside this project's spaces, and who this platform is when it forwards a query. A registration grants nothing on its own: the source's own policies still decide what comes back.",
+    "add": "Register a source",
+    "propose": "Propose registration",
+    "empty": "No source is registered in this project yet.",
+    "dialog": {
+      "description": "A registration names one context space, one target and what that target holds. Name an endpoint on this platform or an address elsewhere, never both."
+    },
+    "field": {
+      "name": "Name",
+      "title": "Title",
+      "space": "Context space",
+      "spaceHint": "The space whose broker learns of the source. The registration is written into this space's tenant and no other.",
+      "endpointRef": "Endpoint on this platform",
+      "endpoint": "Address elsewhere",
+      "targetHint": "One or the other, never both.",
+      "target": "Target",
+      "information": "What the source holds",
+      "informationHint": "At least one entity selector. A source that claims nothing is matched by nothing.",
+      "entities": "Entity types",
+      "entityType": "Type",
+      "idPattern": "Id pattern",
+      "propertyNames": "Attributes",
+      "mode": "Mode",
+      "federation": "Identity",
+      "identity": "Forwarded as",
+      "identityHint": "Neither mode is a grant: the source's policies apply either way, and the narrower of the two wins.",
+      "serviceAccount": "Service account",
+      "operations": "Operations",
+      "operationsHint": "Which operations the source answers for, as NGSI-LD names them (federationOps, retrieveEntity). Left empty means the broker's own default."
+    },
+    "identity": {
+      "serviceAccount": "A service account of this platform",
+      "caller": "The caller's own token"
+    },
+    "mode": {
+      "inclusive": "Merged with local data",
+      "exclusive": "The only answer for what it covers",
+      "auxiliary": "Alongside local data",
+      "redirect": "The caller is redirected"
+    },
+    "kind": {
+      "ContextSpace": "Context space",
+      "Endpoint": "Endpoint",
+      "ContextSourceRegistration": "Registration",
+      "Pipeline": "Pipeline",
+      "App": "Application",
+      "ExternalSource": "Source elsewhere"
+    },
+    "edge": {
+      "registers": "registers",
+      "serves": "serves",
+      "feeds": "feeds",
+      "consumes": "reads"
+    },
+    "health": {
+      "ok": "Live",
+      "degraded": "Failing",
+      "unknown": "Not reported"
+    },
+    "graph": {
+      "title": "Federation graph",
+      "empty": "Nothing to draw yet."
+    },
+    "card": {
+      "title": "Selected object",
+      "health": "Health",
+      "noCredential": "A card shows that a registration authenticates and how. The account it forwards as is resolved when a query is made, and no credential is ever sent to this page."
     }
   }
 }

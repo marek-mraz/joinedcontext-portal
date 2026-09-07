@@ -23,7 +23,8 @@
     "playground": "Ihrisko",
     "flows": "Toky",
     "models": "Dátové modely",
-    "ckan": "Otvorené dáta"
+    "ckan": "Otvorené dáta",
+    "federation": "Federácia"
   },
   "auth": {
     "signIn": "Prihlásiť sa",
@@ -572,6 +573,77 @@
       "datastore": "Kópia riadkov v DataStore z {representation}, obnovovaná {refresh}.",
       "publishedTo": "publikované do {instance}",
       "missingInstance": "katalóg {instance} chýba"
+    }
+  },
+  "federation": {
+    "title": "Federácia",
+    "lead": "Ktoré zdroje odpovedajú v priestoroch tohto projektu a kým je platforma, keď dopyt posiela ďalej. Registrácia sama o sebe nič nepovoľuje: čo sa vráti, stále rozhodujú politiky zdroja.",
+    "add": "Zaregistrovať zdroj",
+    "propose": "Navrhnúť registráciu",
+    "empty": "V tomto projekte zatiaľ nie je registrovaný žiadny zdroj.",
+    "dialog": {
+      "description": "Registrácia pomenúva jeden kontextový priestor, jeden cieľ a to, čo cieľ obsahuje. Uveďte endpoint na tejto platforme alebo adresu inde, nikdy oboje."
+    },
+    "field": {
+      "name": "Názov",
+      "title": "Titulok",
+      "space": "Kontextový priestor",
+      "spaceHint": "Priestor, ktorého broker sa o zdroji dozvie. Registrácia sa zapíše do tenanta tohto priestoru a žiadneho iného.",
+      "endpointRef": "Endpoint na tejto platforme",
+      "endpoint": "Adresa inde",
+      "targetHint": "Jedno alebo druhé, nikdy oboje.",
+      "target": "Cieľ",
+      "information": "Čo zdroj obsahuje",
+      "informationHint": "Aspoň jeden výber entít. Zdroj, ktorý netvrdí nič, nezodpovedá ničomu.",
+      "entities": "Typy entít",
+      "entityType": "Typ",
+      "idPattern": "Vzor identifikátora",
+      "propertyNames": "Atribúty",
+      "mode": "Režim",
+      "federation": "Identita",
+      "identity": "Posiela sa ako",
+      "identityHint": "Ani jeden režim nie je povolenie: politiky zdroja platia tak či tak a užšia z dvoch vyhráva.",
+      "serviceAccount": "Servisný účet",
+      "operations": "Operácie",
+      "operationsHint": "Pre ktoré operácie zdroj odpovedá, v pomenovaní NGSI-LD (federationOps, retrieveEntity). Prázdne znamená predvolené nastavenie brokera."
+    },
+    "identity": {
+      "serviceAccount": "Servisný účet platformy",
+      "caller": "Vlastný token volajúceho"
+    },
+    "mode": {
+      "inclusive": "Zlúčené s lokálnymi dátami",
+      "exclusive": "Jediná odpoveď pre to, čo pokrýva",
+      "auxiliary": "Popri lokálnych dátach",
+      "redirect": "Volajúci je presmerovaný"
+    },
+    "kind": {
+      "ContextSpace": "Kontextový priestor",
+      "Endpoint": "Endpoint",
+      "ContextSourceRegistration": "Registrácia",
+      "Pipeline": "Pipeline",
+      "App": "Aplikácia",
+      "ExternalSource": "Zdroj inde"
+    },
+    "edge": {
+      "registers": "registruje",
+      "serves": "obsluhuje",
+      "feeds": "napĺňa",
+      "consumes": "číta"
+    },
+    "health": {
+      "ok": "Beží",
+      "degraded": "Zlyháva",
+      "unknown": "Bez hlásenia"
+    },
+    "graph": {
+      "title": "Graf federácie",
+      "empty": "Zatiaľ nie je čo kresliť."
+    },
+    "card": {
+      "title": "Vybraný objekt",
+      "health": "Stav",
+      "noCredential": "Karta ukazuje, že sa registrácia autentifikuje a ako. Účet, pod ktorým sa dopyt posiela, sa vyhodnocuje až pri dopyte a na túto stránku sa žiadny prihlasovací údaj nikdy neposiela."
     }
   }
 }

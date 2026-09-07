@@ -130,6 +130,9 @@ export function Shell({
   const playgroundActive = Boolean(matchRoute({ to: "/playground" }));
   const modelsActive = Boolean(matchRoute({ to: "/projects/$project/models", params: { project } }));
   const ckanActive = Boolean(matchRoute({ to: "/projects/$project/ckan", params: { project } }));
+  const federationActive = Boolean(
+    matchRoute({ to: "/projects/$project/federation", params: { project } }),
+  );
 
   const activeSection = NAV_SECTIONS.find((section) =>
     section.plural === "approvals"
@@ -226,6 +229,19 @@ export function Shell({
                 )}
               >
                 {t("nav.ckan")}
+              </Link>
+            </li>
+            <li>
+              <Link
+                to="/projects/$project/federation"
+                params={{ project }}
+                aria-current={federationActive ? "page" : undefined}
+                className={clsx(
+                  "block rounded px-2 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus",
+                  federationActive && "bg-surface-subtle font-semibold",
+                )}
+              >
+                {t("nav.federation")}
               </Link>
             </li>
             <li>

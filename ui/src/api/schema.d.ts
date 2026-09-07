@@ -225,6 +225,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/federation-graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_graph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/flows": {
         parameters: {
             query?: never;
@@ -705,6 +721,29 @@ export interface components {
             plan: components["schemas"]["PlanDiff"];
             valid: boolean;
         };
+        /** @description One directed relation between two nodes. */
+        Edge: {
+            /** @description Node id the edge leaves. */
+            from: string;
+            /** @description `registers`, `serves`, `feeds` or `consumes`. */
+            kind: components["schemas"]["EdgeKind"];
+            /** @description The manifest this edge was read from, as `kind/name`, so a reader can open it. */
+            manifest: string;
+            /** @description Node id the edge enters. */
+            to: string;
+        };
+        /**
+         * @description What one edge means (UI-27).
+         * @enum {string}
+         */
+        EdgeKind: "registers" | "serves" | "feeds" | "consumes";
+        /** @description The federation of one project (UI-27). */
+        FederationGraph: {
+            /** @description Directed edges, each naming the manifest it was read from. */
+            edges: components["schemas"]["Edge"][];
+            /** @description Every object the federation touches, keyed by `kind/name`. */
+            nodes: components["schemas"]["Node"][];
+        };
         /**
          * @description A single leaf field modification in a plan diff.
          *
@@ -845,6 +884,30 @@ export interface components {
             /** @description `jc_{keyId}_{secret}`, shown once and never recoverable (PF-37). */
             token: string;
         };
+        /** @description One object in the graph. */
+        Node: {
+            /** @description `ok`, `degraded` or `unknown` (UI-27). */
+            health: components["schemas"]["NodeHealth"];
+            /** @description `kind/name`, stable across runs so a selection survives a refresh. */
+            id: string;
+            /** @description Manifest kind, or `ExternalSource` for a source outside this platform. */
+            kind: string;
+            /** @description Manifest name. For an external source, the name of the registration that reaches it. */
+            name: string;
+            registration?: null | components["schemas"]["RegistrationCard"];
+            /**
+             * @description The object's title as the manifest carries it, one entry per language. Absent when the
+             *     manifest has none: the UI falls back to the name rather than the Portal inventing one.
+             */
+            title?: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * @description How an object last reported (UI-27).
+         * @enum {string}
+         */
+        NodeHealth: "ok" | "degraded" | "unknown";
         /**
          * ObjectMeta
          * @description Metadata envelope attached to every platform resource (MF-02).
@@ -950,6 +1013,17 @@ export interface components {
             phase?: string | null;
             /** @description One resource per enabled representation, plus the schema index (EP-64). */
             resources: components["schemas"]["ResourceLink"][];
+        };
+        /** @description What a registration's card shows (UI-27, PF-48). */
+        RegistrationCard: {
+            /** @description Whether the source is on this platform or outside it. */
+            external: boolean;
+            /** @description `serviceAccount` or `caller` (PF-48). */
+            identity: string;
+            /** @description `inclusive`, `exclusive`, `auxiliary` or `redirect`. */
+            mode: string;
+            /** @description The entity types the source is claimed to hold. */
+            types: string[];
         };
         ResourceEnvelope: {
             apiVersion: string;
@@ -1622,6 +1696,38 @@ export interface operations {
             };
             /** @description No repository configured */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_graph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The federation of this project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FederationGraph"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -91,11 +91,13 @@ pub struct ResourceKey {
     pub name: String,
 }
 
-/// Kinds the specification defines and the Portal already serves, but `jc-core-v0.4.0` does not
-/// implement yet: Dashboard and Layer (UI-17, UI-18, Architecture/10), Entity seeds, Subscription
-/// and ContextSourceRegistration (Architecture/06 section 3, DS-16). Paths follow Architecture/06.
-/// Blueprint left this list when jc-core-v0.4.0 took the kind over, which is exactly the move the
-/// next paragraph describes.
+/// Kinds the specification defines and the Portal already serves, but `jc-core-v0.6.0` does not
+/// implement yet: Dashboard and Layer (UI-17, UI-18, Architecture/10), Entity seeds and
+/// Subscription (Architecture/06 section 3, DS-16). Paths follow Architecture/06. Blueprint left
+/// this list when jc-core-v0.4.0 took the kind over and ContextSourceRegistration when
+/// jc-core-v0.6.0 did, which is exactly the move the next paragraph describes. That move is not
+/// free: the placeholder row served the kind at `contextsourceregistrations` and jc-core gives it
+/// the plural `csrs` (MF-36), so the URL a caller uses changes with it.
 ///
 /// They live apart from [`jc_core::KINDS`] so the difference stays visible: when @platform adds a
 /// kind to jc-core, its row moves out of this list and nothing else changes.
@@ -105,12 +107,6 @@ pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[
         plural: "subscriptions",
         scope: Scope::Project,
         path_template: "projects/{project}/spaces/{space}/subscriptions/{name}.yaml",
-    },
-    KindInfo {
-        kind: "ContextSourceRegistration",
-        plural: "contextsourceregistrations",
-        scope: Scope::Project,
-        path_template: "projects/{project}/spaces/{space}/registrations/{name}.yaml",
     },
     KindInfo {
         kind: "Entity",
@@ -205,6 +201,7 @@ mod tests {
                 "ScopeDefinition",
                 "Endpoint",
                 "SharedSpaceReference",
+                "ContextSourceRegistration",
                 "ServiceAccount",
                 "Pipeline",
                 "DataSource",

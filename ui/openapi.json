@@ -776,6 +776,47 @@
         }
       }
     },
+    "/api/v1/projects/{project}/federation-graph": {
+      "get": {
+        "tags": [
+          "federation"
+        ],
+        "operationId": "get_graph",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The federation of this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FederationGraph"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/flows": {
       "post": {
         "tags": [
@@ -2827,6 +2868,68 @@
           }
         }
       },
+      "Edge": {
+        "type": "object",
+        "description": "One directed relation between two nodes.",
+        "required": [
+          "from",
+          "to",
+          "kind",
+          "manifest"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Node id the edge leaves."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EdgeKind",
+            "description": "`registers`, `serves`, `feeds` or `consumes`."
+          },
+          "manifest": {
+            "type": "string",
+            "description": "The manifest this edge was read from, as `kind/name`, so a reader can open it."
+          },
+          "to": {
+            "type": "string",
+            "description": "Node id the edge enters."
+          }
+        }
+      },
+      "EdgeKind": {
+        "type": "string",
+        "description": "What one edge means (UI-27).",
+        "enum": [
+          "registers",
+          "serves",
+          "feeds",
+          "consumes"
+        ]
+      },
+      "FederationGraph": {
+        "type": "object",
+        "description": "The federation of one project (UI-27).",
+        "required": [
+          "nodes",
+          "edges"
+        ],
+        "properties": {
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Edge"
+            },
+            "description": "Directed edges, each naming the manifest it was read from."
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Node"
+            },
+            "description": "Every object the federation touches, keyed by `kind/name`."
+          }
+        }
+      },
       "FieldChange": {
         "type": "object",
         "description": "A single leaf field modification in a plan diff.\n\nPaths are dotted strings rooted at `metadata` or `spec` (e.g. `spec.audience`,\n`spec.representations[1]`, `metadata.labels.joinedcontext.com/domain`).\nKeys containing dots (such as reverse-DNS label names) are deliberately not escaped.",
@@ -3138,6 +3241,64 @@
             "description": "`jc_{keyId}_{secret}`, shown once and never recoverable (PF-37)."
           }
         }
+      },
+      "Node": {
+        "type": "object",
+        "description": "One object in the graph.",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "health"
+        ],
+        "properties": {
+          "health": {
+            "$ref": "#/components/schemas/NodeHealth",
+            "description": "`ok`, `degraded` or `unknown` (UI-27)."
+          },
+          "id": {
+            "type": "string",
+            "description": "`kind/name`, stable across runs so a selection survives a refresh."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Manifest kind, or `ExternalSource` for a source outside this platform."
+          },
+          "name": {
+            "type": "string",
+            "description": "Manifest name. For an external source, the name of the registration that reaches it."
+          },
+          "registration": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RegistrationCard",
+                "description": "For a `ContextSourceRegistration`, what the card may say about it. Never a credential."
+              }
+            ]
+          },
+          "title": {
+            "type": "object",
+            "description": "The object's title as the manifest carries it, one entry per language. Absent when the\nmanifest has none: the UI falls back to the name rather than the Portal inventing one.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "NodeHealth": {
+        "type": "string",
+        "description": "How an object last reported (UI-27).",
+        "enum": [
+          "ok",
+          "degraded",
+          "unknown"
+        ]
       },
       "ObjectMeta": {
         "type": "object",
@@ -3477,6 +3638,37 @@
               "$ref": "#/components/schemas/ResourceLink"
             },
             "description": "One resource per enabled representation, plus the schema index (EP-64)."
+          }
+        }
+      },
+      "RegistrationCard": {
+        "type": "object",
+        "description": "What a registration's card shows (UI-27, PF-48).",
+        "required": [
+          "mode",
+          "identity",
+          "types",
+          "external"
+        ],
+        "properties": {
+          "external": {
+            "type": "boolean",
+            "description": "Whether the source is on this platform or outside it."
+          },
+          "identity": {
+            "type": "string",
+            "description": "`serviceAccount` or `caller` (PF-48)."
+          },
+          "mode": {
+            "type": "string",
+            "description": "`inclusive`, `exclusive`, `auxiliary` or `redirect`."
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The entity types the source is claimed to hold."
           }
         }
       },

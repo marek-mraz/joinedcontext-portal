@@ -84,7 +84,7 @@ const NODE_RADIUS = 9;
 const MARK_SECONDS = 1.6;
 const LOG_LENGTH = 6;
 
-function edgePath(
+export function edgePath(
   a: { x: number; y: number },
   b: { x: number; y: number },
 ): { d: string; midX: number; midY: number } {

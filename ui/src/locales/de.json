@@ -23,7 +23,8 @@
     "playground": "Spielwiese",
     "flows": "Abläufe",
     "models": "Datenmodelle",
-    "ckan": "Offene Daten"
+    "ckan": "Offene Daten",
+    "federation": "Föderation"
   },
   "auth": {
     "signIn": "Anmelden",
@@ -572,6 +573,77 @@
       "datastore": "DataStore-Spiegel aus {representation}, aktualisiert {refresh}.",
       "publishedTo": "veröffentlicht in {instance}",
       "missingInstance": "Katalog {instance} fehlt"
+    }
+  },
+  "federation": {
+    "title": "Föderation",
+    "lead": "Welche Quellen in den Räumen dieses Projekts antworten und wer diese Plattform ist, wenn sie eine Abfrage weiterreicht. Eine Registrierung gewährt für sich nichts: was zurückkommt, entscheiden weiterhin die Richtlinien der Quelle.",
+    "add": "Quelle registrieren",
+    "propose": "Registrierung vorschlagen",
+    "empty": "In diesem Projekt ist noch keine Quelle registriert.",
+    "dialog": {
+      "description": "Eine Registrierung nennt einen Kontextraum, ein Ziel und was dieses Ziel hält. Nennen Sie einen Endpunkt auf dieser Plattform oder eine Adresse anderswo, niemals beides."
+    },
+    "field": {
+      "name": "Name",
+      "title": "Titel",
+      "space": "Kontextraum",
+      "spaceHint": "Der Raum, dessen Broker von der Quelle erfährt. Die Registrierung wird in den Mandanten dieses Raums geschrieben und in keinen anderen.",
+      "endpointRef": "Endpunkt auf dieser Plattform",
+      "endpoint": "Adresse anderswo",
+      "targetHint": "Das eine oder das andere, niemals beides.",
+      "target": "Ziel",
+      "information": "Was die Quelle hält",
+      "informationHint": "Mindestens eine Entitätsauswahl. Eine Quelle, die nichts beansprucht, wird von nichts getroffen.",
+      "entities": "Entitätstypen",
+      "entityType": "Typ",
+      "idPattern": "Id-Muster",
+      "propertyNames": "Attribute",
+      "mode": "Modus",
+      "federation": "Identität",
+      "identity": "Weitergereicht als",
+      "identityHint": "Keiner der Modi ist eine Gewährung: die Richtlinien der Quelle gelten ohnehin, und die engere der beiden gewinnt.",
+      "serviceAccount": "Dienstkonto",
+      "operations": "Operationen",
+      "operationsHint": "Für welche Operationen die Quelle antwortet, in der Benennung von NGSI-LD (federationOps, retrieveEntity). Leer bedeutet die Voreinstellung des Brokers."
+    },
+    "identity": {
+      "serviceAccount": "Ein Dienstkonto dieser Plattform",
+      "caller": "Das eigene Token des Aufrufers"
+    },
+    "mode": {
+      "inclusive": "Mit lokalen Daten zusammengeführt",
+      "exclusive": "Die einzige Antwort für ihren Bereich",
+      "auxiliary": "Neben den lokalen Daten",
+      "redirect": "Der Aufrufer wird umgeleitet"
+    },
+    "kind": {
+      "ContextSpace": "Kontextraum",
+      "Endpoint": "Endpunkt",
+      "ContextSourceRegistration": "Registrierung",
+      "Pipeline": "Pipeline",
+      "App": "Anwendung",
+      "ExternalSource": "Quelle anderswo"
+    },
+    "edge": {
+      "registers": "registriert",
+      "serves": "bedient",
+      "feeds": "speist",
+      "consumes": "liest"
+    },
+    "health": {
+      "ok": "Läuft",
+      "degraded": "Gestört",
+      "unknown": "Keine Meldung"
+    },
+    "graph": {
+      "title": "Föderationsgraph",
+      "empty": "Noch nichts zu zeichnen."
+    },
+    "card": {
+      "title": "Ausgewähltes Objekt",
+      "health": "Zustand",
+      "noCredential": "Eine Karte zeigt, dass sich eine Registrierung authentifiziert und wie. Das Konto, unter dem weitergereicht wird, wird erst bei der Abfrage aufgelöst, und an diese Seite geht nie ein Geheimnis."
     }
   }
 }

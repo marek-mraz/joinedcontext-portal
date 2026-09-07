@@ -12,6 +12,7 @@ use crate::api::ckan::{
 };
 use crate::api::dry_run::DryRunResult;
 use crate::api::export::{Revision, RevisionList};
+use crate::api::federation::{Edge, EdgeKind, FederationGraph, Node, NodeHealth, RegistrationCard};
 use crate::api::health::Health;
 use crate::api::pipelines::PipelineMetrics;
 use crate::api::preferences::Preferences;
@@ -56,6 +57,7 @@ use crate::tools::model_tools::{
         crate::api::mutate::patch,
         crate::api::changes::list_changes,
         crate::api::ckan::get_status,
+        crate::api::federation::get_graph,
         crate::api::changes::get_change,
         crate::api::changes::approve_change,
         crate::api::changes::reject_change,
@@ -77,6 +79,12 @@ use crate::tools::model_tools::{
         PublicationStatus,
         ResourceLink,
         DataStoreStatus,
+        FederationGraph,
+        Node,
+        NodeHealth,
+        Edge,
+        EdgeKind,
+        RegistrationCard,
         Identity,
         LogoutTarget,
         ProblemDetails,
