@@ -140,10 +140,10 @@ impl Driver {
                 if project != namespace || only != name {
                     continue;
                 }
-                // Forced, so the schedule is not asked. What is still asked is the memory: a
-                // source with a proposal already open proposes nothing else (CC-18), and a
-                // paused source stays paused until somebody resumes it.
-                wanted.push((forced(source), true));
+                // Asked for, so the schedule is not consulted. What is still consulted is the
+                // memory: a source with a proposal already open proposes nothing else (CC-18),
+                // and a paused source stays paused until somebody resumes it.
+                wanted.push((source.clone(), true));
                 continue;
             }
             let stored = self.states.get(namespace, name).await;
@@ -170,7 +170,7 @@ impl Driver {
         let pulls = self.gitea.list_pull_requests("all").await?;
 
         let mut run = Run::default();
-        for (source, forced) in &wanted {
+        for (source, asked) in &wanted {
             let namespace = source.metadata.namespace.clone().unwrap_or_default();
             let name = source.metadata.name.clone();
             if let Err(err) = self
@@ -178,7 +178,7 @@ impl Driver {
                     source,
                     &namespace,
                     &name,
-                    *forced,
+                    *asked,
                     &pulls,
                     scratch.path(),
                     now,
@@ -201,7 +201,7 @@ impl Driver {
         source: &RawManifest,
         namespace: &str,
         name: &str,
-        forced: bool,
+        asked: bool,
         pulls: &[PullRequest],
         repo_dir: &std::path::Path,
         now: u64,
@@ -213,17 +213,13 @@ impl Driver {
             self.states.put(namespace, name, &stored).await;
         }
 
-        if forced {
-            // What a run asked for has no wait left to serve (MF-28).
-            stored.state.last_run_at = None;
-        }
-
         let workspace = Scratch::new(&format!("sync-{namespace}-{name}"))?;
         let decision = match self
             .decide(
                 source.clone(),
                 stored.state.clone(),
                 now,
+                asked,
                 repo_dir,
                 workspace.path(),
             )
@@ -322,11 +318,16 @@ impl Driver {
     /// [`jcctl::sync::poll`] and the transport under it are synchronous, which is the right
     /// shape for a decision; what they must not do is sit on a runtime worker while a source
     /// takes its time.
+    ///
+    /// `asked` picks the entry point: `poll_now` skips the wait and nothing else, which is what
+    /// the webhook route and **Sync now** need — a webhook schedule is never due on a timer, so
+    /// `poll` would answer both of them with "the next run is not due yet".
     async fn decide(
         &self,
         source: RawManifest,
         state: sync::State,
         now: u64,
+        asked: bool,
         repo_dir: &std::path::Path,
         workspace: &std::path::Path,
     ) -> Result<sync::Run, RunError> {
@@ -334,7 +335,11 @@ impl Driver {
         let repo_dir = repo_dir.to_path_buf();
         let workspace = workspace.to_path_buf();
         tokio::task::spawn_blocking(move || {
-            sync::poll(&source, &state, now, &repo_dir, &workspace, &remote)
+            if asked {
+                sync::poll_now(&source, &state, now, &repo_dir, &workspace, &remote)
+            } else {
+                sync::poll(&source, &state, now, &repo_dir, &workspace, &remote)
+            }
         })
         .await
         .map_err(|err| RunError::Task(err.to_string()))?
@@ -450,26 +455,6 @@ fn answer(stored: &mut Stored, pulls: &[PullRequest]) -> Option<String> {
     closed(stored);
     stored.state.observed_revision = revision;
     (!merged).then(|| format!("the proposal on `{branch}` was closed without merging"))
-}
-
-/// The same source with its schedule read as "now" (MF-28).
-///
-/// `jcctl::sync::poll` asks [`jcctl::sync::due`] itself and has no way to be told a run was
-/// asked for, and `due` is false for every webhook schedule — so **Sync now** and the webhook
-/// route both need the schedule to say what the caller already decided. Nothing else about the
-/// source is touched: the mode, the selector, the conflict policy and `autoMerge` are the
-/// manifest's, so a forced run is the scheduled run with its wait removed.
-///
-/// ponytail: this goes away when `poll` takes the decision to run as an argument (T-0475).
-fn forced(source: &RawManifest) -> RawManifest {
-    let mut forced = source.clone();
-    if let Some(spec) = forced.spec.as_object_mut() {
-        spec.insert(
-            "schedule".to_owned(),
-            serde_json::json!({ "interval": "1m" }),
-        );
-    }
-    forced
 }
 
 /// The schedule a source declares, or one that is never due when it declares none.
@@ -596,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn a_forced_run_changes_the_wait_and_nothing_else() {
+    fn a_webhook_source_is_never_due_on_a_tick() {
         let source: RawManifest = serde_json::from_value(serde_json::json!({
             "apiVersion": "joinedcontext.com/v1alpha1",
             "kind": "SyncSource",
@@ -605,28 +590,18 @@ mod tests {
                 "source": { "bundle": { "url": "https://cdn.example/models.zip" } },
                 "schedule": { "webhook": true },
                 "mode": "mirror",
-                "conflictPolicy": "replace",
-                "autoMerge": true
+                "conflictPolicy": "replace"
             }
         }))
         .expect("a manifest");
 
-        assert!(
-            !sync::due(&schedule_of(&source), &sync::State::default(), 10_000),
-            "a webhook source is never due on a timer, which is why a forced run rewrites it"
-        );
-        let forced = forced(&source);
-        assert!(sync::due(
-            &schedule_of(&forced),
+        // Which is why the tick never picks one up, and why an asked-for run goes through
+        // `poll_now` rather than through a rewritten schedule (T-0475).
+        assert!(!sync::due(
+            &schedule_of(&source),
             &sync::State::default(),
-            10_000
+            10_000_000
         ));
-        assert_eq!(
-            forced.spec.get("autoMerge"),
-            source.spec.get("autoMerge"),
-            "a forced run is the scheduled run with its wait removed"
-        );
-        assert_eq!(forced.spec.get("mode"), source.spec.get("mode"));
     }
 
     #[test]

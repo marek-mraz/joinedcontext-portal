@@ -1880,7 +1880,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "jc-core"
 version = "0.1.0"
-source = "git+https://github.com/marek-mraz/joinedcontext-platform.git?tag=jc-core-v0.6.2#8fd562e9f9d101b222449f1777371ad6137dfa8b"
+source = "git+https://github.com/marek-mraz/joinedcontext-platform.git?tag=jc-core-v0.7.1#72a7a415cf031fb493646cf6583bb69c03a23c60"
 dependencies = [
  "chrono",
  "regex",
@@ -1894,7 +1894,7 @@ dependencies = [
 [[package]]
 name = "jcctl"
 version = "0.1.0"
-source = "git+https://github.com/marek-mraz/joinedcontext-platform.git?tag=jc-core-v0.6.2#8fd562e9f9d101b222449f1777371ad6137dfa8b"
+source = "git+https://github.com/marek-mraz/joinedcontext-platform.git?tag=jc-core-v0.7.1#72a7a415cf031fb493646cf6583bb69c03a23c60"
 dependencies = [
  "aes-gcm",
  "age",

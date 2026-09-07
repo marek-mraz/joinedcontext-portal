@@ -213,6 +213,10 @@ mod tests {
                 "DataAgreement",
                 "SyncSource",
                 "Bundle",
+                // Arrived with jc-core-v0.7.0 (T-0451). The generic resource routes serve it
+                // the moment it is in this catalogue, which is what the catalogue is for; what
+                // the Portal does with `portal/forms/*.uischema.yaml` as forms is T-0452.
+                "UiSchema",
             ],
             "jc-core's catalogue changed: check PORTAL_ONLY_KINDS and the UI navigation"
         );
