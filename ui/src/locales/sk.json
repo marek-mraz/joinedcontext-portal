@@ -538,6 +538,17 @@
       "prohibitions": "Výslovne zakázané",
       "forbidden": "Tento endpoint vám neodpovedá; prihláste sa účtom, ktorý má oprávnenie.",
       "unavailable": "Dokument o prístupe teraz nie je dostupný."
+    },
+    "panel": {
+      "title": "Váš prístup",
+      "chooseType": "Vyberte typ entity a uvidíte, čo s ním smiete.",
+      "typeNotGranted": "Cez toto rozhranie vám {type} nepriznáva žiadne oprávnenie.",
+      "checks": "Rozhodnutia nanečisto",
+      "checking": "{action}: overuje sa…",
+      "may": "Smiete {action} {type}",
+      "mayNot": "Nesmiete {action} {type}",
+      "attrDenied": "mimo vášho oprávnenia",
+      "attrProhibited": "výslovne zakázaný"
     }
   },
   "flows": {

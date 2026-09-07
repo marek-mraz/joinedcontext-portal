@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
+import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
 import { EntityFilters } from "../../components/entities/EntityFilters";
 import { fetchEntities, fetchEntity, filterSlotsOf } from "../../components/entities/filters";
 import type { EntityQuery } from "../../components/entities/filters";
@@ -74,6 +75,8 @@ export function ExplorePage({ project }: { project: string }): JSX.Element {
   const model = (models.data ?? []).find((m) => m.metadata.name === spaceManifest?.spec.dataModelRef);
   const types = model ? entityTypesOf(model) : [];
   const slots = filterSlotsOf(model, query.type);
+  const access = useAccess(slug);
+  const denied = deniedAttributes(access.data, query.type, slots, t);
 
   const page = useQuery({
     queryKey: ["explore", slug, query, limit, offset],
@@ -150,7 +153,10 @@ export function ExplorePage({ project }: { project: string }): JSX.Element {
         </Field>
       </div>
 
-      {space ? <EntityFilters id="explore" types={types} slots={slots} value={query} onChange={changeQuery} /> : null}
+      {space ? (
+        <EntityFilters id="explore" types={types} slots={slots} value={query} onChange={changeQuery} denied={denied} />
+      ) : null}
+      {space ? <AccessPanel slug={slug} type={query.type} access={access} /> : null}
 
       {page.error ? (
         <Alert role="alert" tone="danger">

@@ -212,7 +212,8 @@ function renderPipelines() {
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    .filter((request) => request.method === "POST" || request.method === "PUT");
+    // The access panel's dry-run check is a POST that writes nothing (T-0529).
+    .filter((request) => (request.method === "POST" || request.method === "PUT") && !request.url.endsWith("/access/check"));
 }
 
 async function openNew() {
@@ -478,7 +479,8 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     expect(within(studio).getByText(/2 entities ticked/)).toBeInTheDocument();
     const gatewayCalls = fetchMock.mock.calls
       .map((call) => new URL((call[0] as Request).url))
-      .filter((url) => url.pathname.startsWith("/api/endpoint/"));
+      // The sample read; the access panel's own calls (T-0529) are beside it.
+      .filter((url) => url.pathname.startsWith("/api/endpoint/") && url.pathname.includes("/ngsi-ld/"));
     expect(gatewayCalls).toHaveLength(1);
     expect(gatewayCalls[0].pathname).toBe("/api/endpoint/k7m2qz4tv6xh3n5jb2ryd3wcfa/ngsi-ld/v1/entities");
     expect(gatewayCalls[0].searchParams.get("options")).toBe("keyValues");

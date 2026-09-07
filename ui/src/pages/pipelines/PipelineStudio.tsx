@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
+import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
 import { EntityFilters } from "../../components/entities/EntityFilters";
 import { fetchEntities, filterSlotsOf } from "../../components/entities/filters";
 import type { Entity, EntityQuery, FilterSlot } from "../../components/entities/filters";
@@ -158,6 +159,8 @@ export function PipelineStudio({
     scopeQ: draft?.source?.query?.scopeQ as string | undefined,
   };
   const slug = typeof endpoint?.spec.slug === "string" ? (endpoint.spec.slug as string) : undefined;
+  const access = useAccess(slug);
+  const denied = deniedAttributes(access.data, type, slots, t);
   const ids = (draft?.source?.query?.ids as string[] | undefined) ?? [];
 
   function update(patch: (form: PipelineForm) => PipelineForm) {
@@ -328,7 +331,8 @@ export function PipelineStudio({
           <h3 id="studio-entities" className="text-body font-semibold text-fg">
             {t("pipelines.studio.entities")}
           </h3>
-          <EntityFilters id="studio" types={types} slots={slots} value={query} onChange={changeQuery} />
+          <EntityFilters id="studio" types={types} slots={slots} value={query} onChange={changeQuery} denied={denied} />
+          <AccessPanel slug={slug} type={type} access={access} />
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"

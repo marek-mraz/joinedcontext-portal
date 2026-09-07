@@ -538,6 +538,17 @@
       "prohibitions": "Explicitly denied",
       "forbidden": "This endpoint does not answer you; sign in with an account that has a grant.",
       "unavailable": "The access document is not available right now."
+    },
+    "panel": {
+      "title": "Your access",
+      "chooseType": "Choose an entity type to see what you may do with it.",
+      "typeNotGranted": "No grant names {type} for you through this endpoint.",
+      "checks": "Dry-run decisions",
+      "checking": "{action}: checking…",
+      "may": "You may {action} {type}",
+      "mayNot": "You may not {action} {type}",
+      "attrDenied": "not in your grant",
+      "attrProhibited": "explicitly denied"
     }
   },
   "flows": {

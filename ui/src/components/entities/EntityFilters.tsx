@@ -14,6 +14,8 @@ export interface EntityFiltersProps {
   slots: FilterSlot[];
   value: EntityQuery;
   onChange: (next: EntityQuery) => void;
+  /** Attributes the caller may not read, by name, with the reason (T-0529). */
+  denied?: Record<string, string>;
 }
 
 /**
@@ -21,7 +23,7 @@ export interface EntityFiltersProps {
  * filter with the operators and input the slot's range allows, `scopeQ`, and the attributes to
  * read. Every row is a view of `value.q`; a `q` the rows cannot show stays a text field.
  */
-export function EntityFilters({ id, types, slots, value, onChange }: EntityFiltersProps): JSX.Element {
+export function EntityFilters({ id, types, slots, value, onChange, denied = {} }: EntityFiltersProps): JSX.Element {
   const { t } = useTranslation();
   const q = value.q ?? "";
   // The rows are derived from `q`, but a row being typed (no value yet) is not in `q`, so they
@@ -163,9 +165,15 @@ export function EntityFilters({ id, types, slots, value, onChange }: EntityFilte
         <fieldset className="flex flex-wrap gap-2">
           <legend className="mb-1 text-caption text-fg-muted">{t("entities.attrs")}</legend>
           {slots.map((slot) => (
-            <label key={slot.name} className="inline-flex items-center gap-1 font-mono text-caption">
+            <label
+              key={slot.name}
+              title={denied[slot.name]}
+              className={`inline-flex items-center gap-1 font-mono text-caption ${denied[slot.name] ? "text-fg-muted line-through" : ""}`}
+            >
               <input
                 type="checkbox"
+                aria-label={denied[slot.name] ? `${slot.name}: ${denied[slot.name]}` : slot.name}
+                disabled={Boolean(denied[slot.name])}
                 checked={(value.attrs ?? []).includes(slot.name)}
                 onChange={(event) => toggleAttribute(slot.name, event.target.checked)}
               />

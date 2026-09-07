@@ -538,6 +538,17 @@
       "prohibitions": "Ausdrücklich verboten",
       "forbidden": "Dieser Endpunkt antwortet Ihnen nicht; melden Sie sich mit einem berechtigten Konto an.",
       "unavailable": "Das Zugriffsdokument ist gerade nicht verfügbar."
+    },
+    "panel": {
+      "title": "Ihr Zugriff",
+      "chooseType": "Wählen Sie einen Entitätstyp, um zu sehen, was Sie damit dürfen.",
+      "typeNotGranted": "Kein Grant nennt {type} für Sie über diesen Endpunkt.",
+      "checks": "Probeentscheidungen",
+      "checking": "{action}: wird geprüft…",
+      "may": "Sie dürfen {action} {type}",
+      "mayNot": "Sie dürfen nicht {action} {type}",
+      "attrDenied": "nicht in Ihrem Grant",
+      "attrProhibited": "ausdrücklich verweigert"
     }
   },
   "flows": {
