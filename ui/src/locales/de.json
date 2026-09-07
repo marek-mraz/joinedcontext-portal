@@ -198,6 +198,12 @@
       "addHidden": "Attribut nach Namen verbergen",
       "add": "Verbergen",
       "attribute": "Attribut"
+    },
+    "link": {
+      "index": "Index",
+      "linkml": "Modell (LinkML)",
+      "jsonSchema": "JSON Schema",
+      "access": "Zugriff"
     }
   },
   "datasources": {

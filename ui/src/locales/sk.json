@@ -198,6 +198,12 @@
       "addHidden": "Skryť atribút podľa názvu",
       "add": "Skryť",
       "attribute": "Atribút"
+    },
+    "link": {
+      "index": "index",
+      "linkml": "model (LinkML)",
+      "jsonSchema": "JSON Schema",
+      "access": "prístup"
     }
   },
   "datasources": {

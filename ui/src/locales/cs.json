@@ -198,6 +198,12 @@
       "addHidden": "Skrýt atribut podle názvu",
       "add": "Skrýt",
       "attribute": "Atribut"
+    },
+    "link": {
+      "index": "index",
+      "linkml": "model (LinkML)",
+      "jsonSchema": "JSON Schema",
+      "access": "přístup"
     }
   },
   "datasources": {

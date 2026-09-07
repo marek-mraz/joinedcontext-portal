@@ -106,6 +106,48 @@ function hiddenOf(endpoint: Manifest): string[] {
   return projection?.hiddenAttributes ?? [];
 }
 
+/**
+ * Where each enabled representation answers under the endpoint's URL (EP-08, EP-44): the
+ * same paths the gateway's DCAT index at `/api/endpoint/{slug}/` lists, so a steward can hand
+ * out one link per shape without opening the index.
+ */
+const REPRESENTATION_PATHS: Record<string, string> = {
+  "ngsi-ld": "/ngsi-ld/v1/entities?limit=20",
+  mcp: "/mcp",
+  geojson: "/file.geojson",
+  csv: "/file.csv",
+  xlsx: "/file.xlsx",
+  zip: "/file.zip",
+  "ogc-features": "/ogc/features",
+  sta: "/sta/v1.1",
+};
+
+/** The links every endpoint has whatever it enables: its index and the model it publishes. */
+const ENDPOINT_LINKS: Array<{ key: string; path: string }> = [
+  { key: "index", path: "/" },
+  { key: "linkml", path: "/schema/v1/linkml" },
+  { key: "jsonSchema", path: "/schema/v1/json-schema" },
+  { key: "access", path: "/access" },
+];
+
+function endpointUrl(slug: string, path: string): string {
+  return `${window.location.origin}/api/endpoint/${slug}${path}`;
+}
+
+function EndpointLink({ href, children }: { href: string; children: string }): JSX.Element {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title={href}
+      className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs text-primary hover:bg-surface-subtle hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+    >
+      {children}
+    </a>
+  );
+}
+
 function CopyUrlButton({ slug }: { slug: string }): JSX.Element {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -282,6 +324,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                   audience?: string;
                   enabledRepresentations?: string[];
                 };
+                const slug = spec.slug ?? "";
                 return (
                   <tr key={endpoint.metadata.name} className="hover:bg-surface-subtle/50">
                     <td className="px-4 py-3">
@@ -302,14 +345,30 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                     <td className="px-4 py-3">
                       <ul className="flex flex-wrap gap-1">
                         {(spec.enabledRepresentations ?? []).map((rep) => (
-                          <li
-                            key={rep}
-                            className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs"
-                          >
-                            {rep}
+                          <li key={rep}>
+                            {slug && REPRESENTATION_PATHS[rep] ? (
+                              <EndpointLink href={endpointUrl(slug, REPRESENTATION_PATHS[rep])}>
+                                {rep}
+                              </EndpointLink>
+                            ) : (
+                              <span className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs">
+                                {rep}
+                              </span>
+                            )}
                           </li>
                         ))}
                       </ul>
+                      {slug ? (
+                        <ul className="mt-1 flex flex-wrap gap-1">
+                          {ENDPOINT_LINKS.map((link) => (
+                            <li key={link.key}>
+                              <EndpointLink href={endpointUrl(slug, link.path)}>
+                                {t(`endpoints.link.${link.key}`)}
+                              </EndpointLink>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       <LifecycleBadge kind="phase" value={endpoint.status?.phase} />

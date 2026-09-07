@@ -198,6 +198,12 @@
       "addHidden": "Hide an attribute by name",
       "add": "Hide",
       "attribute": "Attribute"
+    },
+    "link": {
+      "index": "index",
+      "linkml": "model (LinkML)",
+      "jsonSchema": "JSON Schema",
+      "access": "access"
     }
   },
   "datasources": {
