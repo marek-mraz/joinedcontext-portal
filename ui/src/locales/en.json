@@ -355,6 +355,8 @@
       "module": "Module",
       "function": "Function",
       "mappingRef": "Mapping",
+      "bloblang": "Bloblang mapping",
+      "bloblangHint": "The mapping this step runs, rendered as the last processor of the stream. Leave it empty to keep the mapping in bento.yaml beside the manifest.",
       "targetEndpoint": "Target endpoint",
       "targetEndpointHint": "The Endpoint URN the pipeline writes through; its Policy decides what lands.",
       "output": "Output",
@@ -390,7 +392,7 @@
       "edit": "Edit pipeline",
       "lead": "A form and the manifest it writes: both describe the same pipeline, and the proposal goes to Approvals like every other change."
     },
-    "bloblangHint": "The Bloblang processor of a bloblang step lives in bento.yaml beside this manifest in the forge; the manifest names only the kind.",
+    "bloblangHint": "The Bloblang mapping is edited here and lands in the manifest; left empty, it stays in bento.yaml beside this manifest in the forge.",
     "bloblangFile": "Open bento.yaml"
   },
   "dashboards": {

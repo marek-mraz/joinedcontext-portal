@@ -355,6 +355,8 @@
       "module": "Modul",
       "function": "Funkcia",
       "mappingRef": "Mapping",
+      "bloblang": "Bloblang mapovanie",
+      "bloblangHint": "Mapovanie, ktoré tento krok vykoná, vykreslené ako posledný procesor streamu. Prázdne pole necháva mapovanie v bento.yaml vedľa manifestu.",
       "targetEndpoint": "Cieľový endpoint",
       "targetEndpointHint": "URN endpointu, cez ktorý pipelina zapisuje; o zápise rozhoduje jeho Policy.",
       "output": "Výstup",
@@ -390,7 +392,7 @@
       "edit": "Úprava pipeliny",
       "lead": "Formulár a manifest, ktorý zapisuje: obe podoby opisujú tú istú pipelinu a návrh ide do Schvaľovania ako každá iná zmena."
     },
-    "bloblangHint": "Bloblang procesor kroku bloblang žije v bento.yaml vedľa tohto manifestu vo forge; manifest uvádza len druh.",
+    "bloblangHint": "Bloblang mapovanie sa upravuje tu a ukladá do manifestu; prázdne ostáva v bento.yaml vedľa tohto manifestu vo forge.",
     "bloblangFile": "Otvoriť bento.yaml"
   },
   "dashboards": {

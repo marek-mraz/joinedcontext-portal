@@ -329,13 +329,34 @@ describe("pipeline editor", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("says where the Bloblang of a bloblang step lives, and asks wasm for its module", async () => {
+  it("round-trips the inline Bloblang of a bloblang step through the manifest", () => {
+    const mapping = 'root = this\nroot.status = { "type": "Property", "value": "ok" }\n';
+    const form = { ...toForm(EXISTING), compute: { kind: "bloblang", bloblang: mapping } };
+    const envelope = toEnvelope("banskabystrica", form, EXISTING);
+    expect(envelope.spec.compute).toEqual({ kind: "bloblang", bloblang: mapping });
+    expect(fromManifest(envelope).compute?.bloblang).toBe(mapping);
+    // An empty mapping is no mapping: the field is left out, and bento.yaml keeps it (PL-41).
+    const blank = toEnvelope("banskabystrica", { ...form, compute: { kind: "bloblang", bloblang: "" } });
+    expect(blank.spec.compute).toEqual({ kind: "bloblang" });
+  });
+
+  it("shows a paused pipeline as paused, with a Resume rather than a Pause", async () => {
+    renderPipelines();
+    const row = (await screen.findByText("aq-mqtt-ingest")).closest("tr") as HTMLElement;
+    expect(within(row).getByText(en.pipelines.metrics.paused)).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: en.pipelines.resume })).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: en.pipelines.pause })).not.toBeInTheDocument();
+  });
+
+  it("edits the Bloblang of a bloblang step in the form, and asks wasm for its module", async () => {
     renderPipelines();
     const dialog = await openNew();
 
     expect(within(dialog).queryByText(en.pipelines.bloblangHint)).not.toBeInTheDocument();
     await userEvent.selectOptions(within(dialog).getByLabelText(/^Kind/), "bloblang");
     expect(within(dialog).getByText(en.pipelines.bloblangHint)).toBeInTheDocument();
+    // A textarea, not a one-line input: a mapping is several lines of Bloblang (PL-41).
+    expect(within(dialog).getByLabelText(/^Bloblang mapping/).tagName).toBe("TEXTAREA");
 
     await userEvent.selectOptions(within(dialog).getByLabelText(/^Kind/), "wasm");
     expect(within(dialog).queryByText(en.pipelines.bloblangHint)).not.toBeInTheDocument();

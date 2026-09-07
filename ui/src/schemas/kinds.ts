@@ -521,8 +521,8 @@ function choice(base: JsonSchema, values: string[]): JsonSchema {
  * `PipelineSpec`, field for field, with the rules `PipelineSpec::validate` checks written as
  * conditions so the form refuses what the reconciler would refuse (PL-04, PL-31, PL-33, PL-39).
  *
- * The inline Bloblang of a `bloblang` step is not in the manifest at all: it lives in
- * `bento.yaml` beside it (Architecture/08 §3), so no field here carries it.
+ * The mapping of a `bloblang` step is `compute.bloblang` (PL-41), rendered as the last
+ * processor of the stream; left empty, the author keeps it in `bento.yaml` beside the manifest.
  */
 export function pipelineSchema(
   t: (key: string) => string,
@@ -640,9 +640,19 @@ export function pipelineSchema(
           module: { type: "string", title: t("pipelines.field.module") },
           function: { type: "string", title: t("pipelines.field.function") },
           mappingRef: { type: "string", title: t("pipelines.field.mappingRef"), pattern: DNS1123 },
+          bloblang: {
+            type: "string",
+            title: t("pipelines.field.bloblang"),
+            description: t("pipelines.field.bloblangHint"),
+          },
         },
-        dependencies: { module: ["kind"], function: ["kind"], mappingRef: ["kind"] },
+        dependencies: { module: ["kind"], function: ["kind"], mappingRef: ["kind"], bloblang: ["kind"] },
         allOf: [
+          {
+            // The inline mapping belongs to a bloblang step only (PL-41).
+            if: { required: ["bloblang"] },
+            then: { properties: { kind: { const: "bloblang" } }, required: ["kind"] },
+          },
           {
             if: { properties: { kind: { const: "wasm" } }, required: ["kind"] },
             then: { required: ["module", "function"] },
@@ -738,5 +748,8 @@ export const pipelineUiSchema: UiSchema = {
     "*",
   ],
   source: { "ui:order": ["dataSourceRef", "endpointRef", "query", "trigger", "*"] },
-  compute: { "ui:order": ["kind", "mappingRef", "module", "function", "*"] },
+  compute: {
+    "ui:order": ["kind", "bloblang", "mappingRef", "module", "function", "*"],
+    bloblang: { "ui:widget": "textarea", "ui:options": { rows: 14 } },
+  },
 };

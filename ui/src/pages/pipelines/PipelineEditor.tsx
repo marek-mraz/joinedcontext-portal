@@ -25,7 +25,13 @@ export interface PipelineForm {
     query?: Record<string, unknown>;
     trigger?: { subscription?: { type?: string; watchedAttributes?: string[] } };
   };
-  compute?: { kind?: string; module?: string; function?: string; mappingRef?: string };
+  compute?: {
+    kind?: string;
+    module?: string;
+    function?: string;
+    mappingRef?: string;
+    bloblang?: string;
+  };
   targetEndpoint?: string;
   output?: { type?: string; mode?: string };
   allowFeedback?: boolean;
@@ -233,8 +239,8 @@ export function PipelineEditorDialog({
     [project, editing],
   );
 
-  // The inline Bloblang is not a manifest field: it is `bento.yaml` beside the manifest in
-  // the forge (Architecture/08 §3), so the dialog says where to write it.
+  // The mapping is `compute.bloblang` in the form (PL-41); left empty it stays in `bento.yaml`
+  // beside the manifest in the forge (Architecture/08 §3), so the dialog links there too.
   const bentoUrl = editing?.status?.sourceUrl?.replace(/pipeline\.yaml$/, "bento.yaml");
 
   return (
