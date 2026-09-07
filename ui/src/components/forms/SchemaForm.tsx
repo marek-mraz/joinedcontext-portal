@@ -73,6 +73,7 @@ function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
     rawErrors,
     rawDescription,
     description,
+    rawHelp,
     displayLabel,
     required,
     hidden,
@@ -85,6 +86,7 @@ function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
   const hasErrors = Boolean(rawErrors && rawErrors.length > 0);
   const errorId = `${id}__error`;
   const descId = `${id}__description`;
+  const helpId = `${id}__help`;
 
   const showLabel = displayLabel !== false && Boolean(label);
   const descText = description || rawDescription;
@@ -103,6 +105,11 @@ function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
           {descText}
         </p>
       )}
+      {rawHelp && (
+        <p id={helpId} className="mt-1 text-sm text-surface-fg/70">
+          {rawHelp}
+        </p>
+      )}
       {hasErrors && (
         <p id={errorId} role="alert" className="mt-1 text-sm text-danger">
           {rawErrors!.join(", ")}
@@ -112,16 +119,47 @@ function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
   );
 }
 
+/** One visual grouping of a flat schema, as a UiSchema manifest describes it (UI-02). */
+interface RenderedGroup {
+  title?: string;
+  description?: string;
+  fields: string[];
+}
+
+/** The groups a UiSchema manifest put on this object, if it put any. */
+function groupsOf(uiSchema: ObjectFieldTemplateProps["uiSchema"]): RenderedGroup[] {
+  const options = uiSchema?.["ui:options"] as { groups?: RenderedGroup[] } | undefined;
+  return Array.isArray(options?.groups) ? options.groups : [];
+}
+
 function ObjectFieldTemplate(props: ObjectFieldTemplateProps): React.JSX.Element {
-  const { title, description, properties, fieldPathId } = props;
+  const { title, description, properties, fieldPathId, uiSchema } = props;
   const isRoot = fieldPathId.$id === "root";
 
   if (isRoot) {
+    // A flat schema has no nested objects to become fieldsets, so the grouping a UiSchema
+    // manifest declares is what gives the form its sections. Every property is rendered
+    // exactly once: what no group names follows the groups, in the order rjsf ordered it.
+    const groups = groupsOf(uiSchema);
+    const grouped = new Set(groups.flatMap((group) => group.fields));
     return (
       <div className="space-y-4">
         {title && <h2 className="text-lg font-semibold text-surface-fg">{title}</h2>}
         {description && <p className="mb-2 text-sm text-surface-fg/70">{description}</p>}
-        {properties.map((prop) => prop.content)}
+        {groups.map((group, at) => (
+          <fieldset key={group.title ?? at} className="space-y-4 rounded border border-border p-4">
+            {group.title && (
+              <legend className="px-1 text-base font-semibold text-surface-fg">{group.title}</legend>
+            )}
+            {group.description && (
+              <p className="mb-2 text-sm text-surface-fg/70">{group.description}</p>
+            )}
+            {properties
+              .filter((prop) => group.fields.includes(prop.name))
+              .map((prop) => prop.content)}
+          </fieldset>
+        ))}
+        {properties.filter((prop) => !grouped.has(prop.name)).map((prop) => prop.content)}
       </div>
     );
   }
