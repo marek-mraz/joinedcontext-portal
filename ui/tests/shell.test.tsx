@@ -107,14 +107,14 @@ describe("portal shell", () => {
         const input = call[0] as RequestInfo | URL;
         return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       });
-      expect(urls.some((url) => url.includes("/projects/banskabystrica/dashboards"))).toBe(true);
+      expect(urls.some((url) => url.includes("/projects/helsinki/dashboards"))).toBe(true);
     });
   });
 
   it("shows the project and the active section as a breadcrumb trail", async () => {
     // A route change remounts the shell, so the breadcrumb node has to be looked up again.
     const crumbs = () => screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(crumbs()).getByRole("link", { name: "banskabystrica" })).toBeInTheDocument();
+    expect(within(crumbs()).getByRole("link", { name: "helsinki" })).toBeInTheDocument();
     expect(within(crumbs()).getByText("Context Spaces")).toHaveAttribute("aria-current", "page");
 
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
@@ -127,7 +127,7 @@ describe("portal shell", () => {
   });
 
   it("offers the active project in a switcher and the identity in a user menu", () => {
-    expect(screen.getByRole("button", { name: "Projects" })).toHaveTextContent("banskabystrica");
+    expect(screen.getByRole("button", { name: "Projects" })).toHaveTextContent("helsinki");
     expect(
       screen.getByRole("button", { name: "Signed in as Jana Kováčová" }),
     ).toBeInTheDocument();
