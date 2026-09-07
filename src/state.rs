@@ -29,6 +29,10 @@ pub struct AppState {
     /// open a merge request must not fall back to a local write (CC-03).
     pub gitea: Option<Arc<GiteaClient>>,
     pub syncer: Option<Arc<Syncer>>,
+    /// The `SyncSource` loop (MF-27…MF-32). `None` without a forge, or when the outbound HTTP
+    /// client could not be built: the sync routes answer 503 and nothing syncs, rather than a
+    /// loop that quietly reaches nothing.
+    pub sync: Option<Arc<crate::sync::driver::Driver>>,
     /// The preferences tier (UI-09). `None` without a database: the preferences routes answer
     /// 503 and nothing else notices.
     pub db: Option<sqlx::PgPool>,
@@ -52,6 +56,7 @@ impl AppState {
             mirror: Arc::new(Mirror::new()),
             gitea: None,
             syncer: None,
+            sync: None,
             db: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -147,6 +152,28 @@ impl AppState {
                     tracing::warn!(error = %err, "the ServiceAccount mount is unreadable, so no app is deployed")
                 }
                 _ => tracing::info!("no app settings or no cluster: apps are read, not deployed"),
+            }
+            // The `SyncSource` loop needs the forge and a way out to the origins. Without the
+            // second there is no loop at all: a driver that cannot fetch would report every
+            // source as failing every minute (MF-27).
+            match crate::sync::remote::HttpRemote::new() {
+                Ok(remote) => {
+                    let states = Arc::new(crate::sync::state::States::new(state.db.clone()));
+                    if !states.is_durable() {
+                        tracing::info!(
+                            "no database: sync sources remember their runs only until this \
+                             process ends"
+                        );
+                    }
+                    state.sync = Some(Arc::new(crate::sync::driver::Driver::new(
+                        Arc::clone(&client),
+                        states,
+                        Arc::new(remote),
+                    )));
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "no HTTP client for sync origins; sync sources do not run")
+                }
             }
             state.gitea = Some(client);
             state.syncer = Some(Arc::new(syncer));

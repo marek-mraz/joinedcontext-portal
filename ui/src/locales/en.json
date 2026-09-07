@@ -107,7 +107,13 @@
     "applied": "Applied",
     "appliedHelp": "The reconciler applied this change.",
     "rejected": "Rejected",
-    "rejectedHelp": "An approver rejected the proposal."
+    "rejectedHelp": "An approver rejected the proposal.",
+    "synced": "Synced",
+    "syncedHelp": "The repository carries what the source publishes.",
+    "outOfSync": "Out of sync",
+    "outOfSyncHelp": "The source has moved and the repository does not carry it yet.",
+    "paused": "Paused",
+    "pausedHelp": "Syncing is switched off until somebody resumes it."
   },
   "change": {
     "summary": {
@@ -678,5 +684,26 @@
       "alignment": "SSSOM alignment",
       "manual": "chosen by you"
     }
+  },
+  "syncSources": {
+    "title": "Sync sources",
+    "intro": "A sync source keeps this project aligned with something outside the repository: another Git repository, a published bundle, or another instance's public API. Every run is an import, and every run that changes something opens one merge request.",
+    "empty": "This project syncs from nothing yet.",
+    "origin": "Origin",
+    "revision": "Source revision",
+    "mergeRequest": "Open merge request",
+    "review": "Review it",
+    "lastError": "Last error",
+    "notDurable": "This Portal has no database, so a restart forgets where each source stood.",
+    "syncNow": "Sync now",
+    "pause": "Pause",
+    "resume": "Resume",
+    "detach": "Detach",
+    "detachConfirm": "Detach {name}? What it brought in stays; a merge request removes the source itself.",
+    "detached": "A merge request that removes the source is open.",
+    "proposed": "The run opened a merge request.",
+    "nothingToDo": "The run changed nothing: the source has not moved.",
+    "byWebhook": "Runs when the source says so",
+    "everyInterval": "Every {interval}"
   }
 }

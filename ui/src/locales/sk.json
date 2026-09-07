@@ -107,7 +107,13 @@
     "applied": "Aplikované",
     "appliedHelp": "Rekonciliátor túto zmenu aplikoval.",
     "rejected": "Zamietnuté",
-    "rejectedHelp": "Schvaľovateľ návrh zamietol."
+    "rejectedHelp": "Schvaľovateľ návrh zamietol.",
+    "synced": "Zosynchronizované",
+    "syncedHelp": "Repozitár nesie to, čo zdroj publikuje.",
+    "outOfSync": "Nezosynchronizované",
+    "outOfSyncHelp": "Zdroj sa posunul a repozitár to ešte nenesie.",
+    "paused": "Pozastavené",
+    "pausedHelp": "Synchronizácia je vypnutá, kým ju niekto nezapne."
   },
   "change": {
     "summary": {
@@ -678,5 +684,26 @@
       "alignment": "zarovnanie SSSOM",
       "manual": "zvolené vami"
     }
+  },
+  "syncSources": {
+    "title": "Zdroje synchronizácie",
+    "intro": "Zdroj synchronizácie udržiava tento projekt v súlade s niečím mimo repozitára: iným Git repozitárom, publikovaným balíkom alebo verejným API inej inštancie. Každý beh je import a každý beh, ktorý niečo zmení, otvorí jednu žiadosť o zlúčenie.",
+    "empty": "Tento projekt zatiaľ nesynchronizuje odnikiaľ.",
+    "origin": "Pôvod",
+    "revision": "Revízia zdroja",
+    "mergeRequest": "Otvorená žiadosť o zlúčenie",
+    "review": "Posúdiť",
+    "lastError": "Posledná chyba",
+    "notDurable": "Tento Portál nemá databázu, takže reštart zabudne, kde každý zdroj skončil.",
+    "syncNow": "Synchronizovať teraz",
+    "pause": "Pozastaviť",
+    "resume": "Obnoviť",
+    "detach": "Odpojiť",
+    "detachConfirm": "Odpojiť {name}? To, čo priniesol, zostane; žiadosť o zlúčenie odstráni samotný zdroj.",
+    "detached": "Žiadosť o zlúčenie, ktorá odstráni zdroj, je otvorená.",
+    "proposed": "Beh otvoril žiadosť o zlúčenie.",
+    "nothingToDo": "Beh nič nezmenil: zdroj sa neposunul.",
+    "byWebhook": "Beží, keď to zdroj oznámi",
+    "everyInterval": "Každých {interval}"
   }
 }

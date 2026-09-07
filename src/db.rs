@@ -165,3 +165,70 @@ pub async fn revoke_key(
     .await
     .map(|result| result.rows_affected() > 0)
 }
+
+/// What one `SyncSource` run left behind (MF-30).
+///
+/// The row is the loop's whole memory: which revision of the source this repository carries,
+/// when the last run happened, the proposal a run opened and nobody has answered yet, and
+/// whether an operator switched syncing off. Nothing about the source itself is here — the
+/// manifest is in Git and the credential is in the secret store.
+#[derive(Debug, Clone, Default, PartialEq, Eq, sqlx::FromRow)]
+pub struct SyncStateRow {
+    pub namespace: String,
+    pub name: String,
+    pub observed_revision: Option<String>,
+    pub last_run_at: Option<i64>,
+    /// The branch of the open proposal, which is `jcctl::sync::proposal_name`.
+    pub open_proposal: Option<String>,
+    /// The source revision that proposal carries; the branch holds only its first characters.
+    pub open_revision: Option<String>,
+    /// Where a reviewer answers it.
+    pub merge_request: Option<String>,
+    /// Why the last run did not finish, cleared by the next run that does.
+    pub last_error: Option<String>,
+    pub paused: bool,
+}
+
+/// The state of one source, `None` before its first run.
+pub async fn load_sync_state(
+    pool: &PgPool,
+    namespace: &str,
+    name: &str,
+) -> Result<Option<SyncStateRow>, sqlx::Error> {
+    sqlx::query_as::<_, SyncStateRow>(
+        "SELECT namespace, name, observed_revision, last_run_at, open_proposal, open_revision, \
+         merge_request, last_error, paused FROM sync_source_state \
+         WHERE namespace = $1 AND name = $2",
+    )
+    .bind(namespace)
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Replaces the row whole: a run's state is one value, and writing half of it is how a
+/// restarted Portal would re-propose a revision it had already proposed.
+pub async fn save_sync_state(pool: &PgPool, row: &SyncStateRow) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO sync_source_state (namespace, name, observed_revision, last_run_at, \
+         open_proposal, open_revision, merge_request, last_error, paused, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) \
+         ON CONFLICT (namespace, name) DO UPDATE SET \
+         observed_revision = EXCLUDED.observed_revision, last_run_at = EXCLUDED.last_run_at, \
+         open_proposal = EXCLUDED.open_proposal, open_revision = EXCLUDED.open_revision, \
+         merge_request = EXCLUDED.merge_request, last_error = EXCLUDED.last_error, \
+         paused = EXCLUDED.paused, updated_at = now()",
+    )
+    .bind(&row.namespace)
+    .bind(&row.name)
+    .bind(&row.observed_revision)
+    .bind(row.last_run_at)
+    .bind(&row.open_proposal)
+    .bind(&row.open_revision)
+    .bind(&row.merge_request)
+    .bind(&row.last_error)
+    .bind(row.paused)
+    .execute(pool)
+    .await
+    .map(|_| ())
+}

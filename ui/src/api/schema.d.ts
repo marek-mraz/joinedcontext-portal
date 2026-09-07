@@ -257,6 +257,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/pipelines/{name}/metrics": {
         parameters: {
             query?: never;
@@ -331,6 +347,70 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["rotate_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/syncsources/{name}/detach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["detach"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/syncsources/{name}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/syncsources/{name}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/syncsources/{name}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sync_now"];
         delete?: never;
         options?: never;
         head?: never;
@@ -443,6 +523,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["gitea_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/sync/{project}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["webhook"];
         delete?: never;
         options?: never;
         head?: never;
@@ -714,6 +810,11 @@ export interface components {
             /** @description Type of condition (e.g. Reconciled, Ready). */
             type: string;
         };
+        /**
+         * @description What to do with a resource the project already has (MF-23).
+         * @enum {string}
+         */
+        ConflictPolicy: "fail" | "skip" | "replace" | "rename";
         /** @description The declared row mirror. */
         DataStoreStatus: {
             /** @description How the mirror is kept current. */
@@ -813,6 +914,25 @@ export interface components {
             /** @description Keycloak `sub`: stable, opaque, the only durable user key. */
             subject: string;
             username: string;
+        };
+        /** @description What one import would do, answered on a dry run and echoed in the merge request body. */
+        ImportReport: {
+            /** @description Resources that would be created. */
+            created: string[];
+            /** @description The lane the whole bundle lands in: the riskiest of everything it carries (CC-63). */
+            lane: components["schemas"]["Lane"];
+            /** @description Files carried through untouched: `bento.yaml`, LinkML sources, schema artifacts. */
+            nativeFiles: number;
+            /** @description Resources imported under a new name, `old -> new` (`rename`). */
+            renamed: {
+                [key: string]: string;
+            };
+            /** @description Resources that would replace one the project already has. */
+            replaced: string[];
+            /** @description Resources left alone because the project already has them (`skip`). */
+            skipped: string[];
+            /** @description Where the bundle came from, when it carried a `kind: Bundle` index (MF-20). */
+            source?: string | null;
         };
         /** @description A model to import from the Smart Data Models catalogue. */
         ImportSdmRequest: {
@@ -939,6 +1059,11 @@ export interface components {
             title?: {
                 [key: string]: string;
             } | null;
+        };
+        /** @description Whether syncing is on or off. */
+        PauseRequest: {
+            /** @description `true` switches the loop off, `false` switches it back on. */
+            paused: boolean;
         };
         /**
          * Phase
@@ -1076,6 +1201,40 @@ export interface components {
              *     without knowing where a kind lives in the repository. Computed, never read from Git.
              */
             sourceUrl?: string | null;
+        };
+        /** @description What one run did, and where the source stands afterwards. */
+        SyncRunReport: {
+            /** @description What the run could not do, in sentences a person can act on. */
+            flags: string[];
+            /** @description The `kind: Change` envelope of every merge request the run opened. */
+            proposed: unknown[];
+            status: components["schemas"]["SyncSourceStatus"];
+            /** @description Whether the run changed anything at all. */
+            unchanged: number;
+        };
+        /** @description What the project page shows for one source (MF-30). */
+        SyncSourceStatus: {
+            /**
+             * @description Whether a restart keeps this. `false` on a Portal without a database, where a restart
+             *     costs one duplicate proposal per source with a run in flight.
+             */
+            durable: boolean;
+            /** @description Why the last run did not finish, when it did not. */
+            lastError?: string | null;
+            /**
+             * Format: int64
+             * @description When the last run happened, in seconds since the epoch.
+             */
+            lastRunAt?: number | null;
+            /** @description The merge request a run opened and nobody has answered yet. */
+            mergeRequest?: string | null;
+            name: string;
+            /** @description The source revision the repository carries. */
+            observedRevision?: string | null;
+            paused: boolean;
+            /** @description `Synced`, `OutOfSync`, `PendingApproval`, `Error` or `Paused`. */
+            phase: string;
+            project: string;
         };
         /**
          * @description Status of the background Git mirror synchronization.
@@ -1815,6 +1974,86 @@ export interface operations {
             };
         };
     };
+    import: {
+        parameters: {
+            query?: {
+                /** @description Set to 'All' to validate and plan without proposing */
+                dryRun?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project the bundle is imported into */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dry run: what the import would do */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportReport"];
+                };
+            };
+            /** @description One merge request for the whole bundle */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description The bundle was refused */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description A resource already exists and the policy is 'fail' */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Importing from a URL is not implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No repository configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     get_metrics: {
         parameters: {
             query?: never;
@@ -2146,6 +2385,218 @@ export interface operations {
                 };
             };
             /** @description No key database configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    detach: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description SyncSource name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The merge request that removes the source */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project or source */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No repository configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    pause: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description SyncSource name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PauseRequest"];
+            };
+        };
+        responses: {
+            /** @description What the source reports afterwards */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncSourceStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project or source */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No repository configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description SyncSource name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the source reports about itself */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncSourceStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project or source */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No repository configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    sync_now: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description SyncSource name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run and what the source reports afterwards */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncRunReport"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project or source */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No repository configured */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -2826,6 +3277,66 @@ export interface operations {
                 };
             };
             /** @description Webhook secret not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    webhook: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description HMAC-SHA256 of the request body */
+                "x-gitea-signature": string;
+            };
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description SyncSource name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        /** @description Whatever the origin sends; the body is what the signature covers */
+        requestBody: {
+            content: {
+                "application/json": string;
+            };
+        };
+        responses: {
+            /** @description The run the source's origin asked for */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncRunReport"];
+                };
+            };
+            /** @description Missing or invalid signature */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project or source */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No webhook secret or no repository configured */
             503: {
                 headers: {
                     [name: string]: unknown;

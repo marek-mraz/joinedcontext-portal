@@ -196,55 +196,8 @@ impl Syncer {
         let default_branch = self.gitea.default_branch().await?;
         let revision = self.gitea.branch_head(&default_branch).await?;
 
-        // 2. List all files in the Git tree and filter candidate manifests
-        let tree_paths = self.gitea.list_tree(&revision).await?;
-        let candidate_paths: Vec<String> = tree_paths
-            .into_iter()
-            .filter(|p| is_candidate_manifest(p))
-            .collect();
-
-        if candidate_paths.is_empty() {
-            return Err(SyncError::Empty(
-                "no manifests found in repository".to_string(),
-            ));
-        }
-
-        // 3. Stage the candidates so the loader reads a repository, not a list of blobs.
-        //    The staging directory is this run's own and is removed when it ends, whichever
-        //    way it ends.
-        let scratch = Scratch::new(&revision)?;
-        let mut staged = 0usize;
-        for path in &candidate_paths {
-            let file = match self.gitea.get_file(path, &revision).await {
-                Ok(Some(f)) => f,
-                Ok(None) => {
-                    // The tree listed it and the contents call does not have it: a race with a
-                    // force-push, not a broken manifest. The next run reads a consistent tree.
-                    tracing::warn!(path = %path, "candidate manifest listed in git tree not found");
-                    continue;
-                }
-                Err(err) => return Err(SyncError::Git(err)),
-            };
-            match stageable(&file.content) {
-                Ok(Some(text)) => {
-                    scratch.write(path, &text)?;
-                    staged += 1;
-                }
-                Ok(None) => {
-                    tracing::warn!(path = %path, "no document of a kind the Portal serves, skipped")
-                }
-                Err(err) => {
-                    tracing::warn!(path = %path, error = %err, "not YAML, skipped")
-                }
-            }
-        }
-
-        if staged == 0 {
-            return Err(SyncError::Empty(format!(
-                "none of the {} candidate files holds a manifest",
-                candidate_paths.len()
-            )));
-        }
+        // 2, 3. The repository as files on disk, this run's own.
+        let scratch = stage(&self.gitea, &revision).await?;
 
         // 4. Load and validate the whole repository the way `jcctl plan` does (CC-08, MF-05).
         let repository = jcctl::loader::Repository::load(scratch.path())?;
@@ -296,10 +249,9 @@ impl Syncer {
         }
 
         if loaded == 0 {
-            return Err(SyncError::Empty(format!(
-                "no resource of a known kind in {} candidate files",
-                candidate_paths.len()
-            )));
+            return Err(SyncError::Empty(
+                "no resource of a known kind in the staged manifests".to_string(),
+            ));
         }
 
         self.mirror.replace_all(&fresh_mirror);
@@ -427,10 +379,66 @@ fn namespace_of(path: &str) -> String {
 /// `jcctl` loads a repository from a path, and the Portal reads its repository over the
 /// forge API, so the two meet on disk. The directory belongs to one run and is removed when
 /// that run ends: nothing from the repository outlives the sync that fetched it.
-struct Scratch(PathBuf);
+/// The repository at one revision, staged as files the loader can read (CC-08).
+///
+/// Its own function because two schedules need it: the mirror the Portal serves from, and the
+/// foreign-model mirror that proposes a peer's schema. A second copy of this loop would be a
+/// second answer to "which files in the repository are manifests".
+pub(crate) async fn stage(gitea: &GiteaClient, revision: &str) -> Result<Scratch, SyncError> {
+    let tree_paths = gitea.list_tree(revision).await?;
+    let candidate_paths: Vec<String> = tree_paths
+        .into_iter()
+        .filter(|p| is_candidate_manifest(p))
+        .collect();
+
+    if candidate_paths.is_empty() {
+        return Err(SyncError::Empty(
+            "no manifests found in repository".to_string(),
+        ));
+    }
+
+    // The staging directory is this run's own and is removed when it ends, whichever way it
+    // ends.
+    let scratch = Scratch::new(revision)?;
+    let mut staged = 0usize;
+    for path in &candidate_paths {
+        let file = match gitea.get_file(path, revision).await {
+            Ok(Some(f)) => f,
+            Ok(None) => {
+                // The tree listed it and the contents call does not have it: a race with a
+                // force-push, not a broken manifest. The next run reads a consistent tree.
+                tracing::warn!(path = %path, "candidate manifest listed in git tree not found");
+                continue;
+            }
+            Err(err) => return Err(SyncError::Git(err)),
+        };
+        match stageable(&file.content) {
+            Ok(Some(text)) => {
+                scratch.write(path, &text)?;
+                staged += 1;
+            }
+            Ok(None) => {
+                tracing::warn!(path = %path, "no document of a kind the Portal serves, skipped")
+            }
+            Err(err) => {
+                tracing::warn!(path = %path, error = %err, "not YAML, skipped")
+            }
+        }
+    }
+
+    if staged == 0 {
+        return Err(SyncError::Empty(format!(
+            "none of the {} candidate files holds a manifest",
+            candidate_paths.len()
+        )));
+    }
+    Ok(scratch)
+}
+
+pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new(revision: &str) -> Result<Self, SyncError> {
+    pub(crate) fn new(revision: &str) -> Result<Self, SyncError> {
         // One directory per run, never per revision: two runs staging into one directory would
         // read each other's files, and the first to finish would delete the other's.
         static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -447,7 +455,7 @@ impl Scratch {
         Ok(Self(path))
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 

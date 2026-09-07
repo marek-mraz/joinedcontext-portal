@@ -23,12 +23,12 @@ path = "src/main.rs"
 # The manifest contract, by tag, never by path into another agent's clone (T-0249).
 # `version` is the crate's own version at that tag (the tag counts differently); without it
 # cargo-deny reads the requirement as `*` and the supply-chain check goes red (T-0287).
-jc-core = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", tag = "jc-core-v0.6.1", version = "0.1.0" }
+jc-core = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", tag = "jc-core-v0.6.2", version = "0.1.0" }
 # Blueprint expansion (CC-25) and the loader the reconciler validates a repository with
 # (T-0191), from the same engine the CLI runs, so both sides agree on what a manifest is. Same
 # tag as jc-core on purpose: cargo keys a git source by its reference, so two tags of one
 # repository would pull two copies of `jc-core` and its types would stop matching.
-jcctl = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", tag = "jc-core-v0.6.1", version = "0.1.0", default-features = false }
+jcctl = { git = "https://github.com/marek-mraz/joinedcontext-platform.git", tag = "jc-core-v0.6.2", version = "0.1.0", default-features = false }
 # Only to render jc-core's schemas into the OpenAPI document; the Portal's own types use utoipa.
 schemars = "0.8"
 axum = { version = "0.8", features = ["macros", "multipart"] }
@@ -44,7 +44,7 @@ rust-embed = "8"
 mime_guess = "2"
 openidconnect = "4"
 jsonwebtoken = "9"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
 # The preferences and API-key tiers (UI-09, PF-36). rustls over ring, the TLS stack reqwest
 # already brought in; `time` because the key rows carry timestamps and the crate is here anyway.
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "migrate", "json", "macros", "time"] }

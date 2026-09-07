@@ -107,7 +107,13 @@
     "applied": "Angewendet",
     "appliedHelp": "Der Reconciler hat diese Änderung angewendet.",
     "rejected": "Abgelehnt",
-    "rejectedHelp": "Der Vorschlag wurde abgelehnt."
+    "rejectedHelp": "Der Vorschlag wurde abgelehnt.",
+    "synced": "Synchronisiert",
+    "syncedHelp": "Das Repository trägt, was die Quelle veröffentlicht.",
+    "outOfSync": "Nicht synchron",
+    "outOfSyncHelp": "Die Quelle hat sich bewegt, das Repository trägt es noch nicht.",
+    "paused": "Pausiert",
+    "pausedHelp": "Die Synchronisierung ist aus, bis jemand sie wieder einschaltet."
   },
   "change": {
     "summary": {
@@ -678,5 +684,26 @@
       "alignment": "SSSOM-Abgleich",
       "manual": "von Ihnen gewählt"
     }
+  },
+  "syncSources": {
+    "title": "Synchronisierungsquellen",
+    "intro": "Eine Synchronisierungsquelle hält dieses Projekt mit etwas außerhalb des Repositorys im Einklang: einem anderen Git-Repository, einem veröffentlichten Bundle oder der öffentlichen API einer anderen Instanz. Jeder Lauf ist ein Import, und jeder Lauf, der etwas ändert, öffnet einen Merge Request.",
+    "empty": "Dieses Projekt synchronisiert noch von nirgendwo.",
+    "origin": "Herkunft",
+    "revision": "Revision der Quelle",
+    "mergeRequest": "Offener Merge Request",
+    "review": "Prüfen",
+    "lastError": "Letzter Fehler",
+    "notDurable": "Dieses Portal hat keine Datenbank, ein Neustart vergisst also, wo jede Quelle stand.",
+    "syncNow": "Jetzt synchronisieren",
+    "pause": "Pausieren",
+    "resume": "Fortsetzen",
+    "detach": "Lösen",
+    "detachConfirm": "{name} lösen? Was sie gebracht hat, bleibt; ein Merge Request entfernt die Quelle selbst.",
+    "detached": "Ein Merge Request, der die Quelle entfernt, ist offen.",
+    "proposed": "Der Lauf hat einen Merge Request geöffnet.",
+    "nothingToDo": "Der Lauf hat nichts geändert: die Quelle hat sich nicht bewegt.",
+    "byWebhook": "Läuft, wenn die Quelle es meldet",
+    "everyInterval": "Alle {interval}"
   }
 }

@@ -93,6 +93,30 @@ pub async fn serve(config: Config) -> std::io::Result<()> {
 
     if let Some(syncer) = state.syncer.as_ref() {
         syncer.clone().spawn_periodic(state.config.sync_interval);
+
+        // The `SyncSource` loop runs beside it, on the same replica (MF-28, CC-03).
+        if let Some(driver) = state.sync.as_ref() {
+            crate::sync::driver::spawn_periodic(driver.clone(), syncer.clone());
+        }
+
+        // The foreign-model mirror runs beside it, on the same replica (DM-48, DM-49). A
+        // Portal whose peers cannot be reached still serves; the mirror says so in its log and
+        // the reference stands with whatever the repository already pinned.
+        if let Some(gitea) = state.gitea.as_ref() {
+            match crate::sync::schema_api::PeerSchemaApi::new() {
+                Ok(peers) => {
+                    crate::sync::mirror::spawn_periodic(
+                        gitea.clone(),
+                        syncer.clone(),
+                        state.config.public_base_url.to_string(),
+                        std::sync::Arc::new(peers),
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "no HTTP client for peer schema surfaces; foreign models are not mirrored")
+                }
+            }
+        }
     }
 
     let router = app(state);

@@ -908,6 +908,106 @@
         }
       }
     },
+    "/api/v1/projects/{project}/import": {
+      "post": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "import",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project the bundle is imported into",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dryRun",
+            "in": "query",
+            "description": "Set to 'All' to validate and plan without proposing",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dry run: what the import would do",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "One merge request for the whole bundle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The bundle was refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A resource already exists and the policy is 'fail'",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Importing from a URL is not implemented",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No repository configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/pipelines/{name}/metrics": {
       "get": {
         "tags": [
@@ -1363,6 +1463,296 @@
           },
           "503": {
             "description": "No key database configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/syncsources/{name}/detach": {
+      "post": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "detach",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "SyncSource name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The merge request that removes the source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No repository configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/syncsources/{name}/pause": {
+      "post": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "pause",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "SyncSource name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "What the source reports afterwards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncSourceStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No repository configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/syncsources/{name}/status": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "status",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "SyncSource name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the source reports about itself",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncSourceStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No repository configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/syncsources/{name}/sync": {
+      "post": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "sync_now",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "SyncSource name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run and what the source reports afterwards",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No repository configured",
             "content": {
               "application/json": {
                 "schema": {
@@ -2315,6 +2705,96 @@
           }
         }
       }
+    },
+    "/api/v1/webhooks/sync/{project}/{name}": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "webhook",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "SyncSource name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-gitea-signature",
+            "in": "header",
+            "description": "HMAC-SHA256 of the request body",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Whatever the origin sends; the body is what the signature covers",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The run the source's origin asked for",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No webhook secret or no repository configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2837,6 +3317,16 @@
         },
         "additionalProperties": false
       },
+      "ConflictPolicy": {
+        "type": "string",
+        "description": "What to do with a resource the project already has (MF-23).",
+        "enum": [
+          "fail",
+          "skip",
+          "replace",
+          "rename"
+        ]
+      },
       "DataStoreStatus": {
         "type": "object",
         "description": "The declared row mirror.",
@@ -3059,6 +3549,67 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "ImportReport": {
+        "type": "object",
+        "description": "What one import would do, answered on a dry run and echoed in the merge request body.",
+        "required": [
+          "created",
+          "replaced",
+          "skipped",
+          "renamed",
+          "nativeFiles",
+          "lane"
+        ],
+        "properties": {
+          "created": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Resources that would be created."
+          },
+          "lane": {
+            "$ref": "#/components/schemas/Lane",
+            "description": "The lane the whole bundle lands in: the riskiest of everything it carries (CC-63)."
+          },
+          "nativeFiles": {
+            "type": "integer",
+            "description": "Files carried through untouched: `bento.yaml`, LinkML sources, schema artifacts.",
+            "minimum": 0
+          },
+          "renamed": {
+            "type": "object",
+            "description": "Resources imported under a new name, `old -> new` (`rename`).",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "replaced": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Resources that would replace one the project already has."
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Resources left alone because the project already has them (`skip`)."
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the bundle came from, when it carried a `kind: Bundle` index (MF-20)."
           }
         }
       },
@@ -3370,6 +3921,19 @@
           }
         },
         "additionalProperties": false
+      },
+      "PauseRequest": {
+        "type": "object",
+        "description": "Whether syncing is on or off.",
+        "required": [
+          "paused"
+        ],
+        "properties": {
+          "paused": {
+            "type": "boolean",
+            "description": "`true` switches the loop off, `false` switches it back on."
+          }
+        }
       },
       "Phase": {
         "oneOf": [
@@ -3830,6 +4394,98 @@
           }
         },
         "additionalProperties": false
+      },
+      "SyncRunReport": {
+        "type": "object",
+        "description": "What one run did, and where the source stands afterwards.",
+        "required": [
+          "proposed",
+          "unchanged",
+          "flags",
+          "status"
+        ],
+        "properties": {
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the run could not do, in sentences a person can act on."
+          },
+          "proposed": {
+            "type": "array",
+            "items": {},
+            "description": "The `kind: Change` envelope of every merge request the run opened."
+          },
+          "status": {
+            "$ref": "#/components/schemas/SyncSourceStatus"
+          },
+          "unchanged": {
+            "type": "integer",
+            "description": "Whether the run changed anything at all.",
+            "minimum": 0
+          }
+        }
+      },
+      "SyncSourceStatus": {
+        "type": "object",
+        "description": "What the project page shows for one source (MF-30).",
+        "required": [
+          "project",
+          "name",
+          "phase",
+          "paused",
+          "durable"
+        ],
+        "properties": {
+          "durable": {
+            "type": "boolean",
+            "description": "Whether a restart keeps this. `false` on a Portal without a database, where a restart\ncosts one duplicate proposal per source with a run in flight."
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last run did not finish, when it did not."
+          },
+          "lastRunAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When the last run happened, in seconds since the epoch.",
+            "minimum": 0
+          },
+          "mergeRequest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The merge request a run opened and nobody has answered yet."
+          },
+          "name": {
+            "type": "string"
+          },
+          "observedRevision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The source revision the repository carries."
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "phase": {
+            "type": "string",
+            "description": "`Synced`, `OutOfSync`, `PendingApproval`, `Error` or `Paused`."
+          },
+          "project": {
+            "type": "string"
+          }
+        }
       },
       "SyncStatus": {
         "type": "object",

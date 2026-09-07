@@ -33,6 +33,11 @@ const PHASES: Record<string, [string, string]> = {
   error: ["error", BAD],
   rejected: ["rejected", BAD],
   drifted: ["drifted", "bg-purple-500/15 border-purple-500/40"],
+  // What a `SyncSource` reports about its own loop (MF-30). `pendingapproval` and `error`
+  // above mean the same thing for it, so only the three it adds are here.
+  synced: ["synced", GOOD],
+  outofsync: ["outOfSync", WARN],
+  paused: ["paused", NEUTRAL],
 };
 
 /** An app's own lifecycle, which is not the reconciler's phase (AP-18). */

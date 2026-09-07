@@ -18,6 +18,7 @@ pub mod resource;
 pub mod server;
 pub mod state;
 pub mod store;
+pub mod sync;
 pub mod telemetry;
 pub mod tools;
 

@@ -14,6 +14,7 @@ pub mod preferences;
 pub mod resources;
 pub mod service_accounts;
 pub mod sync;
+pub mod sync_sources;
 pub mod webhook;
 
 use axum::http::Uri;
@@ -41,6 +42,7 @@ pub fn router() -> Router<AppState> {
         .merge(preferences::router())
         .merge(service_accounts::router())
         .merge(sync::router())
+        .merge(sync_sources::router())
         .merge(crate::tools::model_tools::router())
         .layer(axum::middleware::from_fn(auth::csrf::require_csrf));
 
@@ -49,6 +51,10 @@ pub fn router() -> Router<AppState> {
     // It is merged outside the require_csrf middleware layer as the sole exemption.
     Router::new()
         .merge(webhook::router())
+        // A `schedule: { webhook: true }` source is driven by its own origin, which is a
+        // server-to-server call with an HMAC signature and no session — the same exemption,
+        // for the same reason (MF-28).
+        .merge(sync_sources::webhook_router())
         .merge(protected)
         .fallback(api_not_found)
 }

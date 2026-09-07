@@ -9,6 +9,7 @@ import { DataSourcesPage } from "../pages/datasources/DataSourcesPage";
 import { AccessPage } from "../pages/access/AccessPage";
 import { FlowGallery } from "../pages/flows/Gallery";
 import { AppsCatalog } from "../pages/apps/AppsCatalog";
+import { SyncSourcesPage } from "../pages/sync/SyncSourcesPage";
 
 /** `/api/v1/projects/{project}/{plural}` rendered as a plain table; MF-11…MF-15. */
 export function ResourceListPage({
@@ -43,6 +44,11 @@ export function ResourceListPage({
   // a manifest table (AP-18, AP-19, AP-20).
   if (plural === "apps") {
     return <AppsCatalog project={project} />;
+  }
+  // A SyncSource is a running loop as well as a manifest, so its view carries the phase, the
+  // revision it carries and the three buttons of MF-30.
+  if (plural === "syncsources") {
+    return <SyncSourcesPage project={project} />;
   }
   // "access" is a section, not a kind: ServiceAccounts and the caller's own grants (PF-40, EP-60).
   if (plural === "access") {
