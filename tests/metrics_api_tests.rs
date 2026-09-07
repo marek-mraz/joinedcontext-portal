@@ -109,3 +109,28 @@ async fn the_health_probe_does_not_count_as_traffic() {
 
     assert!(!body.contains("route=\"/api/v1/health\""), "{body}");
 }
+
+/// A duration has to arrive as a histogram, not as a summary: the dashboard reads latency as
+/// `histogram_quantile` over these buckets, and a quantile computed inside one replica cannot
+/// be combined with another replica's (docs Deployment/05 §1, T-0464).
+#[tokio::test]
+async fn a_duration_is_exported_as_buckets_a_dashboard_can_sum() {
+    call("/").await;
+    let (_, _, body) = call("/metrics").await;
+
+    assert!(
+        body.contains("# TYPE jc_portal_request_duration_seconds histogram"),
+        "the duration is not a histogram:\n{body}"
+    );
+    assert!(
+        body.lines().any(
+            |line| line.starts_with("jc_portal_request_duration_seconds_bucket{")
+                && line.contains("le=\"0.005\"")
+        ),
+        "no bucket in the low-millisecond range:\n{body}"
+    );
+    assert!(
+        !body.contains("quantile=\""),
+        "a summary quantile is exported and cannot be aggregated:\n{body}"
+    );
+}

@@ -37,10 +37,21 @@ const CHANGES: &str = "jc_portal_changes_total";
 /// The paths that describe the process rather than the traffic.
 const UNCOUNTED: &[&str] = &["/metrics", "/api/v1/health"];
 
+/// The bucket edges every duration here is counted into, in seconds.
+///
+/// Without them the exporter renders a duration as a *summary*: a quantile computed inside one
+/// replica, and quantiles from two replicas cannot be combined into one. Buckets can be summed,
+/// so `histogram_quantile` over these stays correct however many Portal pods are running.
+const SECONDS: &[f64] = &[
+    0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
+
 fn handle() -> &'static PrometheusHandle {
     static HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
     HANDLE.get_or_init(|| {
         let handle = PrometheusBuilder::new()
+            .set_buckets(SECONDS)
+            .expect("the bucket list is not empty")
             .install_recorder()
             .expect("this process installs the one recorder");
         metrics::describe_counter!(REQUESTS, "requests answered by the Portal");
