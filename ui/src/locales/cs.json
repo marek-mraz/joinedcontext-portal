@@ -146,7 +146,29 @@
       "sandbox": "Dočasné pískoviště",
       "ttlDays": "Životnost ve dnech",
       "phase": "Stav",
-      "source": "Zdroj"
+      "source": "Zdroj",
+      "inside": "Obsah"
+    },
+    "inside": {
+      "open": "Prohlédnout obsah",
+      "back": "← Kontextové prostory",
+      "types": "Typy entit",
+      "type": "Typ",
+      "count": "Entity",
+      "samples": "Ukázkové entity",
+      "noModel": "Prostor neuvádí datový model, takže jeho typy entit nejsou známy.",
+      "noTypes": "Datový model {model} nedefinuje žádný typ entity.",
+      "readThrough": "čteno přes endpoint {endpoint}",
+      "noEndpoint": "žádný endpoint bez politiky ani s veřejným publikem, počty nelze přečíst",
+      "noEntities": "Zatím žádná entita tohoto typu.",
+      "notReadable": "nelze číst anonymně",
+      "noEndpoints": "Prostor zatím nemá endpoint.",
+      "catalogue": "Katalog",
+      "catalogueLink": "otevřená data",
+      "policies": "Politiky",
+      "noPolicies": "Prostor zatím nemá politiku.",
+      "assignee": "Příjemce",
+      "operations": "Operace"
     }
   },
   "endpoints": {

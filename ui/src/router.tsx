@@ -14,6 +14,7 @@ import { FederationPlayground } from "./components/visualization/FederationPlayg
 import { ModelsPage } from "./pages/models/ModelsPage";
 import { CkanPage } from "./pages/ckan/CkanPage";
 import { FederationPage } from "./pages/federation/FederationPage";
+import { SpaceInside } from "./pages/spaces/SpaceInside";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -133,6 +134,20 @@ const federationRoute = createRoute({
   },
 });
 
+/** What one Context Space holds: entity types with counts, endpoints, policies (UI-01). */
+const spaceInsideRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/spaces/$name",
+  component: function SpaceInsideRoute() {
+    const { project, name } = spaceInsideRoute.useParams();
+    return (
+      <Shell project={project} projects={KNOWN_PROJECTS}>
+        <SpaceInside project={project} name={name} />
+      </Shell>
+    );
+  },
+});
+
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
@@ -156,6 +171,7 @@ export const routeTree = rootRoute.addChildren([
     modelsRoute,
     ckanRoute,
     federationRoute,
+    spaceInsideRoute,
     resourceListRoute,
   ]),
 ]);

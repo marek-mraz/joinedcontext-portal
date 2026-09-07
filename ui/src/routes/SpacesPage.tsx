@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Link } from "@tanstack/react-router";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
@@ -215,6 +216,9 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                   {t("spaces.field.phase")}
                 </th>
                 <th scope="col" className="px-4 py-2 font-medium text-right">
+                  {t("spaces.field.inside")}
+                </th>
+                <th scope="col" className="px-4 py-2 font-medium text-right">
                   {t("spaces.field.source")}
                 </th>
               </tr>
@@ -242,6 +246,15 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                     <td className="px-4 py-3">{spec.dataModelRef ?? "—"}</td>
                     <td className="px-4 py-3">
                       <LifecycleBadge kind="phase" value={space.status?.phase} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        to="/projects/$project/spaces/$name"
+                        params={{ project, name: space.metadata.name }}
+                        className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+                      >
+                        {t("spaces.inside.open")}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-right">
                       {space.status?.sourceUrl ? (

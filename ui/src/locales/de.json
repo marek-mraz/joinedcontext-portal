@@ -146,7 +146,29 @@
       "sandbox": "Kurzlebige Sandbox",
       "ttlDays": "Lebensdauer in Tagen",
       "phase": "Zustand",
-      "source": "Quelle"
+      "source": "Quelle",
+      "inside": "Inhalt"
+    },
+    "inside": {
+      "open": "Inhalt ansehen",
+      "back": "← Kontexträume",
+      "types": "Entitätstypen",
+      "type": "Typ",
+      "count": "Entitäten",
+      "samples": "Beispielentitäten",
+      "noModel": "Dieser Raum nennt kein Datenmodell, seine Entitätstypen sind daher unbekannt.",
+      "noTypes": "Das Datenmodell {model} definiert keinen Entitätstyp.",
+      "readThrough": "gelesen über Endpoint {endpoint}",
+      "noEndpoint": "kein Endpoint ohne Policy oder mit öffentlichem Publikum, Zählungen können nicht gelesen werden",
+      "noEntities": "Noch keine Entität dieses Typs.",
+      "notReadable": "anonym nicht lesbar",
+      "noEndpoints": "Dieser Raum hat noch keinen Endpoint.",
+      "catalogue": "Katalog",
+      "catalogueLink": "offene Daten",
+      "policies": "Policies",
+      "noPolicies": "Dieser Raum hat noch keine Policy.",
+      "assignee": "Empfänger",
+      "operations": "Operationen"
     }
   },
   "endpoints": {

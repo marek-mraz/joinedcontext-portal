@@ -10,6 +10,12 @@ import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { ExportButton } from "../components/export/ExportButton";
 import { SchemaProjectionPanel } from "../pages/endpoints/SchemaProjectionPanel";
+import {
+  ENDPOINT_LINKS,
+  EndpointLink,
+  endpointUrl,
+  REPRESENTATION_PATHS,
+} from "../components/endpoints/links";
 import { endpointSchema, endpointUiSchema, generateSlug } from "../schemas/kinds";
 
 interface EndpointForm {
@@ -104,48 +110,6 @@ function hiddenOf(endpoint: Manifest): string[] {
   const projection = (endpoint.spec as { projection?: { hiddenAttributes?: string[] } })
     .projection;
   return projection?.hiddenAttributes ?? [];
-}
-
-/**
- * Where each enabled representation answers under the endpoint's URL (EP-08, EP-44): the
- * same paths the gateway's DCAT index at `/api/endpoint/{slug}/` lists, so a steward can hand
- * out one link per shape without opening the index.
- */
-const REPRESENTATION_PATHS: Record<string, string> = {
-  "ngsi-ld": "/ngsi-ld/v1/entities?limit=20",
-  mcp: "/mcp",
-  geojson: "/file.geojson",
-  csv: "/file.csv",
-  xlsx: "/file.xlsx",
-  zip: "/file.zip",
-  "ogc-features": "/ogc/features",
-  sta: "/sta/v1.1",
-};
-
-/** The links every endpoint has whatever it enables: its index and the model it publishes. */
-const ENDPOINT_LINKS: Array<{ key: string; path: string }> = [
-  { key: "index", path: "/" },
-  { key: "linkml", path: "/schema/v1/linkml" },
-  { key: "jsonSchema", path: "/schema/v1/json-schema" },
-  { key: "access", path: "/access" },
-];
-
-function endpointUrl(slug: string, path: string): string {
-  return `${window.location.origin}/api/endpoint/${slug}${path}`;
-}
-
-function EndpointLink({ href, children }: { href: string; children: string }): JSX.Element {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      title={href}
-      className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs text-primary hover:bg-surface-subtle hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
-    >
-      {children}
-    </a>
-  );
 }
 
 function CopyUrlButton({ slug }: { slug: string }): JSX.Element {

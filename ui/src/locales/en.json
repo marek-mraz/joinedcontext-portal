@@ -146,7 +146,29 @@
       "sandbox": "Ephemeral sandbox",
       "ttlDays": "Lifetime in days",
       "phase": "State",
-      "source": "Source"
+      "source": "Source",
+      "inside": "Inside"
+    },
+    "inside": {
+      "open": "Look inside",
+      "back": "← Context Spaces",
+      "types": "Entity types",
+      "type": "Type",
+      "count": "Entities",
+      "samples": "Sample entities",
+      "noModel": "This space names no data model, so its entity types are unknown.",
+      "noTypes": "The data model {model} defines no entity type.",
+      "readThrough": "read through endpoint {endpoint}",
+      "noEndpoint": "no endpoint without a policy or with a public audience, so counts cannot be read",
+      "noEntities": "No entity of this type yet.",
+      "notReadable": "not readable anonymously",
+      "noEndpoints": "This space has no endpoint yet.",
+      "catalogue": "Catalogue",
+      "catalogueLink": "open data",
+      "policies": "Policies",
+      "noPolicies": "This space has no policy yet.",
+      "assignee": "Assignee",
+      "operations": "Operations"
     }
   },
   "endpoints": {
