@@ -247,6 +247,19 @@ pub async fn propose(
         )));
     }
 
+    // 4b. The kind's own parse and invariants (T-0412, CC-08, MF-24). `jcctl apply` would
+    //     refuse this manifest on `main`, after an approval; refusing it here turns a broken
+    //     repository into a form error that names the field. Kinds without a jc-core type
+    //     (PORTAL_ONLY_KINDS) have nothing to check against and pass as before.
+    if let Some(checked) = jc_core::registry::validate_yaml(
+        kind_info.kind,
+        &serde_json::to_string(&envelope).map_err(|e| ApiError::Internal(e.to_string()))?,
+    ) {
+        checked.map_err(|e| {
+            ApiError::BadRequest(format!("spec is not a valid {}: {e}", kind_info.kind))
+        })?;
+    }
+
     // 5. Diff against current mirror state
     let current = state
         .mirror

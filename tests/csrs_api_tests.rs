@@ -415,6 +415,50 @@ async fn a_credential_typed_into_a_registration_is_refused_before_anything_is_wr
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
+/// T-0412: the kind's own invariants run before a branch exists. jc-core refuses a
+/// registration with no entity selector; so does the Portal now, naming the field.
+#[tokio::test]
+async fn a_registration_with_no_selector_is_refused_before_anything_is_written() {
+    let config = Config::for_tests();
+    let response = server::app(AppState::new(config.clone(), None))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/csrs")
+                .header(header::COOKIE, cookies(&config))
+                .header(CSRF_HEADER, CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "apiVersion": API_VERSION,
+                        "kind": "ContextSourceRegistration",
+                        "metadata": { "name": "zvolen-ovzdusie", "namespace": PROJECT },
+                        "spec": {
+                            "contextSpaceRef": "hub",
+                            "endpoint": EXTERNAL_URL,
+                            "information": []
+                        }
+                    }))
+                    .expect("json"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let problem: Value = serde_json::from_slice(&body).expect("problem json");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("ContextSourceRegistration"), "{detail}");
+    assert!(
+        detail.contains("information") || detail.contains("selector"),
+        "{detail}"
+    );
+}
+
 /// UI-27: every kind the federation touches is a node, and every edge names the manifest it
 /// came from so a reader can open it.
 #[tokio::test]

@@ -211,6 +211,16 @@ impl Syncer {
         let mut loaded = 0usize;
         for (_, resource) in repository.iter() {
             let path = resource.path.to_string_lossy().to_string();
+            // The kind's own invariants, the check `jcctl validate` runs (T-0412). A manifest
+            // that reached `main` before the Portal refused them at write time is still shown,
+            // with the reason in the log, so an operator can fix it rather than lose it.
+            if let Ok(yaml) = serde_json::to_string(&resource.manifest) {
+                if let Some(Err(err)) =
+                    jc_core::registry::validate_yaml(&resource.manifest.kind, &yaml)
+                {
+                    tracing::warn!(path = %path, error = %err, "manifest fails its kind's validation");
+                }
+            }
             let mut envelope: ResourceEnvelope = match serde_json::to_value(&resource.manifest)
                 .and_then(serde_json::from_value)
             {

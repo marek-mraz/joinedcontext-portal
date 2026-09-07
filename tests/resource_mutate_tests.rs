@@ -349,6 +349,51 @@ async fn create_invalid_manifest_bodies_return_400() {
         .contains("literal secret in field 'token' is forbidden"));
 }
 
+/// T-0412: the kind's own invariants run at write time. An inline Bloblang mapping on a
+/// `mapping` step is what jc-core refuses (PL-41); the Portal refuses it too, before a branch.
+#[tokio::test]
+async fn create_with_a_spec_the_kind_refuses_returns_400_naming_the_field() {
+    let config = Config::for_tests();
+    let app = server::app(AppState::new(config.clone(), None));
+    let body = json!({
+        "apiVersion": API_VERSION,
+        "kind": "Pipeline",
+        "metadata": { "name": "aq-derived", "namespace": "ovzdusie" },
+        "spec": {
+            "class": "resident",
+            "source": { "dataSourceRef": { "kind": "DataSource", "name": "mqtt-mesto" } },
+            "compute": { "kind": "mapping", "bloblang": "root = this" },
+            "targetEndpoint": "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air"
+        }
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/pipelines")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&body).expect("json")))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    let problem: serde_json::Value = serde_json::from_slice(&bytes).expect("problem json");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("Pipeline") && detail.contains("bloblang"),
+        "{detail}"
+    );
+}
+
 #[tokio::test]
 async fn create_with_unknown_plural_returns_404() {
     let server = MockServer::start().await;
@@ -682,7 +727,10 @@ async fn lane_classification_public_endpoint_red_and_sandbox_space_green() {
             }
         },
         "spec": {
-            "audience": "public"
+            "contextSpaceRef": "mobility",
+            "slug": "zt4qm7ge2xdv6ksb3ncf5arw2y",
+            "audience": "public",
+            "enabledRepresentations": ["ngsi-ld"]
         }
     });
 
