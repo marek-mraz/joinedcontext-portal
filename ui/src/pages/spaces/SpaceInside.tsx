@@ -13,6 +13,7 @@ import {
   endpointUrl,
   REPRESENTATION_PATHS,
 } from "../../components/endpoints/links";
+import { SharedWithBadge } from "../../components/endpoints/sharing";
 import { parseModel } from "../models/linkml";
 
 const SPACE_LABEL = "joinedcontext.com/space";
@@ -381,9 +382,7 @@ export function SpaceInside({ project, name }: { project: string; name: string }
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-flex items-center rounded border border-border bg-surface-subtle px-2 py-0.5 text-xs font-medium">
-                          {t(`endpoints.audience.${spec.audience ?? "project-list"}`)}
-                        </span>
+                        <SharedWithBadge endpoint={endpoint} />
                       </td>
                       <td className="px-4 py-3">
                         <ul className="flex flex-wrap gap-1">

@@ -12,6 +12,7 @@ import {
   endpointUrl,
   REPRESENTATION_PATHS,
 } from "../components/endpoints/links";
+import { SharedWithBadge, SPACE_LABEL } from "../components/endpoints/sharing";
 import {
   Alert,
   Badge,
@@ -29,14 +30,7 @@ import {
   TableSkeleton,
 } from "../components/ui";
 
-const SPACE_LABEL = "joinedcontext.com/space";
 const COLUMNS = 5;
-
-const AUDIENCE_TONE: Record<string, "neutral" | "info" | "warning"> = {
-  "project-list": "neutral",
-  organization: "info",
-  public: "warning",
-};
 
 /**
  * Every Endpoint of every project the repository holds, in one table (EP-08, EP-44): the
@@ -133,12 +127,10 @@ export function AllEndpointsPage(): JSX.Element {
               const spec = endpoint.spec as {
                 contextSpaceRef?: string;
                 slug?: string;
-                audience?: string;
                 enabledRepresentations?: string[];
               };
               const space = spec.contextSpaceRef ?? endpoint.metadata.labels?.[SPACE_LABEL];
               const slug = spec.slug ?? "";
-              const audience = spec.audience ?? "project-list";
               const key = `${project}/${endpoint.metadata.name}`;
               return (
                 <TableRow key={key}>
@@ -178,9 +170,7 @@ export function AllEndpointsPage(): JSX.Element {
                     ) : null}
                   </TableCell>
                   <TableCell>
-                    <Badge tone={AUDIENCE_TONE[audience] ?? "neutral"}>
-                      {t(`endpoints.audience.${audience}`)}
-                    </Badge>
+                    <SharedWithBadge endpoint={endpoint} />
                   </TableCell>
                   <TableCell>
                     <ul className="flex flex-wrap gap-1">

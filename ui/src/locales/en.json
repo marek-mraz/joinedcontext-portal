@@ -26,7 +26,8 @@
     "models": "Data models",
     "ckan": "Open data",
     "federation": "Federation",
-    "allEndpoints": "All endpoints"
+    "allEndpoints": "All endpoints",
+    "shared": "Shared references"
   },
   "auth": {
     "lead": "Sign in with your organisation account to manage this platform.",
@@ -243,6 +244,17 @@
       "jsonSchema": "JSON Schema",
       "access": "access",
       "catalogue": "catalogue"
+    },
+    "sharedWith": "Shared with",
+    "shared": {
+      "title": "Shared with this project",
+      "lead": "Endpoints other projects of the organization opened to this one. One click references the space here; the reference is proposed as a change like every other write.",
+      "empty": "No other project shares an endpoint with this one yet.",
+      "source": "Source project and space",
+      "reference": "Reference",
+      "use": "Use in this project",
+      "referenced": "Referenced",
+      "alias": "alias"
     }
   },
   "datasources": {

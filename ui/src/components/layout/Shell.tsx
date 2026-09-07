@@ -18,6 +18,8 @@ export const NAV_SECTIONS = [
   { plural: "flows", labelKey: "nav.flows", icon: "flows" },
   { plural: "spaces", labelKey: "nav.spaces", icon: "spaces" },
   { plural: "endpoints", labelKey: "nav.endpoints", icon: "endpoints" },
+  // What this project references from other projects' endpoints (EP-15).
+  { plural: "shared", labelKey: "nav.shared", icon: "share" },
   // A source is what a pipeline reads, so it sits in front of the pipelines (MF-35).
   { plural: "datasources", labelKey: "nav.datasources", icon: "datasources" },
   { plural: "pipelines", labelKey: "nav.pipelines", icon: "pipelines" },

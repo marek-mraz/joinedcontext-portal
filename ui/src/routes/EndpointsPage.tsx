@@ -1,10 +1,12 @@
 import { useState } from "react";
 import type { JSX } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
+import { useProjects } from "../api/projects";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
@@ -16,7 +18,16 @@ import {
   endpointUrl,
   REPRESENTATION_PATHS,
 } from "../components/endpoints/links";
+import {
+  admits,
+  referenceManifest,
+  referenceTo,
+  SharedWithBadge,
+  SPACE_LABEL,
+  spaceOf,
+} from "../components/endpoints/sharing";
 import { endpointSchema, endpointUiSchema, generateSlug } from "../schemas/kinds";
+import type { JsonSchema } from "../components/forms/types";
 import {
   Alert,
   Badge,
@@ -46,8 +57,6 @@ interface EndpointForm {
   rateLimits?: { requestsPerMinute?: number; burst?: number };
   caching?: { maxAgeSeconds?: number };
 }
-
-const SPACE_LABEL = "joinedcontext.com/space";
 
 /**
  * The spec the manifest takes, with the optional blocks the steward left alone removed.
@@ -151,13 +160,16 @@ function CopyUrlButton({ slug }: { slug: string }): JSX.Element {
   );
 }
 
-const AUDIENCE_TONE: Record<string, "neutral" | "info" | "warning"> = {
-  "project-list": "neutral",
-  organization: "info",
-  public: "warning",
-};
-
 const COLUMNS = 5;
+const SHARED_COLUMNS = 4;
+
+/** `schema` without `allowedProjects`: the manifest refuses the list outside `project-list`. */
+function withoutAllowedProjects(schema: JsonSchema): JsonSchema {
+  const properties = Object.fromEntries(
+    Object.entries(schema.properties ?? {}).filter(([key]) => key !== "allowedProjects"),
+  );
+  return { ...schema, properties };
+}
 
 /** Endpoints of one project: who may call them, in which representations, and their public URL. */
 export function EndpointsPage({ project }: { project: string }): JSX.Element {
@@ -193,6 +205,31 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       ),
   });
 
+  // The other projects of the repository: what the allowed-project picker offers, and whose
+  // endpoints the "shared with this project" section reads (PF-05, EP-14).
+  const projects = useProjects();
+  const others = (projects.data ?? []).filter((name) => name !== project);
+  const otherLists = useQueries({
+    queries: others.map((other) => ({
+      queryKey: queryKeys.list(other, "endpoints"),
+      queryFn: async () =>
+        unwrap(
+          await api.GET("/api/v1/projects/{project}/{plural}", {
+            params: { path: { project: other, plural: "endpoints" } },
+          }),
+        ),
+    })),
+  });
+  const referencesQuery = useQuery({
+    queryKey: queryKeys.list(project, "shared"),
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project, plural: "shared" } },
+        }),
+      ),
+  });
+
   const propose = useMutation({
     mutationFn: async ({ form, create }: { form: EndpointForm; create: boolean }) => {
       setFormError(null);
@@ -223,6 +260,23 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             ? err.message
             : t("app.error.generic"),
       );
+    },
+  });
+
+  // One click declares the SharedSpaceReference; it lands as a Change like every write (EP-15).
+  const reference = useMutation({
+    mutationFn: async ({ source, endpoint }: { source: string; endpoint: Manifest }) =>
+      unwrap(
+        await api.POST("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project, plural: "shared" } },
+          body: referenceManifest(project, source, endpoint) as never,
+        }),
+      ),
+    onSuccess: (result) => {
+      if (isChange(result)) {
+        setChange(result);
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, "shared") });
     },
   });
 
@@ -279,6 +333,33 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
 
   const endpoints = asManifests(list.data.items ?? []);
   const spaceNames = asManifests(spacesQuery.data?.items ?? []).map((s) => s.metadata.name);
+  const references = asManifests(referencesQuery.data?.items ?? []);
+  // Only what the gateway would admit this project to (resolver.rs): organization-wide, public,
+  // or a project-list that names it.
+  const shared = others.flatMap((source, index) =>
+    asManifests(otherLists[index]?.data?.items ?? [])
+      .filter((endpoint) => admits(endpoint, source, project))
+      .map((endpoint) => ({ source, endpoint })),
+  );
+  // Projects an existing endpoint already lists stay pickable even when the list API no
+  // longer knows them; otherwise the enum would refuse the value the manifest carries. With
+  // no other project known the field stays free text, so nothing typed turns into a checkbox.
+  const pickable =
+    others.length > 0
+      ? [
+          ...others,
+          ...(editing?.allowedProjects ?? []).filter(
+            (name) => typeof name === "string" && name.length > 0 && !others.includes(name),
+          ),
+        ]
+      : [];
+  const baseSchema = endpointSchema(t, spaceNames, pickable);
+  const schema =
+    editing?.audience === "project-list" ? baseSchema : withoutAllowedProjects(baseSchema);
+  const uiSchema = {
+    ...endpointUiSchema,
+    ...(pickable.length > 0 ? { allowedProjects: { "ui:widget": "checkboxes" } } : {}),
+  };
 
   return (
     <div className="flex flex-col gap-section">
@@ -326,11 +407,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             endpoints.map((endpoint) => {
               const spec = endpoint.spec as {
                 slug?: string;
-                audience?: string;
                 enabledRepresentations?: string[];
               };
               const slug = spec.slug ?? "";
-              const audience = spec.audience ?? "project-list";
               return (
                 <TableRow key={endpoint.metadata.name}>
                   <TableCell primary>
@@ -342,9 +421,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                     ) : null}
                   </TableCell>
                   <TableCell>
-                    <Badge tone={AUDIENCE_TONE[audience] ?? "neutral"}>
-                      {t(`endpoints.audience.${audience}`)}
-                    </Badge>
+                    <SharedWithBadge endpoint={endpoint} />
                   </TableCell>
                   <TableCell>
                     <ul className="flex flex-wrap gap-1">
@@ -422,6 +499,136 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         </TableBody>
       </Table>
 
+      <section aria-labelledby="shared-with-project" className="flex flex-col gap-3">
+        <div>
+          <h2 id="shared-with-project" className="text-title font-semibold text-fg">
+            {t("endpoints.shared.title")}
+          </h2>
+          <p className="mt-1 text-body text-fg-muted">{t("endpoints.shared.lead")}</p>
+        </div>
+        <Table
+          caption={t("endpoints.shared.title")}
+          status={
+            projects.isPending || otherLists.some((other) => other.isPending)
+              ? t("app.loading")
+              : undefined
+          }
+        >
+          <TableHead>
+            <TableHeaderCell>{t("endpoints.shared.source")}</TableHeaderCell>
+            <TableHeaderCell>{t("endpoints.field.name")}</TableHeaderCell>
+            <TableHeaderCell>{t("endpoints.field.representations")}</TableHeaderCell>
+            <TableHeaderCell align="right">{t("endpoints.shared.reference")}</TableHeaderCell>
+          </TableHead>
+          <TableBody>
+            {shared.length === 0 ? (
+              <TableEmpty columns={SHARED_COLUMNS}>
+                <EmptyState bare icon="globe" title={t("endpoints.shared.empty")} />
+              </TableEmpty>
+            ) : (
+              shared.map(({ source, endpoint }) => {
+                const spec = endpoint.spec as { slug?: string; enabledRepresentations?: string[] };
+                const slug = spec.slug ?? "";
+                const space = spaceOf(endpoint);
+                const declared = slug ? referenceTo(references, slug) : undefined;
+                const label = localized(endpoint.metadata.title, locale, endpoint.metadata.name);
+                return (
+                  <TableRow key={`${source}/${endpoint.metadata.name}`}>
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <Link
+                          to="/projects/$project/$plural"
+                          params={{ project: source, plural: "endpoints" }}
+                          className="focus-ring rounded-sm font-medium text-fg hover:underline"
+                        >
+                          {source}
+                        </Link>
+                        {space ? (
+                          <Link
+                            to="/projects/$project/spaces/$name"
+                            params={{ project: source, name: space }}
+                            className="focus-ring inline-flex items-center gap-1 rounded-sm font-mono text-caption text-primary hover:underline"
+                          >
+                            {space}
+                            <Icon name="chevronRight" className="size-3.5" />
+                          </Link>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell primary>
+                      <div>{label}</div>
+                      {endpoint.metadata.title ? (
+                        <div className="mt-0.5 font-mono text-caption text-fg-subtle">
+                          {endpoint.metadata.name}
+                        </div>
+                      ) : null}
+                      <div className="mt-1">
+                        <SharedWithBadge endpoint={endpoint} />
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <ul className="flex flex-wrap gap-1">
+                        {(spec.enabledRepresentations ?? []).map((rep) => (
+                          <li key={rep}>
+                            {slug && REPRESENTATION_PATHS[rep] ? (
+                              <EndpointLink href={endpointUrl(slug, REPRESENTATION_PATHS[rep])}>
+                                {rep}
+                              </EndpointLink>
+                            ) : (
+                              <Badge mono>{rep}</Badge>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      {slug ? (
+                        <ul className="mt-1.5 flex flex-wrap gap-1">
+                          {ENDPOINT_LINKS.map((link) => (
+                            <li key={link.key}>
+                              <EndpointLink muted href={endpointUrl(slug, link.path)}>
+                                {t(`endpoints.link.${link.key}`)}
+                              </EndpointLink>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </TableCell>
+                    <TableCell align="right">
+                      {declared ? (
+                        <div className="flex flex-col items-end gap-0.5">
+                          <Badge tone="success">{t("endpoints.shared.referenced")}</Badge>
+                          <span className="font-mono text-caption text-fg-muted">
+                            {t("endpoints.shared.alias")}:{" "}
+                            {String((declared.spec as { alias?: string }).alias ?? "")}
+                          </span>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          aria-label={`${t("endpoints.shared.use")}: ${source}/${endpoint.metadata.name}`}
+                          disabled={!slug || reference.isPending}
+                          icon={<Icon name="plus" className="size-4" />}
+                          onClick={() => reference.mutate({ source, endpoint })}
+                        >
+                          {t("endpoints.shared.use")}
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+        {reference.isError ? (
+          <Alert role="alert" tone="danger">
+            {reference.error instanceof ApiError
+              ? (reference.error.problem?.detail ?? reference.error.message)
+              : t("app.error.generic")}
+          </Alert>
+        ) : null}
+      </section>
+
       <ResourceFormDialog<EndpointForm>
         open={editing !== null}
         onOpenChange={(open) => {
@@ -431,8 +638,8 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         }}
         title={isNew ? t("endpoints.add") : t("endpoints.edit")}
         description={t("endpoints.addHint")}
-        schema={endpointSchema(t, spaceNames)}
-        uiSchema={endpointUiSchema}
+        schema={schema}
+        uiSchema={uiSchema}
         formData={editing ?? undefined}
         submitLabel={t("endpoints.propose")}
         disabled={propose.isPending}

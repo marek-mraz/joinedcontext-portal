@@ -143,7 +143,8 @@ test.describe("managers", () => {
     expect(await axeViolations(page)).toEqual([]);
 
     await page.goto("/projects/helsinki/endpoints?lang=sk");
-    await expect(page.getByRole("table")).toBeVisible();
+    // The route holds two tables since T-0498: the project's own and the shared section's.
+    await expect(page.getByRole("table", { name: "Rozhrania" })).toBeVisible();
     expect(await axeViolations(page)).toEqual([]);
   });
 });

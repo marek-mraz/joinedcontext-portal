@@ -26,7 +26,8 @@
     "models": "Datenmodelle",
     "ckan": "Offene Daten",
     "federation": "Föderation",
-    "allEndpoints": "Alle Endpunkte"
+    "allEndpoints": "Alle Endpunkte",
+    "shared": "Geteilte Referenzen"
   },
   "auth": {
     "lead": "Melden Sie sich mit dem Konto Ihrer Organisation an, um diese Plattform zu verwalten.",
@@ -243,6 +244,17 @@
       "jsonSchema": "JSON Schema",
       "access": "Zugriff",
       "catalogue": "Katalog"
+    },
+    "sharedWith": "Geteilt mit",
+    "shared": {
+      "title": "Mit diesem Projekt geteilt",
+      "lead": "Endpunkte, die andere Projekte der Organisation für dieses geöffnet haben. Ein Klick referenziert den Raum hier; die Referenz wird wie jede andere Änderung vorgeschlagen.",
+      "empty": "Noch kein anderes Projekt teilt einen Endpunkt mit diesem.",
+      "source": "Quellprojekt und Raum",
+      "reference": "Referenz",
+      "use": "In diesem Projekt verwenden",
+      "referenced": "Referenziert",
+      "alias": "Alias"
     }
   },
   "datasources": {

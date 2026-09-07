@@ -96,6 +96,7 @@ export type SchemaFormalism = (typeof SCHEMA_FORMALISMS)[number];
 export function endpointSchema(
   t: (key: string) => string,
   spaces: string[],
+  projects: string[] = [],
 ): JsonSchema {
   return {
     type: "object",
@@ -132,12 +133,17 @@ export function endpointSchema(
         minItems: 1,
       },
       // Required by the manifest when the audience is `project-list` and refused for the
-      // other two (EP-14, EP-15). The page prunes it rather than the schema, because rjsf
-      // cannot both hide a field and keep the value somebody already typed into it.
+      // other two (EP-14, EP-15). The page drops the property for the other two audiences and
+      // prunes the value on the way out, because rjsf cannot both hide a field and keep the
+      // value somebody already typed into it. With the project list at hand the field is a
+      // set of checkboxes over the other projects of the repository, not free text (PF-05).
       allowedProjects: {
         type: "array",
         title: t("endpoints.field.allowedProjects"),
-        items: { type: "string", pattern: DNS1123 },
+        items:
+          projects.length > 0
+            ? { type: "string", enum: projects }
+            : { type: "string", pattern: DNS1123 },
         uniqueItems: true,
       },
       rateLimits: {

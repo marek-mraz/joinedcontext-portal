@@ -26,7 +26,8 @@
     "models": "Dátové modely",
     "ckan": "Otvorené dáta",
     "federation": "Federácia",
-    "allEndpoints": "Všetky koncové body"
+    "allEndpoints": "Všetky koncové body",
+    "shared": "Zdieľané odkazy"
   },
   "auth": {
     "lead": "Prihláste sa účtom svojej organizácie a spravujte túto platformu.",
@@ -243,6 +244,17 @@
       "jsonSchema": "JSON Schema",
       "access": "prístup",
       "catalogue": "katalóg"
+    },
+    "sharedWith": "Zdieľané s",
+    "shared": {
+      "title": "Zdieľané s týmto projektom",
+      "lead": "Koncové body, ktoré iné projekty organizácie otvorili tomuto projektu. Jedno kliknutie tu vytvorí odkaz na priestor; odkaz sa navrhne ako zmena ako každý iný zápis.",
+      "empty": "Žiadny iný projekt zatiaľ nezdieľa koncový bod s týmto projektom.",
+      "source": "Zdrojový projekt a priestor",
+      "reference": "Odkaz",
+      "use": "Použiť v tomto projekte",
+      "referenced": "Odkazované",
+      "alias": "alias"
     }
   },
   "datasources": {

@@ -196,9 +196,9 @@ describe("endpoint editor toggles", () => {
     const fetchMock = renderEndpoints();
     const dialog = await openEditor();
 
-    // The audience is `public`, so the manifest refuses an allowed-project list. Typing one
-    // has to be dropped on the way out rather than turned into a 400 from the API.
-    await addAllowedProject(dialog, "doprava");
+    // The audience is `public`, so the manifest refuses an allowed-project list: the form
+    // does not even offer the field, and nothing reaches the API rather than a 400 from it.
+    expect(within(dialog).queryByText(en.endpoints.field.allowedProjects)).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
