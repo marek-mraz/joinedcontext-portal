@@ -25,7 +25,8 @@
     "flows": "Abläufe",
     "models": "Datenmodelle",
     "ckan": "Offene Daten",
-    "federation": "Föderation"
+    "federation": "Föderation",
+    "allEndpoints": "Alle Endpunkte"
   },
   "auth": {
     "lead": "Melden Sie sich mit dem Konto Ihrer Organisation an, um diese Plattform zu verwalten.",
@@ -230,7 +231,8 @@
       "index": "Index",
       "linkml": "Modell (LinkML)",
       "jsonSchema": "JSON Schema",
-      "access": "Zugriff"
+      "access": "Zugriff",
+      "catalogue": "Katalog"
     }
   },
   "datasources": {
@@ -740,5 +742,21 @@
     "nothingToDo": "Der Lauf hat nichts geändert: die Quelle hat sich nicht bewegt.",
     "byWebhook": "Läuft, wenn die Quelle es meldet",
     "everyInterval": "Alle {interval}"
+  },
+  "allEndpoints": {
+    "title": "Alle Endpunkte",
+    "lead": "Jeder Endpunkt jedes Projekts in einer Tabelle: wo er veröffentlicht ist, für wen und unter welchen Links.",
+    "empty": "Noch kein Projekt veröffentlicht einen Endpunkt.",
+    "field": {
+      "project": "Projekt",
+      "space": "Kontextraum"
+    }
+  },
+  "projects": {
+    "loading": "Projekte werden geladen…",
+    "empty": {
+      "title": "Das Repository enthält kein Projekt",
+      "description": "Legen Sie im Konfigurations-Repository ein Verzeichnis projects/<slug>/ mit mindestens einem Manifest an; das Portal zeigt es nach der nächsten Synchronisation."
+    }
   }
 }

@@ -16,6 +16,7 @@ use crate::api::federation::{Edge, EdgeKind, FederationGraph, Node, NodeHealth, 
 use crate::api::health::Health;
 use crate::api::pipelines::PipelineMetrics;
 use crate::api::preferences::Preferences;
+use crate::api::projects::{ProjectList, ProjectSummary};
 use crate::api::resources::{ListMeta, ResourceList};
 use crate::api::service_accounts::{KeyInfo, KeyList, MintedKey};
 use crate::auth::oidc::LogoutTarget;
@@ -39,6 +40,7 @@ use crate::tools::model_tools::{
         crate::api::branding::get_asset,
         crate::auth::oidc::me,
         crate::auth::oidc::logout,
+        crate::api::projects::list_projects,
         crate::api::resources::list,
         crate::api::blueprints::list_blueprints,
         crate::api::blueprints::start_flow,
@@ -98,6 +100,8 @@ use crate::tools::model_tools::{
         Status,
         ResourceList,
         ListMeta,
+        ProjectList,
+        ProjectSummary,
         Change,
         ChangeMeta,
         ChangeStatus,

@@ -19,6 +19,13 @@ const EMPTY_LIST = {
   items: [],
 };
 
+/** What the dev repository holds: two `projects/<slug>/` directories. */
+const PROJECTS = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "List",
+  items: [{ name: "helsinki" }, { name: "banskabystrica" }],
+};
+
 describe("portal shell", () => {
   let client: QueryClient;
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -29,7 +36,11 @@ describe("portal shell", () => {
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      const body = url.includes("/auth/me") ? IDENTITY : EMPTY_LIST;
+      const body = url.includes("/auth/me")
+        ? IDENTITY
+        : url.endsWith("/api/v1/projects")
+          ? PROJECTS
+          : EMPTY_LIST;
       return Promise.resolve(
         new Response(JSON.stringify(body), {
           status: 200,
@@ -46,8 +57,10 @@ describe("portal shell", () => {
         </I18nextProvider>
       </QueryClientProvider>,
     );
+    // The index route shows a bare page until the project list is in; the shell is up once
+    // its sidebar is.
     await waitFor(() => {
-      expect(screen.getByRole("banner")).toBeInTheDocument();
+      expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
     });
   });
 
@@ -131,5 +144,41 @@ describe("portal shell", () => {
     expect(
       screen.getByRole("button", { name: "Signed in as Jana Kováčová" }),
     ).toBeInTheDocument();
+  });
+
+  it("lists every project the API holds and switches to the one picked", async () => {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["helsinki", "banskabystrica"]);
+
+    await user.click(screen.getByRole("menuitem", { name: "banskabystrica" }));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/projects/banskabystrica/spaces");
+    });
+    expect(screen.getByRole("button", { name: "Projects" })).toHaveTextContent("banskabystrica");
+    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumbs).getByRole("link", { name: "banskabystrica" })).toBeInTheDocument();
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map((call) => {
+        const input = call[0] as RequestInfo | URL;
+        return typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      });
+      expect(urls.some((url) => url.includes("/projects/banskabystrica/spaces"))).toBe(true);
+    });
+  });
+
+  it("offers every endpoint of every project under one sidebar entry", async () => {
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    await userEvent.click(within(nav).getByRole("link", { name: "All endpoints" }));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/endpoints");
+    });
+    expect(within(nav).getByRole("link", { name: "All endpoints" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 });

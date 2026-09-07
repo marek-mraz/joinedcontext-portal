@@ -99,6 +99,8 @@ export async function unwrap<T>(result: {
 
 export const queryKeys = {
   session: () => ["session"] as const,
+  // Not a prefix of `list`: invalidating one project's lists must not refetch the project list.
+  projects: () => ["projectList"] as const,
   list: (project: string, plural: string) => ["projects", project, plural] as const,
   // Blueprints are organization-level, so they are not under a project key (CC-30).
   blueprints: () => ["blueprints"] as const,

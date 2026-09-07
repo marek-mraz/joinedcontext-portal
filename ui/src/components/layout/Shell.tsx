@@ -6,6 +6,7 @@ import { clsx } from "clsx";
 import { LanguageSwitcher } from "../LanguageSwitcher";
 import { ExportButton } from "../export/ExportButton";
 import { useAuth } from "../../auth/AuthProvider";
+import { useProjects } from "../../api/projects";
 import { logoUrl, useBranding } from "../../branding";
 import { Button, Icon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "../ui";
 import type { IconName } from "../ui";
@@ -30,8 +31,11 @@ const NAV_LINK =
   "focus-ring-inset flex items-center gap-2.5 rounded-md px-2.5 py-2 text-body text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg";
 const NAV_LINK_ACTIVE = "bg-primary-soft font-semibold text-primary-soft-fg hover:bg-primary-soft hover:text-primary-soft-fg";
 
-function ProjectSelector({ projects, active }: { projects: string[]; active: string }) {
+/** Switches between the projects the repository holds; the active one is listed whatever the API says. */
+function ProjectSelector({ active }: { active: string }) {
   const { t } = useTranslation();
+  const known = useProjects().data ?? [];
+  const projects = known.includes(active) ? known : [active, ...known];
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -149,11 +153,9 @@ function NavLabel({ icon, label }: { icon: IconName; label: string }) {
 
 export function Shell({
   project,
-  projects,
   children,
 }: {
   project: string;
-  projects: string[];
   children: ReactNode;
 }): React.JSX.Element {
   const { t } = useTranslation();
@@ -168,6 +170,7 @@ export function Shell({
   const onApprovals = Boolean(approvalDetail || matchRoute({ to: "/projects/$project/approvals" }));
 
   const playgroundActive = Boolean(matchRoute({ to: "/playground" }));
+  const allEndpointsActive = Boolean(matchRoute({ to: "/endpoints" }));
   const modelsActive = Boolean(matchRoute({ to: "/projects/$project/models", params: { project } }));
   const ckanActive = Boolean(matchRoute({ to: "/projects/$project/ckan", params: { project } }));
   const federationActive = Boolean(
@@ -244,7 +247,7 @@ export function Shell({
             navOpen ? "fixed bottom-0 left-0 top-14 flex shadow-3" : "hidden",
           )}
         >
-          <ProjectSelector projects={projects} active={project} />
+          <ProjectSelector active={project} />
           <ul className="flex flex-col gap-0.5">
             {NAV_SECTIONS.map((section) => {
               const isActive = section === activeSection;
@@ -282,6 +285,16 @@ export function Shell({
               repository rather than a manifest of its own, and the playground is a drawing of
               federation that runs entirely in the browser. Both hang below the list. */}
           <ul className="flex flex-col gap-0.5 border-t border-border pt-3">
+            <li>
+              <Link
+                to="/endpoints"
+                onClick={closeNav}
+                aria-current={allEndpointsActive ? "page" : undefined}
+                className={navLinkClass(allEndpointsActive)}
+              >
+                <NavLabel icon="globe" label={t("nav.allEndpoints")} />
+              </Link>
+            </li>
             <li>
               <Link
                 to="/projects/$project/models"

@@ -34,14 +34,28 @@ export function catalogueUrl(endpointName: string): string {
   return `https://data.${window.location.host}/dataset/${encodeURIComponent(endpointName)}`;
 }
 
-export function EndpointLink({ href, children }: { href: string; children: string }): JSX.Element {
+const LINK_PRIMARY =
+  "border-primary-200 bg-primary-soft font-medium text-primary-soft-fg hover:border-primary-400 hover:bg-primary-100";
+const LINK_MUTED =
+  "border-border text-fg-muted hover:border-border-strong hover:bg-surface-muted hover:text-fg";
+
+/** A pill that opens one URL of an endpoint in a new tab; `muted` for the links every endpoint has. */
+export function EndpointLink({
+  href,
+  children,
+  muted = false,
+}: {
+  href: string;
+  children: string;
+  muted?: boolean;
+}): JSX.Element {
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
       title={href}
-      className="focus-ring inline-flex items-center gap-1 rounded-full border border-primary-200 bg-primary-soft px-2 py-0.5 font-mono text-caption font-medium text-primary-soft-fg hover:border-primary-400 hover:bg-primary-100"
+      className={`focus-ring inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-caption ${muted ? LINK_MUTED : LINK_PRIMARY}`}
     >
       {children}
       <Icon name="external" className="size-3" />

@@ -25,7 +25,8 @@
     "flows": "Toky",
     "models": "Dátové modely",
     "ckan": "Otvorené dáta",
-    "federation": "Federácia"
+    "federation": "Federácia",
+    "allEndpoints": "Všetky koncové body"
   },
   "auth": {
     "lead": "Prihláste sa účtom svojej organizácie a spravujte túto platformu.",
@@ -230,7 +231,8 @@
       "index": "index",
       "linkml": "model (LinkML)",
       "jsonSchema": "JSON Schema",
-      "access": "prístup"
+      "access": "prístup",
+      "catalogue": "katalóg"
     }
   },
   "datasources": {
@@ -740,5 +742,21 @@
     "nothingToDo": "Beh nič nezmenil: zdroj sa neposunul.",
     "byWebhook": "Beží, keď to zdroj oznámi",
     "everyInterval": "Každých {interval}"
+  },
+  "allEndpoints": {
+    "title": "Všetky koncové body",
+    "lead": "Každý koncový bod každého projektu v jednej tabuľke: kde je publikovaný, pre koho a pod akými odkazmi.",
+    "empty": "Žiadny projekt zatiaľ nepublikuje koncový bod.",
+    "field": {
+      "project": "Projekt",
+      "space": "Kontextový priestor"
+    }
+  },
+  "projects": {
+    "loading": "Načítavam projekty…",
+    "empty": {
+      "title": "Repozitár neobsahuje žiadny projekt",
+      "description": "Pridajte do konfiguračného repozitára adresár projects/<slug>/ aspoň s jedným manifestom; Portál ho zobrazí po ďalšej synchronizácii."
+    }
   }
 }

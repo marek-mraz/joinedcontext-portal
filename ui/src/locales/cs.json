@@ -25,7 +25,8 @@
     "flows": "Toky",
     "models": "Datové modely",
     "ckan": "Otevřená data",
-    "federation": "Federace"
+    "federation": "Federace",
+    "allEndpoints": "Všechny koncové body"
   },
   "auth": {
     "lead": "Přihlaste se účtem své organizace a spravujte tuto platformu.",
@@ -230,7 +231,8 @@
       "index": "index",
       "linkml": "model (LinkML)",
       "jsonSchema": "JSON Schema",
-      "access": "přístup"
+      "access": "přístup",
+      "catalogue": "katalog"
     }
   },
   "datasources": {
@@ -740,5 +742,21 @@
     "nothingToDo": "Běh nic nezměnil: zdroj se neposunul.",
     "byWebhook": "Běží, když to zdroj oznámí",
     "everyInterval": "Každých {interval}"
+  },
+  "allEndpoints": {
+    "title": "Všechny koncové body",
+    "lead": "Každý koncový bod každého projektu v jedné tabulce: kde je publikován, pro koho a pod jakými odkazy.",
+    "empty": "Žádný projekt zatím nepublikuje koncový bod.",
+    "field": {
+      "project": "Projekt",
+      "space": "Kontextový prostor"
+    }
+  },
+  "projects": {
+    "loading": "Načítám projekty…",
+    "empty": {
+      "title": "Repozitář neobsahuje žádný projekt",
+      "description": "Přidejte do konfiguračního repozitáře adresář projects/<slug>/ alespoň s jedním manifestem; Portál jej zobrazí po další synchronizaci."
+    }
   }
 }

@@ -2,10 +2,15 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  Navigate,
   Outlet,
   redirect,
 } from "@tanstack/react-router";
-import { Shell } from "./components/layout/Shell";
+import { useTranslation } from "react-i18next";
+import { useProjects } from "./api/projects";
+import { BrandMark, Shell } from "./components/layout/Shell";
+import { EmptyState } from "./components/ui";
+import { AllEndpointsPage } from "./routes/AllEndpointsPage";
 import { LoginPage } from "./routes/LoginPage";
 import { ResourceListPage } from "./routes/ResourceListPage";
 import { ApprovalsPage } from "./routes/ApprovalsPage";
@@ -21,8 +26,53 @@ export interface RouterContext {
   auth: AuthState;
 }
 
-/** Until a Project list endpoint exists the shell offers the demo project only (T-0205 follows). */
-const KNOWN_PROJECTS = ["helsinki"];
+/**
+ * What a route without a `$project` shows while the project list is on its way, and when the
+ * repository holds none: there is no project to hang a shell on, so the page says so (PF-05).
+ */
+function NoProject({ pending }: { pending: boolean }): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <div className="flex min-h-screen flex-col bg-bg font-sans text-fg">
+      <header className="flex h-14 items-center border-b border-border bg-surface px-4">
+        <BrandMark short />
+      </header>
+      <main id="main" className="flex flex-1 items-center justify-center p-6">
+        {pending ? (
+          <p role="status" className="text-body text-fg-muted">
+            {t("projects.loading")}
+          </p>
+        ) : (
+          <EmptyState
+            icon="spaces"
+            title={t("projects.empty.title")}
+            description={t("projects.empty.description")}
+          />
+        )}
+      </main>
+    </div>
+  );
+}
+
+/** The shell around a page that belongs to no single project: it opens on the first one. */
+function AnyProjectShell({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const projects = useProjects();
+  const first = projects.data?.[0];
+  if (!first) {
+    return <NoProject pending={projects.isPending} />;
+  }
+  return <Shell project={first}>{children}</Shell>;
+}
+
+/** `/` goes to the first visible project's spaces; with no project there is nowhere to go. */
+function IndexRedirect(): React.JSX.Element {
+  const projects = useProjects();
+  const first = projects.data?.[0];
+  if (!first) {
+    return <NoProject pending={projects.isPending} />;
+  }
+  return <Navigate to="/projects/$project/$plural" params={{ project: first, plural: "spaces" }} />;
+}
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: Outlet,
@@ -48,12 +98,7 @@ const protectedRoute = createRoute({
 const indexRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/",
-  beforeLoad: () => {
-    throw redirect({
-      to: "/projects/$project/$plural",
-      params: { project: KNOWN_PROJECTS[0], plural: "spaces" },
-    });
-  },
+  component: IndexRedirect,
 });
 
 const approvalsRoute = createRoute({
@@ -62,7 +107,7 @@ const approvalsRoute = createRoute({
   component: function ApprovalsRoute() {
     const { project } = approvalsRoute.useParams();
     return (
-      <Shell project={project} projects={KNOWN_PROJECTS}>
+      <Shell project={project}>
         <ApprovalsPage project={project} />
       </Shell>
     );
@@ -75,7 +120,7 @@ const approvalDetailRoute = createRoute({
   component: function ApprovalDetailRoute() {
     const { project, id } = approvalDetailRoute.useParams();
     return (
-      <Shell project={project} projects={KNOWN_PROJECTS}>
+      <Shell project={project}>
         <ApprovalDetailPage project={project} id={id} />
       </Shell>
     );
@@ -88,9 +133,22 @@ const playgroundRoute = createRoute({
   path: "/playground",
   component: function PlaygroundRoute() {
     return (
-      <Shell project={KNOWN_PROJECTS[0]} projects={KNOWN_PROJECTS}>
+      <AnyProjectShell>
         <FederationPlayground />
-      </Shell>
+      </AnyProjectShell>
+    );
+  },
+});
+
+/** Every endpoint of every project in one table (EP-08, EP-44). */
+const allEndpointsRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/endpoints",
+  component: function AllEndpointsRoute() {
+    return (
+      <AnyProjectShell>
+        <AllEndpointsPage />
+      </AnyProjectShell>
     );
   },
 });
@@ -101,7 +159,7 @@ const modelsRoute = createRoute({
   component: function ModelsRoute() {
     const { project } = modelsRoute.useParams();
     return (
-      <Shell project={project} projects={KNOWN_PROJECTS}>
+      <Shell project={project}>
         <ModelsPage project={project} />
       </Shell>
     );
@@ -114,7 +172,7 @@ const ckanRoute = createRoute({
   component: function CkanRoute() {
     const { project } = ckanRoute.useParams();
     return (
-      <Shell project={project} projects={KNOWN_PROJECTS}>
+      <Shell project={project}>
         <CkanPage project={project} />
       </Shell>
     );
@@ -127,7 +185,7 @@ const federationRoute = createRoute({
   component: function FederationRoute() {
     const { project } = federationRoute.useParams();
     return (
-      <Shell project={project} projects={KNOWN_PROJECTS}>
+      <Shell project={project}>
         <FederationPage project={project} />
       </Shell>
     );
@@ -141,7 +199,7 @@ const spaceInsideRoute = createRoute({
   component: function SpaceInsideRoute() {
     const { project, name } = spaceInsideRoute.useParams();
     return (
-      <Shell project={project} projects={KNOWN_PROJECTS}>
+      <Shell project={project}>
         <SpaceInside project={project} name={name} />
       </Shell>
     );
@@ -154,7 +212,7 @@ const resourceListRoute = createRoute({
   component: function ResourceListRoute() {
     const { project, plural } = resourceListRoute.useParams();
     return (
-      <Shell project={project} projects={KNOWN_PROJECTS}>
+      <Shell project={project}>
         <ResourceListPage project={project} plural={plural} />
       </Shell>
     );
@@ -168,6 +226,7 @@ export const routeTree = rootRoute.addChildren([
     approvalsRoute,
     approvalDetailRoute,
     playgroundRoute,
+    allEndpointsRoute,
     modelsRoute,
     ckanRoute,
     federationRoute,

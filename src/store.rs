@@ -68,6 +68,20 @@ impl Mirror {
         self.len() == 0
     }
 
+    /// Every project the repository holds, sorted: the distinct `metadata.namespace` of the
+    /// mirrored manifests, since a project is exactly a `projects/<slug>/` directory with
+    /// something in it (PF-05). Cluster-scoped resources carry no namespace and are skipped.
+    pub fn namespaces(&self) -> Vec<String> {
+        let lock = self.resources.read().unwrap_or_else(|p| p.into_inner());
+        let mut names: Vec<String> = lock
+            .keys()
+            .map(|key| key.namespace.clone())
+            .filter(|ns| !ns.is_empty())
+            .collect();
+        names.dedup();
+        names
+    }
+
     pub fn replace_all(&self, other: &Mirror) {
         let new_resources = other
             .resources
@@ -433,5 +447,16 @@ metadata:
         assert!(loaded.get("ovzdusie", "ContextSpace", "ovzdusie").is_some());
 
         std::fs::remove_dir_all(&temp_dir).expect("clean temp dir");
+    }
+
+    #[test]
+    fn namespaces_are_distinct_sorted_and_skip_cluster_scope() {
+        let mirror = Mirror::new();
+        mirror.upsert(sample("helsinki", "ContextSpace", "helsinki", &[]));
+        mirror.upsert(sample("banskabystrica", "Endpoint", "public-air", &[]));
+        mirror.upsert(sample("banskabystrica", "ContextSpace", "ovzdusie", &[]));
+        mirror.upsert(sample("", "Organization", "hel", &[]));
+        assert_eq!(mirror.namespaces(), vec!["banskabystrica", "helsinki"]);
+        assert!(Mirror::new().namespaces().is_empty());
     }
 }

@@ -290,6 +290,37 @@
         }
       }
     },
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "summary": "Gated exactly like the resource lists: a live session, nothing more. Whoever may list a\nproject's resources may learn that the project exists; a directory with nothing the\nmirror recognises is not a project.",
+        "operationId": "list_projects",
+        "responses": {
+          "200": {
+            "description": "Projects present in the configuration repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/changes": {
       "get": {
         "tags": [
@@ -4141,6 +4172,41 @@
           },
           "type": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectList": {
+        "type": "object",
+        "description": "The projects the configuration repository holds (PF-05): one per `projects/<slug>/`\ndirectory the mirror has a manifest from.",
+        "required": [
+          "apiVersion",
+          "kind",
+          "items"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            }
+          },
+          "kind": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The project slug, the `{project}` segment of every other path."
           }
         }
       },

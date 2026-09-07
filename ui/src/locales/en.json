@@ -25,7 +25,8 @@
     "flows": "Flows",
     "models": "Data models",
     "ckan": "Open data",
-    "federation": "Federation"
+    "federation": "Federation",
+    "allEndpoints": "All endpoints"
   },
   "auth": {
     "lead": "Sign in with your organisation account to manage this platform.",
@@ -230,7 +231,8 @@
       "index": "index",
       "linkml": "model (LinkML)",
       "jsonSchema": "JSON Schema",
-      "access": "access"
+      "access": "access",
+      "catalogue": "catalogue"
     }
   },
   "datasources": {
@@ -740,5 +742,21 @@
     "nothingToDo": "The run changed nothing: the source has not moved.",
     "byWebhook": "Runs when the source says so",
     "everyInterval": "Every {interval}"
+  },
+  "allEndpoints": {
+    "title": "All endpoints",
+    "lead": "Every endpoint of every project in one table: where it is published, for whom, and under which links.",
+    "empty": "No project publishes an endpoint yet.",
+    "field": {
+      "project": "Project",
+      "space": "Context Space"
+    }
+  },
+  "projects": {
+    "loading": "Loading projects…",
+    "empty": {
+      "title": "The repository holds no project",
+      "description": "Add a projects/<slug>/ directory with at least one manifest to the configuration repository; the Portal lists it after the next sync."
+    }
   }
 }

@@ -122,15 +122,20 @@ describe("authentication", () => {
       if (url.includes("/auth/me")) {
         return Promise.resolve(json(IDENTITY));
       }
+      if (url.endsWith("/api/v1/projects")) {
+        return Promise.resolve(
+          json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [{ name: "helsinki" }] }),
+        );
+      }
       return Promise.resolve(json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] }));
     });
 
     renderApp(client);
 
     await waitFor(() => {
-      expect(screen.getByRole("banner")).toBeInTheDocument();
+      expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("banner")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 });

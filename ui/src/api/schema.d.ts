@@ -129,6 +129,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Gated exactly like the resource lists: a live session, nothing more. Whoever may list a
+         *     project's resources may learn that the project exists; a directory with nothing the
+         *     mirror recognises is not a project.
+         */
+        get: operations["list_projects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/changes": {
         parameters: {
             query?: never;
@@ -1125,6 +1146,19 @@ export interface components {
             title: string;
             type: string;
         };
+        /**
+         * @description The projects the configuration repository holds (PF-05): one per `projects/<slug>/`
+         *     directory the mirror has a manifest from.
+         */
+        ProjectList: {
+            apiVersion: string;
+            items: components["schemas"]["ProjectSummary"][];
+            kind: string;
+        };
+        ProjectSummary: {
+            /** @description The project slug, the `{project}` segment of every other path. */
+            name: string;
+        };
         /** @description What one endpoint publishes, and where. */
         PublicationStatus: {
             /** @description The CKAN dataset name. */
@@ -1511,6 +1545,35 @@ export interface operations {
             };
             /** @description No preferences database configured */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    list_projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Projects present in the configuration repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

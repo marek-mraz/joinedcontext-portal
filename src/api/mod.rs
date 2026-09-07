@@ -11,6 +11,7 @@ pub mod import;
 pub mod mutate;
 pub mod pipelines;
 pub mod preferences;
+pub mod projects;
 pub mod resources;
 pub mod service_accounts;
 pub mod sync;
@@ -40,6 +41,7 @@ pub fn router() -> Router<AppState> {
         .merge(resources::router())
         .merge(pipelines::router())
         .merge(preferences::router())
+        .merge(projects::router())
         .merge(service_accounts::router())
         .merge(sync::router())
         .merge(sync_sources::router())

@@ -262,7 +262,9 @@ describe("accessibility", () => {
           typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         const body = url.includes("/auth/me")
           ? IDENTITY
-          : { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] };
+          : url.endsWith("/api/v1/projects")
+            ? { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [{ name: "helsinki" }] }
+            : { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] };
         return Promise.resolve(
           new Response(JSON.stringify(body), {
             status: 200,
