@@ -24,6 +24,8 @@ fn make_session_cookie(config: &Config) -> String {
             roles: Vec::new(),
         },
         expires_at: now + 3600,
+        access_expires_at: now + 3600,
+        refresh_token: None,
         issued_at: now,
         id_token: "id-token-placeholder".into(),
     };
