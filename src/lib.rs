@@ -8,6 +8,7 @@ pub mod auth;
 pub mod branding;
 pub mod change;
 pub mod config;
+pub mod dashboards;
 pub mod db;
 pub mod error;
 pub mod git;

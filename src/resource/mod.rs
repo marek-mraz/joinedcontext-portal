@@ -91,9 +91,9 @@ pub struct ResourceKey {
     pub name: String,
 }
 
-/// Kinds the specification defines and the Portal already serves, but `jc-core-v0.6.0` does not
-/// implement yet: Dashboard and Layer (UI-17, UI-18, Architecture/10), Entity seeds and
-/// Subscription (Architecture/06 section 3, DS-16). Paths follow Architecture/06. Blueprint left
+/// Kinds the specification defines and the Portal already serves, but jc-core does not
+/// implement yet: Entity seeds and Subscription (Architecture/06 section 3, DS-16). Dashboard
+/// and Layer left with jc-core-v0.7.7 (T-0528). Paths follow Architecture/06. Blueprint left
 /// this list when jc-core-v0.4.0 took the kind over and ContextSourceRegistration when
 /// jc-core-v0.6.0 did, which is exactly the move the next paragraph describes. That move is not
 /// free: the placeholder row served the kind at `contextsourceregistrations` and jc-core gives it
@@ -113,18 +113,6 @@ pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[
         plural: "entities",
         scope: Scope::Project,
         path_template: "projects/{project}/spaces/{space}/entities/seed/{name}.yaml",
-    },
-    KindInfo {
-        kind: "Dashboard",
-        plural: "dashboards",
-        scope: Scope::Project,
-        path_template: "projects/{project}/dashboards/{name}.yaml",
-    },
-    KindInfo {
-        kind: "Layer",
-        plural: "layers",
-        scope: Scope::Project,
-        path_template: "projects/{project}/dashboards/{name}.yaml",
     },
 ];
 
@@ -219,6 +207,8 @@ mod tests {
                 "UiSchema",
                 "Role",
                 "RoleBinding",
+                "Dashboard",
+                "Layer",
             ],
             "jc-core's catalogue changed: check PORTAL_ONLY_KINDS and the UI navigation"
         );

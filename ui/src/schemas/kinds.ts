@@ -760,3 +760,138 @@ export const pipelineUiSchema: UiSchema = {
     bloblang: { "ui:widget": "textarea", "ui:options": { rows: 14 } },
   },
 };
+
+// ---------------------------------------------------------------------------------------------
+// Dashboards and layers (T-0528, UI-17, UI-18): `DashboardSpec` and `LayerSpec` of jc-core.
+
+export const DASHBOARD_VISIBILITIES = ["private", "project", "organization", "public"] as const;
+export const PAGE_LAYOUTS = ["full-map", "grid-2x2"] as const;
+export const LAYER_STYLES = ["circle", "line", "fill", "heatmap", "hexagon", "icon"] as const;
+
+const numberPair = (title: string): JsonSchema => ({
+  type: "array",
+  title,
+  items: { type: "number" },
+  minItems: 2,
+  maxItems: 2,
+});
+
+export function dashboardSchema(t: (key: string) => string, layers: string[]): JsonSchema {
+  return {
+    type: "object",
+    required: ["name", "title", "visibility", "pages"],
+    properties: {
+      name: { type: "string", title: t("dashboards.field.name"), pattern: DNS1123, maxLength: 63 },
+      title: { ...titleProperty, title: t("dashboards.field.title") },
+      visibility: {
+        type: "string",
+        title: t("dashboards.field.visibility"),
+        enum: [...DASHBOARD_VISIBILITIES],
+        default: "project",
+      },
+      pages: {
+        type: "array",
+        title: t("dashboards.field.pages"),
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string", title: t("dashboards.field.pageTitle") },
+            layout: {
+              type: "string",
+              title: t("dashboards.field.layout"),
+              enum: [...PAGE_LAYOUTS],
+              default: "full-map",
+            },
+            layers: {
+              type: "array",
+              title: t("dashboards.field.layers"),
+              items: layers.length > 0 ? { type: "string", enum: layers } : { type: "string", pattern: DNS1123 },
+              uniqueItems: true,
+            },
+            widgets: {
+              type: "array",
+              title: t("dashboards.field.widgets"),
+              items: {
+                type: "object",
+                required: ["widgetType"],
+                properties: {
+                  widgetType: { type: "string", title: t("dashboards.field.widgetType") },
+                  endpointRef: { type: "string", title: t("dashboards.field.endpoint"), pattern: DNS1123 },
+                  entityId: { type: "string", title: t("dashboards.field.entityId") },
+                  property: { type: "string", title: t("dashboards.field.property") },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+export const dashboardUiSchema: UiSchema = {
+  pages: { items: { layers: { "ui:widget": "checkboxes" } } },
+};
+
+export function layerSchema(
+  t: (key: string) => string,
+  endpoints: string[],
+  types: string[],
+): JsonSchema {
+  return {
+    type: "object",
+    required: ["name", "sourceEndpointRef", "entityType", "style"],
+    properties: {
+      name: { type: "string", title: t("dashboards.field.name"), pattern: DNS1123, maxLength: 63 },
+      sourceEndpointRef: {
+        type: "string",
+        title: t("dashboards.field.endpoint"),
+        ...(endpoints.length > 0 ? { enum: endpoints } : { pattern: DNS1123 }),
+      },
+      entityType: {
+        type: "string",
+        title: t("dashboards.field.entityType"),
+        ...(types.length > 0 ? { enum: types } : { pattern: ENTITY_TYPE_PATTERN }),
+      },
+      style: { type: "string", title: t("dashboards.field.style"), enum: [...LAYER_STYLES], default: "circle" },
+      visible: { type: "boolean", title: t("dashboards.field.visible"), default: true },
+      filter: {
+        type: "object",
+        title: t("dashboards.field.filter"),
+        properties: {
+          q: { type: "string", title: "q" },
+          scopeQ: { type: "string", title: "scopeQ" },
+          geoQ: { type: "string", title: "geoQ" },
+        },
+      },
+      colorBy: {
+        type: "object",
+        title: t("dashboards.field.colorBy"),
+        properties: {
+          property: { type: "string", title: t("dashboards.field.property") },
+          palette: { type: "string", title: t("dashboards.field.palette") },
+          domain: numberPair(t("dashboards.field.domain")),
+        },
+      },
+      sizeBy: {
+        type: "object",
+        title: t("dashboards.field.sizeBy"),
+        properties: {
+          property: { type: "string", title: t("dashboards.field.property") },
+          range: numberPair(t("dashboards.field.range")),
+        },
+      },
+      popupProperties: {
+        type: "array",
+        title: t("dashboards.field.popup"),
+        items: { type: "string" },
+        uniqueItems: true,
+      },
+    },
+  };
+}
+
+export const layerUiSchema: UiSchema = {
+  filter: { q: { "ui:autocomplete": "off" } },
+};

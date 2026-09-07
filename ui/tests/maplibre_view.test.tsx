@@ -42,6 +42,15 @@ vi.mock("maplibre-gl", () => {
       }
     }
     remove() {}
+    getSource() {
+      return undefined;
+    }
+    removeLayer() {}
+    removeSource() {}
+    fitBounds() {}
+    getBounds() {
+      return { getWest: () => 0, getSouth: () => 0, getEast: () => 1, getNorth: () => 1 };
+    }
   }
   class FakePopup {
     setLngLat() {

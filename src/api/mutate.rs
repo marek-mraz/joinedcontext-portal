@@ -260,6 +260,16 @@ pub async fn propose(
         })?;
     }
 
+    // 4b'. A public dashboard reads only through public Endpoints (UI-19, T-0528): the one
+    //      rule that spans three manifests, so it is checked against the mirror here.
+    crate::dashboards::check(
+        &state.mirror,
+        project,
+        kind_info.kind,
+        &envelope.metadata.name,
+        &envelope.spec,
+    )?;
+
     // 4c. Who may propose this kind here, with this content (T-0526, PF-50): the bindings of
     //     the organization repository, before a Change exists. 403 names the verb or the field.
     crate::permissions::for_request(state, &user.0.identity, project).check(
