@@ -10,6 +10,23 @@ import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { contextSpaceSchema } from "../schemas/kinds";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableSkeleton,
+  buttonClass,
+} from "../components/ui";
 
 interface SpaceForm {
   name: string;
@@ -55,9 +72,9 @@ function QuotaBar({
   const percent = limit && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   return (
     <div className="min-w-[12rem]">
-      <div className="flex items-baseline justify-between gap-2 text-sm">
-        <span className="font-medium">{label}</span>
-        <span className="font-mono text-xs text-surface-fg/70">
+      <div className="flex items-baseline justify-between gap-3 text-caption">
+        <span className="font-medium text-fg-muted">{label}</span>
+        <span className="font-mono tabular-nums text-fg">
           {limit === undefined ? t("quota.unlimited", { used }) : `${used} / ${limit}`}
         </span>
       </div>
@@ -68,10 +85,10 @@ function QuotaBar({
           aria-valuemin={0}
           aria-valuemax={limit}
           aria-label={label}
-          className="mt-1 h-2 w-full overflow-hidden rounded bg-surface-subtle"
+          className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-neutral-200"
         >
           <div
-            className={percent >= 100 ? "h-full bg-danger" : "h-full bg-primary"}
+            className={percent >= 100 ? "h-full rounded-full bg-danger" : "h-full rounded-full bg-primary"}
             style={{ width: `${percent}%` }}
           />
         </div>
@@ -79,6 +96,8 @@ function QuotaBar({
     </div>
   );
 }
+
+const COLUMNS = 5;
 
 /** Context Spaces of one project: what exists, what it costs against the quota, where it lives. */
 export function SpacesPage({ project }: { project: string }): JSX.Element {
@@ -140,8 +159,26 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
     },
   });
 
+  const head = (
+    <TableHead>
+      <TableHeaderCell>{t("spaces.field.name")}</TableHeaderCell>
+      <TableHeaderCell>{t("spaces.field.dataModel")}</TableHeaderCell>
+      <TableHeaderCell>{t("spaces.field.phase")}</TableHeaderCell>
+      <TableHeaderCell align="right">{t("spaces.field.inside")}</TableHeaderCell>
+      <TableHeaderCell align="right">{t("spaces.field.source")}</TableHeaderCell>
+    </TableHead>
+  );
+
   if (list.isPending) {
-    return <p role="status">{t("app.loading")}</p>;
+    return (
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("spaces.title")} description={t("spaces.lead")} />
+        <Table caption={t("spaces.title")} status={t("app.loading")}>
+          {head}
+          <TableSkeleton columns={COLUMNS} />
+        </Table>
+      </div>
+    );
   }
 
   if (list.isError) {
@@ -150,17 +187,25 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
         ? (list.error.problem?.detail ?? list.error.message)
         : t("app.error.generic");
     return (
-      <div role="alert">
-        <p className="text-danger">{message}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void list.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("spaces.title")} description={t("spaces.lead")} />
+        <Alert
+          role="alert"
+          tone="danger"
+          actions={
+            <Button
+              size="sm"
+              icon={<Icon name="refresh" className="size-4" />}
+              onClick={() => {
+                void list.refetch();
+              }}
+            >
+              {t("app.error.retry")}
+            </Button>
+          }
         >
-          {t("app.error.retry")}
-        </button>
+          {message}
+        </Alert>
       </div>
     );
   }
@@ -171,112 +216,99 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
   const quotaExceeded = limit !== undefined && spaces.length >= limit;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="text-xl font-bold">{t("spaces.title")}</h1>
-        <div className="flex flex-wrap items-end gap-6">
-          <QuotaBar label={t("quota.contextSpaces")} used={spaces.length} limit={limit} />
-          <button
-            type="button"
+    <div className="flex flex-col gap-section">
+      <PageHeader
+        title={t("spaces.title")}
+        description={t("spaces.lead")}
+        aside={<QuotaBar label={t("quota.contextSpaces")} used={spaces.length} limit={limit} />}
+        actions={
+          <Button
+            variant="primary"
             disabled={quotaExceeded}
+            icon={<Icon name="plus" className="size-4" />}
             onClick={() => {
               setFormError(null);
               setDialogOpen(true);
             }}
-            className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("spaces.add")}
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      />
 
       {quotaExceeded ? (
-        <p role="status" className="text-sm text-danger">
+        <Alert role="status" tone="warning">
           {t("quota.exceeded", { limit })}
-        </p>
+        </Alert>
       ) : null}
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
 
-      {spaces.length === 0 ? (
-        <p className="text-sm text-surface-fg/70">{t("spaces.empty")}</p>
-      ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full border-collapse text-left text-sm">
-            <caption className="sr-only">{t("spaces.title")}</caption>
-            <thead>
-              <tr className="border-b border-border bg-surface-subtle">
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("spaces.field.name")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("spaces.field.dataModel")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("spaces.field.phase")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium text-right">
-                  {t("spaces.field.inside")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium text-right">
-                  {t("spaces.field.source")}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {spaces.map((space: Manifest) => {
-                const spec = space.spec as {
-                  dataModelRef?: string;
-                  isSandbox?: boolean;
-                  ttlDays?: number;
-                };
-                return (
-                  <tr key={space.metadata.name} className="hover:bg-surface-subtle/50">
-                    <td className="px-4 py-3">
-                      <div className="font-medium">
-                        {localized(space.metadata.title, locale, space.metadata.name)}
-                      </div>
-                      <div className="font-mono text-xs text-surface-fg/60">
-                        {space.metadata.title ? space.metadata.name : null}
-                        {spec.isSandbox
-                          ? `${space.metadata.title ? " · " : ""}${t("spaces.sandbox", { days: spec.ttlDays ?? 0 })}`
-                          : ""}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">{spec.dataModelRef ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <LifecycleBadge kind="phase" value={space.status?.phase} />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Link
-                        to="/projects/$project/spaces/$name"
-                        params={{ project, name: space.metadata.name }}
-                        className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+      <Table caption={t("spaces.title")}>
+        {head}
+        <TableBody>
+          {spaces.length === 0 ? (
+            <TableEmpty columns={COLUMNS}>
+              <EmptyState bare icon="spaces" title={t("spaces.empty")} description={t("spaces.addHint")} />
+            </TableEmpty>
+          ) : (
+            spaces.map((space: Manifest) => {
+              const spec = space.spec as {
+                dataModelRef?: string;
+                isSandbox?: boolean;
+                ttlDays?: number;
+              };
+              return (
+                <TableRow key={space.metadata.name}>
+                  <TableCell primary>
+                    <div>{localized(space.metadata.title, locale, space.metadata.name)}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-caption text-fg-subtle">
+                      {space.metadata.title ? <span>{space.metadata.name}</span> : null}
+                      {spec.isSandbox ? (
+                        <Badge tone="warning">{t("spaces.sandbox", { days: spec.ttlDays ?? 0 })}</Badge>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {spec.dataModelRef ? (
+                      <span className="font-mono text-caption">{spec.dataModelRef}</span>
+                    ) : (
+                      <span className="text-fg-subtle">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <LifecycleBadge kind="phase" value={space.status?.phase} />
+                  </TableCell>
+                  <TableCell align="right">
+                    <Link
+                      to="/projects/$project/spaces/$name"
+                      params={{ project, name: space.metadata.name }}
+                      className={buttonClass("secondary", "sm")}
+                    >
+                      {t("spaces.inside.open")}
+                    </Link>
+                  </TableCell>
+                  <TableCell align="right">
+                    {space.status?.sourceUrl ? (
+                      <a
+                        href={space.status.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={buttonClass("ghost", "sm", "text-primary")}
                       >
-                        {t("spaces.inside.open")}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {space.status?.sourceUrl ? (
-                        <a
-                          href={space.status.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
-                        >
-                          {t("spaces.field.source")}
-                        </a>
-                      ) : (
-                        <span className="text-surface-fg/40">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                        {t("spaces.field.source")}
+                        <Icon name="external" className="size-3.5" />
+                      </a>
+                    ) : (
+                      <span className="text-fg-subtle">—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
 
       <ResourceFormDialog<SpaceForm>
         open={dialogOpen}

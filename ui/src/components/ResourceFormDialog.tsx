@@ -1,8 +1,8 @@
 import type { JSX, ReactNode } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
 import { useTranslation } from "react-i18next";
 import { SchemaForm } from "./forms/SchemaForm";
 import type { JsonSchema, UiSchema } from "./forms/types";
+import { Alert, Button, Dialog, DialogClose } from "./ui";
 
 export interface ResourceFormDialogProps<T> {
   open: boolean;
@@ -40,48 +40,37 @@ export function ResourceFormDialog<T>({
   const { t } = useTranslation();
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[min(40rem,92vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded border border-border bg-surface p-6 text-surface-fg shadow-lg">
-          <Dialog.Title className="text-lg font-bold">{title}</Dialog.Title>
-          <Dialog.Description className="mt-1 text-sm text-surface-fg/70">
-            {description}
-          </Dialog.Description>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      closeLabel={t("form.cancel")}
+    >
+      <div className="flex flex-col gap-4">
+        {error ? (
+          <Alert role="alert" tone="danger">
+            {error}
+          </Alert>
+        ) : null}
 
-          {error ? (
-            <div
-              role="alert"
-              className="mt-4 rounded border border-danger bg-danger/10 p-3 text-sm text-danger"
-            >
-              {error}
-            </div>
-          ) : null}
+        {children ? <div className="flex flex-col gap-3">{children}</div> : null}
 
-          {children ? <div className="mt-4">{children}</div> : null}
-
-          <div className="mt-4">
-            <SchemaForm<T>
-              schema={schema}
-              uiSchema={uiSchema}
-              formData={formData}
-              disabled={disabled}
-              submitLabel={submitLabel}
-              onSubmit={onSubmit}
-              onChange={onChange}
-            />
-          </div>
-
-          <Dialog.Close asChild>
-            <button
-              type="button"
-              className="mt-4 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-            >
-              {t("form.cancel")}
-            </button>
-          </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        <SchemaForm<T>
+          schema={schema}
+          uiSchema={uiSchema}
+          formData={formData}
+          disabled={disabled}
+          submitLabel={submitLabel}
+          onSubmit={onSubmit}
+          onChange={onChange}
+          actions={
+            <DialogClose asChild>
+              <Button variant="ghost">{t("form.cancel")}</Button>
+            </DialogClose>
+          }
+        />
+      </div>
+    </Dialog>
   );
 }

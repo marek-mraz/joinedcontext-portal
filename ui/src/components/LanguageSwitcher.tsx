@@ -1,8 +1,8 @@
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useTranslation } from "react-i18next";
 import { SUPPORTED_LOCALES } from "../i18n";
 import type { Locale } from "../i18n";
 import { offeredLocales, useBranding } from "../branding";
+import { Icon, Menu, MenuContent, MenuItem, MenuTrigger, buttonClass } from "./ui";
 
 export function LanguageSwitcher(): React.JSX.Element {
   const { t, i18n } = useTranslation();
@@ -18,38 +18,35 @@ export function LanguageSwitcher(): React.JSX.Element {
   const locales = offered.length > 0 ? offered : [...SUPPORTED_LOCALES];
 
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
+    <Menu>
+      <MenuTrigger asChild>
         <button
           type="button"
           aria-label={t("lang.label")}
-          className="inline-flex items-center justify-center rounded border border-border bg-surface px-3 py-1.5 text-sm font-medium text-surface-fg hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
+          className={buttonClass("ghost", "sm")}
         >
-          {t(`lang.${currentLang}`)}
+          <Icon name="globe" className="size-4 text-fg-muted" />
+          <span>{t(`lang.${currentLang}`)}</span>
+          <Icon name="chevronDown" className="size-3.5 text-fg-subtle" />
         </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          className="z-50 min-w-[8rem] rounded border border-border bg-surface p-1 text-surface-fg shadow-md focus:outline-none"
-        >
-          {locales.map((locale) => {
-            const isCurrent = locale === currentLang;
-            return (
-              <DropdownMenu.Item
-                key={locale}
-                aria-current={isCurrent ? "true" : undefined}
-                onSelect={() => {
-                  void i18n.changeLanguage(locale);
-                }}
-                className="relative flex cursor-pointer select-none items-center rounded px-2 py-1.5 text-sm text-surface-fg outline-none hover:bg-surface-subtle focus:bg-surface-subtle"
-              >
-                {t(`lang.${locale}`)}
-              </DropdownMenu.Item>
-            );
-          })}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+      </MenuTrigger>
+      <MenuContent align="end" className="min-w-[9rem]">
+        {locales.map((locale) => {
+          const isCurrent = locale === currentLang;
+          return (
+            <MenuItem
+              key={locale}
+              aria-current={isCurrent ? "true" : undefined}
+              onSelect={() => {
+                void i18n.changeLanguage(locale);
+              }}
+            >
+              {isCurrent ? <Icon name="check" className="size-4" /> : <span className="size-4" />}
+              {t(`lang.${locale}`)}
+            </MenuItem>
+          );
+        })}
+      </MenuContent>
+    </Menu>
   );
 }

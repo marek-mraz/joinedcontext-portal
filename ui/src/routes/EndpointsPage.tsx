@@ -17,6 +17,23 @@ import {
   REPRESENTATION_PATHS,
 } from "../components/endpoints/links";
 import { endpointSchema, endpointUiSchema, generateSlug } from "../schemas/kinds";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableSkeleton,
+  buttonClass,
+} from "../components/ui";
 
 interface EndpointForm {
   name: string;
@@ -118,21 +135,29 @@ function CopyUrlButton({ slug }: { slug: string }): JSX.Element {
   const url = `${window.location.origin}/api/endpoint/${slug}`;
 
   return (
-    <button
-      type="button"
+    <Button
+      size="sm"
+      title={url}
+      icon={<Icon name={copied ? "check" : "copy"} className="size-4" />}
       onClick={() => {
         void navigator.clipboard
           ?.writeText(url)
           .then(() => setCopied(true))
           .catch(() => setCopied(false));
       }}
-      title={url}
-      className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
     >
       {copied ? t("endpoints.copied") : t("endpoints.copyUrl")}
-    </button>
+    </Button>
   );
 }
+
+const AUDIENCE_TONE: Record<string, "neutral" | "info" | "warning"> = {
+  "project-list": "neutral",
+  organization: "info",
+  public: "warning",
+};
+
+const COLUMNS = 5;
 
 /** Endpoints of one project: who may call them, in which representations, and their public URL. */
 export function EndpointsPage({ project }: { project: string }): JSX.Element {
@@ -201,8 +226,26 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     },
   });
 
+  const head = (
+    <TableHead>
+      <TableHeaderCell>{t("endpoints.field.name")}</TableHeaderCell>
+      <TableHeaderCell>{t("endpoints.field.audience")}</TableHeaderCell>
+      <TableHeaderCell>{t("endpoints.field.representations")}</TableHeaderCell>
+      <TableHeaderCell>{t("endpoints.field.phase")}</TableHeaderCell>
+      <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
+    </TableHead>
+  );
+
   if (list.isPending) {
-    return <p role="status">{t("app.loading")}</p>;
+    return (
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("endpoints.title")} description={t("endpoints.lead")} />
+        <Table caption={t("endpoints.title")} status={t("app.loading")}>
+          {head}
+          <TableSkeleton columns={COLUMNS} />
+        </Table>
+      </div>
+    );
   }
 
   if (list.isError) {
@@ -211,17 +254,25 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         ? (list.error.problem?.detail ?? list.error.message)
         : t("app.error.generic");
     return (
-      <div role="alert">
-        <p className="text-danger">{message}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void list.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("endpoints.title")} description={t("endpoints.lead")} />
+        <Alert
+          role="alert"
+          tone="danger"
+          actions={
+            <Button
+              size="sm"
+              icon={<Icon name="refresh" className="size-4" />}
+              onClick={() => {
+                void list.refetch();
+              }}
+            >
+              {t("app.error.retry")}
+            </Button>
+          }
         >
-          {t("app.error.retry")}
-        </button>
+          {message}
+        </Alert>
       </div>
     );
   }
@@ -230,153 +281,146 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const spaceNames = asManifests(spacesQuery.data?.items ?? []).map((s) => s.metadata.name);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-xl font-bold">{t("endpoints.title")}</h1>
-        <button
-          type="button"
-          onClick={() => {
-            setFormError(null);
-            setIsNew(true);
-            setHidden([]);
-            setEditing({
-              name: "",
-              contextSpaceRef: spaceNames[0] ?? "",
-              slug: generateSlug(),
-              audience: "project-list",
-              enabledRepresentations: ["ngsi-ld"],
-              allowedProjects: [],
-            });
-          }}
-          className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
-        >
-          {t("endpoints.add")}
-        </button>
-      </div>
+    <div className="flex flex-col gap-section">
+      <PageHeader
+        title={t("endpoints.title")}
+        description={t("endpoints.lead")}
+        actions={
+          <Button
+            variant="primary"
+            icon={<Icon name="plus" className="size-4" />}
+            onClick={() => {
+              setFormError(null);
+              setIsNew(true);
+              setHidden([]);
+              setEditing({
+                name: "",
+                contextSpaceRef: spaceNames[0] ?? "",
+                slug: generateSlug(),
+                audience: "project-list",
+                enabledRepresentations: ["ngsi-ld"],
+                allowedProjects: [],
+              });
+            }}
+          >
+            {t("endpoints.add")}
+          </Button>
+        }
+      />
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
 
-      {endpoints.length === 0 ? (
-        <p className="text-sm text-surface-fg/70">{t("endpoints.empty")}</p>
-      ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full border-collapse text-left text-sm">
-            <caption className="sr-only">{t("endpoints.title")}</caption>
-            <thead>
-              <tr className="border-b border-border bg-surface-subtle">
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("endpoints.field.name")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("endpoints.field.audience")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("endpoints.field.representations")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("endpoints.field.phase")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium text-right">
-                  {t("approvals.actions")}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {endpoints.map((endpoint) => {
-                const spec = endpoint.spec as {
-                  slug?: string;
-                  audience?: string;
-                  enabledRepresentations?: string[];
-                };
-                const slug = spec.slug ?? "";
-                return (
-                  <tr key={endpoint.metadata.name} className="hover:bg-surface-subtle/50">
-                    <td className="px-4 py-3">
-                      <div className="font-medium">
-                        {localized(endpoint.metadata.title, locale, endpoint.metadata.name)}
+      <Table caption={t("endpoints.title")}>
+        {head}
+        <TableBody>
+          {endpoints.length === 0 ? (
+            <TableEmpty columns={COLUMNS}>
+              <EmptyState
+                bare
+                icon="endpoints"
+                title={t("endpoints.empty")}
+                description={t("endpoints.addHint")}
+              />
+            </TableEmpty>
+          ) : (
+            endpoints.map((endpoint) => {
+              const spec = endpoint.spec as {
+                slug?: string;
+                audience?: string;
+                enabledRepresentations?: string[];
+              };
+              const slug = spec.slug ?? "";
+              const audience = spec.audience ?? "project-list";
+              return (
+                <TableRow key={endpoint.metadata.name}>
+                  <TableCell primary>
+                    <div>{localized(endpoint.metadata.title, locale, endpoint.metadata.name)}</div>
+                    {endpoint.metadata.title ? (
+                      <div className="mt-0.5 font-mono text-caption text-fg-subtle">
+                        {endpoint.metadata.name}
                       </div>
-                      {endpoint.metadata.title ? (
-                        <div className="font-mono text-xs text-surface-fg/60">
-                          {endpoint.metadata.name}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center rounded border border-border bg-surface-subtle px-2 py-0.5 text-xs font-medium">
-                        {t(`endpoints.audience.${spec.audience ?? "project-list"}`)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <ul className="flex flex-wrap gap-1">
-                        {(spec.enabledRepresentations ?? []).map((rep) => (
-                          <li key={rep}>
-                            {slug && REPRESENTATION_PATHS[rep] ? (
-                              <EndpointLink href={endpointUrl(slug, REPRESENTATION_PATHS[rep])}>
-                                {rep}
-                              </EndpointLink>
-                            ) : (
-                              <span className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs">
-                                {rep}
-                              </span>
-                            )}
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    <Badge tone={AUDIENCE_TONE[audience] ?? "neutral"}>
+                      {t(`endpoints.audience.${audience}`)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <ul className="flex flex-wrap gap-1">
+                      {(spec.enabledRepresentations ?? []).map((rep) => (
+                        <li key={rep}>
+                          {slug && REPRESENTATION_PATHS[rep] ? (
+                            <EndpointLink href={endpointUrl(slug, REPRESENTATION_PATHS[rep])}>
+                              {rep}
+                            </EndpointLink>
+                          ) : (
+                            <Badge mono>{rep}</Badge>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    {slug ? (
+                      <ul className="mt-1.5 flex flex-wrap gap-1">
+                        {ENDPOINT_LINKS.map((link) => (
+                          <li key={link.key}>
+                            <a
+                              href={endpointUrl(slug, link.path)}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={endpointUrl(slug, link.path)}
+                              className="focus-ring inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 font-mono text-caption text-fg-muted hover:border-border-strong hover:bg-surface-muted hover:text-fg"
+                            >
+                              {t(`endpoints.link.${link.key}`)}
+                              <Icon name="external" className="size-3" />
+                            </a>
                           </li>
                         ))}
                       </ul>
-                      {slug ? (
-                        <ul className="mt-1 flex flex-wrap gap-1">
-                          {ENDPOINT_LINKS.map((link) => (
-                            <li key={link.key}>
-                              <EndpointLink href={endpointUrl(slug, link.path)}>
-                                {t(`endpoints.link.${link.key}`)}
-                              </EndpointLink>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      <LifecycleBadge kind="phase" value={endpoint.status?.phase} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        {spec.slug ? <CopyUrlButton slug={spec.slug} /> : null}
-                        <ExportButton
-                          project={project}
-                          target={{ plural: "endpoints", name: endpoint.metadata.name }}
-                          label={t("export.action")}
-                          className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFormError(null);
-                            setIsNew(false);
-                            setHidden(hiddenOf(endpoint));
-                            setEditing(toForm(endpoint));
-                          }}
-                          className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    <LifecycleBadge kind="phase" value={endpoint.status?.phase} />
+                  </TableCell>
+                  <TableCell align="right">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {spec.slug ? <CopyUrlButton slug={spec.slug} /> : null}
+                      <ExportButton
+                        project={project}
+                        target={{ plural: "endpoints", name: endpoint.metadata.name }}
+                        label={t("export.action")}
+                        size="sm"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setFormError(null);
+                          setIsNew(false);
+                          setHidden(hiddenOf(endpoint));
+                          setEditing(toForm(endpoint));
+                        }}
+                      >
+                        {t("endpoints.edit")}
+                      </Button>
+                      {endpoint.status?.sourceUrl ? (
+                        <a
+                          href={endpoint.status.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={buttonClass("ghost", "sm", "text-primary")}
                         >
-                          {t("endpoints.edit")}
-                        </button>
-                        {endpoint.status?.sourceUrl ? (
-                          <a
-                            href={endpoint.status.sourceUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
-                          >
-                            {t("spaces.field.source")}
-                          </a>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                          {t("spaces.field.source")}
+                          <Icon name="external" className="size-3.5" />
+                        </a>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
 
       <ResourceFormDialog<EndpointForm>
         open={editing !== null}
@@ -402,20 +446,22 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         }}
       >
         {isNew ? (
-          <button
-            type="button"
-            onClick={() =>
-              setEditing((prev) => (prev ? { ...prev, slug: generateSlug() } : prev))
-            }
-            className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-          >
-            {t("endpoints.generateSlug")}
-          </button>
+          <div>
+            <Button
+              size="sm"
+              icon={<Icon name="refresh" className="size-4" />}
+              onClick={() =>
+                setEditing((prev) => (prev ? { ...prev, slug: generateSlug() } : prev))
+              }
+            >
+              {t("endpoints.generateSlug")}
+            </Button>
+          </div>
         ) : null}
         {editing?.audience === "public" ? (
-          <p role="note" className="rounded border border-border bg-surface-subtle p-3 text-sm">
+          <Alert role="note" tone="warning">
             {t("endpoints.publicNotice")}
-          </p>
+          </Alert>
         ) : null}
         {editing && !isNew ? (
           <SchemaProjectionPanel slug={editing.slug} hidden={hidden} onHiddenChange={setHidden} />

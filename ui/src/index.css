@@ -1,50 +1,146 @@
 @import "tailwindcss";
+@import "./tokens.css";
 
-:root {
-  --portal-color-primary: #1d4ed8;
-  --portal-color-primary-fg: #ffffff;
-  --portal-color-surface: #ffffff;
-  --portal-color-surface-subtle: #f8fafc;
-  --portal-color-surface-fg: #0f172a;
-  --portal-color-border: #94a3b8;
-  --portal-color-border-focus: #1d4ed8;
-  --portal-color-danger: #b91c1c;
-  --portal-color-danger-fg: #ffffff;
-  /* Branding sets these two at runtime; the defaults keep an unbranded instance readable. */
-  --portal-color-secondary: #0f766e;
-  --portal-color-accent: #f59e0b;
-  --portal-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --portal-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --portal-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --portal-color-primary: #3b82f6;
-    --portal-color-primary-fg: #0f172a;
-    --portal-color-surface: #0f172a;
-    --portal-color-surface-subtle: #1e293b;
-    --portal-color-surface-fg: #f8fafc;
-    --portal-color-border: #475569;
-    --portal-color-border-focus: #60a5fa;
-    --portal-color-danger: #f87171;
-    --portal-color-danger-fg: #0f172a;
-  }
-}
-
+/*
+ * Tailwind reads the semantic tokens of tokens.css and nothing else: a component class such as
+ * `bg-surface` or `text-fg-muted` is a token by another name, so the branding that rewrites
+ * the tokens at runtime rewrites every component with them (UI-01, UI-30).
+ */
 @theme {
-  --color-primary: var(--portal-color-primary);
-  --color-primary-fg: var(--portal-color-primary-fg);
-  --color-surface: var(--portal-color-surface);
-  --color-surface-subtle: var(--portal-color-surface-subtle);
-  --color-surface-fg: var(--portal-color-surface-fg);
-  --color-border: var(--portal-color-border);
-  --color-border-focus: var(--portal-color-border-focus);
-  --color-danger: var(--portal-color-danger);
-  --color-danger-fg: var(--portal-color-danger-fg);
+  /* Colour: the names the existing pages use, kept, and the fuller set the components use. */
+  --color-bg: var(--portal-bg);
+  --color-surface: var(--portal-surface);
+  --color-surface-subtle: var(--portal-surface-subtle);
+  --color-surface-muted: var(--portal-surface-muted);
+  --color-surface-raised: var(--portal-surface-raised);
+  --color-surface-fg: var(--portal-fg);
+  --color-fg: var(--portal-fg);
+  --color-fg-muted: var(--portal-fg-muted);
+  --color-fg-subtle: var(--portal-fg-subtle);
+  --color-border: var(--portal-border);
+  --color-border-strong: var(--portal-border-strong);
+  --color-border-focus: var(--portal-ring);
+  --color-ring: var(--portal-ring);
+  --color-overlay: var(--portal-overlay);
+  --color-primary: var(--portal-primary);
+  --color-primary-hover: var(--portal-primary-hover);
+  --color-primary-active: var(--portal-primary-active);
+  --color-primary-fg: var(--portal-primary-fg);
+  --color-primary-soft: var(--portal-primary-soft);
+  --color-primary-soft-fg: var(--portal-primary-soft-fg);
+  --color-primary-50: var(--portal-primary-50);
+  --color-primary-100: var(--portal-primary-100);
+  --color-primary-200: var(--portal-primary-200);
+  --color-primary-300: var(--portal-primary-300);
+  --color-primary-400: var(--portal-primary-400);
+  --color-primary-500: var(--portal-primary-500);
+  --color-primary-600: var(--portal-primary-600);
+  --color-primary-700: var(--portal-primary-700);
+  --color-primary-800: var(--portal-primary-800);
+  --color-primary-900: var(--portal-primary-900);
+  --color-neutral-0: var(--portal-neutral-0);
+  --color-neutral-50: var(--portal-neutral-50);
+  --color-neutral-100: var(--portal-neutral-100);
+  --color-neutral-200: var(--portal-neutral-200);
+  --color-neutral-300: var(--portal-neutral-300);
+  --color-neutral-400: var(--portal-neutral-400);
+  --color-neutral-500: var(--portal-neutral-500);
+  --color-neutral-600: var(--portal-neutral-600);
+  --color-neutral-700: var(--portal-neutral-700);
+  --color-neutral-800: var(--portal-neutral-800);
+  --color-neutral-900: var(--portal-neutral-900);
   --color-secondary: var(--portal-color-secondary);
   --color-accent: var(--portal-color-accent);
+  --color-danger: var(--portal-danger);
+  --color-danger-fg: var(--portal-danger-fg);
+  --color-danger-soft: var(--portal-danger-soft);
+  --color-success: var(--portal-success);
+  --color-success-soft: var(--portal-success-soft);
+  --color-warning: var(--portal-warning);
+  --color-warning-soft: var(--portal-warning-soft);
+  --color-info: var(--portal-info);
+  --color-info-soft: var(--portal-info-soft);
+
+  /* Type. */
   --font-heading: var(--portal-font-heading);
   --font-sans: var(--portal-font-sans);
   --font-mono: var(--portal-font-mono);
+  --text-caption: var(--portal-text-caption);
+  --text-caption--line-height: var(--portal-text-caption--line-height);
+  --text-body: var(--portal-text-body);
+  --text-body--line-height: var(--portal-text-body--line-height);
+  --text-title: var(--portal-text-title);
+  --text-title--line-height: var(--portal-text-title--line-height);
+  --text-display: var(--portal-text-display);
+  --text-display--line-height: var(--portal-text-display--line-height);
+
+  /* Spacing, radius, elevation. */
+  --spacing-gutter: var(--portal-space-gutter);
+  --spacing-section: var(--portal-space-section);
+  --spacing-stack: var(--portal-space-stack);
+  --spacing-sidebar: var(--portal-sidebar-width);
+  --container-content: var(--portal-content-max);
+  --radius-sm: var(--portal-radius-sm);
+  --radius-md: var(--portal-radius-md);
+  --radius-lg: var(--portal-radius-lg);
+  --radius-xl: var(--portal-radius-xl);
+  --shadow-1: var(--portal-shadow-1);
+  --shadow-2: var(--portal-shadow-2);
+  --shadow-3: var(--portal-shadow-3);
+}
+
+/* The one focus treatment of the Portal: visible on the keyboard, silent on the pointer. */
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    outline: var(--portal-ring-width) solid var(--portal-ring);
+    outline-offset: var(--portal-ring-offset);
+  }
+}
+
+/* Same ring, drawn inside the element: for rows and cells that must not grow. */
+@utility focus-ring-inset {
+  outline: none;
+  &:focus-visible {
+    outline: var(--portal-ring-width) solid var(--portal-ring);
+    outline-offset: calc(-1 * var(--portal-ring-width));
+  }
+}
+
+@layer base {
+  html {
+    background-color: var(--portal-bg);
+    color: var(--portal-fg);
+    font-family: var(--portal-font-sans);
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--portal-bg);
+    color: var(--portal-fg);
+    font-size: var(--portal-text-body);
+    line-height: var(--portal-text-body--line-height);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--portal-font-heading);
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background-color: var(--portal-primary-200);
+  }
+
+  /* Anything without a class of its own still gets the Portal's focus ring. */
+  :focus-visible {
+    outline: var(--portal-ring-width) solid var(--portal-ring);
+    outline-offset: var(--portal-ring-offset);
+  }
 }

@@ -7,6 +7,23 @@ import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ChangeNotice } from "../components/ChangeNotice";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableSkeleton,
+  buttonClass,
+} from "../components/ui";
 
 interface SecretRef {
   name?: string;
@@ -93,49 +110,51 @@ function StreamMetrics({
   });
 
   if (!running) {
-    return <span className="text-sm text-surface-fg/60">{t("pipelines.metrics.paused")}</span>;
+    return <span className="text-caption text-fg-subtle">{t("pipelines.metrics.paused")}</span>;
   }
   if (metrics.isError || (metrics.isFetched && !metrics.data)) {
     return (
-      <span className="text-sm text-surface-fg/60">{t("pipelines.metrics.unavailable")}</span>
+      <span className="text-caption text-fg-subtle">{t("pipelines.metrics.unavailable")}</span>
     );
   }
   if (!metrics.data) {
-    return <span className="text-sm text-surface-fg/60">{t("app.loading")}</span>;
+    return <span className="text-caption text-fg-subtle">{t("app.loading")}</span>;
   }
 
   const { received, errors, latencyP99Ms, rate } = metrics.data;
   return (
-    <dl className="space-y-0.5 text-sm">
+    <dl className="grid grid-cols-[auto_auto] gap-x-2 gap-y-0.5 text-caption">
       {rate !== null ? (
-        <div className="flex gap-1">
-          <dt className="text-surface-fg/60">{t("pipelines.metrics.rate")}</dt>
-          <dd className="font-medium tabular-nums">{rate.toFixed(1)}</dd>
-        </div>
+        <>
+          <dt className="text-fg-subtle">{t("pipelines.metrics.rate")}</dt>
+          <dd className="font-medium tabular-nums text-fg">{rate.toFixed(1)}</dd>
+        </>
       ) : null}
       {received != null ? (
-        <div className="flex gap-1">
-          <dt className="text-surface-fg/60">{t("pipelines.metrics.received")}</dt>
-          <dd className="tabular-nums">{received.toLocaleString()}</dd>
-        </div>
+        <>
+          <dt className="text-fg-subtle">{t("pipelines.metrics.received")}</dt>
+          <dd className="tabular-nums text-fg">{received.toLocaleString()}</dd>
+        </>
       ) : null}
       {errors != null ? (
-        <div className="flex gap-1">
-          <dt className="text-surface-fg/60">{t("pipelines.metrics.errors")}</dt>
-          <dd className={errors > 0 ? "font-medium text-danger tabular-nums" : "tabular-nums"}>
+        <>
+          <dt className="text-fg-subtle">{t("pipelines.metrics.errors")}</dt>
+          <dd className={errors > 0 ? "font-medium tabular-nums text-danger" : "tabular-nums text-fg"}>
             {errors.toLocaleString()}
           </dd>
-        </div>
+        </>
       ) : null}
       {latencyP99Ms != null ? (
-        <div className="flex gap-1">
-          <dt className="text-surface-fg/60">{t("pipelines.metrics.latency")}</dt>
-          <dd className="tabular-nums">{latencyP99Ms.toFixed(1)}</dd>
-        </div>
+        <>
+          <dt className="text-fg-subtle">{t("pipelines.metrics.latency")}</dt>
+          <dd className="tabular-nums text-fg">{latencyP99Ms.toFixed(1)}</dd>
+        </>
       ) : null}
     </dl>
   );
 }
+
+const COLUMNS = 6;
 
 /** Ingestion pipelines of one project: what runs where, how it is doing, and its credentials. */
 export function PipelinesPage({ project }: { project: string }): JSX.Element {
@@ -190,8 +209,27 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
     },
   });
 
+  const head = (
+    <TableHead>
+      <TableHeaderCell>{t("pipelines.field.name")}</TableHeaderCell>
+      <TableHeaderCell>{t("pipelines.field.class")}</TableHeaderCell>
+      <TableHeaderCell>{t("pipelines.field.phase")}</TableHeaderCell>
+      <TableHeaderCell>{t("pipelines.field.stream")}</TableHeaderCell>
+      <TableHeaderCell>{t("pipelines.field.secrets")}</TableHeaderCell>
+      <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
+    </TableHead>
+  );
+
   if (list.isPending) {
-    return <p role="status">{t("app.loading")}</p>;
+    return (
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("pipelines.title")} description={t("pipelines.lead")} />
+        <Table caption={t("pipelines.title")} status={t("app.loading")}>
+          {head}
+          <TableSkeleton columns={COLUMNS} />
+        </Table>
+      </div>
+    );
   }
 
   if (list.isError) {
@@ -200,17 +238,25 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
         ? (list.error.problem?.detail ?? list.error.message)
         : t("app.error.generic");
     return (
-      <div role="alert">
-        <p className="text-danger">{message}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void list.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("pipelines.title")} description={t("pipelines.lead")} />
+        <Alert
+          role="alert"
+          tone="danger"
+          actions={
+            <Button
+              size="sm"
+              icon={<Icon name="refresh" className="size-4" />}
+              onClick={() => {
+                void list.refetch();
+              }}
+            >
+              {t("app.error.retry")}
+            </Button>
+          }
         >
-          {t("app.error.retry")}
-        </button>
+          {message}
+        </Alert>
       </div>
     );
   }
@@ -218,125 +264,97 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   const pipelines = asManifests(list.data.items ?? []);
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-bold">{t("pipelines.title")}</h1>
+    <div className="flex flex-col gap-section">
+      <PageHeader title={t("pipelines.title")} description={t("pipelines.lead")} />
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
       {error ? (
-        <p role="alert" className="text-sm text-danger">
+        <Alert role="alert" tone="danger">
           {error}
-        </p>
+        </Alert>
       ) : null}
 
-      {pipelines.length === 0 ? (
-        <p className="text-sm text-surface-fg/70">{t("pipelines.empty")}</p>
-      ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full border-collapse text-left text-sm">
-            <caption className="sr-only">{t("pipelines.title")}</caption>
-            <thead>
-              <tr className="border-b border-border bg-surface-subtle">
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("pipelines.field.name")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("pipelines.field.class")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("pipelines.field.phase")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("pipelines.field.stream")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("pipelines.field.secrets")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium text-right">
-                  {t("approvals.actions")}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {pipelines.map((pipeline) => {
-                const spec = pipeline.spec as PipelineSpec;
-                const klass = executionClass(spec);
-                // Absent means running: a pipeline is only paused by an explicit `false`.
-                const running = spec.enabled !== false;
-                return (
-                  <tr key={pipeline.metadata.name} className="hover:bg-surface-subtle/50">
-                    <td className="px-4 py-3 align-top">
-                      <div className="font-medium">
-                        {localized(pipeline.metadata.title, locale, pipeline.metadata.name)}
+      <Table caption={t("pipelines.title")}>
+        {head}
+        <TableBody>
+          {pipelines.length === 0 ? (
+            <TableEmpty columns={COLUMNS}>
+              <EmptyState bare icon="pipelines" title={t("pipelines.empty")} />
+            </TableEmpty>
+          ) : (
+            pipelines.map((pipeline) => {
+              const spec = pipeline.spec as PipelineSpec;
+              const klass = executionClass(spec);
+              // Absent means running: a pipeline is only paused by an explicit `false`.
+              const running = spec.enabled !== false;
+              return (
+                <TableRow key={pipeline.metadata.name}>
+                  <TableCell primary>
+                    <div>{localized(pipeline.metadata.title, locale, pipeline.metadata.name)}</div>
+                    {pipeline.metadata.title ? (
+                      <div className="mt-0.5 font-mono text-caption text-fg-subtle">
+                        {pipeline.metadata.name}
                       </div>
-                      {pipeline.metadata.title ? (
-                        <div className="font-mono text-xs text-surface-fg/60">
-                          {pipeline.metadata.name}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <span
-                        title={t(`pipelines.class.${klass}Help`)}
-                        className="inline-flex items-center rounded border border-border bg-surface-subtle px-2 py-0.5 text-xs font-medium"
-                      >
-                        {t(`pipelines.class.${klass}`)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <LifecycleBadge kind="phase" value={pipeline.status?.phase} />
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <StreamMetrics
-                        project={project}
-                        name={pipeline.metadata.name}
-                        running={running && klass === "resident"}
-                      />
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      {/* Names only: a secret's value is resolved by the reconciler and never
-                          leaves the cluster, so there is nothing here to mask (PL-17). */}
-                      <ul className="space-y-1">
-                        {(spec.secretRefs ?? []).map((ref) => (
-                          <li
-                            key={`${ref.name}/${ref.key}`}
-                            className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs"
-                          >
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    <Badge tone={klass === "resident" ? "info" : "neutral"} title={t(`pipelines.class.${klass}Help`)}>
+                      {t(`pipelines.class.${klass}`)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <LifecycleBadge kind="phase" value={pipeline.status?.phase} />
+                  </TableCell>
+                  <TableCell>
+                    <StreamMetrics
+                      project={project}
+                      name={pipeline.metadata.name}
+                      running={running && klass === "resident"}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    {/* Names only: a secret's value is resolved by the reconciler and never
+                        leaves the cluster, so there is nothing here to mask (PL-17). */}
+                    <ul className="flex flex-col gap-1">
+                      {(spec.secretRefs ?? []).map((ref) => (
+                        <li key={`${ref.name}/${ref.key}`}>
+                          <Badge mono>
                             {ref.name}/{ref.key}
                             {ref.envVar ? ` → $${ref.envVar}` : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          disabled={toggle.isPending}
-                          onClick={() => toggle.mutate({ pipeline, run: !running })}
-                          title={t(running ? "pipelines.pauseHint" : "pipelines.resumeHint")}
-                          className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </TableCell>
+                  <TableCell align="right">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <Button
+                        size="sm"
+                        disabled={toggle.isPending}
+                        onClick={() => toggle.mutate({ pipeline, run: !running })}
+                        title={t(running ? "pipelines.pauseHint" : "pipelines.resumeHint")}
+                      >
+                        {t(running ? "pipelines.pause" : "pipelines.resume")}
+                      </Button>
+                      {pipeline.status?.sourceUrl ? (
+                        <a
+                          href={pipeline.status.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={buttonClass("ghost", "sm", "text-primary")}
                         >
-                          {t(running ? "pipelines.pause" : "pipelines.resume")}
-                        </button>
-                        {pipeline.status?.sourceUrl ? (
-                          <a
-                            href={pipeline.status.sourceUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
-                          >
-                            {t("spaces.field.source")}
-                          </a>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                          {t("spaces.field.source")}
+                          <Icon name="external" className="size-3.5" />
+                        </a>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
     </div>
   );
 }

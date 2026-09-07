@@ -8,6 +8,7 @@
     }
   },
   "nav": {
+    "menu": "Menu",
     "projects": "Projects",
     "spaces": "Context Spaces",
     "endpoints": "Endpoints",
@@ -27,6 +28,7 @@
     "federation": "Federation"
   },
   "auth": {
+    "lead": "Sign in with your organisation account to manage this platform.",
     "signIn": "Sign in",
     "signOut": "Sign out",
     "signedInAs": "Signed in as {name}"
@@ -54,6 +56,7 @@
     "redacted": "Redacted"
   },
   "approvals": {
+    "lead": "Every change to the project is a proposal here until an approver merges it.",
     "title": "Approvals",
     "empty": "No open change proposals.",
     "noChanges": "No field changes.",
@@ -132,6 +135,7 @@
     "review": "Review it in Approvals"
   },
   "spaces": {
+    "lead": "The named collections of context data this project holds; every entity lives in exactly one.",
     "title": "Context Spaces",
     "empty": "This project has no Context Space yet.",
     "add": "New Context Space",
@@ -172,6 +176,7 @@
     }
   },
   "endpoints": {
+    "lead": "Where a space is published: who may call it, in which representations, under which URL.",
     "title": "Endpoints",
     "empty": "This project publishes no endpoint yet.",
     "add": "New endpoint",
@@ -280,6 +285,7 @@
     }
   },
   "pipelines": {
+    "lead": "What brings data in: each pipeline reads a source, transforms it and writes through an endpoint.",
     "title": "Pipelines",
     "empty": "This project has no pipeline yet.",
     "class": {
@@ -309,6 +315,7 @@
     "resumeHint": "Proposes a change that starts this pipeline again."
   },
   "dashboards": {
+    "lead": "Maps drawn from the endpoints of this project.",
     "title": "Dashboards",
     "empty": "This project has no dashboard yet.",
     "mapUnavailable": "The map needs WebGL, which this browser does not offer.",

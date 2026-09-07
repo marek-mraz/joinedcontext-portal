@@ -8,6 +8,7 @@
     }
   },
   "nav": {
+    "menu": "Menü",
     "projects": "Projekte",
     "spaces": "Kontexträume",
     "endpoints": "Endpunkte",
@@ -27,6 +28,7 @@
     "federation": "Föderation"
   },
   "auth": {
+    "lead": "Melden Sie sich mit dem Konto Ihrer Organisation an, um diese Plattform zu verwalten.",
     "signIn": "Anmelden",
     "signOut": "Abmelden",
     "signedInAs": "Angemeldet als {name}"
@@ -54,6 +56,7 @@
     "redacted": "Ausgeblendet"
   },
   "approvals": {
+    "lead": "Jede Änderung am Projekt ist hier ein Vorschlag, bis eine freigebende Person sie zusammenführt.",
     "title": "Freigaben",
     "empty": "Keine offenen Änderungsvorschläge.",
     "noChanges": "Keine Feldänderungen.",
@@ -132,6 +135,7 @@
     "review": "In Freigaben öffnen"
   },
   "spaces": {
+    "lead": "Die benannten Sammlungen von Kontextdaten dieses Projekts; jede Entität liegt in genau einer.",
     "title": "Kontexträume",
     "empty": "Dieses Projekt hat noch keinen Kontextraum.",
     "add": "Neuer Kontextraum",
@@ -172,6 +176,7 @@
     }
   },
   "endpoints": {
+    "lead": "Wo ein Raum veröffentlicht ist: wer ihn aufrufen darf, in welchen Darstellungen, unter welcher URL.",
     "title": "Endpunkte",
     "empty": "Dieses Projekt veröffentlicht noch keinen Endpunkt.",
     "add": "Neuer Endpunkt",
@@ -280,6 +285,7 @@
     }
   },
   "pipelines": {
+    "lead": "Was Daten hereinbringt: jede Pipeline liest eine Quelle, wandelt sie um und schreibt über einen Endpunkt.",
     "title": "Pipelines",
     "empty": "Dieses Projekt hat noch keine Pipeline.",
     "class": {
@@ -309,6 +315,7 @@
     "resumeHint": "Schlägt eine Änderung vor, die diese Pipeline wieder startet."
   },
   "dashboards": {
+    "lead": "Karten, gezeichnet aus den Endpunkten dieses Projekts.",
     "title": "Dashboards",
     "empty": "Dieses Projekt hat noch kein Dashboard.",
     "mapUnavailable": "Die Karte braucht WebGL, das dieser Browser nicht anbietet.",

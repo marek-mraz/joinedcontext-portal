@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useId, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -9,6 +9,17 @@ import type { Manifest } from "../api/manifest";
 import { rendersWithDeckGl } from "../components/dashboards/rendering";
 import type { MapLayer } from "../components/dashboards/MapLibreView";
 import type { DenseLayer } from "../components/dashboards/DeckGlOverlay";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  PageHeader,
+  Select,
+  Skeleton,
+} from "../components/ui";
 
 // MapLibre is about half of the bundle; nobody downloads it before opening a dashboard.
 const MapLibreView = lazy(() =>
@@ -96,10 +107,21 @@ function useResourceList(project: string, plural: string) {
   });
 }
 
+/** The map's frame while its features or its bundle are on the way. */
+function MapPlaceholder({ label }: { label: string }): JSX.Element {
+  return (
+    <div role="status" aria-label={label} className="relative h-[60vh] min-h-[20rem] w-full">
+      <Skeleton className="absolute inset-0 rounded-none" />
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
 export function DashboardsPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
   const [selected, setSelected] = useState<string | null>(null);
+  const selectId = useId();
 
   const dashboards = useResourceList(project, "dashboards");
   const layers = useResourceList(project, "layers");
@@ -188,7 +210,14 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   }, [mapLayers, features.data]);
 
   if (dashboards.isPending) {
-    return <p role="status">{t("app.loading")}</p>;
+    return (
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("dashboards.title")} description={t("dashboards.lead")} />
+        <Card flush className="overflow-hidden">
+          <MapPlaceholder label={t("app.loading")} />
+        </Card>
+      </div>
+    );
   }
 
   if (dashboards.isError) {
@@ -197,17 +226,25 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         ? (dashboards.error.problem?.detail ?? dashboards.error.message)
         : t("app.error.generic");
     return (
-      <div role="alert">
-        <p className="text-danger">{message}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void dashboards.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("dashboards.title")} description={t("dashboards.lead")} />
+        <Alert
+          role="alert"
+          tone="danger"
+          actions={
+            <Button
+              size="sm"
+              icon={<Icon name="refresh" className="size-4" />}
+              onClick={() => {
+                void dashboards.refetch();
+              }}
+            >
+              {t("app.error.retry")}
+            </Button>
+          }
         >
-          {t("app.error.retry")}
-        </button>
+          {message}
+        </Alert>
       </div>
     );
   }
@@ -216,9 +253,9 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
 
   if (all.length === 0 || !dashboard) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-bold">{t("dashboards.title")}</h1>
-        <p className="text-sm text-surface-fg/70">{t("dashboards.empty")}</p>
+      <div className="flex flex-col gap-section">
+        <PageHeader title={t("dashboards.title")} description={t("dashboards.lead")} />
+        <EmptyState icon="dashboards" title={t("dashboards.empty")} />
       </div>
     );
   }
@@ -227,59 +264,70 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   const title = localized(spec.title, locale, dashboard.metadata.name);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-xl font-bold">{title}</h1>
-        {all.length > 1 ? (
-          <label className="flex items-center gap-2 text-sm">
-            {t("dashboards.title")}
-            <select
-              value={dashboard.metadata.name}
-              onChange={(event) => setSelected(event.target.value)}
-              className="rounded border border-border bg-surface px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
-            >
-              {all.map((item: Manifest) => (
-                <option key={item.metadata.name} value={item.metadata.name}>
-                  {localized((item.spec as DashboardSpec).title, locale, item.metadata.name)}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-      </div>
+    <div className="flex flex-col gap-section">
+      <PageHeader
+        title={title}
+        description={t("dashboards.lead")}
+        aside={
+          all.length > 1 ? (
+            <label htmlFor={selectId} className="flex items-center gap-2 text-body text-fg-muted">
+              <span className="whitespace-nowrap">{t("dashboards.title")}</span>
+              <Select
+                id={selectId}
+                value={dashboard.metadata.name}
+                onChange={(event) => setSelected(event.target.value)}
+                className="min-w-[14rem]"
+              >
+                {all.map((item: Manifest) => (
+                  <option key={item.metadata.name} value={item.metadata.name}>
+                    {localized((item.spec as DashboardSpec).title, locale, item.metadata.name)}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null
+        }
+      />
 
       {blocked.length > 0 ? (
-        <p role="status" className="text-sm text-danger">
+        <Alert role="status" tone="warning">
           {t("dashboards.layerBlocked", { layers: blocked.join(", ") })}
-        </p>
+        </Alert>
       ) : null}
 
-      <Suspense fallback={<p role="status">{t("app.loading")}</p>}>
-        {features.isPending && mapLayers.length > 0 ? (
-          <p role="status">{t("app.loading")}</p>
-        ) : dense.length > 0 ? (
-          <DeckGlOverlay layers={native} dense={dense} label={title} />
-        ) : (
-          <MapLibreView layers={native} label={title} />
-        )}
-      </Suspense>
+      <Card flush className="overflow-hidden">
+        <Suspense fallback={<MapPlaceholder label={t("app.loading")} />}>
+          {features.isPending && mapLayers.length > 0 ? (
+            <MapPlaceholder label={t("app.loading")} />
+          ) : dense.length > 0 ? (
+            <DeckGlOverlay layers={native} dense={dense} label={title} />
+          ) : (
+            <MapLibreView layers={native} label={title} />
+          )}
+        </Suspense>
+      </Card>
 
-      <ul className="flex flex-wrap gap-4">
-        {[...native, ...dense].map((layer) => (
-          <li key={layer.name} className="rounded border border-border px-3 py-2 text-sm">
-            <span className="font-medium">{layer.name}</span>
-            {layer.colorBy ? (
-              <span className="ml-2 text-surface-fg/70">
-                {t("dashboards.colouredBy", {
-                  property: layer.colorBy.property,
-                  min: layer.colorBy.domain?.[0] ?? 0,
-                  max: layer.colorBy.domain?.[1] ?? 100,
-                })}
-              </span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
+      {native.length + dense.length > 0 ? (
+        <ul className="flex flex-wrap gap-2">
+          {[...native, ...dense].map((layer) => (
+            <li key={layer.name} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-body shadow-1">
+              <Badge tone="primary" mono>
+                {layer.style}
+              </Badge>
+              <span className="font-medium">{layer.name}</span>
+              {layer.colorBy ? (
+                <span className="text-caption text-fg-muted">
+                  {t("dashboards.colouredBy", {
+                    property: layer.colorBy.property,
+                    min: layer.colorBy.domain?.[0] ?? 0,
+                    max: layer.colorBy.domain?.[1] ?? 100,
+                  })}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

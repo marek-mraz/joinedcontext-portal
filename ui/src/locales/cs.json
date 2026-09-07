@@ -8,6 +8,7 @@
     }
   },
   "nav": {
+    "menu": "Menu",
     "projects": "Projekty",
     "spaces": "Kontextové prostory",
     "endpoints": "Koncové body",
@@ -27,6 +28,7 @@
     "federation": "Federace"
   },
   "auth": {
+    "lead": "Přihlaste se účtem své organizace a spravujte tuto platformu.",
     "signIn": "Přihlásit se",
     "signOut": "Odhlásit se",
     "signedInAs": "Přihlášen jako {name}"
@@ -54,6 +56,7 @@
     "redacted": "Skryto"
   },
   "approvals": {
+    "lead": "Každá změna projektu je zde návrhem, dokud ji schvalovatel nesloučí.",
     "title": "Schvalování",
     "empty": "Žádné otevřené návrhy změn.",
     "noChanges": "Žádné změny polí.",
@@ -132,6 +135,7 @@
     "review": "Otevřít ve Schvalování"
   },
   "spaces": {
+    "lead": "Pojmenované kolekce kontextových dat tohoto projektu; každá entita patří právě do jedné.",
     "title": "Kontextové prostory",
     "empty": "Projekt zatím nemá kontextový prostor.",
     "add": "Nový kontextový prostor",
@@ -172,6 +176,7 @@
     }
   },
   "endpoints": {
+    "lead": "Kde je prostor publikován: kdo ho smí volat, v jakých reprezentacích a pod jakou URL.",
     "title": "Rozhraní",
     "empty": "Projekt zatím nezveřejnil žádné rozhraní.",
     "add": "Nové rozhraní",
@@ -280,6 +285,7 @@
     }
   },
   "pipelines": {
+    "lead": "Co přináší data: každá pipeline čte zdroj, transformuje ho a zapisuje přes endpoint.",
     "title": "Pipeliny",
     "empty": "Tento projekt zatím nemá žádnou pipelinu.",
     "class": {
@@ -309,6 +315,7 @@
     "resumeHint": "Navrhne změnu, která tuto pipelinu znovu spustí."
   },
   "dashboards": {
+    "lead": "Mapy nakreslené z endpointů tohoto projektu.",
     "title": "Nástěnky",
     "empty": "Projekt zatím nemá nástěnku.",
     "mapUnavailable": "Mapa potřebuje WebGL, které tento prohlížeč nenabízí.",

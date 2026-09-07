@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
-import { clsx } from "clsx";
+import { Badge } from "../ui";
+import type { BadgeTone } from "../ui";
 
 export type LifecycleKind = "lane" | "phase" | "appLifecycle";
 
@@ -10,42 +11,37 @@ export interface LifecycleBadgeProps {
   className?: string;
 }
 
-const NEUTRAL = "bg-surface-subtle border-border";
-const GOOD = "bg-emerald-500/15 border-emerald-500/40";
-const WARN = "bg-amber-500/20 border-amber-500/40";
-const BAD = "bg-danger/15 border-danger/40";
-
-/** Lower-cased status value → the label key under `lane.`/`phase.` and its chip colour. */
-const LANES: Record<string, [string, string]> = {
-  green: ["green", GOOD],
-  yellow: ["yellow", WARN],
-  red: ["red", BAD],
+/** Lower-cased status value → the label key under `lane.`/`phase.` and its chip tone. */
+const LANES: Record<string, [string, BadgeTone]> = {
+  green: ["green", "success"],
+  yellow: ["yellow", "warning"],
+  red: ["red", "danger"],
 };
 
-const PHASES: Record<string, [string, string]> = {
-  draft: ["draft", NEUTRAL],
-  pending: ["pendingApproval", WARN],
-  pendingapproval: ["pendingApproval", WARN],
-  deploying: ["deploying", "bg-blue-500/15 border-blue-500/40"],
-  live: ["live", GOOD],
-  merged: ["merged", GOOD],
-  applied: ["applied", GOOD],
-  error: ["error", BAD],
-  rejected: ["rejected", BAD],
-  drifted: ["drifted", "bg-purple-500/15 border-purple-500/40"],
+const PHASES: Record<string, [string, BadgeTone]> = {
+  draft: ["draft", "neutral"],
+  pending: ["pendingApproval", "warning"],
+  pendingapproval: ["pendingApproval", "warning"],
+  deploying: ["deploying", "info"],
+  live: ["live", "success"],
+  merged: ["merged", "success"],
+  applied: ["applied", "success"],
+  error: ["error", "danger"],
+  rejected: ["rejected", "danger"],
+  drifted: ["drifted", "purple"],
   // What a `SyncSource` reports about its own loop (MF-30). `pendingapproval` and `error`
   // above mean the same thing for it, so only the three it adds are here.
-  synced: ["synced", GOOD],
-  outofsync: ["outOfSync", WARN],
-  paused: ["paused", NEUTRAL],
+  synced: ["synced", "success"],
+  outofsync: ["outOfSync", "warning"],
+  paused: ["paused", "neutral"],
 };
 
 /** An app's own lifecycle, which is not the reconciler's phase (AP-18). */
-const APP_LIFECYCLE: Record<string, [string, string]> = {
-  draft: ["draft", NEUTRAL],
-  preview: ["preview", WARN],
-  published: ["published", GOOD],
-  retired: ["retired", NEUTRAL],
+const APP_LIFECYCLE: Record<string, [string, BadgeTone]> = {
+  draft: ["draft", "neutral"],
+  preview: ["preview", "warning"],
+  published: ["published", "success"],
+  retired: ["retired", "neutral"],
 };
 
 /**
@@ -56,20 +52,17 @@ const APP_LIFECYCLE: Record<string, [string, string]> = {
 export function LifecycleBadge({ kind, value, className }: LifecycleBadgeProps): JSX.Element {
   const { t } = useTranslation();
   const raw = value ?? "";
-  const vocabulary =
-    kind === "lane" ? LANES : kind === "appLifecycle" ? APP_LIFECYCLE : PHASES;
+  const vocabulary = kind === "lane" ? LANES : kind === "appLifecycle" ? APP_LIFECYCLE : PHASES;
   const entry = vocabulary[raw.toLowerCase()];
 
   return (
-    <span
+    <Badge
+      tone={entry ? entry[1] : "neutral"}
       title={entry ? t(`${kind}.${entry[0]}Help`) : undefined}
-      className={clsx(
-        "inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium text-surface-fg",
-        entry ? entry[1] : NEUTRAL,
-        className,
-      )}
+      className={className}
     >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-current opacity-70" />
       {entry ? t(`${kind}.${entry[0]}`) : raw}
-    </span>
+    </Badge>
   );
 }

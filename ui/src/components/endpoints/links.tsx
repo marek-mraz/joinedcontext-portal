@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { Icon } from "../ui";
 
 /**
  * Where each enabled representation answers under the endpoint's URL (EP-08, EP-44): the
@@ -40,9 +41,10 @@ export function EndpointLink({ href, children }: { href: string; children: strin
       target="_blank"
       rel="noreferrer"
       title={href}
-      className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs text-primary hover:bg-surface-subtle hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+      className="focus-ring inline-flex items-center gap-1 rounded-full border border-primary-200 bg-primary-soft px-2 py-0.5 font-mono text-caption font-medium text-primary-soft-fg hover:border-primary-400 hover:bg-primary-100"
     >
       {children}
+      <Icon name="external" className="size-3" />
     </a>
   );
 }

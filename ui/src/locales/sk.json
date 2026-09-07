@@ -8,6 +8,7 @@
     }
   },
   "nav": {
+    "menu": "Menu",
     "projects": "Projekty",
     "spaces": "Kontextové priestory",
     "endpoints": "Koncové body",
@@ -27,6 +28,7 @@
     "federation": "Federácia"
   },
   "auth": {
+    "lead": "Prihláste sa účtom svojej organizácie a spravujte túto platformu.",
     "signIn": "Prihlásiť sa",
     "signOut": "Odhlásiť sa",
     "signedInAs": "Prihlásený ako {name}"
@@ -54,6 +56,7 @@
     "redacted": "Zabezpečené"
   },
   "approvals": {
+    "lead": "Každá zmena projektu je tu návrhom, kým ju schvaľovateľ nezlúči.",
     "title": "Schvaľovania",
     "empty": "Žiadne otvorené návrhy zmien.",
     "noChanges": "Žiadne zmeny polí.",
@@ -132,6 +135,7 @@
     "review": "Otvoriť v Schvaľovaní"
   },
   "spaces": {
+    "lead": "Pomenované kolekcie kontextových dát tohto projektu; každá entita patrí práve do jednej.",
     "title": "Kontextové priestory",
     "empty": "Projekt zatiaľ nemá kontextový priestor.",
     "add": "Nový kontextový priestor",
@@ -172,6 +176,7 @@
     }
   },
   "endpoints": {
+    "lead": "Kde je priestor publikovaný: kto ho smie volať, v akých reprezentáciách a pod akou URL.",
     "title": "Rozhrania",
     "empty": "Projekt zatiaľ nezverejnil žiadne rozhranie.",
     "add": "Nové rozhranie",
@@ -280,6 +285,7 @@
     }
   },
   "pipelines": {
+    "lead": "Čo prináša dáta: každá pipeline číta zdroj, transformuje ho a zapisuje cez endpoint.",
     "title": "Pipeliny",
     "empty": "Tento projekt zatiaľ nemá žiadnu pipelinu.",
     "class": {
@@ -309,6 +315,7 @@
     "resumeHint": "Navrhne zmenu, ktorá túto pipelinu znova spustí."
   },
   "dashboards": {
+    "lead": "Mapy nakreslené z endpointov tohto projektu.",
     "title": "Nástenky",
     "empty": "Projekt zatiaľ nemá nástenku.",
     "mapUnavailable": "Mapa potrebuje WebGL, ktoré tento prehliadač neponúka.",

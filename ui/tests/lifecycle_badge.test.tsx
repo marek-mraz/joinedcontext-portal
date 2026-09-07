@@ -48,8 +48,8 @@ describe("lifecycle badge", () => {
       </>,
     );
 
-    expect(screen.getByText(en.phase.deploying).className).toContain("blue");
-    expect(screen.getByText(en.phase.live).className).toContain("emerald");
+    expect(screen.getByText(en.phase.deploying).className).toContain("info");
+    expect(screen.getByText(en.phase.live).className).toContain("success");
     expect(screen.getByText(en.phase.error).className).toContain("danger");
     expect(screen.getByText(en.phase.drifted).className).toContain("purple");
   });
@@ -75,8 +75,8 @@ describe("lifecycle badge", () => {
       </>,
     );
 
-    expect(screen.getByText(en.lane.green).className).toContain("emerald");
-    expect(screen.getByText(en.lane.yellow).className).toContain("amber");
+    expect(screen.getByText(en.lane.green).className).toContain("success");
+    expect(screen.getByText(en.lane.yellow).className).toContain("warning");
     expect(screen.getByText(en.lane.red).className).toContain("danger");
   });
 
