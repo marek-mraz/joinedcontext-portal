@@ -382,9 +382,14 @@ fn render_workload(
         "kind": "Secret",
         "metadata": object_meta(&secret_name, settings, &labels),
         "type": "Opaque",
+        // The slug is here and not only in the rendered Endpoint because this Secret is what
+        // the reconciler owns and reads back: all three values outlive a render, and a slug
+        // regenerated on the next run would move the app's endpoint under its own users
+        // (EP-02, AP-27).
         "stringData": {
             "client-secret": credentials.client_secret,
             "cookie-secret": credentials.cookie_secret,
+            "endpoint-slug": credentials.endpoint_slug.as_str(),
         },
     });
 

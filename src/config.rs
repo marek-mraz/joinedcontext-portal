@@ -34,6 +34,11 @@ pub struct Config {
     /// is redacted in `Debug`. `None` runs the Portal without preferences: those routes answer
     /// 503, everything else works.
     pub database_url: Option<String>,
+    /// Where an App's four Kubernetes objects are applied (AP-13, AP-18, T-0411). `None` leaves
+    /// the reconciler reading apps and applying nothing, which is what a Portal outside a
+    /// cluster does; it is never a guess, because guessing a namespace here would mean writing
+    /// a Deployment into somebody else's.
+    pub app_settings: Option<crate::apps::reconciler::Settings>,
 }
 
 impl std::fmt::Debug for Config {
@@ -56,8 +61,43 @@ impl std::fmt::Debug for Config {
                 "database_url",
                 &self.database_url.as_ref().map(|_| "[redacted]"),
             )
+            .field("app_settings", &self.app_settings)
             .finish()
     }
+}
+
+/// Where an App's Kubernetes objects are applied, or `None` when this Portal applies none
+/// (AP-13, AP-18, T-0411).
+///
+/// All four values are needed together: the namespace to write into, the sidecar image to run,
+/// the organization domain that becomes a policy's assigner, and the realm the app's OIDC
+/// client lives in. The realm and the host are read off configuration the Portal already has,
+/// so an installation states two variables rather than five, and any missing one leaves the
+/// converger off instead of guessing a namespace and deploying into somebody else's.
+fn app_settings(
+    lookup: &impl Fn(&str) -> Option<String>,
+    public_base_url: &Url,
+    oidc: Option<&OidcConfig>,
+) -> Option<crate::apps::reconciler::Settings> {
+    let namespace = lookup("JC_PORTAL_APPS_NAMESPACE").filter(|v| !v.trim().is_empty())?;
+    let oauth2_proxy_image =
+        lookup("JC_PORTAL_APPS_OAUTH2_PROXY_IMAGE").filter(|v| !v.trim().is_empty())?;
+    let org_domain = lookup("JC_PORTAL_ORG_DOMAIN").filter(|v| !v.trim().is_empty())?;
+    let host = public_base_url.host_str()?.to_owned();
+    // `https://idm.{host}/realms/{realm}`: the realm is the last segment of the issuer, which
+    // is the same realm the app's confidential client is created in (AP-27).
+    let realm = oidc?
+        .issuer
+        .path_segments()?
+        .rfind(|segment| !segment.is_empty())?
+        .to_owned();
+    Some(crate::apps::reconciler::Settings {
+        host,
+        namespace,
+        realm,
+        org_domain,
+        oauth2_proxy_image,
+    })
 }
 
 /// Keycloak realm the portal authenticates humans against (CC-40).
@@ -233,6 +273,7 @@ impl Config {
         };
 
         let apps_dir = lookup("JC_PORTAL_APPS_DIR");
+        let app_settings = app_settings(&lookup, &public_base_url, oidc.as_ref());
         let branding_file = lookup("JC_BRANDING_FILE").filter(|path| !path.trim().is_empty());
         let database_url = lookup("JC_PORTAL_DATABASE_URL").filter(|url| !url.trim().is_empty());
 
@@ -248,6 +289,7 @@ impl Config {
             apps_dir,
             branding_file,
             database_url,
+            app_settings,
         })
     }
 
@@ -262,6 +304,7 @@ impl Config {
             gitea_webhook_secret: None,
             pipeline_runner_url: None,
             model_tools_url: None,
+            app_settings: None,
             apps_dir: None,
             branding_file: None,
             database_url: None,
@@ -476,6 +519,51 @@ mod tests {
         .expect_err("should reject invalid sync interval");
         match err {
             ConfigError::Invalid { var, .. } => assert_eq!(var, "JC_PORTAL_SYNC_INTERVAL"),
+        }
+    }
+
+    /// T-0411, AP-18: a Portal deploys an app only when it is told where. Guessing a namespace
+    /// would mean writing a Deployment into somebody else's.
+    #[test]
+    fn app_settings_need_every_part_and_derive_the_two_they_can() {
+        let complete = |k: &str| match k {
+            "JC_OIDC_ISSUER" => Some("https://idm.example.sk/realms/bb".to_string()),
+            "JC_OIDC_CLIENT_ID" => Some("portal".to_string()),
+            "JC_OIDC_CLIENT_SECRET" => Some("s3cr3t".to_string()),
+            "JC_PORTAL_PUBLIC_URL" => Some("https://bb.example.sk".to_string()),
+            "JC_PORTAL_APPS_NAMESPACE" => Some("joinedcontext".to_string()),
+            "JC_PORTAL_APPS_OAUTH2_PROXY_IMAGE" => Some("quay.io/p@sha256:aa".to_string()),
+            "JC_PORTAL_ORG_DOMAIN" => Some("banskabystrica.sk".to_string()),
+            _ => None,
+        };
+        let settings = Config::from_vars(complete)
+            .expect("a complete configuration")
+            .app_settings
+            .expect("every part is there");
+        assert_eq!(settings.namespace, "joinedcontext");
+        assert_eq!(settings.org_domain, "banskabystrica.sk");
+        // Neither of these is a variable of its own: the host is the Portal's public URL and
+        // the realm is the last segment of the issuer it already logs people in against.
+        assert_eq!(settings.host, "bb.example.sk");
+        assert_eq!(settings.realm, "bb");
+
+        for missing in [
+            "JC_PORTAL_APPS_NAMESPACE",
+            "JC_PORTAL_APPS_OAUTH2_PROXY_IMAGE",
+            "JC_PORTAL_ORG_DOMAIN",
+            "JC_OIDC_ISSUER",
+        ] {
+            let config = Config::from_vars(|k| match k == missing {
+                true => None,
+                false => complete(k),
+            });
+            // A missing issuer is a configuration error, not a Portal without apps: the other
+            // two OIDC variables are set, and stating two of three is a typo (CC-40).
+            let settings = match config {
+                Ok(config) => config.app_settings,
+                Err(_) => None,
+            };
+            assert!(settings.is_none(), "{missing} was not needed");
         }
     }
 }

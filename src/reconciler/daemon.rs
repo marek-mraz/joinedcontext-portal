@@ -25,6 +25,7 @@ use tokio::sync::Mutex;
 use utoipa::ToSchema;
 
 use super::leader::Leadership;
+use crate::apps::converge::{Converger, Outcome};
 use crate::git::{GitError, GiteaClient};
 use crate::resource::ResourceEnvelope;
 use crate::store::Mirror;
@@ -72,6 +73,9 @@ pub struct Syncer {
     running: Arc<Mutex<()>>,
     /// `None` when the Portal has no database: a single replica needs no election.
     leadership: Option<Arc<Leadership>>,
+    /// `None` when this Portal applies no app objects: outside a cluster, or without the
+    /// settings that say which namespace they belong in (T-0411, AP-18).
+    converger: Option<Arc<Converger>>,
 }
 
 impl Syncer {
@@ -85,6 +89,7 @@ impl Syncer {
             })),
             running: Arc::new(Mutex::new(())),
             leadership: None,
+            converger: None,
         }
     }
 
@@ -95,6 +100,15 @@ impl Syncer {
             .unwrap_or_else(|p| p.into_inner())
             .leader = leadership.is_leader();
         self.leadership = Some(leadership);
+        self
+    }
+
+    /// Applies every App's Kubernetes objects on each run (T-0411).
+    ///
+    /// A Portal without one reads apps and deploys nothing, which is what running outside a
+    /// cluster looks like.
+    pub fn with_converger(mut self, converger: Arc<Converger>) -> Self {
+        self.converger = Some(converger);
         self
     }
 
@@ -289,6 +303,22 @@ impl Syncer {
         }
 
         self.mirror.replace_all(&fresh_mirror);
+
+        // 6. Converge what an App compiles into (T-0411, AP-18, AP-21). The mirror is already
+        //    swapped, so a cluster that refuses one object leaves the Portal serving the
+        //    repository correctly and says why in the log; one app's failure is not the run's.
+        if let Some(converger) = self.converger.as_ref() {
+            for (app, outcome) in converger.converge(&repository).await {
+                match outcome {
+                    Ok(Outcome::Applied) => tracing::info!(%app, "app objects applied"),
+                    Ok(Outcome::Deleted) => tracing::info!(%app, "app objects deleted"),
+                    Ok(Outcome::Skipped(why)) => {
+                        tracing::debug!(%app, reason = %why, "app deploys nothing")
+                    }
+                    Err(err) => tracing::warn!(%app, error = %err, "app did not converge"),
+                }
+            }
+        }
 
         Ok((loaded, revision))
     }
