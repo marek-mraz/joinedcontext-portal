@@ -26,7 +26,9 @@ const axeSource = readFileSync(
 
 /** Runs axe over the current page and returns a readable list of violations (empty when clean). */
 export async function axeViolations(page: Page): Promise<string[]> {
-  await page.addScriptTag({ content: axeSource });
+  // Through the protocol, not a <script> tag: the preview sends the Portal's Content Security
+  // Policy, which forbids an inline script but not what the test driver evaluates.
+  await page.evaluate(axeSource);
   return page.evaluate(async () => {
     const { axe } = window as unknown as AxeWindow;
     const results = await axe.run(document);

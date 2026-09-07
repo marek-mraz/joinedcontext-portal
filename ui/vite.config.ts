@@ -8,6 +8,16 @@ export default defineConfig({
   build: {
     outDir: "dist",
   },
+  // The policy the Rust server sends (src/server.rs), so the e2e journeys run under the same
+  // rules as dev: a library that needs `eval` fails here before it fails there.
+  preview: {
+    headers: {
+      "Content-Security-Policy":
+        "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; " +
+        "form-action 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
+        "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:",
+    },
+  },
   server: {
     port: 5173,
     proxy: {

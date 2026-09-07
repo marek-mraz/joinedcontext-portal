@@ -1,7 +1,7 @@
 import React from "react";
 import type { ReactNode } from "react";
 import Form from "@rjsf/core";
-import validator from "@rjsf/validator-ajv8";
+import validator from "./validator";
 import type { RJSFValidationError } from "@rjsf/utils";
 import { useTranslation } from "react-i18next";
 import type { JsonSchema, UiSchema } from "./types";

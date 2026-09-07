@@ -1,6 +1,6 @@
 import { Suspense, lazy, useState } from "react";
 import type { JSX, ReactNode } from "react";
-import validator from "@rjsf/validator-ajv8";
+import validator from "./forms/validator";
 import { useTranslation } from "react-i18next";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { errorMessageKey, SchemaForm } from "./forms/SchemaForm";
