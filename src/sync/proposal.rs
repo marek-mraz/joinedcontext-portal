@@ -18,8 +18,8 @@ use crate::git::{Author, FileDelete, FileWrite, GitError, GiteaClient, MergeStyl
 ///
 /// Not a person and never a person's token: a reviewer looking at the history has to be able
 /// to tell a commit somebody made from a commit a schedule made (MF-30).
-const AUTHOR_NAME: &str = "joinedcontext reconciler";
-const AUTHOR_EMAIL: &str = "reconciler@joinedcontext.local";
+pub(crate) const AUTHOR_NAME: &str = "joinedcontext reconciler";
+pub(crate) const AUTHOR_EMAIL: &str = "reconciler@joinedcontext.local";
 
 /// What to put on a branch, and what to say about it.
 pub struct Proposal<'a> {

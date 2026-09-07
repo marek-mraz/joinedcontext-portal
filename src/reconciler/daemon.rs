@@ -26,7 +26,7 @@ use utoipa::ToSchema;
 
 use super::leader::Leadership;
 use crate::apps::converge::{Converger, Outcome};
-use crate::git::{GitError, GiteaClient};
+use crate::git::{Author, FileWrite, GitError, GiteaClient};
 use crate::resource::ResourceEnvelope;
 use crate::store::Mirror;
 
@@ -56,6 +56,10 @@ pub enum SyncError {
     /// The repository does not load as a set of manifests (CC-08, MF-05, MF-06).
     #[error("repository does not load: {0}")]
     Load(#[from] jcctl::loader::LoadError),
+    /// `users/` does not compile: a binding names a role that does not exist, or a spec does
+    /// not fit its kind (T-0527).
+    #[error("roles do not compile: {0}")]
+    Roles(String),
     /// The scratch directory the loader reads from could not be written.
     #[error("cannot stage the repository at {path}: {source}")]
     Scratch {
@@ -282,7 +286,51 @@ impl Syncer {
             }
         }
 
+        // 7. Compile `users/` into what the forge enforces (T-0527, PF-51, PF-52, CC-41): the
+        //    CODEOWNERS, the bindings as data, and the gate that reads them. Written only when
+        //    the repository differs, so the commit this makes is seen once by the next run and
+        //    changes nothing. A forge that refuses the write costs the run nothing but a line
+        //    in the log; the Portal's own check (PF-50) holds either way.
+        if let Err(err) = self.publish_roles(&repository, &default_branch).await {
+            tracing::warn!(error = %err, "roles were not compiled into the repository");
+        }
+
         Ok((loaded, revision))
+    }
+
+    /// Writes every managed roles file whose content differs from the branch (T-0527).
+    async fn publish_roles(
+        &self,
+        repository: &jcctl::loader::Repository,
+        branch: &str,
+    ) -> Result<(), SyncError> {
+        let Some(files) =
+            jcctl::roles::files(repository).map_err(|e| SyncError::Roles(e.to_string()))?
+        else {
+            return Ok(());
+        };
+        for (path, content) in files {
+            let existing = self.gitea.get_file(path, branch).await?;
+            if existing.as_ref().map(|f| f.content.as_str()) == Some(content.as_str()) {
+                continue;
+            }
+            let message = format!("roles: compile users/ into {path} (T-0527)");
+            self.gitea
+                .put_file(&FileWrite {
+                    path,
+                    branch,
+                    message: &message,
+                    content: &content,
+                    sha: existing.as_ref().map(|f| f.sha.as_str()),
+                    author: Author {
+                        name: crate::sync::proposal::AUTHOR_NAME,
+                        email: crate::sync::proposal::AUTHOR_EMAIL,
+                    },
+                })
+                .await?;
+            tracing::info!(path, "roles compiled into the repository");
+        }
+        Ok(())
     }
 
     /// Spawns the background periodic sync task.
@@ -335,7 +383,11 @@ pub(crate) fn is_candidate_manifest(path: &str) -> bool {
     if clean.starts_with("blueprints/") {
         return clean.ends_with("/blueprint.yaml");
     }
+    // Roles and their bindings live beside the projects (T-0525): the Portal reads them for
+    // its own checks and compiles them for the forge (T-0527).
     clean.starts_with("projects/")
+        || clean.starts_with("users/roles/")
+        || clean.starts_with("users/assignments/")
 }
 
 /// Prepares one fetched file for the loader, or leaves it out (MF-04, MF-05).
@@ -496,7 +548,8 @@ impl Drop for Scratch {
 mod tests {
     use super::*;
     use serde_json::json;
-    use wiremock::matchers::{method, path, query_param};
+    use wiremock::matchers::path as path_matcher;
+    use wiremock::matchers::{method, path, path_regex, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -571,6 +624,8 @@ mod tests {
         assert!(!is_candidate_manifest("README.md"));
         assert!(!is_candidate_manifest("portal/theme.yaml"));
         assert!(!is_candidate_manifest("users/groups.yaml"));
+        assert!(is_candidate_manifest("users/roles/steward.yaml"));
+        assert!(is_candidate_manifest("users/assignments/stewards.yaml"));
         assert!(!is_candidate_manifest("platform-settings.yaml"));
         // Only the blueprint manifest itself, not the notes or fixtures beside it.
         assert!(!is_candidate_manifest(
@@ -673,6 +728,151 @@ mod tests {
                 .and_then(|s| s.observed_revision.as_deref()),
             Some("commit-rev-123")
         );
+    }
+
+    fn b64(text: &str) -> String {
+        base64::engine::Engine::encode(&base64::engine::general_purpose::STANDARD, text.as_bytes())
+    }
+
+    async fn mount_file(server: &MockServer, path: &str, git_ref: &str, sha: &str, text: &str) {
+        Mock::given(method("GET"))
+            .and(path_matcher(format!(
+                "/api/v1/repos/test-owner/test-repo/contents/{path}"
+            )))
+            .and(query_param("ref", git_ref))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sha": sha,
+                "content": b64(text)
+            })))
+            .mount(server)
+            .await;
+    }
+
+    const ORG_YAML: &str = "apiVersion: joinedcontext.com/v1alpha1\nkind: Organization\nmetadata:\n  name: hel\nspec:\n  domain: hel.fi\n  locales: [en]\n  defaultLocale: en\n";
+    const ROLE_YAML: &str = "apiVersion: joinedcontext.com/v1alpha1\nkind: Role\nmetadata:\n  name: steward\n  namespace: org\nspec:\n  rules:\n    - kinds: [\"*\"]\n      verbs: [propose, approve, delete]\n";
+    const BINDING_YAML: &str = "apiVersion: joinedcontext.com/v1alpha1\nkind: RoleBinding\nmetadata:\n  name: stewards\n  namespace: org\nspec:\n  subjects:\n    - group: stewards\n  role: steward\n  scope:\n    organization: hel\n";
+
+    /// T-0527: `users/` is compiled into the five managed files, and only the ones whose
+    /// content differs from the branch are written.
+    #[tokio::test]
+    async fn bindings_are_compiled_into_the_forge() {
+        let server = MockServer::start().await;
+        let base_url = server.uri().parse().unwrap();
+        let client =
+            Arc::new(GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").unwrap());
+        let mirror = Arc::new(Mirror::new());
+        let syncer = Arc::new(Syncer::new(Arc::clone(&client), Arc::clone(&mirror)));
+
+        Mock::given(method("GET"))
+            .and(path_matcher("/api/v1/repos/test-owner/test-repo"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_matcher(
+                "/api/v1/repos/test-owner/test-repo/branches/main",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "name": "main", "commit": { "id": "rev-1" }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_matcher(
+                "/api/v1/repos/test-owner/test-repo/git/trees/rev-1",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sha": "tree-1",
+                "truncated": false,
+                "tree": [
+                    { "path": "org.yaml", "type": "blob" },
+                    { "path": "users/roles/steward.yaml", "type": "blob" },
+                    { "path": "users/assignments/stewards.yaml", "type": "blob" }
+                ]
+            })))
+            .mount(&server)
+            .await;
+        mount_file(&server, "org.yaml", "rev-1", "b-org", ORG_YAML).await;
+        mount_file(
+            &server,
+            "users/roles/steward.yaml",
+            "rev-1",
+            "b-role",
+            ROLE_YAML,
+        )
+        .await;
+        mount_file(
+            &server,
+            "users/assignments/stewards.yaml",
+            "rev-1",
+            "b-binding",
+            BINDING_YAML,
+        )
+        .await;
+
+        // The branch already holds the gate as jcctl renders it: not written again.
+        let repo_dir = std::env::temp_dir().join(format!("jc-portal-roles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo_dir);
+        for (rel, text) in [
+            ("org.yaml", ORG_YAML),
+            ("users/roles/steward.yaml", ROLE_YAML),
+            ("users/assignments/stewards.yaml", BINDING_YAML),
+        ] {
+            let full = repo_dir.join(rel);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, text).unwrap();
+        }
+        let expected = jcctl::roles::files(&jcctl::loader::Repository::load(&repo_dir).unwrap())
+            .unwrap()
+            .expect("a repository with users/ compiles");
+        let rego = expected
+            .iter()
+            .find(|(p, _)| *p == jcctl::roles::ROLES_REGO)
+            .map(|(_, c)| c.clone())
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&repo_dir);
+        mount_file(&server, jcctl::roles::ROLES_REGO, "main", "b-rego", &rego).await;
+        // A stale CODEOWNERS is replaced with its sha; the others do not exist yet.
+        mount_file(&server, "CODEOWNERS", "main", "b-old", "* @nobody\n").await;
+        Mock::given(method("PUT"))
+            .and(path_regex("^/api/v1/repos/test-owner/test-repo/contents/"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "commit": { "sha": "rev-2" }
+            })))
+            .expect(4)
+            .mount(&server)
+            .await;
+
+        syncer.sync_once().await.expect("sync should succeed");
+
+        let puts: Vec<_> = server
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.method == "PUT")
+            .collect();
+        let codeowners = puts
+            .iter()
+            .find(|r| r.url.path().ends_with("/contents/CODEOWNERS"))
+            .expect("CODEOWNERS is written");
+        let body: serde_json::Value = serde_json::from_slice(&codeowners.body).unwrap();
+        assert_eq!(body["sha"], "b-old");
+        assert_eq!(body["branch"], "main");
+        let text = String::from_utf8(
+            base64::engine::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                body["content"].as_str().unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(text.contains("@hel/stewards"), "{text}");
+        assert!(!puts
+            .iter()
+            .any(|r| r.url.path().ends_with("/contents/policies/roles.rego")));
     }
 
     #[tokio::test]
