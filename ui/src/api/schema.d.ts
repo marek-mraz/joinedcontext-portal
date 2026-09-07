@@ -464,6 +464,12 @@ export interface components {
          */
         Artifacts: {
             context?: unknown;
+            /**
+             * @description The documentation page, one Markdown file for the whole model: the same page
+             *     `jcctl model generate` commits beside the source, so the editor previews what a
+             *     reviewer will approve rather than a second rendering of it (DM-02, DM-32, DM-43).
+             */
+            docs?: string | null;
             /** @description Compilation messages. Non-empty with no artifacts means the source does not compile. */
             errors?: string[];
             example?: unknown;

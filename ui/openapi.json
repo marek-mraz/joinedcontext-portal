@@ -2336,6 +2336,13 @@
         "description": "What one Model Tools run rendered. Every artifact is optional: a version that does not\nrender one omits it, and a source that does not compile yet answers with `errors` filled in\nand the artifacts absent. A half-written model is the normal state of an editor.",
         "properties": {
           "context": {},
+          "docs": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The documentation page, one Markdown file for the whole model: the same page\n`jcctl model generate` commits beside the source, so the editor previews what a\nreviewer will approve rather than a second rendering of it (DM-02, DM-32, DM-43)."
+          },
           "errors": {
             "type": "array",
             "items": {

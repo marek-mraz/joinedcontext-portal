@@ -104,6 +104,11 @@ pub struct Artifacts {
     pub json_schema: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<serde_json::Value>,
+    /// The documentation page, one Markdown file for the whole model: the same page
+    /// `jcctl model generate` commits beside the source, so the editor previews what a
+    /// reviewer will approve rather than a second rendering of it (DM-02, DM-32, DM-43).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docs: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shacl: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -333,5 +338,44 @@ mod tests {
             "{json}"
         );
         assert!(!json.contains("jsonSchema"), "absent artifacts are omitted");
+    }
+
+    /// DM-02, DM-43: the Portal reads exactly the members Model Tools renders. A field this
+    /// struct does not name is an artifact the editor cannot show, and one it names alone is
+    /// a member no answer ever carries — both are drift, and both are silent without this.
+    #[test]
+    fn the_artifact_set_names_exactly_the_members_model_tools_answers_with() {
+        let artifacts = Artifacts {
+            linkml: Some("id: https://x/air".into()),
+            json_schema: Some(serde_json::json!({})),
+            context: Some(serde_json::json!({})),
+            docs: Some("# air".into()),
+            shacl: Some("@prefix sh: <> .".into()),
+            owl: Some("@prefix owl: <> .".into()),
+            example: Some(serde_json::json!({})),
+            generator_version: Some("linkml-1.11.1".into()),
+            errors: Vec::new(),
+        };
+        let json: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&serde_json::to_string(&artifacts).expect("serialize"))
+                .expect("an object");
+
+        let members: std::collections::BTreeSet<&str> = json.keys().map(String::as_str).collect();
+        assert_eq!(
+            members,
+            [
+                "linkml",
+                "jsonSchema",
+                "context",
+                "docs",
+                "shacl",
+                "owl",
+                "example",
+                "generatorVersion",
+                "errors",
+            ]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<&str>>()
+        );
     }
 }

@@ -26,6 +26,8 @@ export interface Artifacts {
   linkml?: string;
   jsonSchema?: Record<string, unknown>;
   context?: Record<string, unknown>;
+  /** The documentation page Model Tools renders, which is the one the repository commits. */
+  docs?: string;
   shacl?: string;
   owl?: string;
   example?: Record<string, unknown>;
@@ -107,25 +109,6 @@ export function LinkmlPreviewPanel({
     [artifacts],
   );
 
-  const documentation = useMemo(() => {
-    const lines: string[] = [];
-    for (const klass of model.classes) {
-      lines.push(`# ${klass.name}`, "");
-      if (klass.description) {
-        lines.push(klass.description, "");
-      }
-      lines.push("| slot | range | kind | unit |", "|---|---|---|---|");
-      for (const name of klass.slots) {
-        const slot = model.slots.find((candidate) => candidate.name === name);
-        lines.push(
-          `| ${name} | ${slot?.range ?? ""} | ${slot?.kind ?? ""} | ${slot?.unit?.ucum_code ?? ""} |`,
-        );
-      }
-      lines.push("");
-    }
-    return lines.join("\n");
-  }, [model]);
-
   return (
     <div className="flex flex-col gap-3">
       <div role="tablist" aria-label={t("models.preview")} className="flex flex-wrap gap-1">
@@ -203,9 +186,13 @@ export function LinkmlPreviewPanel({
           </table>
         ) : null}
         {tab === "docs" ? (
-          <pre className="max-h-96 overflow-auto rounded border border-border bg-surface-subtle p-3 text-xs">
-            {documentation}
-          </pre>
+          artifacts?.docs ? (
+            <pre className="max-h-96 overflow-auto rounded border border-border bg-surface-subtle p-3 text-xs">
+              {artifacts.docs}
+            </pre>
+          ) : (
+            <p className="text-sm text-surface-fg/70">{t("models.noArtifact")}</p>
+          )
         ) : null}
       </div>
 
