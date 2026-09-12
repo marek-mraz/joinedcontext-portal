@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../../api/client";
-import { asManifests } from "../../api/manifest";
+import { asManifests, refName } from "../../api/manifest";
 import { LinkmlPreviewPanel } from "./LinkmlPreviewPanel";
 import { LinkmlSourceEditor } from "./LinkmlSourceEditor";
 import { LinkmlVisualEditor } from "./LinkmlVisualEditor";
@@ -108,7 +108,7 @@ export function ModelsPage({
     const servingEndpoints = (endpoints.data ?? [])
       .filter((endpoint) =>
         servingSpaces.includes(
-          (endpoint.spec as { contextSpaceRef?: string })?.contextSpaceRef ?? "",
+          refName((endpoint.spec as { contextSpaceRef?: unknown })?.contextSpaceRef),
         ),
       )
       .map((endpoint) => `Endpoint/${endpoint.metadata.name}`);

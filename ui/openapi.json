@@ -740,6 +740,89 @@
         }
       }
     },
+    "/api/v1/projects/{project}/agent-runs/{id}/messages": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "post_message",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The instruction is on the run's log and in its inbox"
+          },
+          "400": {
+            "description": "An empty or over-long instruction",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The run is over and reads nothing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/agent-runs/{id}/publish": {
       "post": {
         "tags": [
@@ -4687,6 +4770,19 @@
           }
         ],
         "description": "Who is signed in and through which front, so the UI knows whose logout to call."
+      },
+      "MessageRequest": {
+        "type": "object",
+        "description": "What a person says to a run that is already going (AG-45).",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "MintedKey": {
         "type": "object",

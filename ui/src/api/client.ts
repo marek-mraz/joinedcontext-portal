@@ -109,6 +109,13 @@ export async function unwrap<T>(result: {
     return result.data;
   }
 
+  // A route that answers `204 No Content` has nothing to hand back and has not failed: an
+  // answer accepted, a message sent. Reading the empty body as an error is what put
+  // "No Content" on the run page in red.
+  if (result.error === undefined && result.response.ok) {
+    return undefined as T;
+  }
+
   let problem: ProblemDetails | undefined;
   if (
     typeof result.error === "object" &&

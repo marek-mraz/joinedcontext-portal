@@ -761,7 +761,9 @@
         "columnType": "Typ",
         "columnValues": "Prvé hodnoty",
         "linksTitle": "Vlastné dokumenty endpointu"
-      }
+      },
+      "promptPlaceholder": "Mapa staníč, filter na tie, kde ešte sú bicykle, a graf voľných miest.",
+      "details": "Podrobnosti: názov, druh a čo smí čítať ({name})"
     },
     "newAction": "Vygenerovať vlastnú aplikáciu"
   },
@@ -998,12 +1000,17 @@
       "usage": "{steps} krokov, spotrebovaných {tokens} tokenov."
     },
     "conversation": {
-      "title": "Čo agent robí",
+      "title": "Stavba ako rozhovor",
       "live": "Naživo",
       "offline": "Nepripojené",
       "empty": "Zatiaľ nič. Prvé riadky prídu, keď sa spustí pracovný priestor.",
       "question": "Agent sa pýta",
-      "answer": "Poslať odpoveď"
+      "answer": "Poslať odpoveď",
+      "placeholder": "Povedzte asistentovi, čo má postaviť alebo zmeniť…",
+      "send": "Poslať",
+      "closed": "Spustenie sa skončilo, už nič nečíta.",
+      "agent": "Asistent",
+      "you": "Vy"
     },
     "line": {
       "status": "Teraz {status}.",
@@ -1013,12 +1020,14 @@
       "usage": "{tokens} tokenov v tomto kroku.",
       "question": "Otázka {question}.",
       "answer": "Odpovedané na {question}.",
+      "message": "{who}: {text}",
       "lag": "{missed} riadkov bolo preskočených; opätovné pripojenie ich doplní."
     },
     "preview": {
       "title": "Náhľad",
       "hint": "Postavená aplikácia v sandboxe. Beží bez prístupu k vášmu prihláseniu do Portálu.",
-      "frameTitle": "Náhľad aplikácie {app}"
+      "frameTitle": "Náhľad aplikácie {app}",
+      "open": "Otvoriť aplikáciu na vlastnej karte"
     }
   }
 }

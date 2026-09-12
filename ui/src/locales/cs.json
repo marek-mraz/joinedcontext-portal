@@ -761,7 +761,9 @@
         "columnType": "Typ",
         "columnValues": "První hodnoty",
         "linksTitle": "Vlastní dokumenty endpointu"
-      }
+      },
+      "promptPlaceholder": "Mapa stanic, filtr na ty, kde ještě jsou kola, a graf volných míst.",
+      "details": "Podrobnosti: název, druh a co smí číst ({name})"
     },
     "newAction": "Vygenerovat vlastní aplikaci"
   },
@@ -998,12 +1000,17 @@
       "usage": "{steps} kroků, spotřebováno {tokens} tokenů."
     },
     "conversation": {
-      "title": "Co agent dělá",
+      "title": "Stavba jako rozhovor",
       "live": "Naživo",
       "offline": "Nepřipojeno",
       "empty": "Zatím nic. První řádky přijdou, když se spustí pracovní prostor.",
       "question": "Agent se ptá",
-      "answer": "Poslat odpověď"
+      "answer": "Poslat odpověď",
+      "placeholder": "Řekněte asistentovi, co má postavit nebo změnit…",
+      "send": "Poslat",
+      "closed": "Spuštění skončilo, už nic nečte.",
+      "agent": "Asistent",
+      "you": "Vy"
     },
     "line": {
       "status": "Nyní {status}.",
@@ -1013,12 +1020,14 @@
       "usage": "{tokens} tokenů v tomto kroku.",
       "question": "Dotaz {question}.",
       "answer": "Odpovězeno na {question}.",
+      "message": "{who}: {text}",
       "lag": "{missed} řádků bylo přeskočeno; opětovné připojení je doplní."
     },
     "preview": {
       "title": "Náhled",
       "hint": "Postavená aplikace v sandboxu. Běží bez přístupu k vašemu přihlášení do Portálu.",
-      "frameTitle": "Náhled aplikace {app}"
+      "frameTitle": "Náhled aplikace {app}",
+      "open": "Otevřít aplikaci na vlastní kartě"
     }
   }
 }

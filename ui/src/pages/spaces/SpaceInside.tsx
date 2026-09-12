@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
-import { asManifests, localized } from "../../api/manifest";
+import { asManifests, localized, refName } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import {
@@ -20,22 +20,10 @@ const SPACE_LABEL = "joinedcontext.com/space";
 const RESULTS_COUNT_HEADER = "NGSILD-Results-Count";
 const SAMPLE_LIMIT = 3;
 
-/** A `contextSpaceRef` is a bare name or a `{ kind, name }` reference; both name the space. */
-function referenceName(reference: unknown): string | undefined {
-  if (typeof reference === "string") {
-    return reference;
-  }
-  if (typeof reference === "object" && reference !== null && "name" in reference) {
-    const name = (reference as { name?: unknown }).name;
-    return typeof name === "string" ? name : undefined;
-  }
-  return undefined;
-}
-
 /** The space a manifest belongs to: `spec.contextSpaceRef` first, the space label second. */
 export function spaceOf(manifest: Manifest): string | undefined {
   return (
-    referenceName(manifest.spec.contextSpaceRef) ??
+    (refName(manifest.spec.contextSpaceRef) || undefined) ??
     (manifest.metadata.labels as Record<string, string> | null | undefined)?.[SPACE_LABEL]
   );
 }

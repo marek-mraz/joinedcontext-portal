@@ -57,3 +57,20 @@ export function prune<T>(value: T): T {
   }
   return value;
 }
+
+/**
+ * The name a `Ref` carries. jc-core writes a reference either as a bare name or as
+ * `{ kind, name, namespace? }` (MF-07), and a manifest in the mirror may hold either, so
+ * reading `spec.contextSpaceRef` as a string gives `[object Object]` half the time, or worse:
+ * a manifest whose own reference is an object nested inside a reference.
+ */
+export function refName(reference: unknown): string {
+  if (typeof reference === "string") {
+    return reference;
+  }
+  if (typeof reference === "object" && reference !== null && "name" in reference) {
+    const name = (reference as { name?: unknown }).name;
+    return typeof name === "string" ? name : "";
+  }
+  return "";
+}

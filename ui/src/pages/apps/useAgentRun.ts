@@ -26,6 +26,7 @@ export const EVENT_KINDS = [
   "status",
   "question",
   "answer",
+  "message",
   "thought",
   "tool",
   "commit",
@@ -181,6 +182,16 @@ export function useAgentRun(project: string, runId: string | null) {
       ),
   });
 
+  const send = useMutation({
+    mutationFn: async (text: string) =>
+      unwrap(
+        await api.POST("/api/v1/projects/{project}/agent-runs/{id}/messages", {
+          params: { path: { project, id: runId ?? "" } },
+          body: { text },
+        }),
+      ),
+  });
+
   const cancel = useMutation({
     mutationFn: async () =>
       unwrap(
@@ -206,5 +217,5 @@ export function useAgentRun(project: string, runId: string | null) {
     setEvents([]);
   }, []);
 
-  return { run, events, streaming, answer, cancel, publish, reset };
+  return { run, events, streaming, answer, send, cancel, publish, reset };
 }

@@ -48,6 +48,14 @@ pub fn validate_data_needs(
         .unwrap_or_default();
 
     for (idx, need) in data_needs.iter().enumerate() {
+        // The shape first: `spec.dataNeeds` of the App this run publishes is this value
+        // verbatim, so a need the `App` kind cannot parse is a run that can never be published.
+        // Failing here names the field while the person is still on the form (AP-44, CC-24).
+        if let Err(error) = serde_json::from_value::<jc_core::kinds::DataNeed>(need.clone()) {
+            violations.push(format!("dataNeeds[{idx}]: {error}"));
+            continue;
+        }
+
         let types = need
             .get("types")
             .and_then(|t| t.as_array())

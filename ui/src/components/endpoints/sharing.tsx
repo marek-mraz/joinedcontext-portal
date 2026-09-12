@@ -1,5 +1,6 @@
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
+import { refName } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
 import type { JsonSchema } from "../forms/types";
 import { DNS1123, SLUG_PATTERN } from "../../schemas/kinds";
@@ -33,8 +34,8 @@ export function sharingOf(endpoint: Manifest): Sharing {
 }
 
 export function spaceOf(endpoint: Manifest): string | undefined {
-  const spec = endpoint.spec as { contextSpaceRef?: string };
-  return spec.contextSpaceRef ?? endpoint.metadata.labels?.[SPACE_LABEL];
+  const space = refName((endpoint.spec as { contextSpaceRef?: unknown }).contextSpaceRef);
+  return space !== "" ? space : endpoint.metadata.labels?.[SPACE_LABEL];
 }
 
 /** Whether `project` may call an endpoint `owner` publishes: the gateway's own rule. */

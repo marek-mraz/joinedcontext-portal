@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
-import { asManifests, isChange, localized } from "../../api/manifest";
+import { asManifests, isChange, localized, refName } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
@@ -32,9 +32,7 @@ export function appSpec(app: Manifest): AppSpec {
 
 /** The space a data need names, whichever of the two `Ref` spellings the manifest used. */
 function spaceOf(need: DataNeed): string {
-  return typeof need.contextSpaceRef === "string"
-    ? need.contextSpaceRef
-    : (need.contextSpaceRef?.name ?? "");
+  return refName(need.contextSpaceRef);
 }
 
 /**

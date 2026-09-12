@@ -25,7 +25,7 @@ export function AgentRunPage({
   onClose: () => void;
 }): JSX.Element {
   const { t } = useTranslation();
-  const { run, events, streaming, answer, cancel, publish } = useAgentRun(project, runId);
+  const { run, events, streaming, answer, send, cancel, publish } = useAgentRun(project, runId);
 
   if (run.isPending) {
     return <p role="status">{t("agentRun.loading")}</p>;
@@ -74,7 +74,7 @@ export function AgentRunPage({
           {record.error}
         </p>
       )}
-      {[cancel.error, publish.error, answer.error].map((error, index) =>
+      {[cancel.error, publish.error, answer.error, send.error].map((error, index) =>
         error ? (
           <p role="alert" key={index} className="text-danger">
             {error instanceof ApiError ? (error.problem?.detail ?? error.message) : t("app.error.generic")}
@@ -82,58 +82,80 @@ export function AgentRunPage({
         ) : null,
       )}
 
-      <RunTimeline status={record.status} steps={record.steps} tokensUsed={record.tokensUsed} />
-
-      <ConversationPanel
-        events={events}
-        streaming={streaming}
-        answering={answer.isPending}
-        onAnswer={(questionId, answers) => {
-          answer.mutate({ questionId, answers });
-        }}
-      />
-
-      {record.previewUrl !== undefined && record.previewUrl !== "" && (
-        <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-4">
-          <h2 id="run-preview" className="text-base font-semibold">
-            {t("agentRun.preview.title")}
-          </h2>
-          <p className="text-sm text-fg-muted">{t("agentRun.preview.hint")}</p>
-          {/*
-            No `allow-same-origin`: the app is served from the Portal's own origin, and that
-            pair beside `allow-scripts` is not a sandbox at all — the frame could read the
-            deliberately readable CSRF cookie and write as the signed-in reviewer (AP-19).
-          */}
-          <iframe
-            title={t("agentRun.preview.frameTitle", { app: record.appName })}
-            src={record.previewUrl}
-            sandbox="allow-scripts"
-            className="h-96 w-full rounded border border-border bg-surface"
-          />
-        </section>
-      )}
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={over || cancel.isPending}
-          onClick={() => {
-            cancel.mutate();
+      {/*
+        The conversation is the page: a person builds an app by talking to the agent, and
+        watches what it built beside the talking. The preview and the controls sit in the
+        column next to it, so neither has to be scrolled past to reach the other.
+      */}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+        <ConversationPanel
+          events={events}
+          streaming={streaming}
+          answering={answer.isPending}
+          sending={send.isPending}
+          live={!over}
+          onAnswer={(questionId, answers) => {
+            answer.mutate({ questionId, answers });
           }}
-          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {t("agentRun.cancel")}
-        </button>
-        <button
-          type="button"
-          disabled={record.status !== "previewing" || publish.isPending}
-          onClick={() => {
-            publish.mutate();
+          onSend={(text) => {
+            send.mutate(text);
           }}
-          className="rounded bg-primary px-4 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {t("agentRun.publish")}
-        </button>
+        />
+
+        <div className="space-y-4 lg:sticky lg:top-4">
+          {record.previewUrl !== undefined && record.previewUrl !== "" && (
+            <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-4">
+              <h2 id="run-preview" className="text-base font-semibold">
+                {t("agentRun.preview.title")}
+              </h2>
+              <p className="text-sm text-fg-muted">{t("agentRun.preview.hint")}</p>
+              {/*
+                No `allow-same-origin`: the app is served from the Portal's own origin, and that
+                pair beside `allow-scripts` is not a sandbox at all — the frame could read the
+                deliberately readable CSRF cookie and write as the signed-in reviewer (AP-19).
+              */}
+              <iframe
+                title={t("agentRun.preview.frameTitle", { app: record.appName })}
+                src={record.previewUrl}
+                sandbox="allow-scripts"
+                className="h-80 w-full rounded border border-border bg-surface"
+              />
+              <a
+                href={record.previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-block text-sm text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+              >
+                {t("agentRun.preview.open")}
+              </a>
+            </section>
+          )}
+
+          <RunTimeline status={record.status} steps={record.steps} tokensUsed={record.tokensUsed} />
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={over || cancel.isPending}
+              onClick={() => {
+                cancel.mutate();
+              }}
+              className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("agentRun.cancel")}
+            </button>
+            <button
+              type="button"
+              disabled={record.status !== "previewing" || publish.isPending}
+              onClick={() => {
+                publish.mutate();
+              }}
+              className="rounded bg-primary px-4 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("agentRun.publish")}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

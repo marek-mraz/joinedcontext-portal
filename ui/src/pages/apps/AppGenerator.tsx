@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
-import { asManifests, isChange, localized } from "../../api/manifest";
+import { asManifests, isChange, localized, refName } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { fetchJson, publishedTypes } from "../endpoints/SchemaProjectionPanel";
@@ -24,9 +24,26 @@ export const EXAMPLE_APPS = ["hsl-transport", "air-quality"] as const;
 /** A generated app reads; a write would need the red lane and a grant the endpoint has not got. */
 const OPERATIONS = ["queryEntity", "retrieveEntity"];
 
+/**
+ * A name for the app, from what the person asked for.
+ *
+ * It becomes the path the app is served at, so it is the lower-case, dash-joined form a URL
+ * takes; a person who wants another one writes it under the details.
+ */
+export function slugOf(prompt: string): string {
+  return prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .split("-")
+    .slice(0, 4)
+    .join("-");
+}
+
 interface EndpointSpec {
   slug?: string;
-  contextSpaceRef?: string;
+  /** A `Ref`: a bare name, or `{ kind, name }`. Read it with `refName`, never as a string. */
+  contextSpaceRef?: unknown;
   audience?: string;
   enabledRepresentations?: string[];
 }
@@ -58,9 +75,11 @@ export function dataNeeds(
   if (kept.length === 0) {
     return [];
   }
+  // Exactly the fields of jc-core's `DataNeed`: this value becomes `spec.dataNeeds` of the App
+  // manifest the run publishes, and that kind refuses a field it does not know.
   return [
     {
-      contextSpaceRef: { kind: "ContextSpace", name: spec.contextSpaceRef ?? "" },
+      contextSpaceRef: { kind: "ContextSpace", name: refName(spec.contextSpaceRef) },
       types: kept.map((type) => type.name),
       attrs: [...new Set(kept.flatMap((type) => type.attributes))].sort(),
       operations: OPERATIONS,
@@ -142,7 +161,7 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
         await api.POST("/api/v1/projects/{project}/agent-runs", {
           params: { path: { project } },
           body: {
-            appName: name,
+            appName: chosen,
             appClass: kind,
             endpointName,
             prompt,
@@ -193,7 +212,10 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
     return <NoBuilder />;
   }
 
-  const ready = name !== "" && prompt.trim() !== "" && endpointName !== "" && needs.length > 0;
+  // A name is needed for the URL the app is served at, not for the conversation: it is derived
+  // from what the person asked for and stays editable under the details.
+  const chosen = name.trim() === "" ? slugOf(prompt) : name.trim();
+  const ready = chosen !== "" && prompt.trim() !== "" && endpointName !== "" && needs.length > 0;
 
   return (
     <form
@@ -223,40 +245,6 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
       )}
 
       <div>
-        <label className="block text-sm font-medium" htmlFor="generator-name">
-          {t("apps.generate.name")}
-        </label>
-        <input
-          id="generator-name"
-          value={name}
-          onChange={(event) => {
-            setName(event.target.value);
-          }}
-          className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium" htmlFor="generator-kind">
-          {t("apps.generate.kind")}
-        </label>
-        <select
-          id="generator-kind"
-          value={kind}
-          onChange={(event) => {
-            setKind(event.target.value as AppKind);
-          }}
-          className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
-        >
-          {APP_KINDS.map((value) => (
-            <option key={value} value={value}>
-              {t(`apps.generate.kinds.${value}`)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
         <label className="block text-sm font-medium" htmlFor="generator-endpoint">
           {t("apps.generate.endpoint")}
         </label>
@@ -282,37 +270,86 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
       {/* What the endpoint gives you, read with your own session, before you describe the app. */}
       {slug !== "" && <EndpointPreview slug={slug} />}
 
+      {/*
+        The description is the whole brief, and the first turn of a conversation rather than a
+        specification: the agent builds from it, shows what it built, and is told what to change
+        next on the run page.
+      */}
       <div>
         <label className="block text-sm font-medium" htmlFor="generator-prompt">
           {t("apps.generate.prompt")}
         </label>
         <textarea
           id="generator-prompt"
-          rows={4}
+          rows={5}
           value={prompt}
+          placeholder={t("apps.generate.promptPlaceholder")}
           onChange={(event) => {
             setPrompt(event.target.value);
           }}
-          className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
+          className="mt-1 block w-full rounded border border-border bg-surface px-3 py-2 text-base"
         />
         <p className="mt-1 text-xs text-muted">{t("apps.generate.promptHint")}</p>
       </div>
 
-      {endpointName !== "" && (
-        <NeedsChecklist
-          audience={endpoint ? (endpointSpec(endpoint).audience ?? "") : ""}
-          types={types}
-          dropped={dropped}
-          state={schema.isPending ? "loading" : schema.isError ? "unavailable" : "ready"}
-          onToggle={(attribute) => {
-            setDropped((current) =>
-              current.includes(attribute)
-                ? current.filter((name) => name !== attribute)
-                : [...current, attribute],
-            );
-          }}
-        />
-      )}
+      <details className="rounded border border-border px-4 py-2">
+        <summary className="cursor-pointer text-sm font-medium">
+          {t("apps.generate.details", { name: chosen === "" ? "…" : chosen })}
+        </summary>
+
+        <div className="mt-3 space-y-4">
+          <div>
+            <label className="block text-sm font-medium" htmlFor="generator-name">
+              {t("apps.generate.name")}
+            </label>
+            <input
+              id="generator-name"
+              value={name}
+              placeholder={slugOf(prompt)}
+              onChange={(event) => {
+                setName(event.target.value);
+              }}
+              className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium" htmlFor="generator-kind">
+              {t("apps.generate.kind")}
+            </label>
+            <select
+              id="generator-kind"
+              value={kind}
+              onChange={(event) => {
+                setKind(event.target.value as AppKind);
+              }}
+              className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
+            >
+              {APP_KINDS.map((value) => (
+                <option key={value} value={value}>
+                  {t(`apps.generate.kinds.${value}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {endpointName !== "" && (
+            <NeedsChecklist
+              audience={endpoint ? (endpointSpec(endpoint).audience ?? "") : ""}
+              types={types}
+              dropped={dropped}
+              state={schema.isPending ? "loading" : schema.isError ? "unavailable" : "ready"}
+              onToggle={(attribute) => {
+                setDropped((current) =>
+                  current.includes(attribute)
+                    ? current.filter((name) => name !== attribute)
+                    : [...current, attribute],
+                );
+              }}
+            />
+          )}
+        </div>
+      </details>
 
       <button
         type="submit"

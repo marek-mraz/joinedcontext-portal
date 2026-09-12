@@ -761,7 +761,9 @@
         "columnType": "Typ",
         "columnValues": "Erste Werte",
         "linksTitle": "Die eigenen Dokumente des Endpoints"
-      }
+      },
+      "promptPlaceholder": "Eine Karte der Stationen, ein Filter für die mit Rädern und ein Diagramm der freien Plätze.",
+      "details": "Details: Name, Art und was sie lesen darf ({name})"
     },
     "newAction": "Eigene Anwendung erzeugen"
   },
@@ -998,12 +1000,17 @@
       "usage": "{steps} Schritte, {tokens} Tokens verbraucht."
     },
     "conversation": {
-      "title": "Was der Agent tut",
+      "title": "Der Bau als Gespräch",
       "live": "Live",
       "offline": "Nicht verbunden",
       "empty": "Noch nichts. Die ersten Zeilen kommen, wenn der Arbeitsbereich startet.",
       "question": "Der Agent fragt",
-      "answer": "Antwort senden"
+      "answer": "Antwort senden",
+      "placeholder": "Sagen Sie dem Assistenten, was er bauen oder ändern soll…",
+      "send": "Senden",
+      "closed": "Der Lauf ist beendet und liest nichts mehr.",
+      "agent": "Assistent",
+      "you": "Sie"
     },
     "line": {
       "status": "Jetzt {status}.",
@@ -1013,12 +1020,14 @@
       "usage": "{tokens} Tokens in diesem Schritt.",
       "question": "Frage {question}.",
       "answer": "Auf {question} geantwortet.",
+      "message": "{who}: {text}",
       "lag": "{missed} Zeilen wurden übersprungen; das erneute Verbinden holt sie nach."
     },
     "preview": {
       "title": "Vorschau",
       "hint": "Die gebaute Anwendung, in einer Sandbox. Sie läuft ohne Zugriff auf Ihre Portal-Anmeldung.",
-      "frameTitle": "Vorschau der Anwendung {app}"
+      "frameTitle": "Vorschau der Anwendung {app}",
+      "open": "Die Anwendung in einem eigenen Tab öffnen"
     }
   }
 }

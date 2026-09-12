@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { usePermissions } from "../../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
-import { asManifests, isChange, localized } from "../../api/manifest";
+import { asManifests, isChange, localized, refName } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { ResourceFormDialog } from "../../components/ResourceFormDialog";
@@ -246,7 +246,7 @@ export function FederationPage({ project }: { project: string }): JSX.Element {
                       ) : null}
                     </td>
                     <td className="px-4 py-2 font-mono">
-                      {String(spec["contextSpaceRef"] ?? "")}
+                      {refName(spec["contextSpaceRef"])}
                     </td>
                     <td className="px-4 py-2 font-mono">
                       {targetOf(spec, registration.metadata.name)}

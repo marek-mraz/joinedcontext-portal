@@ -698,6 +698,185 @@ async fn cancelling_ends_the_run_and_the_ticket_with_it() {
 }
 
 #[tokio::test]
+async fn a_need_the_app_kind_cannot_parse_is_refused_before_the_run_exists() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    // `contextSpaceRef` is a jc-core `Ref`: a bare name, or `{ kind, name }`. A caller that
+    // nests one inside the other builds a need the `App` kind cannot parse, and before this
+    // guard the run was accepted and only failed when the person clicked publish.
+    let mut body = create_body();
+    body["dataNeeds"][0]["contextSpaceRef"]["name"] =
+        json!({ "kind": "ContextSpace", "name": "helsinki" });
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(body),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+    let errors = problem["errors"].as_array().expect("named violations");
+    assert!(
+        errors
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|error| error.contains("dataNeeds[0]")),
+        "the need is named: {problem}"
+    );
+}
+
+#[tokio::test]
+async fn the_published_manifest_is_an_app_the_platform_can_parse() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let created = create_run(&app, &cookie).await;
+
+    // What `publish` writes, from the run as it was stored: a Change is refused without a forge,
+    // so the manifest itself is what this asserts, against the kind that has to accept it.
+    let manifest = json!({
+        "apiVersion": "joinedcontext.com/v1alpha1",
+        "kind": "App",
+        "metadata": { "name": created["appName"], "namespace": PROJECT },
+        "spec": {
+            "kind": created["appClass"],
+            "source": { "path": "./src" },
+            "build": { "node": "22" },
+            "visibility": created["visibility"],
+            "lifecycle": "published",
+            "dataNeeds": created["dataNeeds"],
+        },
+    });
+    let spec: jc_core::kinds::AppSpec = serde_json::from_value(manifest["spec"].clone())
+        .unwrap_or_else(|error| panic!("the App kind refuses what publish writes: {error}"));
+    assert_eq!(spec.data_needs.len(), 1);
+}
+
+#[tokio::test]
+async fn a_person_steers_a_live_run_and_the_workspace_reads_it() {
+    let config = config();
+    let (app, internal) = both(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": "  Sort by free bikes, and add a district filter.  " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The workspace reads one channel: what was answered and what was said, after `after`.
+    let (status, body) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        &format!("/internal/agent-runs/{id}/inbox?after=0"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let items = body["items"].as_array().expect("items");
+    assert_eq!(items.len(), 1, "{body}");
+    assert_eq!(items[0]["kind"], "message");
+    assert_eq!(
+        items[0]["payload"]["text"],
+        "Sort by free bikes, and add a district filter."
+    );
+    assert_eq!(items[0]["payload"]["sentBy"], STEWARD);
+
+    // Read past it and the inbox is empty: `after` is how a workspace does not re-read.
+    let seq = items[0]["seq"].as_i64().expect("a seq");
+    let (status, body) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        &format!("/internal/agent-runs/{id}/inbox?after={seq}&wait=0"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["items"]
+            .as_array()
+            .is_some_and(|items| items.is_empty()),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn the_inbox_is_the_proxy_token_and_nothing_else() {
+    let config = config();
+    let (app, internal) = both(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+
+    let (status, _) = internal_call(
+        &internal,
+        Some("not-the-proxy-token"),
+        Method::GET,
+        &format!("/internal/agent-runs/{id}/inbox?after=0"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn an_empty_instruction_is_refused_and_a_finished_run_reads_nothing() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": "   " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/cancel"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": "one more thing" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{problem}");
+}
+
+#[tokio::test]
 async fn a_run_with_no_preview_publishes_nothing() {
     let config = config();
     let app = router(mirror(Some(builder_profile_spec())), &config);

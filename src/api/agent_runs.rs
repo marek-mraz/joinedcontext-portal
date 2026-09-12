@@ -43,6 +43,15 @@ const DEFAULT_LIST_LIMIT: i64 = 20;
 /// Longest prompt a run is started from. A prompt is a paragraph, not a corpus; the brief the
 /// agent works from is the manifests and the model, not this field.
 const MAX_PROMPT_CHARS: usize = 4_000;
+/// Longest instruction a person may send into a live run. Same ceiling as the prompt: it is a
+/// sentence of steering, and a workspace reads it with the same budget as everything else.
+const MAX_MESSAGE_CHARS: usize = 4_000;
+/// How long the workspace's inbox call waits for something new before answering empty. Short
+/// enough to sit inside every proxy's read timeout, long enough that an idle agent is not a
+/// request per second.
+const INBOX_WAIT_SECS: u64 = 25;
+/// The kinds a workspace reads from its inbox: what the person answered, and what they said.
+const INBOX_KINDS: [&str; 2] = ["answer", "message"];
 /// The run one application came out of, on the `App` manifest a publish opens (AP-51).
 const AGENT_RUN_ANNOTATION: &str = "joinedcontext.com/agent-run";
 /// The digest of the prompt that run was started from.
@@ -112,6 +121,39 @@ pub struct AnswerRequest {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RelayedEvent {
     pub run_id: String,
+    pub kind: String,
+    pub payload: serde_json::Value,
+}
+
+/// What a person says to a run that is already going (AG-45).
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MessageRequest {
+    pub text: String,
+}
+
+/// Where the workspace reads from, how far it has read, and how long it will wait.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxQuery {
+    #[serde(default)]
+    pub after: i64,
+    /// Seconds to hold the call open when there is nothing new, clamped to [`INBOX_WAIT_SECS`].
+    /// `0` answers at once, which is what an agent between two steps of its own work wants.
+    pub wait: Option<u64>,
+}
+
+/// The answers and instructions after `after`, oldest first.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Inbox {
+    pub items: Vec<RelayedInbound>,
+}
+
+/// One line of the inbox. The payload is the person's own words, so a workspace treats it as
+/// data: it is an instruction to the agent, never a grant, and nothing here widens `dataNeeds`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RelayedInbound {
+    pub seq: i64,
     pub kind: String,
     pub payload: serde_json::Value,
 }
@@ -528,6 +570,58 @@ pub async fn answer_question(
 
 #[utoipa::path(
     post,
+    path = "/api/v1/projects/{project}/agent-runs/{id}/messages",
+    tag = "agents",
+    params(
+        ("project" = String, Path, description = "Project name"),
+        ("id" = String, Path, description = "Run id"),
+    ),
+    request_body = MessageRequest,
+    responses(
+        (status = 204, description = "The instruction is on the run's log and in its inbox"),
+        (status = 400, description = "An empty or over-long instruction", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "No such run in this project", body = ProblemDetails),
+        (status = 409, description = "The run is over and reads nothing", body = ProblemDetails)
+    )
+)]
+pub async fn post_message(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path((project, id)): Path<(String, String)>,
+    Json(request): Json<MessageRequest>,
+) -> Result<StatusCode, ApiError> {
+    let run = run_of(&state, &project, &id).await?;
+    if terminal(&run) {
+        return Err(ApiError::Conflict(format!(
+            "run '{id}' is '{}' and reads nothing",
+            run.status
+        )));
+    }
+    let text = request.text.trim();
+    if text.is_empty() {
+        return Err(ApiError::BadRequest("text must not be empty".into()));
+    }
+    if text.chars().count() > MAX_MESSAGE_CHARS {
+        return Err(ApiError::BadRequest(format!(
+            "text is longer than {MAX_MESSAGE_CHARS} characters"
+        )));
+    }
+    publish_event(
+        &state,
+        &id,
+        "message",
+        serde_json::json!({
+            "text": text,
+            "sentBy": user.0.identity.username,
+        }),
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
     path = "/api/v1/projects/{project}/agent-runs/{id}/cancel",
     tag = "agents",
     params(
@@ -724,6 +818,80 @@ pub async fn internal_get_run(
         created_by: run.created_by,
         model_name: profile.model_name,
     }))
+}
+
+/// What the person said, for the workspace to act on (AG-45, AG-52).
+///
+/// One call, one channel: an agent that wants to know whether a question was answered and
+/// whether it was told to change course asks here and nowhere else. The call waits rather than
+/// answering empty immediately, because the alternative is a workspace polling in a loop and
+/// spending its request budget on nothing.
+pub async fn internal_inbox(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<InboxQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Inbox>, ApiError> {
+    authenticate_proxy(&state, &headers)?;
+    let run = state
+        .agents
+        .get_run(&id)
+        .await
+        .map_err(unavailable)?
+        .ok_or_else(|| ApiError::NotFound(format!("run '{id}' not found")))?;
+
+    // Subscribed before the store is read, so an event that lands between the two is waited
+    // for rather than missed.
+    let mut live = state.agent_events.subscribe(&run.id).await;
+    let items = inbox_items(&state, &run.id, query.after).await?;
+    if !items.is_empty() || terminal(&run) {
+        return Ok(Json(Inbox { items }));
+    }
+
+    let wait = query.wait.unwrap_or(INBOX_WAIT_SECS).min(INBOX_WAIT_SECS);
+    if wait == 0 {
+        return Ok(Json(Inbox { items }));
+    }
+    let _ = tokio::time::timeout(Duration::from_secs(wait), async {
+        loop {
+            match live.recv().await {
+                Ok(event)
+                    if event.seq > query.after && INBOX_KINDS.contains(&event.kind.as_str()) =>
+                {
+                    return;
+                }
+                // A lagged receiver missed something; the store below is the truth either way.
+                Ok(_) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    })
+    .await;
+
+    Ok(Json(Inbox {
+        items: inbox_items(&state, &run.id, query.after).await?,
+    }))
+}
+
+async fn inbox_items(
+    state: &AppState,
+    run_id: &str,
+    after: i64,
+) -> Result<Vec<RelayedInbound>, ApiError> {
+    Ok(state
+        .agents
+        .events_since(run_id, after)
+        .await
+        .map_err(unavailable)?
+        .into_iter()
+        .filter(|event| INBOX_KINDS.contains(&event.kind.as_str()))
+        .map(|event| RelayedInbound {
+            seq: event.seq,
+            kind: event.kind,
+            payload: event.payload,
+        })
+        .collect())
 }
 
 pub async fn internal_post_event(
@@ -930,6 +1098,10 @@ pub fn router() -> Router<AppState> {
             post(answer_question),
         )
         .route(
+            "/projects/{project}/agent-runs/{id}/messages",
+            post(post_message),
+        )
+        .route(
             "/projects/{project}/agent-runs/{id}/cancel",
             post(cancel_run),
         )
@@ -944,4 +1116,5 @@ pub fn internal_router() -> Router<AppState> {
     Router::new()
         .route("/internal/agent-runs/events", post(internal_post_event))
         .route("/internal/agent-runs/{id}", get(internal_get_run))
+        .route("/internal/agent-runs/{id}/inbox", get(internal_inbox))
 }

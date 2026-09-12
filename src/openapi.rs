@@ -7,7 +7,8 @@ use utoipa::{Modify, OpenApi};
 
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::api::agent_runs::{
-    AnswerRequest, CreateRunRequest, CreatedRun, EventReceipt, RelayedEvent, RunContext, RunList,
+    AnswerRequest, CreateRunRequest, CreatedRun, EventReceipt, MessageRequest, RelayedEvent,
+    RunContext, RunList,
 };
 use crate::api::blueprints::FlowRequest;
 use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
@@ -60,6 +61,7 @@ use crate::tools::model_tools::{
         crate::api::agent_runs::get_run,
         crate::api::agent_runs::stream_events,
         crate::api::agent_runs::answer_question,
+        crate::api::agent_runs::post_message,
         crate::api::agent_runs::cancel_run,
         crate::api::agent_runs::publish_run,
         crate::api::service_accounts::list_keys,
@@ -100,6 +102,7 @@ use crate::tools::model_tools::{
         RelayedEvent,
         EventReceipt,
         AnswerRequest,
+        MessageRequest,
         Health,
         Effective,
         Grant,

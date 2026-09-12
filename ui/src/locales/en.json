@@ -761,7 +761,9 @@
         "columnType": "Type",
         "columnValues": "First values",
         "linksTitle": "The endpoint's own documents"
-      }
+      },
+      "promptPlaceholder": "A map of the docking stations, with a filter for the ones that still have bikes, and a chart of free slots.",
+      "details": "Details: name, kind, and what it may read ({name})"
     },
     "newAction": "Generate your own app"
   },
@@ -998,12 +1000,17 @@
       "usage": "{steps} steps, {tokens} tokens used."
     },
     "conversation": {
-      "title": "What the agent is doing",
+      "title": "The build, as a conversation",
       "live": "Live",
       "offline": "Not connected",
       "empty": "Nothing yet. The first lines arrive when the workspace starts.",
       "question": "The agent is asking",
-      "answer": "Send the answer"
+      "answer": "Send the answer",
+      "placeholder": "Tell the assistant what to build or change…",
+      "send": "Send",
+      "closed": "The run has ended, so it reads nothing more.",
+      "agent": "Assistant",
+      "you": "You"
     },
     "line": {
       "status": "Now {status}.",
@@ -1013,12 +1020,14 @@
       "usage": "{tokens} tokens this step.",
       "question": "Asked {question}.",
       "answer": "Answered {question}.",
+      "message": "{who}: {text}",
       "lag": "{missed} lines were skipped; reconnecting fills them in."
     },
     "preview": {
       "title": "Preview",
       "hint": "The built app, framed in a sandbox. It runs with no access to your Portal session.",
-      "frameTitle": "Preview of {app}"
+      "frameTitle": "Preview of {app}",
+      "open": "Open the app in its own tab"
     }
   }
 }

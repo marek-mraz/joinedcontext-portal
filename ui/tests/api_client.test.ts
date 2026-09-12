@@ -309,3 +309,46 @@ describe("searchEntities", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
   });
 });
+
+describe("unwrap", () => {
+  it("returns the body of a successful answer", async () => {
+    const response = new Response("{}", { status: 200 });
+    await expect(unwrap({ data: { id: "r-1" }, response })).resolves.toEqual({ id: "r-1" });
+  });
+
+  it("treats 204 No Content as success, not as an error", async () => {
+    // Answering the agent's question and sending it an instruction both answer 204. Reading
+    // the empty body as a failure put "No Content" on the run page in red.
+    const response = new Response(null, { status: 204, statusText: "No Content" });
+    await expect(unwrap<void>({ response })).resolves.toBeUndefined();
+  });
+
+  it("still throws the problem a failing call carries", async () => {
+    const problem: ProblemDetails = {
+      type: "https://joinedcontext.com/errors/conflict",
+      title: "Conflict",
+      status: 409,
+      detail: "the run is already cancelled",
+    };
+    const response = new Response(JSON.stringify(problem), { status: 409 });
+    await expect(unwrap({ error: problem, response })).rejects.toThrow(
+      "the run is already cancelled",
+    );
+  });
+
+  it("throws on a failing call that carries no problem document", async () => {
+    const response = new Response(null, { status: 502, statusText: "Bad Gateway" });
+    await expect(unwrap({ response })).rejects.toThrow("Bad Gateway");
+  });
+});
+
+describe("refName", () => {
+  it("reads both shapes of a jc-core reference (MF-07)", async () => {
+    const { refName } = await import("../src/api/manifest");
+    expect(refName("helsinki")).toBe("helsinki");
+    expect(refName({ kind: "ContextSpace", name: "helsinki" })).toBe("helsinki");
+    // What broke the generated App manifest: a reference nested inside a reference.
+    expect(refName({ kind: "ContextSpace", name: { name: "helsinki" } })).toBe("");
+    expect(refName(undefined)).toBe("");
+  });
+});
