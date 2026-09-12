@@ -8,6 +8,8 @@ import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { fetchJson, publishedTypes } from "../endpoints/SchemaProjectionPanel";
 import type { PublishedType } from "../endpoints/SchemaProjectionPanel";
+import { AgentRunPage } from "./AgentRunPage";
+import { EndpointPreview } from "./EndpointPreview";
 
 /** The blueprint that turns a description into an app (AP-22, Architecture/16 §3). */
 export const BLUEPRINT = "app-from-prompt";
@@ -68,12 +70,15 @@ export function dataNeeds(
 }
 
 /**
- * "Generate your own app" (AP-22, AP-30, AG-26).
+ * "Generate your own app" (AP-22, AP-30, AP-51, AG-26, AG-43).
  *
- * There is no builder API of its own: generation is the `app-from-prompt` blueprint started
- * through the ordinary flows route, so the answer is a merge request an approver sees like
- * any other change, and a deployment without the Agent Runner simply has no such blueprint to
- * offer. That is what the banner below says, rather than a button that leads nowhere.
+ * The form is the whole of what a person has to decide: which endpoint, what the app should do,
+ * and which of the attributes the endpoint publishes it may read. Submitting it starts an agent
+ * run (`POST …/agent-runs`), and the answer is a run to watch rather than a merge request to
+ * wait for: the review comes at the end, when the person publishes what was built (AP-55).
+ *
+ * A deployment without the Agent Runner has no `app-from-prompt` blueprint to offer, which is
+ * what the banner below says rather than a button that leads nowhere (ADR-N-014).
  */
 export function AppGenerator({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
@@ -82,6 +87,7 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
   const [prompt, setPrompt] = useState("");
   const [endpointName, setEndpointName] = useState("");
   const [dropped, setDropped] = useState<string[]>([]);
+  const [runId, setRunId] = useState<string | null>(null);
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** One entry per rule the parameters broke, so every bad field is named at once (CC-24). */
@@ -133,19 +139,26 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
       setError(null);
       setViolations([]);
       return unwrap(
-        await api.POST("/api/v1/projects/{project}/flows", {
+        await api.POST("/api/v1/projects/{project}/agent-runs", {
           params: { path: { project } },
           body: {
-            blueprint: BLUEPRINT,
-            // The version the form was generated from; expanding these values against a
-            // schema the user never saw is how a form produces a manifest nobody reviewed.
-            version: (available?.spec as { version?: string } | undefined)?.version ?? "",
-            parameters: { name, kind, prompt, endpoint: endpointName, dataNeeds: needs },
-          },
+            appName: name,
+            appClass: kind,
+            endpointName,
+            prompt,
+            // The confirmed list, derived from the endpoint: the run is refused if it names
+            // anything the endpoint does not publish, so the two cannot drift (AP-44).
+            dataNeeds: needs,
+          } as never,
         }),
       );
     },
     onSuccess: (result) => {
+      const created = result as unknown as { id?: string };
+      if (typeof created.id === "string") {
+        setRunId(created.id);
+        return;
+      }
       if (isChange(result)) {
         setChange(result);
       }
@@ -159,6 +172,18 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
       setError(t("app.error.generic"));
     },
   });
+
+  if (runId !== null) {
+    return (
+      <AgentRunPage
+        project={project}
+        runId={runId}
+        onClose={() => {
+          setRunId(null);
+        }}
+      />
+    );
+  }
 
   if (blueprints.isPending) {
     return <p role="status">{t("app.loading")}</p>;
@@ -254,6 +279,9 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
         <p className="mt-1 text-xs text-muted">{t("apps.generate.endpointHint")}</p>
       </div>
 
+      {/* What the endpoint gives you, read with your own session, before you describe the app. */}
+      {slug !== "" && <EndpointPreview slug={slug} />}
+
       <div>
         <label className="block text-sm font-medium" htmlFor="generator-prompt">
           {t("apps.generate.prompt")}
@@ -321,6 +349,7 @@ function NeedsChecklist({
       {audience !== "" && (
         <p className="text-sm text-muted">{t("apps.generate.needs.audience", { audience })}</p>
       )}
+      <p className="text-sm text-muted">{t("apps.generate.needs.loginOnly")}</p>
       {state === "loading" && <p role="status">{t("apps.generate.needs.loading")}</p>}
       {state === "unavailable" && (
         <p role="alert" className="text-danger">

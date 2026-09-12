@@ -739,7 +739,28 @@
         "audience": "Aplikace bude viditelná pro publikum samotného endpointu: {audience}.",
         "loading": "Načítá se model endpointu…",
         "unavailable": "Endpoint zatím nepublikuje model, takže z něj nelze nic odvodit.",
-        "none": "Tento endpoint nepublikuje žádné atributy, aplikace nemá co číst."
+        "none": "Tento endpoint nepublikuje žádné atributy, aplikace nemá co číst.",
+        "loginOnly": "Bez ohledu na to, jak je endpoint publikován, vygenerovaná aplikace běží v platformě a otevřít ji může jen přihlášený uživatel."
+      },
+      "preview": {
+        "title": "Co vám tento endpoint dává",
+        "hint": "Čteno vaším přihlášením, takže je to přesně to, co smíte vidět, a nic víc.",
+        "loading": "Ptám se endpointu…",
+        "accessTitle": "Co smíte číst",
+        "accessTypes": "Typy entit: {types}.",
+        "accessAttrs": "Atributy: {attrs}.",
+        "accessAll": "Všechny atributy, které endpoint publikuje.",
+        "accessUnavailable": "Endpoint neřekl, co smíte číst; aplikaci lze postavit i tak, z jeho modelu.",
+        "denied": "Politika zadržuje: {attrs}.",
+        "readOnly": "Jen čtení. Vygenerovaná aplikace nikdy nezapisuje.",
+        "alsoWrite": "Vaše vlastní oprávnění dovoluje i {actions}, což vygenerovaná aplikace nepoužívá.",
+        "samplesTitle": "Pět entit, jak se právě podávají",
+        "samplesEmpty": "Endpoint odpovídá, ale zatím nemá žádné entity.",
+        "samplesUnavailable": "Endpoint nepodal žádná ukázková data.",
+        "columnId": "Identifikátor",
+        "columnType": "Typ",
+        "columnValues": "První hodnoty",
+        "linksTitle": "Vlastní dokumenty endpointu"
       }
     },
     "newAction": "Vygenerovat vlastní aplikaci"
@@ -950,5 +971,54 @@
     "open": "Otevřít",
     "close": "Zavřít",
     "loadFailed": "Načtení selhalo"
+  },
+  "agentRun": {
+    "loading": "Čtu spuštění…",
+    "notFound": "Toto spuštění v tomto projektu není.",
+    "subtitle": "Postaveno nad endpointem {endpoint}, jako aplikace typu {appClass}.",
+    "back": "Zpět na formulář",
+    "loginNote": "Aplikace se podává v platformě na /apps/, za stejným přihlášením jako Portál. Veřejnou adresu nemá.",
+    "cancel": "Zastavit spuštění",
+    "publish": "Publikovat tuto aplikaci",
+    "states": {
+      "queued": "Ve frontě",
+      "starting": "Spouštím pracovní prostor",
+      "interviewing": "Klade otázky",
+      "building": "Staví",
+      "testing": "Testuje",
+      "previewing": "Náhled je hotový",
+      "awaiting_approval": "Čeká na schválení",
+      "published": "Publikováno",
+      "failed": "Spuštění selhalo.",
+      "cancelled": "Spuštění bylo zastaveno.",
+      "expired": "Spuštění vyčerpalo svůj čas."
+    },
+    "timeline": {
+      "title": "Průběh",
+      "usage": "{steps} kroků, spotřebováno {tokens} tokenů."
+    },
+    "conversation": {
+      "title": "Co agent dělá",
+      "live": "Naživo",
+      "offline": "Nepřipojeno",
+      "empty": "Zatím nic. První řádky přijdou, když se spustí pracovní prostor.",
+      "question": "Agent se ptá",
+      "answer": "Poslat odpověď"
+    },
+    "line": {
+      "status": "Nyní {status}.",
+      "tool": "{tool}: {command} (návratový kód {exit})",
+      "commit": "Commit {sha}: {message}",
+      "preview": "Náhled na {url}",
+      "usage": "{tokens} tokenů v tomto kroku.",
+      "question": "Dotaz {question}.",
+      "answer": "Odpovězeno na {question}.",
+      "lag": "{missed} řádků bylo přeskočeno; opětovné připojení je doplní."
+    },
+    "preview": {
+      "title": "Náhled",
+      "hint": "Postavená aplikace v sandboxu. Běží bez přístupu k vašemu přihlášení do Portálu.",
+      "frameTitle": "Náhled aplikace {app}"
+    }
   }
 }

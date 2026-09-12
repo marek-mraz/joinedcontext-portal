@@ -739,7 +739,28 @@
         "audience": "The app will be visible to the endpoint's own audience: {audience}.",
         "loading": "Reading the endpoint's model…",
         "unavailable": "The endpoint does not publish a model yet, so nothing can be derived from it.",
-        "none": "This endpoint publishes no attributes, so there is nothing for an app to read."
+        "none": "This endpoint publishes no attributes, so there is nothing for an app to read.",
+        "loginOnly": "However the endpoint is published, the generated app runs inside the platform and only a signed-in user can open it."
+      },
+      "preview": {
+        "title": "What this endpoint gives you",
+        "hint": "Read with your own session, so this is what you may see and nothing more.",
+        "loading": "Asking the endpoint…",
+        "accessTitle": "What you may read",
+        "accessTypes": "Entity types: {types}.",
+        "accessAttrs": "Attributes: {attrs}.",
+        "accessAll": "Every attribute the endpoint publishes.",
+        "accessUnavailable": "The endpoint did not say what you may read; the app can still be built from its model.",
+        "denied": "Held back by the policy: {attrs}.",
+        "readOnly": "Read only. A generated app never writes back.",
+        "alsoWrite": "Your own grant also allows {actions}, which a generated app does not use.",
+        "samplesTitle": "Five entities, as they are served now",
+        "samplesEmpty": "The endpoint answers, but holds no entities yet.",
+        "samplesUnavailable": "The endpoint served no sample data.",
+        "columnId": "Identifier",
+        "columnType": "Type",
+        "columnValues": "First values",
+        "linksTitle": "The endpoint's own documents"
       }
     },
     "newAction": "Generate your own app"
@@ -950,5 +971,54 @@
     "open": "Open",
     "close": "Close",
     "loadFailed": "Loading failed"
+  },
+  "agentRun": {
+    "loading": "Reading the run…",
+    "notFound": "That run is not in this project.",
+    "subtitle": "Built against endpoint {endpoint}, as a {appClass} app.",
+    "back": "Back to the form",
+    "loginNote": "The app is served inside the platform at /apps/, behind the same sign-in as the Portal. There is no public address for it.",
+    "cancel": "Stop the run",
+    "publish": "Publish this app",
+    "states": {
+      "queued": "Queued",
+      "starting": "Starting the workspace",
+      "interviewing": "Asking questions",
+      "building": "Building",
+      "testing": "Testing",
+      "previewing": "Preview ready",
+      "awaiting_approval": "Waiting for approval",
+      "published": "Published",
+      "failed": "The run failed.",
+      "cancelled": "The run was stopped.",
+      "expired": "The run ran out of time."
+    },
+    "timeline": {
+      "title": "Progress",
+      "usage": "{steps} steps, {tokens} tokens used."
+    },
+    "conversation": {
+      "title": "What the agent is doing",
+      "live": "Live",
+      "offline": "Not connected",
+      "empty": "Nothing yet. The first lines arrive when the workspace starts.",
+      "question": "The agent is asking",
+      "answer": "Send the answer"
+    },
+    "line": {
+      "status": "Now {status}.",
+      "tool": "{tool}: {command} (exit {exit})",
+      "commit": "Committed {sha}: {message}",
+      "preview": "Preview at {url}",
+      "usage": "{tokens} tokens this step.",
+      "question": "Asked {question}.",
+      "answer": "Answered {question}.",
+      "lag": "{missed} lines were skipped; reconnecting fills them in."
+    },
+    "preview": {
+      "title": "Preview",
+      "hint": "The built app, framed in a sandbox. It runs with no access to your Portal session.",
+      "frameTitle": "Preview of {app}"
+    }
   }
 }

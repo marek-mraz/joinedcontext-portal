@@ -739,7 +739,28 @@
         "audience": "Die Anwendung wird für das Publikum des Endpoints sichtbar sein: {audience}.",
         "loading": "Das Modell des Endpoints wird gelesen…",
         "unavailable": "Der Endpoint veröffentlicht noch kein Modell, daraus lässt sich nichts ableiten.",
-        "none": "Dieser Endpoint veröffentlicht keine Attribute, es gibt nichts zu lesen."
+        "none": "Dieser Endpoint veröffentlicht keine Attribute, es gibt nichts zu lesen.",
+        "loginOnly": "Unabhängig davon, wie der Endpoint veröffentlicht ist, läuft die erzeugte Anwendung in der Plattform und nur eine angemeldete Person kann sie öffnen."
+      },
+      "preview": {
+        "title": "Was dieser Endpoint Ihnen gibt",
+        "hint": "Mit Ihrer eigenen Anmeldung gelesen, also genau das, was Sie sehen dürfen, und nicht mehr.",
+        "loading": "Frage den Endpoint…",
+        "accessTitle": "Was Sie lesen dürfen",
+        "accessTypes": "Entitätstypen: {types}.",
+        "accessAttrs": "Attribute: {attrs}.",
+        "accessAll": "Jedes Attribut, das der Endpoint veröffentlicht.",
+        "accessUnavailable": "Der Endpoint hat nicht gesagt, was Sie lesen dürfen; die Anwendung lässt sich trotzdem aus seinem Modell bauen.",
+        "denied": "Von der Policy zurückgehalten: {attrs}.",
+        "readOnly": "Nur lesen. Eine erzeugte Anwendung schreibt nie zurück.",
+        "alsoWrite": "Ihre eigene Berechtigung erlaubt auch {actions}, was eine erzeugte Anwendung nicht nutzt.",
+        "samplesTitle": "Fünf Entitäten, so wie sie jetzt ausgeliefert werden",
+        "samplesEmpty": "Der Endpoint antwortet, hält aber noch keine Entitäten.",
+        "samplesUnavailable": "Der Endpoint hat keine Beispieldaten geliefert.",
+        "columnId": "Kennung",
+        "columnType": "Typ",
+        "columnValues": "Erste Werte",
+        "linksTitle": "Die eigenen Dokumente des Endpoints"
       }
     },
     "newAction": "Eigene Anwendung erzeugen"
@@ -950,5 +971,54 @@
     "open": "Öffnen",
     "close": "Schließen",
     "loadFailed": "Laden fehlgeschlagen"
+  },
+  "agentRun": {
+    "loading": "Lese den Lauf…",
+    "notFound": "Dieser Lauf gehört nicht zu diesem Projekt.",
+    "subtitle": "Gebaut gegen den Endpoint {endpoint}, als Anwendung vom Typ {appClass}.",
+    "back": "Zurück zum Formular",
+    "loginNote": "Die Anwendung wird in der Plattform unter /apps/ ausgeliefert, hinter derselben Anmeldung wie das Portal. Eine öffentliche Adresse hat sie nicht.",
+    "cancel": "Lauf stoppen",
+    "publish": "Diese Anwendung veröffentlichen",
+    "states": {
+      "queued": "In der Warteschlange",
+      "starting": "Arbeitsbereich startet",
+      "interviewing": "Stellt Fragen",
+      "building": "Baut",
+      "testing": "Testet",
+      "previewing": "Vorschau ist fertig",
+      "awaiting_approval": "Wartet auf Freigabe",
+      "published": "Veröffentlicht",
+      "failed": "Der Lauf ist gescheitert.",
+      "cancelled": "Der Lauf wurde gestoppt.",
+      "expired": "Dem Lauf ist die Zeit ausgegangen."
+    },
+    "timeline": {
+      "title": "Fortschritt",
+      "usage": "{steps} Schritte, {tokens} Tokens verbraucht."
+    },
+    "conversation": {
+      "title": "Was der Agent tut",
+      "live": "Live",
+      "offline": "Nicht verbunden",
+      "empty": "Noch nichts. Die ersten Zeilen kommen, wenn der Arbeitsbereich startet.",
+      "question": "Der Agent fragt",
+      "answer": "Antwort senden"
+    },
+    "line": {
+      "status": "Jetzt {status}.",
+      "tool": "{tool}: {command} (Exit-Code {exit})",
+      "commit": "Commit {sha}: {message}",
+      "preview": "Vorschau unter {url}",
+      "usage": "{tokens} Tokens in diesem Schritt.",
+      "question": "Frage {question}.",
+      "answer": "Auf {question} geantwortet.",
+      "lag": "{missed} Zeilen wurden übersprungen; das erneute Verbinden holt sie nach."
+    },
+    "preview": {
+      "title": "Vorschau",
+      "hint": "Die gebaute Anwendung, in einer Sandbox. Sie läuft ohne Zugriff auf Ihre Portal-Anmeldung.",
+      "frameTitle": "Vorschau der Anwendung {app}"
+    }
   }
 }

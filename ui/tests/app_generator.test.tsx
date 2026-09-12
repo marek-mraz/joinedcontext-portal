@@ -50,8 +50,45 @@ const CHANGE = {
   apiVersion: "joinedcontext.com/v1alpha1",
   kind: "Change",
   metadata: { name: "chg-0000c3d4", namespace: PROJECT },
-  status: { lane: "yellow", phase: "PendingApproval", plan: { create: 3 } },
+  status: { lane: "yellow", phase: "PendingApproval", plan: { create: 2 } },
 };
+
+/** What `POST …/agent-runs` answers with: the queued run, plus the ticket only the caller sees. */
+const CREATED_RUN = {
+  id: "01J8ZQ4T7K9M2N3P4Q5R6S7T8V",
+  project: PROJECT,
+  appName: "ovzdusie-dnes",
+  endpointName: "ovzdusie-public",
+  appClass: "fullstack",
+  visibility: "project",
+  prompt: "A map of the stations with today's PM10",
+  status: "queued",
+  steps: 0,
+  tokensUsed: 0,
+  createdBy: IDENTITY.username,
+  createdAt: "2026-09-12T08:00:00Z",
+};
+
+/** The endpoint's AuthZEN document, as the gateway's `/access` serves it to this user. */
+const GRANT = {
+  subject: { type: "user", id: "jana.kovacova" },
+  permissions: [
+    {
+      resource: { type: "AirQualityObserved" },
+      actions: ["queryEntity", "retrieveEntity"],
+      attributes: ["location", "name", "pm10"],
+    },
+  ],
+  prohibitions: [{ resource: { type: "AirQualityObserved" }, attributes: ["internalNote"] }],
+};
+
+/** Five entities as the gateway serves them with `options=keyValues`. */
+const ENTITIES = [1, 2, 3, 4, 5].map((index) => ({
+  id: `urn:ngsi-ld:AirQualityObserved:banskabystrica:ovzdusie:st-${index}`,
+  type: "AirQualityObserved",
+  name: `Station ${index}`,
+  pm10: 12 + index,
+}));
 
 /** The projected draft-07 document the endpoint serves, which is where the bounds come from. */
 const SCHEMA = {
@@ -68,6 +105,9 @@ interface Options {
   endpoints?: unknown[];
   schemaStatus?: number;
   write?: { body: unknown; status: number };
+  runStatus?: string;
+  grantStatus?: number;
+  entities?: { body: unknown; status: number };
 }
 
 function renderGenerator(options: Options = {}) {
@@ -75,7 +115,10 @@ function renderGenerator(options: Options = {}) {
     blueprints = [BLUEPRINT_CARD],
     endpoints = [ENDPOINT],
     schemaStatus = 200,
-    write = { body: CHANGE, status: 202 },
+    write = { body: CREATED_RUN, status: 202 },
+    runStatus = "queued",
+    grantStatus = 200,
+    entities = { body: ENTITIES, status: 200 },
   } = options;
 
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -100,14 +143,26 @@ function renderGenerator(options: Options = {}) {
     if (url.pathname.endsWith("/endpoints") && request.method === "GET") {
       return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: endpoints });
     }
+    if (url.pathname.endsWith("/access")) {
+      return json(GRANT, grantStatus);
+    }
+    if (url.pathname.includes("/ngsi-ld/v1/entities")) {
+      return json(entities.body, entities.status);
+    }
     if (url.pathname.includes("/schema/index.json")) {
       return json({ models: [{ name: "bb-air-quality", version: 2 }] }, schemaStatus);
     }
     if (url.pathname.includes("/schema/v2/json-schema")) {
       return json(SCHEMA, schemaStatus);
     }
-    if (url.pathname.endsWith("/flows")) {
+    if (url.pathname.endsWith("/agent-runs") && request.method === "POST") {
       return json(write.body, write.status);
+    }
+    if (url.pathname.endsWith("/publish")) {
+      return json(CHANGE, 202);
+    }
+    if (url.pathname.includes("/agent-runs/") && request.method === "GET") {
+      return json({ ...CREATED_RUN, status: runStatus });
     }
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
@@ -130,7 +185,7 @@ async function openGenerator(user: ReturnType<typeof userEvent.setup>) {
 }
 
 /** The body of the one write the form makes. */
-async function flowBody(fetchMock: ReturnType<typeof vi.fn>): Promise<Record<string, unknown>> {
+async function runBody(fetchMock: ReturnType<typeof vi.fn>): Promise<Record<string, unknown>> {
   const request = fetchMock.mock.calls
     .map((call) => call[0] as Request)
     .find((candidate) => candidate.method === "POST");
@@ -146,7 +201,7 @@ async function fill(user: ReturnType<typeof userEvent.setup>) {
     "A map of the stations with today's PM10",
   );
   await user.selectOptions(screen.getByLabelText(en.apps.generate.endpoint), "ovzdusie-public");
-  await screen.findByText("AirQualityObserved");
+  await screen.findByRole("group", { name: "AirQualityObserved" });
 }
 
 describe("the app generator", () => {
@@ -203,9 +258,7 @@ describe("the app generator", () => {
 
     await user.selectOptions(screen.getByLabelText(en.apps.generate.endpoint), "ovzdusie-public");
 
-    const needs = (await screen.findByText("AirQualityObserved")).closest(
-      "fieldset",
-    ) as HTMLElement;
+    const needs = await screen.findByRole("group", { name: "AirQualityObserved" });
     for (const attribute of ["pm10", "pm25", "location", "name"]) {
       expect(within(needs).getByLabelText(attribute)).toBeChecked();
     }
@@ -226,21 +279,18 @@ describe("the app generator", () => {
     await user.click(screen.getByRole("button", { name: en.apps.generate.submit }));
 
     await waitFor(async () => {
-      const body = await flowBody(fetchMock);
-      expect(body.blueprint).toBe(BLUEPRINT);
-      // The version the form was generated from, so the server can refuse a stale form.
-      expect(body.version).toBe("1.4.0");
-      const parameters = body.parameters as Record<string, unknown>;
-      expect(parameters.name).toBe("ovzdusie-dnes");
-      expect(parameters.kind).toBe("fullstack");
-      expect(parameters.endpoint).toBe("ovzdusie-public");
-      const needs = parameters.dataNeeds as { attrs: string[]; operations: string[] }[];
+      const body = await runBody(fetchMock);
+      expect(body.appName).toBe("ovzdusie-dnes");
+      expect(body.appClass).toBe("fullstack");
+      expect(body.endpointName).toBe("ovzdusie-public");
+      expect(body.prompt).toBe("A map of the stations with today's PM10");
+      const needs = body.dataNeeds as { attrs: string[]; operations: string[] }[];
       expect(needs[0].attrs).toEqual(["location", "name", "pm10"]);
       expect(needs[0].operations).toEqual(["queryEntity", "retrieveEntity"]);
     });
   });
 
-  it("shows the merge request the generation opened rather than a saved record", async () => {
+  it("opens the run it started rather than a saved record (AG-43)", async () => {
     const user = userEvent.setup();
     renderGenerator();
     await openGenerator(user);
@@ -248,6 +298,95 @@ describe("the app generator", () => {
     await fill(user);
 
     await user.click(screen.getByRole("button", { name: en.apps.generate.submit }));
+
+    // The submit is not the end: the run is watched, and the review comes at publish time.
+    expect(await screen.findByRole("heading", { name: "ovzdusie-dnes" })).toBeInTheDocument();
+    expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
+    expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
+  });
+
+  it("says a generated app is reachable only to a signed-in user (ADR-N-019)", async () => {
+    const user = userEvent.setup();
+    renderGenerator();
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+
+    // The endpoint is public, and the app built on it still is not.
+    await user.selectOptions(screen.getByLabelText(en.apps.generate.endpoint), "ovzdusie-public");
+
+    expect(await screen.findByText(en.apps.generate.needs.loginOnly)).toBeInTheDocument();
+  });
+
+  it("says in words what the endpoint lets this person read (AP-51)", async () => {
+    const user = userEvent.setup();
+    renderGenerator();
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+
+    await user.selectOptions(screen.getByLabelText(en.apps.generate.endpoint), "ovzdusie-public");
+
+    const preview = await screen.findByRole("region", { name: en.apps.generate.preview.title });
+    expect(
+      within(preview).getByText(
+        en.apps.generate.preview.accessTypes.replace("{types}", "AirQualityObserved"),
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(preview).getByText(
+        en.apps.generate.preview.accessAttrs.replace("{attrs}", "location, name, pm10"),
+      ),
+    ).toBeInTheDocument();
+    // A prohibition is the one thing a person cannot infer from the checklist above.
+    expect(
+      within(preview).getByText(
+        en.apps.generate.preview.denied.replace("{attrs}", "internalNote"),
+      ),
+    ).toBeInTheDocument();
+    // A read grant is a read grant: nothing here promises the app could write.
+    expect(within(preview).getByText(en.apps.generate.preview.readOnly)).toBeInTheDocument();
+  });
+
+  it("shows five entities as they are served, so the data can be judged before the build", async () => {
+    const user = userEvent.setup();
+    renderGenerator();
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+
+    await user.selectOptions(screen.getByLabelText(en.apps.generate.endpoint), "ovzdusie-public");
+
+    const table = await screen.findByRole("table", {
+      name: en.apps.generate.preview.samplesTitle,
+    });
+    expect(within(table).getAllByRole("row")).toHaveLength(ENTITIES.length + 1);
+    expect(within(table).getByText(ENTITIES[0].id)).toBeInTheDocument();
+    expect(within(table).getByText("name=Station 1, pm10=13")).toBeInTheDocument();
+  });
+
+  it("still builds when the endpoint serves no samples and no grant", async () => {
+    const user = userEvent.setup();
+    renderGenerator({ grantStatus: 403, entities: { body: [], status: 200 } });
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+    await fill(user);
+
+    const preview = screen.getByRole("region", { name: en.apps.generate.preview.title });
+    expect(
+      within(preview).getByText(en.apps.generate.preview.accessUnavailable),
+    ).toBeInTheDocument();
+    expect(within(preview).getByText(en.apps.generate.preview.samplesEmpty)).toBeInTheDocument();
+    // The model is what bounds the app, so a silent `/access` is not a reason to stop.
+    expect(screen.getByRole("button", { name: en.apps.generate.submit })).toBeEnabled();
+  });
+
+  it("publishing what was built opens a merge request like any other change (AP-55)", async () => {
+    const user = userEvent.setup();
+    renderGenerator({ runStatus: "previewing" });
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+    await fill(user);
+    await user.click(screen.getByRole("button", { name: en.apps.generate.submit }));
+
+    await user.click(await screen.findByRole("button", { name: en.agentRun.publish }));
 
     expect(await screen.findByText("chg-0000c3d4")).toBeInTheDocument();
     expect(screen.getByText(en.changes.accepted)).toBeInTheDocument();

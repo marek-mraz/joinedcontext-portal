@@ -739,7 +739,28 @@
         "audience": "Aplikácia bude viditeľná pre publikum samotného endpointu: {audience}.",
         "loading": "Načítava sa model endpointu…",
         "unavailable": "Endpoint zatiaľ nepublikuje model, takže z neho nemožno nič odvodiť.",
-        "none": "Tento endpoint nepublikuje žiadne atribúty, takže aplikácia nemá čo čítať."
+        "none": "Tento endpoint nepublikuje žiadne atribúty, takže aplikácia nemá čo čítať.",
+        "loginOnly": "Bez ohľadu na to, ako je endpoint publikovaný, vygenerovaná aplikácia beží v platforme a otvoriť ju môže len prihlásený používateľ."
+      },
+      "preview": {
+        "title": "Čo vám tento endpoint dáva",
+        "hint": "Čítané vaším prihlásením, takže je to presne to, čo smiete vidieť, a nič viac.",
+        "loading": "Pýtam sa endpointu…",
+        "accessTitle": "Čo smiete čítať",
+        "accessTypes": "Typy entít: {types}.",
+        "accessAttrs": "Atribúty: {attrs}.",
+        "accessAll": "Všetky atribúty, ktoré endpoint publikuje.",
+        "accessUnavailable": "Endpoint nepovedal, čo smiete čítať; aplikáciu možno postaviť aj tak, z jeho modelu.",
+        "denied": "Politika zadržiava: {attrs}.",
+        "readOnly": "Len čítanie. Vygenerovaná aplikácia nikdy nezapisuje.",
+        "alsoWrite": "Vaše vlastné oprávnenie dovoľuje aj {actions}, čo vygenerovaná aplikácia nepoužíva.",
+        "samplesTitle": "Päť entít, ako sa práve podávajú",
+        "samplesEmpty": "Endpoint odpovedá, ale zatiaľ nemá žiadne entity.",
+        "samplesUnavailable": "Endpoint nepodal žiadne ukážkové dáta.",
+        "columnId": "Identifikátor",
+        "columnType": "Typ",
+        "columnValues": "Prvé hodnoty",
+        "linksTitle": "Vlastné dokumenty endpointu"
       }
     },
     "newAction": "Vygenerovať vlastnú aplikáciu"
@@ -950,5 +971,54 @@
     "open": "Otvoriť",
     "close": "Zavrieť",
     "loadFailed": "Načítanie zlyhalo"
+  },
+  "agentRun": {
+    "loading": "Čítam spustenie…",
+    "notFound": "Toto spustenie v tomto projekte nie je.",
+    "subtitle": "Postavené nad endpointom {endpoint}, ako aplikácia typu {appClass}.",
+    "back": "Späť na formulár",
+    "loginNote": "Aplikácia sa podáva v platforme na /apps/, za tým istým prihlásením ako Portál. Verejnú adresu nemá.",
+    "cancel": "Zastaviť spustenie",
+    "publish": "Publikovať túto aplikáciu",
+    "states": {
+      "queued": "V poradí",
+      "starting": "Spúšťam pracovný priestor",
+      "interviewing": "Kladie otázky",
+      "building": "Stavia",
+      "testing": "Testuje",
+      "previewing": "Náhľad je hotový",
+      "awaiting_approval": "Čaká na schválenie",
+      "published": "Publikované",
+      "failed": "Spustenie zlyhalo.",
+      "cancelled": "Spustenie bolo zastavené.",
+      "expired": "Spustenie vyčerpalo svoj čas."
+    },
+    "timeline": {
+      "title": "Priebeh",
+      "usage": "{steps} krokov, spotrebovaných {tokens} tokenov."
+    },
+    "conversation": {
+      "title": "Čo agent robí",
+      "live": "Naživo",
+      "offline": "Nepripojené",
+      "empty": "Zatiaľ nič. Prvé riadky prídu, keď sa spustí pracovný priestor.",
+      "question": "Agent sa pýta",
+      "answer": "Poslať odpoveď"
+    },
+    "line": {
+      "status": "Teraz {status}.",
+      "tool": "{tool}: {command} (návratový kód {exit})",
+      "commit": "Commit {sha}: {message}",
+      "preview": "Náhľad na {url}",
+      "usage": "{tokens} tokenov v tomto kroku.",
+      "question": "Otázka {question}.",
+      "answer": "Odpovedané na {question}.",
+      "lag": "{missed} riadkov bolo preskočených; opätovné pripojenie ich doplní."
+    },
+    "preview": {
+      "title": "Náhľad",
+      "hint": "Postavená aplikácia v sandboxe. Beží bez prístupu k vášmu prihláseniu do Portálu.",
+      "frameTitle": "Náhľad aplikácie {app}"
+    }
   }
 }
