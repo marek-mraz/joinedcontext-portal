@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import { Map as MapLibreMap } from "maplibre-gl";
+import type { GeoJSONSource, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   featureCollection,
@@ -17,7 +18,7 @@ const HELSINKI: [number, number] = [24.94, 60.17];
  * A keyless raster basemap with its attribution, so the app runs on a cluster with no map
  * account and no key anywhere in the manifest.
  */
-const STYLE: maplibregl.StyleSpecification = {
+const STYLE: StyleSpecification = {
   version: 8,
   sources: {
     osm: {
@@ -71,14 +72,14 @@ export function useVehicles(): { vehicles: Vehicle[]; live: boolean } {
 /** The map, and the one source every update writes to. */
 export function VehicleMap({ collection }: { collection: VehicleCollection }) {
   const container = useRef<HTMLDivElement>(null);
-  const map = useRef<maplibregl.Map | null>(null);
+  const map = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!container.current || map.current) {
       return;
     }
-    const instance = new maplibregl.Map({
+    const instance = new MapLibreMap({
       container: container.current,
       style: STYLE,
       center: HELSINKI,
@@ -114,7 +115,7 @@ export function VehicleMap({ collection }: { collection: VehicleCollection }) {
     if (!ready) {
       return;
     }
-    const source = map.current?.getSource(SOURCE) as maplibregl.GeoJSONSource | undefined;
+    const source = map.current?.getSource(SOURCE) as GeoJSONSource | undefined;
     source?.setData(collection);
   }, [collection, ready]);
 

@@ -13,7 +13,7 @@
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "maplibre-gl": "^5.9.0"
+    "maplibre-gl": "^6.7.0"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.0",

@@ -29,7 +29,8 @@ vi.mock("maplibre-gl", () => {
     getSource = () => ({ setData });
     remove = remove;
   }
-  return { default: { Map } };
+  // Named, not default: maplibre-gl 6 has no default export.
+  return { Map };
 });
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 
