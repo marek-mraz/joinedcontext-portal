@@ -39,7 +39,9 @@ pub fn cookie(token: String) -> Cookie<'static> {
         .build()
 }
 
-fn constant_time_eq(a: &str, b: &str) -> bool {
+/// Byte-for-byte comparison that does not stop at the first difference. Used for the CSRF
+/// token here and for the agent proxy's bearer on the internal listener (AG-52).
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
     if a.len() != b.len() {
         return false;

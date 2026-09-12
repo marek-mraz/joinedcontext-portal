@@ -79,12 +79,32 @@ async fn api_cache_control_middleware(request: Request, next: Next) -> Response 
     let is_api =
         request.uri().path().starts_with("/api/") && request.uri().path() != "/api/v1/branding";
     let mut response = next.run(request).await;
-    if is_api {
+    // An event stream sets its own `no-cache`, which is what the SSE contract asks for; it must
+    // not be overwritten with `no-store`, because some intermediaries read that as a reason not
+    // to stream at all (AG-45).
+    let streaming = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/event-stream"));
+    if is_api && !streaming {
         response
             .headers_mut()
             .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     }
     response
+}
+
+/// The listener the credential proxy calls back on (AG-52).
+///
+/// A second listener rather than a path on the first: the edge routes `config.bind` and routes
+/// nothing here, so the two calls that carry a run's ticket hash are not on the public URL
+/// scheme at all. It carries no session layer, no CSRF guard and no static host — the proxy's
+/// bearer is the whole of its authentication, checked inside the handlers.
+pub fn internal_app(state: AppState) -> Router {
+    Router::new()
+        .merge(api::agent_runs::internal_router())
+        .with_state(state)
 }
 
 pub async fn serve(config: Config) -> std::io::Result<()> {
@@ -121,6 +141,22 @@ pub async fn serve(config: Config) -> std::io::Result<()> {
                 }
             }
         }
+    }
+
+    // The internal listener runs beside the public one, on the same replica, and only when
+    // there is an agent runner to serve: a Portal without one opens no second port.
+    if let Some(settings) = state.config.agent_settings.as_ref() {
+        let internal = tokio::net::TcpListener::bind(settings.internal_bind).await?;
+        tracing::info!(bind = %settings.internal_bind, "portal internal listener listening");
+        let internal_router = internal_app(state.clone());
+        tokio::spawn(async move {
+            if let Err(err) = axum::serve(internal, internal_router)
+                .with_graceful_shutdown(shutdown_signal())
+                .await
+            {
+                tracing::error!(error = %err, "the internal listener stopped");
+            }
+        });
     }
 
     let router = app(state);

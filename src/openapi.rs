@@ -5,6 +5,10 @@ use utoipa::openapi::schema::{Array, Ref, Schema};
 use utoipa::openapi::RefOr;
 use utoipa::{Modify, OpenApi};
 
+use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
+use crate::api::agent_runs::{
+    AnswerRequest, CreateRunRequest, CreatedRun, EventReceipt, RelayedEvent, RunContext, RunList,
+};
 use crate::api::blueprints::FlowRequest;
 use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
 use crate::api::ckan::{
@@ -51,6 +55,13 @@ use crate::tools::model_tools::{
         crate::api::import::import,
         crate::api::export::revisions,
         crate::api::permissions::permissions_me,
+        crate::api::agent_runs::create_run,
+        crate::api::agent_runs::list_runs,
+        crate::api::agent_runs::get_run,
+        crate::api::agent_runs::stream_events,
+        crate::api::agent_runs::answer_question,
+        crate::api::agent_runs::cancel_run,
+        crate::api::agent_runs::publish_run,
         crate::api::service_accounts::list_keys,
         crate::api::service_accounts::create_key,
         crate::api::service_accounts::rotate_key,
@@ -79,6 +90,16 @@ use crate::tools::model_tools::{
         crate::tools::model_tools::import_sdm,
     ),
     components(schemas(
+        AgentRun,
+        AgentRunEvent,
+        AgentRunStatus,
+        CreateRunRequest,
+        CreatedRun,
+        RunList,
+        RunContext,
+        RelayedEvent,
+        EventReceipt,
+        AnswerRequest,
         Health,
         Effective,
         Grant,

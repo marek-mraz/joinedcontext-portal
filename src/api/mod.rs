@@ -1,3 +1,4 @@
+pub mod agent_runs;
 pub mod blueprints;
 pub mod branding;
 pub mod changes;
@@ -32,6 +33,7 @@ pub fn router() -> Router<AppState> {
     let protected = Router::new()
         .merge(health::router())
         .merge(auth::oidc::router())
+        .merge(agent_runs::router())
         .merge(blueprints::router())
         .merge(branding::router())
         .merge(changes::router())

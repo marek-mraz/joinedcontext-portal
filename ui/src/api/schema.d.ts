@@ -150,6 +150,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/agent-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_runs"];
+        put?: never;
+        post: operations["create_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/agent-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/agent-runs/{id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answer_question"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/agent-runs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/agent-runs/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stream_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/agent-runs/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["publish_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/changes": {
         parameters: {
             query?: never;
@@ -586,6 +682,57 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AgentRun: {
+            allowsWrite: boolean;
+            appClass: string;
+            appName: string;
+            branch: string;
+            createdAt: string;
+            createdBy: string;
+            dataNeeds: unknown;
+            endpointName: string;
+            endpointSlug: string;
+            error?: string | null;
+            expiresAt: string;
+            finishedAt?: string | null;
+            id: string;
+            /** Format: int32 */
+            mergeRequest?: number | null;
+            pathPrefix: string;
+            previewUrl?: string | null;
+            profile: string;
+            project: string;
+            prompt: string;
+            promptDigest: string;
+            startedAt?: string | null;
+            status: string;
+            /** Format: int32 */
+            steps: number;
+            /** Format: int64 */
+            tokensUsed: number;
+            visibility: string;
+            workspace?: string | null;
+        };
+        AgentRunEvent: {
+            createdAt: string;
+            kind: string;
+            payload: unknown;
+            runId: string;
+            /** Format: int64 */
+            seq: number;
+        };
+        /**
+         * @description Where one builder run stands (Architecture/19 §5). The wire name of every variant is the
+         *     name of the state in that chapter, which is why the rename is `snake_case` and not
+         *     `lowercase`: `awaiting_approval` is one state, not one word.
+         * @enum {string}
+         */
+        AgentRunStatus: "queued" | "starting" | "interviewing" | "building" | "testing" | "previewing" | "awaiting_approval" | "published" | "failed" | "cancelled" | "expired";
+        /** @description An answer to one question the agent asked (AG-45). */
+        AnswerRequest: {
+            answers: unknown;
+            questionId: string;
+        };
         /** @description Request body for approving or rejecting a change proposal. */
         ApproveBody: {
             confirm?: string | null;
@@ -852,6 +999,34 @@ export interface components {
          * @enum {string}
          */
         ConflictPolicy: "fail" | "skip" | "replace" | "rename";
+        /** @description What a person asks for when they start a run (AP-51). */
+        CreateRunRequest: {
+            /** @description `static`, `service` or `fullstack`, as the `App` kind spells them. */
+            appClass: string;
+            /** @description Name of the application to build; becomes the `App` manifest's name. */
+            appName: string;
+            /**
+             * @description The types, attributes and operations the application needs. Checked against what the
+             *     endpoint publishes before anything is scheduled (AP-44).
+             */
+            dataNeeds: unknown[];
+            /** @description The `Endpoint` the application reads through. Nothing else is reachable. */
+            endpointName: string;
+            /** @description Which `AgentProfile` runs. Defaults to the builder profile the platform ships. */
+            profile?: string;
+            /** @description What the application should do, in the person's own words. */
+            prompt: string;
+            /** @description Who may reach the published application. `public` is refused (AP-42). */
+            visibility?: string;
+        };
+        /**
+         * @description The ticket, handed to the workspace and to nobody else. It is in the create answer because
+         *     the caller is the Portal's own UI in the one deployment that has no cluster to schedule in;
+         *     in a cluster the Job env is the only carrier and this field is absent.
+         */
+        CreatedRun: components["schemas"]["AgentRun"] & {
+            ticket?: string | null;
+        };
         /** @description The declared row mirror. */
         DataStoreStatus: {
             /** @description How the mirror is kept current. */
@@ -890,6 +1065,11 @@ export interface components {
             bootstrap: boolean;
             grants: components["schemas"]["Grant"][];
             project: string;
+        };
+        /** @description The sequence number a relayed event was given. */
+        EventReceipt: {
+            /** Format: int64 */
+            seq: number;
         };
         /** @description The federation of one project (UI-27). */
         FederationGraph: {
@@ -1246,6 +1426,12 @@ export interface components {
             /** @description The entity types the source is claimed to hold. */
             types: string[];
         };
+        /** @description What the proxy relays on behalf of a workspace it has already authenticated. */
+        RelayedEvent: {
+            kind: string;
+            payload: unknown;
+            runId: string;
+        };
         ResourceEnvelope: {
             apiVersion: string;
             kind: string;
@@ -1276,6 +1462,37 @@ export interface components {
         };
         RevisionList: {
             items: components["schemas"]["Revision"][];
+        };
+        /**
+         * @description Everything the proxy needs to decide one request, and nothing a workspace may see.
+         *
+         *     This is the one place the ticket hash leaves the Portal, and it leaves on the internal
+         *     listener alone. The budgets are read from the profile at answer time rather than copied into
+         *     the run row, so lowering a profile's ceiling takes effect on the runs already in flight.
+         */
+        RunContext: {
+            allowedHosts: string[];
+            allowsWrite: boolean;
+            appName: string;
+            branch: string;
+            createdBy: string;
+            endpointSlug: string;
+            id: string;
+            /** Format: int64 */
+            maxResponseBytes: number;
+            /** Format: int64 */
+            maxTokens: number;
+            modelName: string;
+            pathPrefix: string;
+            project: string;
+            /** Format: int32 */
+            requestsPerMinute: number;
+            status: string;
+            ticketHash: string;
+        };
+        /** @description One page of runs, newest first. */
+        RunList: {
+            items: components["schemas"]["AgentRun"][];
         };
         /**
          * @description The status the Portal API reports (MF-04). It is `jc_core::Status` plus `sourceUrl` and a phase
@@ -1630,6 +1847,376 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    list_runs: {
+        parameters: {
+            query?: {
+                /** @description How many runs to return, at most 100 */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's runs, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The run store did not answer */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    create_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRunRequest"];
+            };
+        };
+        responses: {
+            /** @description The run, queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRun"];
+                };
+            };
+            /** @description A request the endpoint or the policy does not allow */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No role grants proposing an App here */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such endpoint in this project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No agent runner, or no such builder profile */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Run id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRun"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such run in this project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    answer_question: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Run id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description The answer is on the run's log */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such run in this project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The run is over */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    cancel_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Run id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cancelled run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRun"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such run in this project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The run is already over */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    stream_events: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Resume after this sequence number */
+                "Last-Event-ID"?: number | null;
+            };
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Run id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run's event stream, text/event-stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such run in this project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    publish_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Run id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Change that publishes the application */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such run in this project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The run has nothing to publish yet */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Git forge unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

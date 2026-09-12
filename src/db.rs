@@ -1,9 +1,15 @@
-//! The Portal's own PostgreSQL: the two things that are neither configuration nor context data.
+//! The Portal's own PostgreSQL: the things that are neither configuration nor context data.
 //! Preferences are what a person likes about the UI (UI-09); the key rows are what is left of an
-//! API key once its secret has been hashed and forgotten (PF-36). Everything else lives in Git or
-//! in the broker.
+//! API key once its secret has been hashed and forgotten (PF-36); a builder run and its event
+//! stream are a conversation, which no manifest can hold (AG-43, AG-45). Everything else lives
+//! in Git or in the broker.
 
+use crate::agents::run::{AgentRun, AgentRunEvent};
+// The four agent-run reads interpolate a `const` column list into their statement and nothing
+// else: no caller value ever reaches the SQL text, every value is a bound parameter. That is
+// what the wrapper asserts.
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::AssertSqlSafe;
 use std::time::Duration;
 use time::OffsetDateTime;
 
@@ -231,4 +237,222 @@ pub async fn save_sync_state(pool: &PgPool, row: &SyncStateRow) -> Result<(), sq
     .execute(pool)
     .await
     .map(|_| ())
+}
+
+/// The columns of `agent_runs` in the order [`AgentRun`](crate::agents::run::AgentRun) declares
+/// them, with the four timestamps already rendered as the RFC 3339 strings the API answers.
+///
+/// Postgres does that rendering because `time` is compiled here with `formatting` and no parser:
+/// reading a `timestamptz` into the struct would need one. `to_char` of a NULL column is NULL, so
+/// the three optional timestamps stay optional.
+const AGENT_RUN_COLUMNS: &str = "id, project, app_name, endpoint_name, endpoint_slug, profile, \
+     app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, path_prefix, \
+     status, ticket_hash, workspace, merge_request, preview_url, steps, tokens_used, created_by, \
+     to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, \
+     to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, \
+     to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS finished_at, \
+     to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expires_at, \
+     error";
+
+/// The same treatment for one event of the stream.
+const AGENT_EVENT_COLUMNS: &str = "run_id, seq, kind, payload, \
+     to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at";
+
+/// Records a run at the moment it is admitted, ticket hash included (AG-43).
+///
+/// The two timestamps arrive as the RFC 3339 text the caller minted, and the cast is written into
+/// the statement so the parameter stays a string on this side.
+pub async fn insert_agent_run(pool: &PgPool, run: &AgentRun) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO agent_runs (id, project, app_name, endpoint_name, endpoint_slug, profile, \
+         app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, \
+         path_prefix, status, ticket_hash, steps, tokens_used, created_by, created_at, expires_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, \
+         $19, $20::text::timestamptz, $21::text::timestamptz)",
+    )
+    .bind(&run.id)
+    .bind(&run.project)
+    .bind(&run.app_name)
+    .bind(&run.endpoint_name)
+    .bind(&run.endpoint_slug)
+    .bind(&run.profile)
+    .bind(&run.app_class)
+    .bind(&run.visibility)
+    .bind(&run.prompt)
+    .bind(&run.prompt_digest)
+    .bind(&run.data_needs)
+    .bind(run.allows_write)
+    .bind(&run.branch)
+    .bind(&run.path_prefix)
+    .bind(&run.status)
+    .bind(&run.ticket_hash)
+    .bind(run.steps)
+    .bind(run.tokens_used)
+    .bind(&run.created_by)
+    .bind(&run.created_at)
+    .bind(&run.expires_at)
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
+/// One run by id, `None` when there is no such row.
+pub async fn load_agent_run(pool: &PgPool, id: &str) -> Result<Option<AgentRun>, sqlx::Error> {
+    sqlx::query_as::<_, AgentRun>(AssertSqlSafe(format!(
+        "SELECT {AGENT_RUN_COLUMNS} FROM agent_runs WHERE id = $1"
+    )))
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// The newest runs of one project.
+pub async fn list_agent_runs(
+    pool: &PgPool,
+    project: &str,
+    limit: i64,
+) -> Result<Vec<AgentRun>, sqlx::Error> {
+    sqlx::query_as::<_, AgentRun>(AssertSqlSafe(format!(
+        "SELECT {AGENT_RUN_COLUMNS} FROM agent_runs WHERE project = $1 \
+         ORDER BY created_at DESC LIMIT $2"
+    )))
+    .bind(project)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Moves a run to another state. `started_at` is stamped by the first state after `queued` and
+/// `finished_at` by the state the run stops in, so neither is ever moved twice.
+pub async fn update_agent_run_status(
+    pool: &PgPool,
+    id: &str,
+    status: &str,
+    error: Option<&str>,
+    finished: bool,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE agent_runs SET status = $2, error = COALESCE($3, error), \
+         started_at = CASE WHEN started_at IS NULL AND $2 <> 'queued' THEN now() ELSE started_at END, \
+         finished_at = CASE WHEN $4 AND finished_at IS NULL THEN now() ELSE finished_at END \
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(status)
+    .bind(error)
+    .bind(finished)
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
+/// Forgets a run's ticket hash, which is what a cancellation does to its workspace's credential:
+/// every later proxy call verifies against a hash no ticket can produce (AG-46).
+pub async fn clear_agent_run_ticket(pool: &PgPool, id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE agent_runs SET ticket_hash = '' WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+/// Adds one step's token use to the run's budget counter (AG-44).
+pub async fn add_agent_run_usage(
+    pool: &PgPool,
+    id: &str,
+    tokens: i64,
+    steps: i32,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE agent_runs SET tokens_used = tokens_used + $2, steps = steps + $3 WHERE id = $1",
+    )
+    .bind(id)
+    .bind(tokens)
+    .bind(steps)
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
+/// Records where the built application can be looked at (AP-46).
+pub async fn set_agent_run_preview_url(
+    pool: &PgPool,
+    id: &str,
+    url: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE agent_runs SET preview_url = $2 WHERE id = $1")
+        .bind(id)
+        .bind(url)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+/// Records the merge request a publish opened (AP-55).
+pub async fn set_agent_run_merge_request(
+    pool: &PgPool,
+    id: &str,
+    number: i32,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE agent_runs SET merge_request = $2 WHERE id = $1")
+        .bind(id)
+        .bind(number)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+/// Appends one event and answers with the sequence number it got (AG-45).
+///
+/// The number is allocated inside the statement, so a reader that asked for everything after
+/// `seq` never sees a gap fill in behind it. Two writers can still pick the same number — the
+/// Portal's own status events and the proxy's relay are separate callers — and the primary key
+/// is what catches that; the retry is the whole handling, because the loser only needs the next
+/// number.
+pub async fn append_agent_run_event(
+    pool: &PgPool,
+    run_id: &str,
+    kind: &str,
+    payload: &serde_json::Value,
+) -> Result<AgentRunEvent, sqlx::Error> {
+    let statement = format!(
+        "INSERT INTO agent_run_events (run_id, seq, kind, payload) \
+         SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3 FROM agent_run_events WHERE run_id = $1 \
+         RETURNING {AGENT_EVENT_COLUMNS}"
+    );
+    let mut last = None;
+    for _ in 0..3 {
+        match sqlx::query_as::<_, AgentRunEvent>(AssertSqlSafe(statement.clone()))
+            .bind(run_id)
+            .bind(kind)
+            .bind(payload)
+            .fetch_one(pool)
+            .await
+        {
+            Ok(event) => return Ok(event),
+            Err(err) if is_unique_violation(&err) => last = Some(err),
+            Err(err) => return Err(err),
+        }
+    }
+    Err(last.unwrap_or(sqlx::Error::RowNotFound))
+}
+
+/// Everything a stream missed, oldest first (`Last-Event-ID`, AG-45).
+pub async fn load_agent_run_events(
+    pool: &PgPool,
+    run_id: &str,
+    after_seq: i64,
+) -> Result<Vec<AgentRunEvent>, sqlx::Error> {
+    sqlx::query_as::<_, AgentRunEvent>(AssertSqlSafe(format!(
+        "SELECT {AGENT_EVENT_COLUMNS} FROM agent_run_events WHERE run_id = $1 AND seq > $2 \
+         ORDER BY seq"
+    )))
+    .bind(run_id)
+    .bind(after_seq)
+    .fetch_all(pool)
+    .await
+}
+
+fn is_unique_violation(err: &sqlx::Error) -> bool {
+    matches!(err, sqlx::Error::Database(db) if db.code().as_deref() == Some("23505"))
 }

@@ -1,6 +1,7 @@
 //! joinedcontext Portal library: the axum application, the resource API, and the embedded reconciler
 //! (see docs/Architecture/09-portal.md). The binary in `main.rs` only starts it.
 
+pub mod agents;
 pub mod api;
 pub mod apps;
 pub mod assets;

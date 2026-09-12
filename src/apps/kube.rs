@@ -38,12 +38,14 @@ pub const FIELD_MANAGER: &str = "portal-app-reconciler";
 /// Server-side apply's content type; the body is JSON, which is YAML.
 const APPLY_PATCH: &str = "application/apply-patch+yaml";
 
-/// The four kinds an App compiles into (AP-13, AP-15, AP-26, EP-02), and nothing else.
-const KINDS: [(&str, &str, &str); 4] = [
+/// The kinds an App and its agent runs compile into (AP-13, AP-15, AP-26, AG-33, EP-02).
+const KINDS: [(&str, &str, &str); 6] = [
     ("apps/v1", "Deployment", "deployments"),
     ("v1", "Service", "services"),
     ("v1", "Secret", "secrets"),
     ("networking.k8s.io/v1", "NetworkPolicy", "networkpolicies"),
+    ("batch/v1", "Job", "jobs"),
+    ("v1", "ServiceAccount", "serviceaccounts"),
 ];
 
 /// Why a request to the API server did not do what it was asked.

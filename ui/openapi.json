@@ -321,6 +321,505 @@
         }
       }
     },
+    "/api/v1/projects/{project}/agent-runs": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "list_runs",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "How many runs to return, at most 100",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project's runs, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The run store did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "create_run",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The run, queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A request the endpoint or the policy does not allow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No role grants proposing an App here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such endpoint in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No agent runner, or no such builder profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/agent-runs/{id}": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "get_run",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/agent-runs/{id}/answers": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "answer_question",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The answer is on the run's log"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The run is over",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/agent-runs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "cancel_run",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cancelled run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The run is already over",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/agent-runs/{id}/events": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "stream_events",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "description": "Resume after this sequence number",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run's event stream, text/event-stream"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/agent-runs/{id}/publish": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "publish_run",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The Change that publishes the application",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The run has nothing to publish yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/changes": {
       "get": {
         "tags": [
@@ -2871,6 +3370,188 @@
   },
   "components": {
     "schemas": {
+      "AgentRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "project",
+          "appName",
+          "endpointName",
+          "endpointSlug",
+          "profile",
+          "appClass",
+          "visibility",
+          "prompt",
+          "promptDigest",
+          "dataNeeds",
+          "allowsWrite",
+          "branch",
+          "pathPrefix",
+          "status",
+          "steps",
+          "tokensUsed",
+          "createdBy",
+          "createdAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "allowsWrite": {
+            "type": "boolean"
+          },
+          "appClass": {
+            "type": "string"
+          },
+          "appName": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "dataNeeds": {},
+          "endpointName": {
+            "type": "string"
+          },
+          "endpointSlug": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "mergeRequest": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "pathPrefix": {
+            "type": "string"
+          },
+          "previewUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "promptDigest": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tokensUsed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AgentRunEvent": {
+        "type": "object",
+        "required": [
+          "runId",
+          "seq",
+          "kind",
+          "payload",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "payload": {},
+          "runId": {
+            "type": "string"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AgentRunStatus": {
+        "type": "string",
+        "description": "Where one builder run stands (Architecture/19 §5). The wire name of every variant is the\nname of the state in that chapter, which is why the rename is `snake_case` and not\n`lowercase`: `awaiting_approval` is one state, not one word.",
+        "enum": [
+          "queued",
+          "starting",
+          "interviewing",
+          "building",
+          "testing",
+          "previewing",
+          "awaiting_approval",
+          "published",
+          "failed",
+          "cancelled",
+          "expired"
+        ]
+      },
+      "AnswerRequest": {
+        "type": "object",
+        "description": "An answer to one question the agent asked (AG-45).",
+        "required": [
+          "questionId",
+          "answers"
+        ],
+        "properties": {
+          "answers": {},
+          "questionId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "ApproveBody": {
         "type": "object",
         "description": "Request body for approving or rejecting a change proposal.",
@@ -3399,6 +4080,68 @@
           "rename"
         ]
       },
+      "CreateRunRequest": {
+        "type": "object",
+        "description": "What a person asks for when they start a run (AP-51).",
+        "required": [
+          "appName",
+          "endpointName",
+          "appClass",
+          "prompt",
+          "dataNeeds"
+        ],
+        "properties": {
+          "appClass": {
+            "type": "string",
+            "description": "`static`, `service` or `fullstack`, as the `App` kind spells them."
+          },
+          "appName": {
+            "type": "string",
+            "description": "Name of the application to build; becomes the `App` manifest's name."
+          },
+          "dataNeeds": {
+            "type": "array",
+            "items": {},
+            "description": "The types, attributes and operations the application needs. Checked against what the\nendpoint publishes before anything is scheduled (AP-44)."
+          },
+          "endpointName": {
+            "type": "string",
+            "description": "The `Endpoint` the application reads through. Nothing else is reachable."
+          },
+          "profile": {
+            "type": "string",
+            "description": "Which `AgentProfile` runs. Defaults to the builder profile the platform ships."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "What the application should do, in the person's own words."
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Who may reach the published application. `public` is refused (AP-42)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreatedRun": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AgentRun"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "ticket": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The ticket, handed to the workspace and to nobody else. It is in the create answer because\nthe caller is the Portal's own UI in the one deployment that has no cluster to schedule in;\nin a cluster the Job env is the only carrier and this field is absent."
+      },
       "DataStoreStatus": {
         "type": "object",
         "description": "The declared row mirror.",
@@ -3496,6 +4239,19 @@
           },
           "project": {
             "type": "string"
+          }
+        }
+      },
+      "EventReceipt": {
+        "type": "object",
+        "description": "The sequence number a relayed event was given.",
+        "required": [
+          "seq"
+        ],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -4437,6 +5193,25 @@
           }
         }
       },
+      "RelayedEvent": {
+        "type": "object",
+        "description": "What the proxy relays on behalf of a workspace it has already authenticated.",
+        "required": [
+          "runId",
+          "kind",
+          "payload"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "payload": {},
+          "runId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "ResourceEnvelope": {
         "type": "object",
         "required": [
@@ -4553,6 +5328,98 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Revision"
+            }
+          }
+        }
+      },
+      "RunContext": {
+        "type": "object",
+        "description": "Everything the proxy needs to decide one request, and nothing a workspace may see.\n\nThis is the one place the ticket hash leaves the Portal, and it leaves on the internal\nlistener alone. The budgets are read from the profile at answer time rather than copied into\nthe run row, so lowering a profile's ceiling takes effect on the runs already in flight.",
+        "required": [
+          "id",
+          "project",
+          "appName",
+          "endpointSlug",
+          "allowsWrite",
+          "branch",
+          "pathPrefix",
+          "status",
+          "ticketHash",
+          "maxTokens",
+          "allowedHosts",
+          "requestsPerMinute",
+          "maxResponseBytes",
+          "createdBy",
+          "modelName"
+        ],
+        "properties": {
+          "allowedHosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowsWrite": {
+            "type": "boolean"
+          },
+          "appName": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "endpointSlug": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "maxResponseBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "maxTokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "modelName": {
+            "type": "string"
+          },
+          "pathPrefix": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "requestsPerMinute": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string"
+          },
+          "ticketHash": {
+            "type": "string"
+          }
+        }
+      },
+      "RunList": {
+        "type": "object",
+        "description": "One page of runs, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentRun"
             }
           }
         }

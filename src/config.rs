@@ -47,6 +47,10 @@ pub struct Config {
     /// cluster does; it is never a guess, because guessing a namespace here would mean writing
     /// a Deployment into somebody else's.
     pub app_settings: Option<crate::apps::reconciler::Settings>,
+    /// Where a builder run's workspace is scheduled and how the proxy reaches this Portal
+    /// (AG-33, AG-40). `None` leaves every agent-run route answering 503: without a namespace
+    /// to schedule into and a proxy for the workspace to speak to, a run has nowhere to happen.
+    pub agent_settings: Option<AgentSettings>,
 }
 
 impl std::fmt::Debug for Config {
@@ -71,6 +75,7 @@ impl std::fmt::Debug for Config {
                 &self.database_url.as_ref().map(|_| "[redacted]"),
             )
             .field("app_settings", &self.app_settings)
+            .field("agent_settings", &self.agent_settings)
             .finish()
     }
 }
@@ -95,6 +100,115 @@ fn app_settings(
         namespace,
         org_domain,
     })
+}
+
+/// Where a builder run happens and how the credential proxy reaches this Portal (ADR-N-020).
+///
+/// The namespace and the proxy are needed together: a workspace with no proxy has no way to
+/// reach the model, the data or the forge, and a proxy with no namespace has nothing to serve.
+/// The token is the proxy's own credential on the internal listener, and it is the reason this
+/// block is all-or-nothing rather than three independent variables: two of the three set is a
+/// misconfiguration, not a Portal that runs agent runs unauthenticated.
+#[derive(Clone)]
+pub struct AgentSettings {
+    /// Namespace the workspace Jobs, their ServiceAccounts and their NetworkPolicies go into.
+    pub namespace: String,
+    /// Base URL of `jc-agent-proxy` as a workspace sees it, e.g.
+    /// `http://jc-agent-proxy.agents.svc.cluster.local:8080`.
+    pub proxy_base: String,
+    /// The bearer the proxy presents on the internal listener. Carries a secret, so it is
+    /// redacted in `Debug`.
+    proxy_token: String,
+    /// Where the internal listener binds. APISIX routes nothing to it, and a NetworkPolicy
+    /// opens it to the proxy alone (AG-52).
+    pub internal_bind: SocketAddr,
+    /// Wall clock of one run, in seconds. The Job carries the same number as its
+    /// `activeDeadlineSeconds`, so the two cannot disagree about when a run is over.
+    pub run_ttl_secs: i64,
+}
+
+impl AgentSettings {
+    pub fn proxy_token(&self) -> &str {
+        &self.proxy_token
+    }
+}
+
+impl std::fmt::Debug for AgentSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentSettings")
+            .field("namespace", &self.namespace)
+            .field("proxy_base", &self.proxy_base)
+            .field("proxy_token", &"[redacted]")
+            .field("internal_bind", &self.internal_bind)
+            .field("run_ttl_secs", &self.run_ttl_secs)
+            .finish()
+    }
+}
+
+/// The agent runner block, or `None` when this Portal runs no agent (AG-33, AG-40).
+fn agent_settings(
+    lookup: &impl Fn(&str) -> Option<String>,
+) -> Result<Option<AgentSettings>, ConfigError> {
+    let namespace = lookup("JC_AGENTS_NAMESPACE").filter(|v| !v.trim().is_empty());
+    let proxy_base = lookup("JC_AGENT_PROXY_BASE").filter(|v| !v.trim().is_empty());
+    let proxy_token = lookup("JC_AGENT_PROXY_TOKEN").filter(|v| !v.trim().is_empty());
+    let (namespace, proxy_base, proxy_token) = match (namespace, proxy_base, proxy_token) {
+        (None, None, None) => return Ok(None),
+        (Some(namespace), Some(proxy_base), Some(proxy_token)) => {
+            (namespace, proxy_base, proxy_token)
+        }
+        _ => {
+            return Err(ConfigError::Invalid {
+                var: "JC_AGENTS_NAMESPACE",
+                reason: "JC_AGENTS_NAMESPACE, JC_AGENT_PROXY_BASE and JC_AGENT_PROXY_TOKEN must \
+                         be set together"
+                    .to_string(),
+            })
+        }
+    };
+
+    let probe: Url = proxy_base
+        .parse()
+        .map_err(|e: url::ParseError| ConfigError::Invalid {
+            var: "JC_AGENT_PROXY_BASE",
+            reason: e.to_string(),
+        })?;
+    if probe.scheme() != "http" && probe.scheme() != "https" {
+        return Err(ConfigError::Invalid {
+            var: "JC_AGENT_PROXY_BASE",
+            reason: format!("scheme '{}' is not http or https", probe.scheme()),
+        });
+    }
+
+    let internal_bind: SocketAddr = lookup("JC_INTERNAL_BIND")
+        .unwrap_or_else(|| Config::DEFAULT_INTERNAL_BIND.to_string())
+        .parse()
+        .map_err(|e: std::net::AddrParseError| ConfigError::Invalid {
+            var: "JC_INTERNAL_BIND",
+            reason: e.to_string(),
+        })?;
+
+    let run_ttl_secs = match lookup("JC_AGENT_RUN_TTL") {
+        Some(value) => value.parse::<i64>().map_err(|e| ConfigError::Invalid {
+            var: "JC_AGENT_RUN_TTL",
+            reason: e.to_string(),
+        })?,
+        None => Config::DEFAULT_RUN_TTL_SECS,
+    };
+    if run_ttl_secs <= 0 {
+        return Err(ConfigError::Invalid {
+            var: "JC_AGENT_RUN_TTL",
+            reason: "a run needs a positive wall clock".to_string(),
+        });
+    }
+
+    Ok(Some(AgentSettings {
+        namespace,
+        proxy_base: proxy_base.trim_end_matches('/').to_owned(),
+        proxy_token,
+        internal_bind,
+        run_ttl_secs,
+    }))
 }
 
 /// Keycloak realm the portal authenticates humans against (CC-40).
@@ -138,6 +252,11 @@ impl Config {
     pub const DEFAULT_BIND: &'static str = "0.0.0.0:8080";
     const DEFAULT_BOOTSTRAP_ADMINS: &'static str = "platform-admins";
     pub const DEFAULT_PUBLIC_URL: &'static str = "http://localhost:8080";
+    /// The internal listener's default. Port 9090, which the edge does not route (AG-52).
+    pub const DEFAULT_INTERNAL_BIND: &'static str = "0.0.0.0:9090";
+    /// Wall clock of one builder run when the deployment names none: twenty minutes, the
+    /// window AG-43 gives a run before it expires.
+    pub const DEFAULT_RUN_TTL_SECS: i64 = 1_200;
     /// `Key::from` panics below 64 bytes, so the length is checked before it is called.
     pub const MIN_COOKIE_KEY_LEN: usize = 64;
 
@@ -275,6 +394,7 @@ impl Config {
 
         let apps_dir = lookup("JC_PORTAL_APPS_DIR");
         let app_settings = app_settings(&lookup, &public_base_url);
+        let agent_settings = agent_settings(&lookup)?;
         let branding_file = lookup("JC_BRANDING_FILE").filter(|path| !path.trim().is_empty());
         let database_url = lookup("JC_PORTAL_DATABASE_URL").filter(|url| !url.trim().is_empty());
         let bootstrap_admins = lookup("JC_PORTAL_BOOTSTRAP_ADMINS")
@@ -297,6 +417,7 @@ impl Config {
             database_url,
             bootstrap_admins,
             app_settings,
+            agent_settings,
         })
     }
 
@@ -313,6 +434,7 @@ impl Config {
             pipeline_runner_url: None,
             model_tools_url: None,
             app_settings: None,
+            agent_settings: None,
             apps_dir: None,
             branding_file: None,
             database_url: None,

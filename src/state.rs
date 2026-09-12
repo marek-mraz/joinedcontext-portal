@@ -7,6 +7,8 @@ use std::sync::{Arc, RwLock};
 use axum::extract::FromRef;
 use axum_extra::extract::cookie::Key;
 
+use crate::agents::events::AgentEventHub;
+use crate::agents::store::AgentStore;
 use crate::auth::bearer::BearerVerifier;
 use crate::auth::oidc::OidcClient;
 use crate::auth::session::Session;
@@ -36,6 +38,15 @@ pub struct AppState {
     /// The preferences tier (UI-09). `None` without a database: the preferences routes answer
     /// 503 and nothing else notices.
     pub db: Option<sqlx::PgPool>,
+    /// Builder runs and their event streams (AG-43, AG-45). Always present, durable only when
+    /// there is a database; [`AgentStore::is_durable`] is what says which.
+    pub agents: Arc<AgentStore>,
+    /// The live half of a run's stream: what a connected browser is handed as the events
+    /// arrive, while the store is what a reconnecting one replays from (AG-45).
+    pub agent_events: Arc<AgentEventHub>,
+    /// Where a workspace Job is written. `None` outside a cluster, exactly like
+    /// `app_settings`: a run is then refused rather than scheduled nowhere (AG-33).
+    pub kube: Option<Arc<crate::apps::kube::KubeClient>>,
     /// `sub` → unix second of the last back-channel logout for that user. Sessions issued
     /// at or before the mark are refused.
     /// ponytail: per-replica map; move it to the preferences database when the portal
@@ -58,6 +69,9 @@ impl AppState {
             syncer: None,
             sync: None,
             db: None,
+            agents: Arc::new(AgentStore::new(None)),
+            agent_events: Arc::new(AgentEventHub::new()),
+            kube: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -78,6 +92,7 @@ impl AppState {
     }
 
     pub fn with_db(mut self, db: sqlx::PgPool) -> Self {
+        self.agents = Arc::new(AgentStore::new(Some(db.clone())));
         self.db = Some(db);
         self
     }
@@ -104,7 +119,28 @@ impl AppState {
             None => None,
         };
         let mut state = Self::new(config, oidc);
+        state.agents = Arc::new(AgentStore::new(db.clone()));
+        if !state.agents.is_durable() {
+            tracing::info!(
+                "no database: a builder run and its stream live only until this process ends"
+            );
+        }
         state.db = db;
+        // A builder run is scheduled into the cluster this Portal runs in (AG-33). The client is
+        // the same in-cluster one the app converger uses; outside a cluster it stays `None` and
+        // a run is refused rather than recorded with no pod behind it.
+        if state.config.agent_settings.is_some() {
+            match crate::apps::kube::KubeClient::in_cluster() {
+                Ok(Some(kube)) => state.kube = Some(Arc::new(kube)),
+                Ok(None) => tracing::info!(
+                    "no ServiceAccount mount: a builder run is driven by its caller, not scheduled"
+                ),
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    "the ServiceAccount mount is unreadable, so no builder workspace is scheduled"
+                ),
+            }
+        }
         // Warm the key cache so the first bearer call does not pay for the fetch; a realm that
         // is down at startup only costs a warning, the next unknown `kid` fetches again.
         if let Some(bearer) = state.bearer.as_ref() {

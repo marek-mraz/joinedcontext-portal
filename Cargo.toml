@@ -35,7 +35,11 @@ axum = { version = "0.8", features = ["macros", "multipart"] }
 axum-extra = { version = "0.12", features = ["cookie-private"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["set-header", "trace"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "sync"] }
+# The builder run's event stream (AG-45). `sync` alone: the one wrapper needed is the one that
+# turns a broadcast receiver into the `Stream` axum's SSE response wants, and axum has no
+# stream type of its own.
+tokio-stream = { version = "0.1", default-features = false, features = ["sync"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
