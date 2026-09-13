@@ -72,7 +72,7 @@ describe("roles as code in the UI (T-0526, PF-50)", () => {
     expect(fetchMock.mock.calls.some((call) => (call[0] as Request).url.includes("/permissions/me"))).toBe(true);
   });
 
-  it("a viewer with no binding sees no propose control", async () => {
+  it("a viewer with no binding sees the propose control disabled, with the reason (UI-44)", async () => {
     const fetchMock = renderPipelines(VIEWER);
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((call) => (call[0] as Request).url.includes("/permissions/me"))).toBe(true);
@@ -80,7 +80,13 @@ describe("roles as code in the UI (T-0526, PF-50)", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: en.pipelines.title })).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: en.pipelines.add })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: en.pipelines.add })).toBeDisabled();
+    });
+    expect(screen.getByRole("button", { name: en.pipelines.add })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Disabled: your role does not permit 'propose' on 'Pipeline' in this project",
+    );
   });
 
   it("allows() reads kinds and verbs of every grant, lets bootstrap through and fails open without a document", () => {

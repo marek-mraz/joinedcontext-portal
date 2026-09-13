@@ -1157,5 +1157,8 @@
     "navigated": "Asistent otvoril {route}",
     "dismiss": "Zavrieť oznam",
     "close": "Zavrieť asistenta"
+  },
+  "permissions": {
+    "denied": "Vypnuté: vaša rola nedovoľuje ''{verb}'' na ''{kind}'' v tomto projekte"
   }
 }

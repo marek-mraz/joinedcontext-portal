@@ -1157,5 +1157,8 @@
     "navigated": "The assistant opened {route}",
     "dismiss": "Dismiss",
     "close": "Close the assistant"
+  },
+  "permissions": {
+    "denied": "Disabled: your role does not permit ''{verb}'' on ''{kind}'' in this project"
   }
 }

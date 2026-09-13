@@ -9,6 +9,7 @@ import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { useProjects } from "../api/projects";
 import { takePrefill } from "../assistant/state";
+import { PermissionGuard } from "../components/ui/PermissionGuard";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
@@ -398,7 +399,8 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         title={t("endpoints.title")}
         description={t("endpoints.lead")}
         actions={
-          mayPropose ? <Button
+          <PermissionGuard project={project} kind="Endpoint" verb="propose">
+          <Button
             variant="primary"
             icon={<Icon name="plus" className="size-4" />}
             onClick={() => {
@@ -416,7 +418,8 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             }}
           >
             {t("endpoints.add")}
-          </Button> : null
+          </Button>
+          </PermissionGuard>
         }
       />
 

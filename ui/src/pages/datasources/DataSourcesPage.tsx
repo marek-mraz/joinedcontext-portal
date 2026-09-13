@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { usePermissions } from "../../api/permissions";
+import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, prune } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
@@ -272,13 +273,15 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
               ))}
             </select>
           </label>
-          {mayPropose ? <button
+          <PermissionGuard project={project} kind="DataSource" verb="propose">
+          <button
             type="button"
             onClick={openCreate}
             className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
           >
             {t("datasources.add")}
-          </button> : null}
+          </button>
+          </PermissionGuard>
         </div>
       </div>
 

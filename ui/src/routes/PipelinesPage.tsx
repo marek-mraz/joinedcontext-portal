@@ -11,6 +11,7 @@ import { ChangeNotice } from "../components/ChangeNotice";
 import { PipelineEditorDialog } from "../pages/pipelines/PipelineEditor";
 import type { PipelineForm, toEnvelope } from "../pages/pipelines/PipelineEditor";
 import { takePrefill } from "../assistant/state";
+import { PermissionGuard } from "../components/ui/PermissionGuard";
 import {
   Alert,
   Badge,
@@ -273,11 +274,13 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
     setDialogOpen(true);
   }
 
-  const newButton = mayPropose ? (
-    <Button variant="primary" icon={<Icon name="plus" className="size-4" />} onClick={() => openEditor(null)}>
-      {t("pipelines.add")}
-    </Button>
-  ) : null;
+  const newButton = (
+    <PermissionGuard project={project} kind="Pipeline" verb="propose">
+      <Button variant="primary" icon={<Icon name="plus" className="size-4" />} onClick={() => openEditor(null)}>
+        {t("pipelines.add")}
+      </Button>
+    </PermissionGuard>
+  );
 
   const head = (
     <TableHead>
