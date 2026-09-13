@@ -167,7 +167,9 @@ async fn mcp_initialize_and_discover() {
         PORTAL_AUDIENCE,
         "steward.user",
         &["portal-approver"],
-        &[],
+        // The bootstrap group (Config::DEFAULT_BOOTSTRAP_ADMINS): the steward holds every
+        // operation, the viewer below only what its binding grants.
+        &["platform-admins"],
     );
 
     // 1. initialize
@@ -248,7 +250,9 @@ async fn mcp_tools_list_filtered_by_caller() {
         PORTAL_AUDIENCE,
         "steward.user",
         &["portal-approver"],
-        &[],
+        // The bootstrap group (Config::DEFAULT_BOOTSTRAP_ADMINS): the steward holds every
+        // operation, the viewer below only what its binding grants.
+        &["platform-admins"],
     );
 
     let list_req = json!({
@@ -344,7 +348,9 @@ async fn mcp_tools_call_jc_catalog_search() {
         PORTAL_AUDIENCE,
         "steward.user",
         &["portal-approver"],
-        &[],
+        // The bootstrap group (Config::DEFAULT_BOOTSTRAP_ADMINS): the steward holds every
+        // operation, the viewer below only what its binding grants.
+        &["platform-admins"],
     );
 
     let call_req = json!({

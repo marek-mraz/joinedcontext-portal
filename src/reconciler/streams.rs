@@ -413,6 +413,13 @@ pub fn render_stream(
             "format": "json_array"
         }
     }));
+    // The gateway takes at most 1000 entities per batch operation; a page of 4000 stations
+    // goes out as four requests, not one 400.
+    processors.push(serde_json::json!({
+        "split": {
+            "size": 1000
+        }
+    }));
 
     processors.push(serde_json::json!({
         "archive": {
@@ -575,6 +582,11 @@ pub fn render_endpoint_stream(
     processors.push(serde_json::json!({
         "unarchive": {
             "format": "json_array"
+        }
+    }));
+    processors.push(serde_json::json!({
+        "split": {
+            "size": 1000
         }
     }));
     processors.push(serde_json::json!({
@@ -836,6 +848,12 @@ mod tests {
                 == Some("json_array")
         }));
         assert!(processors.last().unwrap().get("archive").is_some());
+        // A batch operation at the gateway takes 1000 entities at most.
+        assert_eq!(
+            processors[processors.len() - 2]["split"]["size"],
+            1000,
+            "the batch is split before it is archived"
+        );
 
         assert_eq!(
             rendered["output"]["http_client"]["url"],

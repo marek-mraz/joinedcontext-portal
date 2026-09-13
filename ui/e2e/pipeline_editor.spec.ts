@@ -117,9 +117,8 @@ test.describe("pipeline editor", () => {
     await dialog.getByLabel(/^Name/).fill("aq-ingest");
     await dialog.getByLabel(/^Execution/).selectOption("resident");
     await dialog.getByLabel(/^Data source/).selectOption("mqtt-city");
-    await dialog
-      .getByLabel(/^Target endpoint/)
-      .selectOption("urn:ngsi-ld:Endpoint:hel.fi:air:public-air");
+    // The options carry the endpoint's name; the value is the URN (T-0630).
+    await dialog.getByLabel(/^Target endpoint/).selectOption({ label: "public-air" });
     await dialog.getByLabel(/^Kind/).selectOption("bloblang");
     await expect(dialog.getByText(/bento\.yaml beside this manifest/)).toBeVisible();
 
