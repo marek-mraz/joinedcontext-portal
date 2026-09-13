@@ -1060,6 +1060,21 @@
       "copied": "Ablauf kopiert",
       "fix": "Den Assistenten um eine Korrektur bitten",
       "fixMessage": "Der Schritt {tool} ist fehlgeschlagen: {error}. Behebe das."
+    },
+    "catalog": {
+      "title": "Was der Assistent gefunden hat",
+      "none": "In diesem Projekt passt nichts zu diesen Wörtern.",
+      "owner": "Eigentümer {owner}",
+      "allowed": "Zugänglich",
+      "restricted": "Eingeschränkt",
+      "fresh": "Vor {when} gespeist durch {pipeline}",
+      "noFeed": "Kein Live-Feed",
+      "explore": "Erkunden",
+      "open": "Öffnen",
+      "agoSeconds": "{n} s",
+      "agoMinutes": "{n} min",
+      "agoHours": "{n} h",
+      "agoDays": "{n} d"
     }
   },
   "assistant": {

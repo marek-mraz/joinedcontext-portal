@@ -170,11 +170,17 @@ const modelsRoute = createRoute({
 const exploreRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/explore",
+  // The assistant opens the explorer on what it found (UI-46): a space and an endpoint by name.
+  validateSearch: (search: Record<string, unknown>): { space?: string; endpoint?: string } => ({
+    space: typeof search.space === "string" ? search.space : undefined,
+    endpoint: typeof search.endpoint === "string" ? search.endpoint : undefined,
+  }),
   component: function ExploreRoute() {
     const { project } = exploreRoute.useParams();
+    const { space, endpoint } = exploreRoute.useSearch();
     return (
       <Shell project={project}>
-        <ExplorePage project={project} />
+        <ExplorePage project={project} initialSpace={space} initialEndpoint={endpoint} />
       </Shell>
     );
   },

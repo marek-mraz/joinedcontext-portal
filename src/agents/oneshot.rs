@@ -210,12 +210,19 @@ impl Driver {
         ))
         .await?;
         let samples = self.samples(&types).await;
+        let catalog = self.find(&self.prompt).await?;
         self.status(AgentRunStatus::Building).await?;
 
         let mut files: BTreeMap<String, String> = BTreeMap::new();
         let mut conversation: Vec<(String, String)> = Vec::new();
         let outcome = self
-            .pass(&samples, &mut files, &conversation, &self.prompt)
+            .pass(
+                &samples,
+                &mut files,
+                &conversation,
+                &self.prompt,
+                catalog.as_ref(),
+            )
             .await?;
         let Some(prose) = outcome else {
             return Err("the first pass produced no specification the kit can render".to_owned());
@@ -249,7 +256,11 @@ impl Driver {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_owned();
-                    match self.pass(&samples, &mut files, &conversation, &text).await {
+                    let catalog = self.find(&text).await?;
+                    match self
+                        .pass(&samples, &mut files, &conversation, &text, catalog.as_ref())
+                        .await
+                    {
                         Ok(Some(prose)) => conversation.push((text, prose)),
                         // A pass that failed keeps the last preview; the chat says why.
                         Ok(None) => {}
@@ -272,11 +283,12 @@ impl Driver {
         files: &mut BTreeMap<String, String>,
         conversation: &[(String, String)],
         instruction: &str,
+        catalog: Option<&Value>,
     ) -> Result<Option<String>, String> {
         if !files.is_empty() {
             self.thought("Changing the dashboard…").await?;
         }
-        let user = self.pack(samples, files, conversation, instruction, None);
+        let user = self.pack(samples, files, conversation, instruction, catalog, None);
         let answer = self.complete(&user).await?;
         let (mut prose, mut errors) = self.apply(files, &answer).await?;
         if !errors.is_empty() {
@@ -286,7 +298,14 @@ impl Driver {
                 errors.join("\n")
             ))
             .await?;
-            let user = self.pack(samples, files, conversation, instruction, Some(&errors));
+            let user = self.pack(
+                samples,
+                files,
+                conversation,
+                instruction,
+                catalog,
+                Some(&errors),
+            );
             let answer = self.complete(&user).await?;
             (prose, errors) = self.apply(files, &answer).await?;
         }
@@ -391,11 +410,24 @@ impl Driver {
         files: &BTreeMap<String, String>,
         conversation: &[(String, String)],
         instruction: &str,
+        catalog: Option<&Value>,
         errors: Option<&[String]>,
     ) -> String {
         let mut pack = String::new();
         pack.push_str("## THE APPLICATION\n\n");
         pack.push_str(&self.prompt);
+        if let Some(catalog) = catalog {
+            // What the search found is what the model may name (AG-58): the endpoints and
+            // spaces of the project, with the verdict and the freshness the platform read.
+            pack.push_str(
+                "\n\n## WHAT THE CATALOG SEARCH FOUND\n\nThe project's endpoints, spaces and \
+                 data models matching the person's words, with the caller's access verdict and \
+                 the freshness of the pipeline feeding each, read from the platform. Name them by \
+                 their `name`; invent no other.\n```json\n",
+            );
+            pack.push_str(&serde_json::to_string_pretty(catalog).unwrap_or_default());
+            pack.push_str("\n```");
+        }
         pack.push_str("\n\n## THE DATA THE ENDPOINT PUBLISHES\n\n");
         pack.push_str("Data needs (types and attributes the person asked for):\n```json\n");
         pack.push_str(&serde_json::to_string_pretty(&self.data_needs).unwrap_or_default());
@@ -743,6 +775,27 @@ impl Driver {
                     .await
             }
         }
+    }
+
+    /// The catalog search over the person's words, published as the `search_catalog` tool
+    /// step (AG-58, UI-46); `None` when nothing matched, so the prompt stays as it was.
+    async fn find(&self, question: &str) -> Result<Option<Value>, String> {
+        let started = std::time::Instant::now();
+        let catalog =
+            crate::api::assistant::search(&self.state, &self.project, question, None).await;
+        let output = serde_json::to_value(&catalog).unwrap_or(Value::Null);
+        self.event(
+            "tool",
+            json!({
+                "tool": "search_catalog",
+                "status": "ok",
+                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "input": { "q": question },
+                "output": output.clone(),
+            }),
+        )
+        .await?;
+        Ok((!catalog.items.is_empty()).then_some(output))
     }
 
     async fn thought(&self, text: &str) -> Result<(), String> {

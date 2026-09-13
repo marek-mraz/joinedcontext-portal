@@ -1,4 +1,5 @@
 pub mod agent_runs;
+pub mod assistant;
 pub mod blueprints;
 pub mod branding;
 pub mod changes;
@@ -34,6 +35,7 @@ pub fn router() -> Router<AppState> {
         .merge(health::router())
         .merge(auth::oidc::router())
         .merge(agent_runs::router())
+        .merge(assistant::router())
         .merge(blueprints::router())
         .merge(branding::router())
         .merge(changes::router())

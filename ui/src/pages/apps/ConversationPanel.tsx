@@ -5,6 +5,7 @@ import { SchemaForm } from "../../components/forms/SchemaForm";
 import type { JsonSchema } from "../../components/forms/types";
 import { openQuestions } from "./useAgentRun";
 import { ActionStep } from "./ActionStep";
+import { CatalogCards, catalogItemsOf } from "./CatalogCards";
 import type { RunEvent } from "./useAgentRun";
 
 /** Who a line came from. The three read differently, so they are drawn differently. */
@@ -96,6 +97,7 @@ function labelOf(
  * is validated against the schema that asked for it before it is posted (AG-45, UI-37).
  */
 export function ConversationPanel({
+  project,
   events,
   streaming,
   answering,
@@ -104,6 +106,8 @@ export function ConversationPanel({
   onAnswer,
   onSend,
 }: {
+  /** The project the run belongs to: what a card's links open. */
+  project: string;
   events: RunEvent[];
   streaming: boolean;
   answering: boolean;
@@ -157,8 +161,12 @@ export function ConversationPanel({
           {events.map((event) => {
             const speaker = speakerOf(event.kind);
             if (event.kind === "tool") {
+              // What the assistant found is drawn as cards above the step itself (UI-46).
+              const found =
+                event.payload.tool === "search_catalog" ? catalogItemsOf(event.payload.output) : null;
               return (
-                <li key={event.seq}>
+                <li key={event.seq} className="space-y-2">
+                  {found !== null ? <CatalogCards project={project} items={found} /> : null}
                   <ActionStep event={event} live={live} onSend={onSend} />
                 </li>
               );

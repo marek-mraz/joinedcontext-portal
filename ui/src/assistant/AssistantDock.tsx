@@ -107,6 +107,7 @@ export function AssistantDock(): JSX.Element | null {
         className="h-[80vh] w-full rounded border border-border bg-surface shadow-lg [&>section]:h-full [&>section]:min-h-0"
       >
         <ConversationPanel
+          project={run.project}
           events={events}
           streaming={streaming}
           answering={answer.isPending}

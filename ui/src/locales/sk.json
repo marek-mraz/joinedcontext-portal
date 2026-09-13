@@ -1060,6 +1060,21 @@
       "copied": "Záznam skopírovaný",
       "fix": "Požiadať asistenta o opravu",
       "fixMessage": "Krok {tool} zlyhal: {error}. Oprav to."
+    },
+    "catalog": {
+      "title": "Čo asistent našiel",
+      "none": "V tomto projekte sa nič nezhoduje s týmito slovami.",
+      "owner": "vlastník {owner}",
+      "allowed": "Prístupné",
+      "restricted": "Obmedzené",
+      "fresh": "Plnené pred {when} cez {pipeline}",
+      "noFeed": "Bez živého toku",
+      "explore": "Preskúmať",
+      "open": "Otvoriť",
+      "agoSeconds": "{n} s",
+      "agoMinutes": "{n} min",
+      "agoHours": "{n} h",
+      "agoDays": "{n} d"
     }
   },
   "assistant": {

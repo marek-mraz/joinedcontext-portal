@@ -53,15 +53,24 @@ function cell(value: unknown): string {
  * The data explorer (UI-33): a space, one of its endpoints, filters generated from the space's
  * DataModel, and the page of entities the endpoint returns for the signed-in user. Reads only.
  */
-export function ExplorePage({ project }: { project: string }): JSX.Element {
+export function ExplorePage({
+  project,
+  initialSpace,
+  initialEndpoint,
+}: {
+  project: string;
+  /** Chosen on arrival, the way a catalog card opens the page (UI-46). */
+  initialSpace?: string;
+  initialEndpoint?: string;
+}): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const spaces = useProjectList(project, "spaces");
   const endpoints = useProjectList(project, "endpoints");
   const models = useProjectList(project, "datamodels");
 
-  const [space, setSpace] = useState<string>("");
-  const [endpointChoice, setEndpointChoice] = useState<string>("");
+  const [space, setSpace] = useState<string>(initialSpace ?? "");
+  const [endpointChoice, setEndpointChoice] = useState<string>(initialEndpoint ?? "");
   const [query, setQuery] = useState<EntityQuery>({});
   const [limit, setLimit] = useState(PAGE_SIZES[0]);
   const [offset, setOffset] = useState(0);

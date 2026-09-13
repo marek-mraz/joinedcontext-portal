@@ -43,6 +43,7 @@ function renderPanel(live = true) {
   render(
     <I18nextProvider i18n={i18n}>
       <ConversationPanel
+        project="helsinki"
         events={EVENTS}
         streaming
         answering={false}

@@ -21,6 +21,7 @@ function panel(events: RunEvent[], streaming = true) {
   return render(
     <I18nextProvider i18n={i18n}>
       <ConversationPanel
+        project="helsinki"
         events={events}
         streaming={streaming}
         answering={false}
@@ -170,6 +171,7 @@ describe("the conversation panel", () => {
     render(
       <I18nextProvider i18n={i18n}>
         <ConversationPanel
+        project="helsinki"
           events={[]}
           streaming={false}
           answering={false}

@@ -1060,6 +1060,21 @@
       "copied": "Trace copied",
       "fix": "Ask the assistant to fix it",
       "fixMessage": "The step {tool} failed: {error}. Fix it."
+    },
+    "catalog": {
+      "title": "What the assistant found",
+      "none": "Nothing in this project matches those words.",
+      "owner": "owner {owner}",
+      "allowed": "Allowed",
+      "restricted": "Restricted",
+      "fresh": "Fed {when} by {pipeline}",
+      "noFeed": "No live feed",
+      "explore": "Explore",
+      "open": "Open",
+      "agoSeconds": "{n} s ago",
+      "agoMinutes": "{n} min ago",
+      "agoHours": "{n} h ago",
+      "agoDays": "{n} d ago"
     }
   },
   "assistant": {
