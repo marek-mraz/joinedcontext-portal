@@ -151,6 +151,21 @@ fn mirror(provider: &str) -> Arc<Mirror> {
         }),
     ));
     mirror.upsert(envelope(
+        "ContextSpace",
+        "helsinki",
+        PROJECT,
+        json!({ "dataModelRef": { "kind": "DataModel", "name": "bikes" } }),
+    ));
+    mirror.upsert(envelope(
+        "DataModel",
+        "bikes",
+        PROJECT,
+        json!({
+            "version": "1.0.0",
+            "linkml": "id: https://hel.fi/models/bikes\nname: bikes\nenums:\n  StationStatus:\n    permissible_values:\n      working: {}\n      closed: {}\nclasses:\n  BikeHireDockingStation:\n    slots: [id, name, location, availableBikeNumber, status, stewardNote]\nslots:\n  id: {}\n  name: { range: string, required: true }\n  location: { range: string }\n  availableBikeNumber: { range: integer, minimum_value: 0 }\n  status: { range: StationStatus }\n  stewardNote: { range: string }\n"
+        }),
+    ));
+    mirror.upsert(envelope(
         "AgentProfile",
         "app-builder",
         "org",
@@ -319,6 +334,21 @@ async fn json(
 }
 
 async fn create_run(app: &axum::Router, cookie: &str) -> Value {
+    create_run_with(
+        app,
+        cookie,
+        "Create a live bike availability dashboard with station filtering",
+        &["queryEntity"],
+    )
+    .await
+}
+
+async fn create_run_with(
+    app: &axum::Router,
+    cookie: &str,
+    prompt: &str,
+    operations: &[&str],
+) -> Value {
     let (status, body) = json(
         app,
         cookie,
@@ -329,12 +359,12 @@ async fn create_run(app: &axum::Router, cookie: &str) -> Value {
             "endpointName": "helsinki-bikes",
             "appClass": "static",
             "visibility": "project",
-            "prompt": "Create a live bike availability dashboard with station filtering",
+            "prompt": prompt,
             "dataNeeds": [{
                 "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
                 "types": ["BikeHireDockingStation"],
                 "attrs": ["name", "location", "availableBikeNumber"],
-                "operations": ["queryEntity"]
+                "operations": operations
             }]
         })),
     )
@@ -1055,5 +1085,114 @@ async fn a_share_request_is_a_proposal_and_a_navigation_not_a_pass() {
         model_requests(&proxy).await.len(),
         2,
         "no repair call for a tool answer"
+    );
+}
+
+const EDIT_SPEC: &str = r#"{
+  "title": "Station notes",
+  "sources": [{ "name": "stations", "type": "BikeHireDockingStation", "attrs": ["name", "location", "availableBikeNumber"] }],
+  "views": [
+    { "kind": "table", "columns": ["name", "availableBikeNumber"] },
+    { "kind": "form", "title": "Station", "fields": ["availableBikeNumber"] }
+  ]
+}"#;
+
+/// T-0595 (AP-61, AP-62): an application that may write gets a table and a form, the pack
+/// carries the field schema of the space's model, and the preview inlines the same schema with
+/// the bridge flag; an application that may not write is told to drop the form.
+#[tokio::test]
+async fn an_edit_prompt_gets_a_form_grounded_in_the_field_schema_when_the_app_may_write() {
+    let (app, cookie, proxy) = portal(
+        "openai-compatible",
+        &[answer(
+            "A table of the stations and a form to update a station's free bikes.",
+            &[("spec.json", "", EDIT_SPEC)],
+        )],
+    )
+    .await;
+    let id = create_run_with(
+        &app,
+        &cookie,
+        "Build an app where stewards can update bike station notes",
+        &["queryEntity", "updateAttrs"],
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
+    assert_eq!(run["status"], json!("previewing"), "{run}");
+
+    let requests = model_requests(&proxy).await;
+    assert_eq!(requests.len(), 1);
+    let body = requests[0].to_string();
+    assert!(
+        body.contains("WHEN THE PERSON ASKS TO EDIT, UPDATE OR MANAGE ENTITIES"),
+        "the system prompt pairs a table and a form"
+    );
+    assert!(body.contains("This application MAY write"), "{body}");
+    assert!(
+        body.contains(r#"\"availableBikeNumber\""#) && body.contains(r#"\"minimum\": 0"#),
+        "the field schema of the model is packed: {body}"
+    );
+    assert!(
+        body.contains(r#"\"enum\""#) && body.contains("closed"),
+        "{body}"
+    );
+
+    let preview_url = run["previewUrl"]
+        .as_str()
+        .expect("a preview url")
+        .to_owned();
+    let (status, _, bytes) = call(&app, &cookie, Method::GET, &preview_url, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let html = String::from_utf8(bytes).expect("utf-8");
+    assert!(
+        html.contains("\"bridge\":true"),
+        "a preview writes through the host page (AP-63)"
+    );
+    assert!(
+        html.contains("\"schema\":{\"BikeHireDockingStation\":{\"properties\""),
+        "the form's inputs come from the same schema (AP-61)"
+    );
+    assert!(
+        !html.contains("jc_csrf") && !html.contains("jcr_"),
+        "no credential is inlined"
+    );
+}
+
+#[tokio::test]
+async fn a_form_in_an_app_that_may_not_write_is_sent_back_for_repair() {
+    let (app, cookie, proxy) = portal(
+        "openai-compatible",
+        &[
+            answer("With a form.", &[("spec.json", "", EDIT_SPEC)]),
+            answer("Without the form.", &[("spec.json", "", VALID_SPEC)]),
+        ],
+    )
+    .await;
+    let id = create_run_with(
+        &app,
+        &cookie,
+        "Build an app where stewards can update bike station notes",
+        &["queryEntity"],
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
+    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let requests = model_requests(&proxy).await;
+    assert_eq!(requests.len(), 2, "one pass, one repair");
+    assert!(requests[0]
+        .to_string()
+        .contains("This application may NOT write"));
+    assert!(
+        requests[1].to_string().contains(
+            "views[1]: a form writes through the endpoint and this application may not write"
+        ),
+        "{}",
+        requests[1]
     );
 }

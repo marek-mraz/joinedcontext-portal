@@ -20,8 +20,8 @@ use crate::agents::kit;
 use crate::agents::patch;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
-use crate::agents::share;
 use crate::agents::store::now_rfc3339;
+use crate::agents::{fields, share};
 use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::state::AppState;
 
@@ -63,9 +63,11 @@ Rules the schema cannot say, checked before anything is shown:
 - Every attribute a filter or view names (`attrs`, `attr`, `columns`, `x`, `y`, `sort.attr`,
   `location`, `label`, `color`, `fields`) is in that source's `attrs`, or is `id` / `type`.
 - A `form` opens as a window when a point on the map or a row in the table is picked; its
-  inputs are the `fields` (every attribute when absent); a save changes the rows on screen and
-  writes nothing to the endpoint. Add one whenever the person asks for a form, a popup, an
-  edit window or a dialog.
+  inputs are the `fields` (every attribute when absent), each drawn from the endpoint's field
+  schema in the user message (an enum is a select, a number keeps its bounds, a pattern and a
+  required mark are enforced); a save is one write through the endpoint with the person's own
+  access, and a `New` button creates an entity. A form is allowed only when the user message
+  says the application may write; `fields` name only attributes the field schema lists.
 - `page` on a view puts it on a named tab; views without `page` stay on every tab. Use pages
   only when the person asks for several pages or screens.
 - `stats.items[].attr` is required unless `agg` is `count`.
@@ -82,6 +84,15 @@ Rules the schema cannot say, checked before anything is shown:
   a `range` over the number the prompt cares about.
 - Titles in the language of the prompt; short.
 - Numbers only in `range`, `sum`, `avg`, `min`, `max`, `chart.y` (unless `agg` is `count`).
+
+## WHEN THE PERSON ASKS TO EDIT, UPDATE OR MANAGE ENTITIES
+
+Pair a `table` and a `form` on the same source: the table lists the entities with the
+attributes a person scans, the form's `fields` are the attributes the person is meant to
+change (the note, the status, the count; never `id`, `type` or a GeoProperty), and a row
+picked in the table opens in the form. Put a `stats` row above when a count matters. When the
+user message says the application may NOT write, build the read-only screens, add no form,
+and say in the sentences before the block that editing needs write access in the data needs.
 
 ## WHEN THE VIEWS ARE NOT ENOUGH
 
@@ -166,6 +177,10 @@ struct Driver {
     project: String,
     prompt: String,
     data_needs: Value,
+    /// The endpoint the application reads and, with a write need, writes through (AP-62).
+    endpoint_slug: String,
+    /// Whether the data needs carry a write operation: what makes a `form` view allowed.
+    allows_write: bool,
     bearer: String,
     proxy_base: String,
     model: String,
@@ -201,6 +216,8 @@ pub fn spawn(
         project: run.project.clone(),
         prompt: run.prompt.clone(),
         data_needs: run.data_needs.clone(),
+        endpoint_slug: run.endpoint_slug.clone(),
+        allows_write: run.allows_write,
         bearer: format!("jcr_{}.{ticket}", run.id),
         proxy_base: proxy_base.trim_end_matches('/').to_owned(),
         model: profile.model_name.clone(),
@@ -416,11 +433,10 @@ impl Driver {
                 "the answer carried no SEARCH/REPLACE block; write spec.json as one block with an empty SEARCH".to_owned(),
             ),
             None => errors.push("spec.json was not written".to_owned()),
-            Some(text) => {
-                if let Err(problems) = kit::parse(text) {
-                    errors.extend(problems);
-                }
-            }
+            Some(text) => match kit::parse(text) {
+                Err(problems) => errors.extend(problems),
+                Ok(spec) => errors.extend(self.form_errors(&spec)),
+            },
         }
         if !errors.is_empty() {
             errors.extend(
@@ -463,7 +479,38 @@ impl Driver {
         pack.push_str(&serde_json::to_string_pretty(&self.data_needs).unwrap_or_default());
         pack.push_str("\n```\n\nSample entities per type (`options=keyValues`):\n```json\n");
         pack.push_str(&serde_json::to_string_pretty(samples).unwrap_or_default());
-        pack.push_str("\n```\n\n## THE CURRENT FILES\n\n");
+        pack.push_str("\n```\n\n## THE FIELDS A FORM MAY EDIT\n\n");
+        if self.allows_write {
+            // The field schema of AP-61: the same one the preview inlines for the kit's form.
+            let schema = fields::for_endpoint(
+                &self.state,
+                &self.project,
+                &self.endpoint_slug,
+                &self.types(),
+            );
+            pack.push_str(
+                "This application MAY write: its data needs carry a write operation, so a `form` \
+                 view saves through the endpoint. The attributes per type as the space's \
+                 DataModel declares them (JSON Schema properties: type, enum, minimum, maximum, \
+                 pattern; `required` lists the mandatory ones):\n```json\n",
+            );
+            match schema {
+                Some(schema) => {
+                    pack.push_str(&serde_json::to_string_pretty(&schema).unwrap_or_default())
+                }
+                None => pack.push_str(
+                    "{}\n(the space has no inline DataModel: take the kinds from the samples)",
+                ),
+            }
+            pack.push_str("\n```");
+        } else {
+            pack.push_str(
+                "This application may NOT write: its data needs carry no write operation. Add \
+                 no `form` view; when the person asks to edit, say that editing needs write \
+                 access in the data needs.",
+            );
+        }
+        pack.push_str("\n\n## THE CURRENT FILES\n\n");
         // Only what the model may write. The rows of the preview live beside the specification
         // in the same map, and a hundred kilobytes of them in the prompt is a minute of reading.
         let visible: Vec<(&String, &String)> = files
@@ -610,6 +657,71 @@ impl Driver {
     }
 
     /// The entity types the data needs name, in order, once each.
+    /// What the schema and the kit's own checks cannot say about a `form` (AP-61, AP-62): it
+    /// needs an application that may write, and its fields are attributes the data needs
+    /// declare for that type, so a form never edits what the endpoint never granted.
+    fn form_errors(&self, spec: &kit::Spec) -> Vec<String> {
+        let mut errors = Vec::new();
+        for (index, view) in spec.views.iter().enumerate() {
+            let kit::View::Form { source, fields, .. } = view else {
+                continue;
+            };
+            let path = format!("views[{index}]");
+            if !self.allows_write {
+                errors.push(format!(
+                    "{path}: a form writes through the endpoint and this application may not write (no write operation in its data needs); remove the form"
+                ));
+                continue;
+            }
+            let source = spec
+                .sources
+                .iter()
+                .find(|s| Some(s.name.as_str()) == source.as_deref())
+                .or(spec.sources.first());
+            let Some(source) = source else {
+                continue;
+            };
+            let declared = self.need_attrs(&source.entity_type);
+            for (i, field) in fields.iter().flatten().enumerate() {
+                if !declared.iter().any(|attr| attr == field) {
+                    errors.push(format!(
+                        "{path}.fields[{i}]: '{field}' is not an attribute the data needs declare for {}",
+                        source.entity_type
+                    ));
+                }
+            }
+        }
+        errors
+    }
+
+    /// The attributes the data needs declare for one type.
+    fn need_attrs(&self, entity_type: &str) -> Vec<String> {
+        let mut attrs = Vec::new();
+        for need in self.data_needs.as_array().into_iter().flatten() {
+            let names = need
+                .get("types")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str);
+            if !names.into_iter().any(|t| t == entity_type) {
+                continue;
+            }
+            for attr in need
+                .get("attrs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                if !attrs.iter().any(|known| known == attr) {
+                    attrs.push(attr.to_owned());
+                }
+            }
+        }
+        attrs
+    }
+
     fn types(&self) -> Vec<String> {
         let mut types: Vec<String> = Vec::new();
         for need in self.data_needs.as_array().into_iter().flatten() {
