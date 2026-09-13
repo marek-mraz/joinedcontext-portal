@@ -557,13 +557,25 @@ async fn mcp_resources_list_and_read_manifests_drafts_and_schemas() {
         .iter()
         .filter_map(|r| r["uri"].as_str())
         .collect();
-    assert!(uris.contains(&"jc://ovzdusie/endpoints/public-air"), "{uris:?}");
-    assert!(uris.contains(&"jc://ovzdusie/drafts/DataSource/hsy-air"), "{uris:?}");
+    assert!(
+        uris.contains(&"jc://ovzdusie/endpoints/public-air"),
+        "{uris:?}"
+    );
+    assert!(
+        uris.contains(&"jc://ovzdusie/drafts/DataSource/hsy-air"),
+        "{uris:?}"
+    );
     assert!(uris.contains(&"jc://schemas/Endpoint"), "{uris:?}");
 
     for (uri, needle) in [
-        ("jc://ovzdusie/endpoints/public-air", "publicair00000000000000000000"),
-        ("jc://ovzdusie/drafts/DataSource/hsy-air", "https://example.org/air"),
+        (
+            "jc://ovzdusie/endpoints/public-air",
+            "publicair00000000000000000000",
+        ),
+        (
+            "jc://ovzdusie/drafts/DataSource/hsy-air",
+            "https://example.org/air",
+        ),
         ("jc://schemas/Endpoint", "\"properties\""),
     ] {
         let read = rpc(
@@ -594,7 +606,10 @@ async fn mcp_resources_list_and_read_manifests_drafts_and_schemas() {
         json!({ "jsonrpc": "2.0", "id": 5, "method": "resources/list", "params": { "project": "ovzdusie" } }),
     )
     .await;
-    assert_eq!(listed["result"]["resources"].as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        listed["result"]["resources"].as_array().map(Vec::len),
+        Some(0)
+    );
     let read = rpc(
         app,
         &stranger,
