@@ -306,7 +306,9 @@ export function PipelineStudio({
     onChange({
       ...draft,
       name: params.name,
-      class: "scheduled",
+      // The reconciler picks the class from the cadence (PL-26): a period alone is a resident
+      // stream that polls, and `scheduled` would demand a cron schedule the preset has not got.
+      class: "auto",
       period: params.period,
       source: {
         ...draft?.source,
@@ -354,7 +356,7 @@ export function PipelineStudio({
     const kpiForm: PipelineForm = {
       ...draft,
       name: kpiName,
-      class: "scheduled",
+      class: "auto",
       period: kpiPeriod,
       source: {
         ...draft?.source,
