@@ -161,6 +161,8 @@ describe("PipelineStudio KPI preset", () => {
     expect(lastForm.targetEndpoint).toContain("kpi-writer");
     expect(lastForm.compute?.bloblang).toContain("availableBikeNumber");
     expect(lastForm.compute?.bloblang).toContain('"C62"');
+    // The broker refuses a nanosecond observedAt, so the preset stamps whole seconds.
+    expect(lastForm.compute?.bloblang).toContain('now().ts_format("2006-01-02T15:04:05Z")');
   });
 
   it("clicking the test button POSTs the sample url and shows the computed value", async () => {

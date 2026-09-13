@@ -90,7 +90,9 @@ export function kpiBloblang(params: {
   return [
     `let domain = env("JC_ORG_DOMAIN")`,
     filterLine.trimEnd(),
-    `let now = now()`,
+    // Whole seconds: the broker refuses an observedAt with a nanosecond fraction, and a 15-minute
+    // indicator does not need one (Architecture/08).
+    `let now = now().ts_format("2006-01-02T15:04:05Z")`,
     `root.id = "urn:ngsi-ld:KeyPerformanceIndicator:%v:${project}-kpi:${kpiName}".format($domain)`,
     `root.type = "KeyPerformanceIndicator"`,
     `root.name = { "type": "Property", "value": "${kpiName}" }`,
