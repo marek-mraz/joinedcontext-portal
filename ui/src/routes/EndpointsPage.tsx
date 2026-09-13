@@ -706,7 +706,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             {t("endpoints.publicNotice")}
           </Alert>
         ) : null}
-        {editing && !isNew ? (
+        {editing?.slug ? (
+          // A new endpoint has no published schema yet, so the panel offers the typed name
+          // (UI-31): an attribute is hidden from the first approval, not after a second one.
           <SchemaProjectionPanel slug={editing.slug} hidden={hidden} onHiddenChange={setHidden} />
         ) : null}
       </ResourceFormDialog>

@@ -262,6 +262,32 @@ describe("endpoint projection ui", () => {
     ]);
   });
 
+  it("offers the typed hide on a new endpoint as soon as it has a slug (UI-31)", async () => {
+    const fetchMock = renderEndpoints();
+    await screen.findByText("public-air");
+    await userEvent.click(screen.getByRole("button", { name: en.endpoints.add }));
+    // The new endpoint opens with a generated slug, so the panel is there from the start.
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(dialog.querySelector("#root_name") as HTMLElement, "bikes-regional");
+    await userEvent.selectOptions(dialog.querySelector("#root_contextSpaceRef") as HTMLElement, "ovzdusie");
+    await userEvent.selectOptions(dialog.querySelector("#root_audience") as HTMLElement, "public");
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "geojson" }));
+    await userEvent.type(
+      await within(dialog).findByLabelText(en.endpoints.projection.addHidden),
+      "source",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: en.endpoints.projection.add }),
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const body = (await writes(fetchMock)[0].clone().json()) as {
+      spec: { projection?: { hiddenAttributes: string[] } };
+    };
+    expect(body.spec.projection?.hiddenAttributes).toEqual(["source"]);
+  });
+
   it("previews another formalism from the version the schema index names (EP-46, EP-49)", async () => {
     renderEndpoints();
     const dialog = await openEditor();
