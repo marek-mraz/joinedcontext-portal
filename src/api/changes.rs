@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 use crate::auth::CurrentUser;
 use crate::change::{self, Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, Operation};
 use crate::error::{ApiError, ProblemDetails};
-use crate::git::{GiteaClient, MergeStyle, PullRequest, ReviewEvent};
+use crate::git::{GitError, GiteaClient, MergeStyle, PullRequest, ReviewEvent};
 use crate::plan::{self, FieldChange, PlanDiff};
 use crate::resource::ResourceEnvelope;
 use crate::state::AppState;
@@ -686,9 +686,19 @@ pub async fn approve_change(
         "Merge change proposal {id}: {}\n\nApproved in the Portal by {approver}",
         pr.title
     );
-    gitea
-        .merge(pr_number, MergeStyle::Squash, &merge_msg)
-        .await?;
+    // Gitea checks a fresh pull's mergeability in the background and answers 405 "Please try
+    // again later" until it has; an approval that follows the proposal within seconds (the
+    // demo's, a script's) waits it out instead of failing.
+    let mut attempt = 0;
+    loop {
+        match gitea.merge(pr_number, MergeStyle::Squash, &merge_msg).await {
+            Err(GitError::Api { status: 405, .. }) if attempt < 15 => {
+                attempt += 1;
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            other => break other?,
+        }
+    }
 
     if let Some(syncer) = state.syncer.as_ref() {
         let syncer = syncer.clone();
@@ -1093,6 +1103,18 @@ mod tests {
             .mount(&server)
             .await;
 
+        // Gitea's mergeability check is still running for the first merge attempt (405); the
+        // approval waits and the second attempt lands.
+        Mock::given(method("POST"))
+            .and(path("/api/v1/repos/test-owner/test-repo/pulls/2/merge"))
+            .respond_with(
+                ResponseTemplate::new(405)
+                    .set_body_json(json!({"message": "Please try again later"})),
+            )
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
         Mock::given(method("POST"))
             .and(path("/api/v1/repos/test-owner/test-repo/pulls/2/merge"))
             .and(wiremock::matchers::body_string_contains(
