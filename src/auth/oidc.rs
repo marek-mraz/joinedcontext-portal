@@ -478,11 +478,29 @@ pub struct Me {
         (status = 401, description = "No live session", body = crate::error::ProblemDetails)
     )
 )]
-pub async fn me(user: crate::auth::CurrentUser, front: session::Front) -> Json<Me> {
-    Json(Me {
-        identity: user.0.identity,
-        front,
-    })
+pub async fn me(
+    user: crate::auth::CurrentUser,
+    front: session::Front,
+    jar: CookieJar,
+) -> (CookieJar, Json<Me>) {
+    (
+        csrf_for_edge(front, jar),
+        Json(Me {
+            identity: user.0.identity,
+            front,
+        }),
+    )
+}
+
+/// An edge session never passes the Portal's callback, the one place the double-submit cookie is
+/// minted, so the first `/auth/me` of such a session issues it; the check on every mutation stays
+/// the same for every front (ADR-N-019, AP-28, PF-50).
+fn csrf_for_edge(front: session::Front, jar: CookieJar) -> CookieJar {
+    if front == session::Front::Edge && jar.get(csrf::CSRF_COOKIE).is_none() {
+        csrf::issue(jar).0
+    } else {
+        jar
+    }
 }
 
 /// The URL the browser must visit to finish an RP-initiated logout at Keycloak.

@@ -665,6 +665,57 @@ async fn me_with(app: axum::Router, headers: &[(&str, String)]) -> (StatusCode, 
     (status, serde_json::from_slice(&body).unwrap_or(json!(null)))
 }
 
+/// T-0621, AP-28, PF-50: an edge session never passes the Portal's callback, so `/auth/me` is
+/// where its double-submit cookie comes from; a session that has one, or a Portal session, gets none.
+#[tokio::test]
+async fn me_issues_the_csrf_cookie_to_an_edge_session_that_lacks_one() {
+    let realm = realm().await;
+    let app = app_behind(&realm, true).await;
+    let token = keys::token(
+        jsonwebtoken::Algorithm::RS256,
+        &issuer_of(&realm),
+        "demo.steward",
+        300,
+    );
+    let me = |headers: Vec<(&'static str, String)>| {
+        let app = app.clone();
+        async move {
+            let mut request = Request::builder().uri("/api/v1/auth/me");
+            for (name, value) in headers {
+                request = request.header(name, value);
+            }
+            app.oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+        }
+    };
+
+    let response = me(vec![("x-access-token", token.clone())]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookies = set_cookie_values(&response);
+    let csrf = cookies
+        .iter()
+        .find(|c| c.starts_with("jc_csrf="))
+        .unwrap_or_else(|| panic!("an edge session is handed the CSRF cookie: {cookies:?}"));
+    assert!(csrf.contains("Secure") && csrf.contains("Path=/"), "{csrf}");
+    assert!(!csrf.contains("HttpOnly"), "the UI must read it: {csrf}");
+    let value = csrf.split(';').next().unwrap().to_string();
+
+    let response = me(vec![("x-access-token", token.clone()), ("cookie", value)]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        set_cookie_values(&response).is_empty(),
+        "a session that has the cookie keeps it"
+    );
+
+    let response = me(vec![("authorization", format!("Bearer {token}"))]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        set_cookie_values(&response).is_empty(),
+        "a bearer caller has no page to echo a cookie from"
+    );
+}
+
 /// ADR-N-019, AP-28: behind the edge the user's token arrives as `X-Access-Token` and is
 /// verified exactly as `Authorization: Bearer` would be; `me` says which front it came through.
 #[tokio::test]
