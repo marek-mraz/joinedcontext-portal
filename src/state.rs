@@ -14,7 +14,7 @@ use crate::auth::oidc::OidcClient;
 use crate::auth::session::Session;
 use crate::config::Config;
 use crate::git::GiteaClient;
-use crate::reconciler::{Leadership, Syncer};
+use crate::reconciler::{Leadership, StreamDeployer, Syncer};
 use crate::store::Mirror;
 
 #[derive(Clone)]
@@ -173,6 +173,11 @@ impl AppState {
                     tracing::warn!(error = %err, "the ServiceAccount mount is unreadable, so no app is deployed")
                 }
                 _ => tracing::info!("no app settings or no cluster: apps are read, not deployed"),
+            }
+            if let Some(url) = state.config.pipeline_runner_url.clone() {
+                syncer = syncer.with_streams(Arc::new(StreamDeployer::new(url)));
+            } else {
+                tracing::info!("no pipeline runner: DataSource pipelines stay Pending");
             }
             // The `SyncSource` loop needs the forge and a way out to the origins. Without the
             // second there is no loop at all: a driver that cannot fetch would report every

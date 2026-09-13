@@ -25,6 +25,9 @@ use tokio::sync::Mutex;
 use utoipa::ToSchema;
 
 use super::leader::Leadership;
+use super::streams::{
+    eligible, is_data_source_pipeline, make_condition, StreamDeployer, StreamOutcome,
+};
 use crate::apps::converge::{Converger, Outcome};
 use crate::git::{Author, FileWrite, GitError, GiteaClient};
 use crate::resource::ResourceEnvelope;
@@ -80,6 +83,7 @@ pub struct Syncer {
     /// `None` when this Portal applies no app objects: outside a cluster, or without the
     /// settings that say which namespace they belong in (T-0411, AP-18).
     converger: Option<Arc<Converger>>,
+    streams: Option<Arc<StreamDeployer>>,
 }
 
 impl Syncer {
@@ -94,7 +98,14 @@ impl Syncer {
             running: Arc::new(Mutex::new(())),
             leadership: None,
             converger: None,
+            streams: None,
         }
+    }
+
+    /// Deploys Bento streams for approved DataSource pipelines on each run (PL-47).
+    pub fn with_streams(mut self, deployer: Arc<StreamDeployer>) -> Self {
+        self.streams = Some(deployer);
+        self
     }
 
     /// Makes this replica compete for the reconciler role instead of assuming it (CC-03).
@@ -266,6 +277,80 @@ impl Syncer {
             return Err(SyncError::Empty(
                 "no resource of a known kind in the staged manifests".to_string(),
             ));
+        }
+
+        // 5b. Deploy resident streams for eligible DataSource pipelines (PL-47).
+        if let Some(deployer) = self.streams.as_ref() {
+            for (ns, name, outcome) in deployer.converge(&fresh_mirror).await {
+                let Some(mut envelope) = fresh_mirror.get(&ns, "Pipeline", &name) else {
+                    continue;
+                };
+                let is_ds = serde_json::from_value::<jc_core::kinds::pipeline::PipelineSpec>(
+                    envelope.spec.clone(),
+                )
+                .map(|s| is_data_source_pipeline(&s))
+                .unwrap_or(false);
+
+                match outcome {
+                    StreamOutcome::Live => {
+                        if let Some(status) = envelope.status.as_mut() {
+                            status.phase = crate::resource::Phase::Live;
+                            status.conditions.clear();
+                        }
+                        fresh_mirror.upsert(envelope);
+                    }
+                    StreamOutcome::Error(err) => {
+                        if let Some(status) = envelope.status.as_mut() {
+                            status.phase = crate::resource::Phase::Error;
+                            status.conditions = vec![make_condition(
+                                "StreamDeployed",
+                                "False",
+                                "RunnerRefused",
+                                &err,
+                            )];
+                        }
+                        fresh_mirror.upsert(envelope);
+                    }
+                    StreamOutcome::Skipped(why) => {
+                        if is_ds {
+                            if let Some(status) = envelope.status.as_mut() {
+                                status.phase = crate::resource::Phase::Pending;
+                                let reason = if why.contains("disabled") || why.contains("paused") {
+                                    "Paused"
+                                } else {
+                                    "Skipped"
+                                };
+                                status.conditions =
+                                    vec![make_condition("StreamDeployed", "False", reason, why)];
+                            }
+                            fresh_mirror.upsert(envelope);
+                        }
+                    }
+                }
+            }
+        } else {
+            for ns in fresh_mirror.namespaces() {
+                let page =
+                    fresh_mirror.list(&ns, "Pipeline", &crate::store::ListOptions::default());
+                for mut envelope in page.items {
+                    if let Ok(spec) = serde_json::from_value::<jc_core::kinds::pipeline::PipelineSpec>(
+                        envelope.spec.clone(),
+                    ) {
+                        if eligible(&spec) {
+                            if let Some(status) = envelope.status.as_mut() {
+                                status.phase = crate::resource::Phase::Pending;
+                                status.conditions = vec![make_condition(
+                                    "StreamDeployed",
+                                    "False",
+                                    "NoRunner",
+                                    "no pipeline runner is configured (JC_PORTAL_PIPELINE_RUNNER_URL)",
+                                )];
+                            }
+                            fresh_mirror.upsert(envelope);
+                        }
+                    }
+                }
+            }
         }
 
         self.mirror.replace_all(&fresh_mirror);

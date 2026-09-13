@@ -9,6 +9,8 @@
 
 pub mod daemon;
 pub mod leader;
+pub mod streams;
 
 pub use daemon::{SyncError, SyncStatus, Syncer};
 pub use leader::Leadership;
+pub use streams::{StreamDeployer, StreamOutcome};
