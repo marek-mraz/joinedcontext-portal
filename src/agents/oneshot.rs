@@ -21,7 +21,7 @@ use crate::agents::patch;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
-use crate::agents::{fields, share};
+use crate::agents::{fields, kpi, share};
 use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::state::AppState;
 
@@ -134,6 +134,30 @@ fenced JSON block, nothing else, in this shape:
 `audience` is "project-list" unless the person says the whole organization ("organization") or
 everyone ("public"). The platform mints the slug, renders the manifests and opens the form;
 the person submits. Write no SEARCH/REPLACE block in that answer.
+
+## WHEN THE PERSON ASKS FOR AN INDICATOR, A KPI OR ONE NUMBER OVER THE DATA
+
+"What is the average PM10", "how many stations are closed", "define a KPI for free bikes": the
+platform computes it, not you. Answer with one or two plain sentences and then ONE fenced JSON
+block, nothing else, in this shape:
+
+```json
+{{
+  "tool": "compute_kpi",
+  "name": "<a short lowercase name with dashes, e.g. average-pm10>",
+  "title": "<a title in the language of the request>",
+  "type": "<the entity type, exact name from the samples>",
+  "attribute": "<the attribute folded, exact name from the samples; empty for count>",
+  "agg": "avg | sum | count | min | max",
+  "unit": "<a UN/CEFACT common code when the value has a unit, e.g. GQ for µg/m³, C62 for a count>",
+  "q": "<an NGSI-LD filter narrowing the entities, or omit it>"
+}}
+```
+
+The platform reads the entities through the endpoint, computes the value, renders the
+`KeyPerformanceIndicator` entity with its formula and provenance, and shows it to the person,
+who writes it into the project's indicator space themselves. Write no SEARCH/REPLACE block in
+that answer.
 
 ## THE FORMAT RULES
 
@@ -336,6 +360,11 @@ impl Driver {
         // and handed to the endpoint form; the dashboard stays as it was.
         if let Some(call) = share::tool_call(&answer) {
             return self.share(call, &answer).await.map(Some);
+        }
+        // An indicator is computed here, shown, and written by the person (PF-55): the
+        // dashboard stays as it was.
+        if let Some(call) = kpi::tool_call(&answer) {
+            return self.kpi(call, &answer).await.map(Some);
         }
         let (mut prose, mut errors) = self.apply(files, &answer).await?;
         if !errors.is_empty() {
@@ -922,6 +951,143 @@ impl Driver {
     /// The `propose_endpoint` tool: the manifests rendered and published as a step, then a
     /// `navigate` that opens the endpoint form with them (EP-72, UI-45). A request that cannot
     /// be rendered is a failed step the person reads in the chat; nothing is written either way.
+    /// The KPI step (T-0583, PF-54, PF-55): the entities read through the proxy like a
+    /// sample, the aggregate computed, the indicator rendered and handed over as a `tool`
+    /// event; the card the person sees carries the write, with their own session.
+    async fn kpi(
+        &self,
+        call: Result<kpi::ComputeKpi, String>,
+        answer: &str,
+    ) -> Result<String, String> {
+        let started = std::time::Instant::now();
+        let millis = |started: std::time::Instant| {
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+        };
+        let failed = |reason: String| {
+            json!({
+                "tool": "compute_kpi",
+                "status": "failed",
+                "durationMs": millis(started),
+                "error": reason,
+            })
+        };
+        let params = match call {
+            Ok(params) => params,
+            Err(reason) => {
+                self.event("tool", failed(reason.clone())).await?;
+                let prose = format!("The indicator request could not be read: {reason}");
+                self.thought(&prose).await?;
+                return Ok(prose);
+            }
+        };
+        let input = serde_json::to_value(&params).unwrap_or(Value::Null);
+        let mut url = format!(
+            "{}/v1/data/ngsi-ld/v1/entities?type={}&options=keyValues&limit=1000",
+            self.proxy_base,
+            urlencoding(&params.entity_type)
+        );
+        if !params.attribute.is_empty() {
+            url.push_str(&format!("&attrs={}", urlencoding(&params.attribute)));
+        }
+        if let Some(q) = params.q.as_deref().filter(|q| !q.trim().is_empty()) {
+            url.push_str(&format!("&q={}", urlencoding(q)));
+        }
+        let rows = match self.read_entities(&url).await {
+            Ok(Value::Array(rows)) => rows,
+            Ok(_) => Vec::new(),
+            Err(reason) => {
+                self.event("tool", failed(reason.clone())).await?;
+                let prose = format!("The entities could not be read: {reason}");
+                self.thought(&prose).await?;
+                return Ok(prose);
+            }
+        };
+        let (value, count) = kpi::compute(&rows, &params.attribute, params.agg);
+        let Some(value) = value else {
+            let reason = format!(
+                "no {} carries a number in '{}' ({} read)",
+                params.entity_type,
+                params.attribute,
+                rows.len()
+            );
+            self.event("tool", failed(reason.clone())).await?;
+            let prose = format!("The indicator has no value: {reason}.");
+            self.thought(&prose).await?;
+            return Ok(prose);
+        };
+        // The source endpoint, by its slug, for the provenance; the indicator space's
+        // endpoint, when the project has one, for the card's write.
+        let source = self
+            .state
+            .mirror
+            .list(
+                &self.project,
+                "Endpoint",
+                &crate::store::ListOptions::default(),
+            )
+            .items
+            .into_iter()
+            .find(|env| env.spec["slug"].as_str() == Some(self.endpoint_slug.as_str()));
+        let (endpoint_name, endpoint_space) = match &source {
+            Some(env) => (
+                env.metadata.name.clone(),
+                crate::api::assistant::ref_name(&env.spec["contextSpaceRef"])
+                    .unwrap_or_else(|| self.project.clone()),
+            ),
+            None => (self.project.clone(), self.project.clone()),
+        };
+        let now = now_rfc3339();
+        let provenance = kpi::Provenance {
+            org_domain: &crate::api::assistant::org_domain(&self.state, &self.project),
+            project: &self.project,
+            endpoint_space: &endpoint_space,
+            endpoint_name: &endpoint_name,
+            run_id: &self.run_id,
+            now: &now,
+        };
+        let indicator = match kpi::entity(&params, value, &provenance) {
+            Ok(indicator) => indicator,
+            Err(reason) => {
+                self.event("tool", failed(reason.clone())).await?;
+                let prose = format!("The indicator could not be rendered: {reason}");
+                self.thought(&prose).await?;
+                return Ok(prose);
+            }
+        };
+        let target = kpi::kpi_endpoint(&self.state, &self.project);
+        self.event(
+            "tool",
+            json!({
+                "tool": "compute_kpi",
+                "status": "ok",
+                "durationMs": millis(started),
+                "input": input,
+                "output": {
+                    "name": params.name,
+                    "title": params.title,
+                    "value": value,
+                    "unit": params.unit,
+                    "formula": kpi::formula(&params),
+                    "count": count,
+                    "space": jc_core::kpi::kpi_space(&self.project),
+                    "endpointSlug": target.as_ref().map(|(slug, _)| slug.clone()),
+                    "endpointName": target.as_ref().map(|(_, name)| name.clone()),
+                    "entity": indicator.to_json(),
+                },
+            }),
+        )
+        .await?;
+        let mut prose = share::prose_of(answer);
+        if prose.is_empty() {
+            prose = format!(
+                "{} = {value} over {count} entities; write it into the indicator space from the card.",
+                kpi::formula(&params)
+            );
+        }
+        self.thought(&prose).await?;
+        Ok(prose)
+    }
+
     async fn share(
         &self,
         call: Result<share::ProposeEndpoint, String>,

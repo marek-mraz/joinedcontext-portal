@@ -266,7 +266,7 @@ pub fn render(
     })
 }
 
-static TOOL_FENCE: LazyLock<regex::Regex> = LazyLock::new(|| {
+pub(crate) static TOOL_FENCE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?s)```(?:json)?\s*(\{.*?\})\s*```").expect("a literal pattern")
 });
 

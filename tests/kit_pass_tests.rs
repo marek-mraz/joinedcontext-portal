@@ -151,6 +151,12 @@ fn mirror(provider: &str) -> Arc<Mirror> {
         }),
     ));
     mirror.upsert(envelope(
+        "Organization",
+        "hel",
+        "org",
+        json!({ "domain": "hel.fi", "locales": ["en"], "defaultLocale": "en" }),
+    ));
+    mirror.upsert(envelope(
         "ContextSpace",
         "helsinki",
         PROJECT,
@@ -1195,4 +1201,95 @@ async fn a_form_in_an_app_that_may_not_write_is_sent_back_for_repair() {
         "{}",
         requests[1]
     );
+}
+
+/// T-0583 (PF-54, PF-55, UI-17): an indicator asked for in the chat is computed from what the
+/// endpoint serves, rendered with its provenance, handed over as a `tool` step for the card,
+/// and written by nobody: the run's files and the preview stay as they were.
+#[tokio::test]
+async fn a_kpi_request_is_computed_from_the_endpoint_and_handed_to_the_person() {
+    let call = "Average free bikes across the stations, as an indicator.\n\n```json\n{\"tool\":\"compute_kpi\",\"name\":\"average-free-bikes\",\"title\":\"Average free bikes\",\"type\":\"BikeHireDockingStation\",\"attribute\":\"availableBikeNumber\",\"agg\":\"avg\",\"unit\":\"C62\"}\n```";
+    let (app, cookie, proxy) = portal(
+        "anthropic",
+        &[
+            answer("A dashboard.", &[("spec.json", "", VALID_SPEC)]),
+            call.to_owned(),
+        ],
+    )
+    .await;
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
+    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let before = events(&app, &cookie, &id).await.len();
+
+    let (status, _) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": "What is the average number of free bikes? Make it a KPI." })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let log = loop {
+        let log = events(&app, &cookie, &id).await;
+        if log.len() > before
+            && log
+                .iter()
+                .any(|(kind, payload)| kind == "tool" && payload["tool"] == "compute_kpi")
+        {
+            break log;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let (_, step) = log
+        .iter()
+        .find(|(kind, payload)| kind == "tool" && payload["tool"] == "compute_kpi")
+        .expect("the kpi step");
+    assert_eq!(step["status"], "ok", "{step}");
+    let output = &step["output"];
+    // The preview rows the proxy serves: 7 and 2 free bikes.
+    assert_eq!(output["value"], 4.5);
+    assert_eq!(output["count"], 2);
+    assert_eq!(output["space"], "helsinki-kpi");
+    assert_eq!(
+        output["formula"],
+        "avg(availableBikeNumber) over BikeHireDockingStation"
+    );
+    assert!(
+        output["endpointSlug"].is_null(),
+        "no indicator endpoint in this mirror"
+    );
+    let entity = &output["entity"];
+    assert_eq!(
+        entity["id"],
+        "urn:ngsi-ld:KeyPerformanceIndicator:hel.fi:helsinki-kpi:average-free-bikes"
+    );
+    assert_eq!(
+        entity["derivedFrom"]["object"],
+        "urn:ngsi-ld:Endpoint:hel.fi:helsinki:helsinki-bikes"
+    );
+    assert_eq!(
+        entity["computedBy"]["object"],
+        format!("urn:ngsi-ld:AgentRun:hel.fi:helsinki:{id}")
+    );
+    assert_eq!(entity["currentValue"]["unitCode"], "C62");
+    // Nothing was written anywhere: no POST reached the proxy's data route, and the
+    // dashboard's preview count did not move.
+    let writes = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.method == "POST" && r.url.path().starts_with("/v1/data/"))
+        .count();
+    assert_eq!(writes, 0, "the assistant writes no entity (AG-20)");
+    assert_eq!(log.iter().filter(|(kind, _)| kind == "preview").count(), 1);
+    assert!(log.iter().any(|(kind, payload)| kind == "thought"
+        && payload["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("Average free bikes"))));
 }

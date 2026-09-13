@@ -3,6 +3,7 @@
 pub mod events;
 pub mod fields;
 pub mod kit;
+pub mod kpi;
 pub mod kube;
 pub mod needs;
 pub mod oneshot;

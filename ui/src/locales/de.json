@@ -1112,6 +1112,21 @@
       "review": "Prüfen und vorschlagen",
       "failed": "Der Vorschlag konnte nicht gerendert werden: {reason}",
       "projects": "geteilt mit {projects}"
+    },
+    "kpi": {
+      "title": "Indikator",
+      "lead": "Berechnet aus den Entitäten, die der Endpoint liefert. In den Indikator-Raum {space} wird erst nach dem Klick geschrieben, mit Ihrem eigenen Zugang; die Policy des Raums entscheidet.",
+      "formula": "Formel",
+      "count": "über",
+      "entities": "{count} Entitäten",
+      "id": "id",
+      "write": "In den KPI-Raum schreiben",
+      "writing": "Wird geschrieben…",
+      "written": "In den Indikator-Raum geschrieben.",
+      "view": "Im KPI-Raum ansehen",
+      "refused": "Der Indikator-Raum hat den Schreibvorgang abgelehnt (Status {status}).",
+      "noEndpoint": "Der Indikator-Raum {space} hat noch keinen Endpoint; veröffentlichen Sie einen, um Indikatoren zu schreiben.",
+      "openEndpoints": "Endpoints öffnen"
     }
   },
   "assistant": {

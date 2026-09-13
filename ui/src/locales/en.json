@@ -1112,6 +1112,21 @@
       "review": "Review & propose",
       "failed": "The proposal could not be rendered: {reason}",
       "projects": "shared with {projects}"
+    },
+    "kpi": {
+      "title": "Indicator",
+      "lead": "Computed from the entities the endpoint serves. It is written into the indicator space {space} only when you click, with your own access; the space's policy decides.",
+      "formula": "formula",
+      "count": "over",
+      "entities": "{count} entities",
+      "id": "id",
+      "write": "Write to KPI space",
+      "writing": "Writing…",
+      "written": "Written to the indicator space.",
+      "view": "View in KPI space",
+      "refused": "The indicator space refused the write (status {status}).",
+      "noEndpoint": "The indicator space {space} has no endpoint yet; publish one to write indicators.",
+      "openEndpoints": "Open endpoints"
     }
   },
   "assistant": {

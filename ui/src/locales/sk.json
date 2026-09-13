@@ -1112,6 +1112,21 @@
       "review": "Skontrolovať a navrhnúť",
       "failed": "Návrh sa nepodarilo vykresliť: {reason}",
       "projects": "zdieľané s {projects}"
+    },
+    "kpi": {
+      "title": "Indikátor",
+      "lead": "Vypočítané z entít, ktoré endpoint poskytuje. Do priestoru indikátorov {space} sa zapíše až po kliknutí, s vaším prístupom; rozhoduje politika priestoru.",
+      "formula": "vzorec",
+      "count": "z",
+      "entities": "{count} entít",
+      "id": "id",
+      "write": "Zapísať do KPI priestoru",
+      "writing": "Zapisuje sa…",
+      "written": "Zapísané do priestoru indikátorov.",
+      "view": "Zobraziť v KPI priestore",
+      "refused": "Priestor indikátorov zápis odmietol (stav {status}).",
+      "noEndpoint": "Priestor indikátorov {space} zatiaľ nemá endpoint; publikujte ho, aby sa dali zapisovať indikátory.",
+      "openEndpoints": "Otvoriť endpointy"
     }
   },
   "assistant": {

@@ -7,6 +7,7 @@ import { openQuestions } from "./useAgentRun";
 import { ActionStep } from "./ActionStep";
 import { CatalogCards, catalogItemsOf } from "./CatalogCards";
 import { EndpointProposalCard, proposalOf } from "./EndpointProposalCard";
+import { KpiCard, kpiOf } from "./KpiCard";
 import type { RunEvent } from "./useAgentRun";
 
 /** Who a line came from. The three read differently, so they are drawn differently. */
@@ -167,12 +168,14 @@ export function ConversationPanel({
                 event.payload.tool === "search_catalog" ? catalogItemsOf(event.payload.output) : null;
               const proposal =
                 event.payload.tool === "propose_endpoint" ? proposalOf(event.payload.output) : null;
+              const kpi = event.payload.tool === "compute_kpi" ? kpiOf(event.payload.output) : null;
               return (
                 <li key={event.seq} className="space-y-2">
                   {found !== null ? <CatalogCards project={project} items={found} /> : null}
                   {proposal !== null ? (
                     <EndpointProposalCard project={project} proposal={proposal} />
                   ) : null}
+                  {kpi !== null ? <KpiCard project={project} kpi={kpi} /> : null}
                   <ActionStep event={event} live={live} onSend={onSend} />
                 </li>
               );
