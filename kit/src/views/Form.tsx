@@ -12,6 +12,7 @@ import { fieldOf } from "../write";
  */
 export function Form({ row, rows, fields, title, schema, creating, onSave, onClose }: { row: Row | null; rows: Row[]; fields: string[]; title?: string; schema?: TypeSchema; creating: boolean; onSave: (id: string | null, patch: Record<string, Cell>) => Promise<WriteResult>; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const form = useRef<HTMLFormElement>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [localId, setLocalId] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
@@ -29,8 +30,11 @@ export function Form({ row, rows, fields, title, schema, creating, onSave, onClo
   const specs: Record<string, Field> = Object.fromEntries(fields.map((f) => [f, fieldOf(f, schema, columnKind(rows, f))]));
   const idPrefix = rows[0]?.id.includes(":") ? rows[0].id.slice(0, rows[0].id.lastIndexOf(":") + 1) : "";
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  // The app runs in a frame sandboxed without `allow-forms` (AP-63), where the browser never
+  // starts a form submission, so no submit event ever reaches React: the Save button and the
+  // Enter key call this themselves, after the inputs' own validity check.
+  const submit = async () => {
+    if (!form.current?.reportValidity()) return;
     const patch: Record<string, Cell> = {};
     for (const field of fields) {
       const spec = specs[field];
@@ -85,7 +89,16 @@ export function Form({ row, rows, fields, title, schema, creating, onSave, onClo
       <p className="empty">Pick a point on the map or a row in the table to open the form.</p>
       <dialog ref={dialog} className="form-window" onClose={onClose} aria-label={title ?? "Form"}>
         {open && (
-          <form onSubmit={(e) => void submit(e)}>
+          <form
+            ref={form}
+            onSubmit={(e) => e.preventDefault()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && e.target instanceof HTMLInputElement) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+          >
             <h2>{title ?? (row ? "Entity" : "New entity")}</h2>
             {row ? (
               <p className="mono">{row.id}</p>
@@ -104,7 +117,7 @@ export function Form({ row, rows, fields, title, schema, creating, onSave, onClo
             {problem && <p role="alert" className="error">{problem}</p>}
             <div className="form-actions">
               <button type="button" onClick={onClose}>Close</button>
-              <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+              <button type="button" className="primary" disabled={saving} onClick={() => void submit()}>{saving ? "Saving…" : "Save"}</button>
             </div>
             <p className="form-note">Written through the endpoint with your own access; the Policy decides.</p>
           </form>

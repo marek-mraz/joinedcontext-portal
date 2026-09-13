@@ -108,6 +108,19 @@ describe("a save", () => {
     expect(screen.getAllByRole("cell").map((c) => c.textContent)).toContain("closed");
   });
 
+  it("also leaves on Enter in an input, and never with an input the schema refuses", async () => {
+    stubFetch();
+    await openForm();
+    fireEvent.change(screen.getByLabelText("availableBikeNumber"), { target: { value: "-1" } });
+    fireEvent.click(screen.getByText("Save"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText("availableBikeNumber"), { target: { value: "5" } });
+    fireEvent.keyDown(screen.getByLabelText("availableBikeNumber"), { key: "Enter" });
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].init.method).toBe("PATCH");
+  });
+
   it("the endpoint refuses stays on the form with the reason, and nothing reloads", async () => {
     stubFetch(403, { type: "about:blank", title: "Forbidden", status: 403, detail: "no policy grants a write of status here" });
     await openForm();
