@@ -1075,6 +1075,22 @@
       "agoMinutes": "{n} min",
       "agoHours": "{n} h",
       "agoDays": "{n} d"
+    },
+    "proposal": {
+      "title": "Endpunkt-Vorschlag",
+      "lead": "Der Assistent hat diese Veröffentlichung entworfen. Nichts wird angelegt, bis Sie das Formular absenden und die Änderung genehmigt ist.",
+      "slug": "Slug (von der Plattform erzeugt, nur lesbar)",
+      "audience": "Zielgruppe",
+      "representations": "Darstellungen",
+      "hidden": "verborgene Attribute",
+      "types": "Entitätstypen",
+      "lane": "Lane {lane}",
+      "policies": "Richtlinien-Entwürfe ({n})",
+      "copyPolicy": "Richtlinie als YAML kopieren",
+      "copied": "Kopiert",
+      "review": "Prüfen und vorschlagen",
+      "failed": "Der Vorschlag konnte nicht gerendert werden: {reason}",
+      "projects": "geteilt mit {projects}"
     }
   },
   "assistant": {

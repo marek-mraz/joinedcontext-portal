@@ -951,3 +951,109 @@ async fn a_cut_answer_is_refused_whole_and_the_chat_says_so() {
         "the first preview stands"
     );
 }
+
+#[tokio::test]
+async fn a_share_request_is_a_proposal_and_a_navigation_not_a_pass() {
+    let (app, cookie, proxy) = portal(
+        "anthropic",
+        &[
+            answer("Built.", &[("spec.json", "", VALID_SPEC)]),
+            concat!(
+                "Drafted the endpoint for the regional transport team, with the maintenance notes hidden.\n\n",
+                "```json\n",
+                "{\"tool\": \"propose_endpoint\", \"contextSpace\": \"helsinki\", \"name\": \"bikes-regional-transport\", ",
+                "\"title\": \"City bikes for the regional transport team\", \"allowedProjects\": [\"regional-transport\"], ",
+                "\"hiddenAttributes\": [\"maintenanceNote\"], \"entityTypes\": [\"BikeHireDockingStation\"]}\n",
+                "```\n"
+            )
+            .to_owned(),
+        ],
+    )
+    .await;
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
+    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let first = run["previewUrl"].as_str().unwrap().to_owned();
+
+    let (status, _) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": "Share the bike stations with the regional transport team, but hide the maintenance notes" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let mut all = Vec::new();
+    for _ in 0..200 {
+        all = events(&app, &cookie, &id).await;
+        if all.iter().any(|(kind, _)| kind == "navigate") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let tool = all
+        .iter()
+        .find(|(kind, payload)| kind == "tool" && payload["tool"] == json!("propose_endpoint"))
+        .expect("the proposal is a tool step (AG-56)");
+    assert_eq!(tool.1["status"], json!("ok"), "{}", tool.1);
+    assert_eq!(tool.1["output"]["lane"], json!("yellow"));
+    assert_eq!(tool.1["output"]["slug"].as_str().map(str::len), Some(26));
+    assert_eq!(
+        tool.1["output"]["endpoint"]["spec"]["projection"]["hiddenAttributes"],
+        json!(["maintenanceNote"])
+    );
+    assert_eq!(
+        tool.1["output"]["policies"][0]["spec"]["assignee"],
+        json!({ "kind": "group", "id": "regional-transport" })
+    );
+    let navigate = all
+        .iter()
+        .find(|(kind, _)| kind == "navigate")
+        .expect("the form is opened for the person (UI-45)");
+    assert_eq!(
+        navigate.1["route"],
+        json!(format!("/projects/{PROJECT}/endpoints"))
+    );
+    assert_eq!(
+        navigate.1["prefill"]["name"],
+        json!("bikes-regional-transport")
+    );
+    assert_eq!(navigate.1["prefill"]["audience"], json!("project-list"));
+    assert_eq!(
+        navigate.1["prefill"]["hiddenAttributes"],
+        json!(["maintenanceNote"])
+    );
+    assert_eq!(navigate.1["prefill"]["slug"], tool.1["output"]["slug"]);
+    assert!(
+        all.iter().any(|(kind, payload)| kind == "thought"
+            && payload["text"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("Drafted the endpoint for the regional"))),
+        "the sentences before the block are the chat line"
+    );
+
+    let (_, run) = json(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        run["previewUrl"],
+        json!(first),
+        "the dashboard did not move: {run}"
+    );
+    assert_eq!(run["status"], json!("previewing"));
+    assert_eq!(
+        model_requests(&proxy).await.len(),
+        2,
+        "no repair call for a tool answer"
+    );
+}

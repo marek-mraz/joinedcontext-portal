@@ -8,4 +8,5 @@ pub mod oneshot;
 pub mod patch;
 pub mod profile;
 pub mod run;
+pub mod share;
 pub mod store;

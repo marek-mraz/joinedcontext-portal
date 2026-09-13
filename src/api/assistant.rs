@@ -6,11 +6,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
+use jc_core::kinds::Verb;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::agents::share;
 use crate::api::pipelines::metrics_for;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
@@ -396,8 +398,50 @@ pub async fn get_catalog(
     Ok(Json(search(&state, &project, q, scope).await))
 }
 
+/// The organization's domain, from the `Organization` manifest of the repository; the project
+/// name stands in when the mirror holds none, so a draft still renders.
+pub fn org_domain(state: &AppState, fallback: &str) -> String {
+    state
+        .mirror
+        .list(
+            crate::api::blueprints::ORG_NAMESPACE,
+            "Organization",
+            &ListOptions::default(),
+        )
+        .items
+        .into_iter()
+        .find_map(|env| env.spec["domain"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+/// The share request rendered, not written (EP-72, API/01 §19): the manifests the person will
+/// submit, refused for a caller who may not propose an Endpoint here (PF-50).
+pub async fn propose_endpoint(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(project): Path<String>,
+    Json(params): Json<share::ProposeEndpoint>,
+) -> Result<Json<share::Proposal>, ApiError> {
+    if !is_dns1123(&project) {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
+    let proposal = share::render(&project, &org_domain(&state, &project), &params)
+        .map_err(ApiError::BadRequest)?;
+    crate::permissions::for_request(&state, &user.0.identity, &project).check(
+        "Endpoint",
+        Verb::Propose,
+        Some(&proposal.endpoint),
+    )?;
+    Ok(Json(proposal))
+}
+
 pub fn router() -> Router<AppState> {
-    Router::new().route("/projects/{project}/assistant/catalog", get(get_catalog))
+    Router::new()
+        .route("/projects/{project}/assistant/catalog", get(get_catalog))
+        .route(
+            "/projects/{project}/assistant/propose-endpoint",
+            post(propose_endpoint),
+        )
 }
 
 #[cfg(test)]

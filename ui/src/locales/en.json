@@ -1075,6 +1075,22 @@
       "agoMinutes": "{n} min ago",
       "agoHours": "{n} h ago",
       "agoDays": "{n} d ago"
+    },
+    "proposal": {
+      "title": "Endpoint proposal",
+      "lead": "The assistant drafted this publication. Nothing is created until you submit the form and the change is approved.",
+      "slug": "slug (minted by the platform, read-only)",
+      "audience": "audience",
+      "representations": "representations",
+      "hidden": "hidden attributes",
+      "types": "entity types",
+      "lane": "lane {lane}",
+      "policies": "Draft policies ({n})",
+      "copyPolicy": "Copy policy YAML",
+      "copied": "Copied",
+      "review": "Review & propose",
+      "failed": "The proposal could not be rendered: {reason}",
+      "projects": "shared with {projects}"
     }
   },
   "assistant": {

@@ -182,28 +182,39 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   // The assistant may have sent the person here with a form in hand (UI-45): taken once,
   // before the first render, so the dialog is open from the start and a reload starts clean.
   const [prefill] = useState(
-    () => takePrefill(window.location.pathname) as Partial<EndpointForm> | null,
+    () =>
+      takePrefill(window.location.pathname) as
+        | (Partial<EndpointForm> & { hiddenAttributes?: string[] })
+        | null,
   );
-  const [editing, setEditing] = useState<EndpointForm | null>(() =>
-    prefill
-      ? {
-          name: "",
-          contextSpaceRef: "",
-          slug: generateSlug(),
-          audience: "project-list",
-          enabledRepresentations: ["ngsi-ld"],
-          allowedProjects: [],
-          ...prefill,
-        }
-      : null,
-  );
+  const [editing, setEditing] = useState<EndpointForm | null>(() => {
+    if (!prefill) {
+      return null;
+    }
+    // The hidden attributes are the projection, not a form field (EP-61): kept beside the form.
+    const form: Partial<EndpointForm> & { hiddenAttributes?: string[] } = { ...prefill };
+    delete form.hiddenAttributes;
+    return {
+      name: "",
+      contextSpaceRef: "",
+      slug: generateSlug(),
+      audience: "project-list",
+      enabledRepresentations: ["ngsi-ld"],
+      allowedProjects: [],
+      ...form,
+    };
+  });
   const [isNew, setIsNew] = useState(prefill !== null);
   const mayPropose = usePermissions(project).can("Endpoint", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   // Kept beside the form rather than in it: the panel names the attributes the endpoint
   // already publishes, which the form's own schema knows nothing about (EP-61).
-  const [hidden, setHidden] = useState<string[]>([]);
+  const [hidden, setHidden] = useState<string[]>(() =>
+    Array.isArray(prefill?.hiddenAttributes)
+      ? prefill.hiddenAttributes.filter((a): a is string => typeof a === "string")
+      : [],
+  );
 
   const list = useQuery({
     queryKey: queryKeys.list(project, "endpoints"),

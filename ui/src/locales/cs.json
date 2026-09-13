@@ -1075,6 +1075,22 @@
       "agoMinutes": "{n} min",
       "agoHours": "{n} h",
       "agoDays": "{n} d"
+    },
+    "proposal": {
+      "title": "Návrh endpointu",
+      "lead": "Asistent připravil tuto publikaci. Nic se nevytvoří, dokud formulář neodešlete a změna není schválena.",
+      "slug": "slug (vytvořený platformou, jen pro čtení)",
+      "audience": "publikum",
+      "representations": "reprezentace",
+      "hidden": "skryté atributy",
+      "types": "typy entit",
+      "lane": "lane {lane}",
+      "policies": "Návrhy politik ({n})",
+      "copyPolicy": "Kopírovat YAML politiky",
+      "copied": "Zkopírováno",
+      "review": "Zkontrolovat a navrhnout",
+      "failed": "Návrh se nepodařilo vykreslit: {reason}",
+      "projects": "sdíleno s {projects}"
     }
   },
   "assistant": {

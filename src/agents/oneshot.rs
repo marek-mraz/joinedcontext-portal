@@ -20,6 +20,7 @@ use crate::agents::kit;
 use crate::agents::patch;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
+use crate::agents::share;
 use crate::agents::store::now_rfc3339;
 use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::state::AppState;
@@ -98,6 +99,30 @@ are the fallback. The contract of the page:
 - One file, inline CSS and JS, no build step, no modules that import from elsewhere.
 - To go back to the views, rewrite `index.html` as an empty file.
 Prefer the views whenever they can do it: they are faster, filtered and consistent.
+
+## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA
+
+A request to share, publish, open or expose data with somebody (a team, a project, a partner,
+the public) is not a dashboard change. Answer with one or two plain sentences and then ONE
+fenced JSON block, nothing else, in this shape:
+
+```json
+{{
+  "tool": "propose_endpoint",
+  "contextSpace": "<the space the data lives in>",
+  "name": "<a short lowercase dns-1123 name for the endpoint>",
+  "title": "<a title in the language of the request>",
+  "audience": "project-list",
+  "allowedProjects": ["<the project or team named, as a lowercase dns-1123 name>"],
+  "representations": ["ngsi-ld", "geojson"],
+  "hiddenAttributes": ["<attributes the person wants hidden, exact names from the samples>"],
+  "entityTypes": ["<the types shared, exact names from the samples>"]
+}}
+```
+
+`audience` is "project-list" unless the person says the whole organization ("organization") or
+everyone ("public"). The platform mints the slug, renders the manifests and opens the form;
+the person submits. Write no SEARCH/REPLACE block in that answer.
 
 ## THE FORMAT RULES
 
@@ -290,6 +315,11 @@ impl Driver {
         }
         let user = self.pack(samples, files, conversation, instruction, catalog, None);
         let answer = self.complete(&user).await?;
+        // A share request is answered with a tool call, not a file (EP-72): rendered, shown,
+        // and handed to the endpoint form; the dashboard stays as it was.
+        if let Some(call) = share::tool_call(&answer) {
+            return self.share(call, &answer).await.map(Some);
+        }
         let (mut prose, mut errors) = self.apply(files, &answer).await?;
         if !errors.is_empty() {
             // One repair call: the model is shown what did not validate and answers again.
@@ -773,6 +803,89 @@ impl Driver {
             Err(err) => {
                 self.thought(&format!("The commit did not land in the forge: {err}"))
                     .await
+            }
+        }
+    }
+
+    /// The `propose_endpoint` tool: the manifests rendered and published as a step, then a
+    /// `navigate` that opens the endpoint form with them (EP-72, UI-45). A request that cannot
+    /// be rendered is a failed step the person reads in the chat; nothing is written either way.
+    async fn share(
+        &self,
+        call: Result<share::ProposeEndpoint, String>,
+        answer: &str,
+    ) -> Result<String, String> {
+        let started = std::time::Instant::now();
+        let millis = |started: std::time::Instant| {
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+        };
+        let params = match call {
+            Ok(params) => params,
+            Err(reason) => {
+                self.event(
+                    "tool",
+                    json!({
+                        "tool": "propose_endpoint",
+                        "status": "failed",
+                        "durationMs": millis(started),
+                        "error": reason,
+                    }),
+                )
+                .await?;
+                let prose = format!("The share request could not be read: {reason}");
+                self.thought(&prose).await?;
+                return Ok(prose);
+            }
+        };
+        let input = serde_json::to_value(&params).unwrap_or(Value::Null);
+        let domain = crate::api::assistant::org_domain(&self.state, &self.project);
+        match share::render(&self.project, &domain, &params) {
+            Ok(proposal) => {
+                let output = serde_json::to_value(&proposal).unwrap_or(Value::Null);
+                self.event(
+                    "tool",
+                    json!({
+                        "tool": "propose_endpoint",
+                        "status": "ok",
+                        "durationMs": millis(started),
+                        "input": input,
+                        "output": output,
+                    }),
+                )
+                .await?;
+                let mut prose = share::prose_of(answer);
+                if prose.is_empty() {
+                    prose = format!(
+                        "Drafted the endpoint '{}'; review it in the form and propose it.",
+                        params.name
+                    );
+                }
+                self.thought(&prose).await?;
+                self.event(
+                    "navigate",
+                    json!({
+                        "route": format!("/projects/{}/endpoints", self.project),
+                        "prefill": proposal.prefill,
+                    }),
+                )
+                .await?;
+                Ok(prose)
+            }
+            Err(reason) => {
+                self.event(
+                    "tool",
+                    json!({
+                        "tool": "propose_endpoint",
+                        "status": "failed",
+                        "durationMs": millis(started),
+                        "input": input,
+                        "error": reason,
+                    }),
+                )
+                .await?;
+                let prose = format!("The endpoint could not be drafted: {reason}");
+                self.thought(&prose).await?;
+                Ok(prose)
             }
         }
     }
