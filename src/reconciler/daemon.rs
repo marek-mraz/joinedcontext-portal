@@ -385,9 +385,11 @@ pub(crate) fn is_candidate_manifest(path: &str) -> bool {
     }
     // Roles and their bindings live beside the projects (T-0525): the Portal reads them for
     // its own checks and compiles them for the forge (T-0527).
+    // The builder profiles are organization-level too (AG-26): `agentprofiles/{name}.yaml`.
     clean.starts_with("projects/")
         || clean.starts_with("users/roles/")
         || clean.starts_with("users/assignments/")
+        || clean.starts_with("agentprofiles/")
 }
 
 /// Prepares one fetched file for the loader, or leaves it out (MF-04, MF-05).
@@ -626,6 +628,8 @@ mod tests {
         assert!(!is_candidate_manifest("users/groups.yaml"));
         assert!(is_candidate_manifest("users/roles/steward.yaml"));
         assert!(is_candidate_manifest("users/assignments/stewards.yaml"));
+        assert!(is_candidate_manifest("agentprofiles/app-builder.yaml"));
+        assert!(!is_candidate_manifest("agentprofiles/README.md"));
         assert!(!is_candidate_manifest("platform-settings.yaml"));
         // Only the blueprint manifest itself, not the notes or fixtures beside it.
         assert!(!is_candidate_manifest(
