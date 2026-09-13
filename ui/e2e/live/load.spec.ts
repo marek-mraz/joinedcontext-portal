@@ -86,7 +86,8 @@ test("a data source and a pipeline, checked, tested, proposed and approved throu
   await studio.locator("#root_period").fill("60s");
   const target = studio.locator("#root_targetEndpoint");
   if ((await target.evaluate((el) => el.tagName)) === "SELECT") {
-    await target.selectOption({ value: TARGET });
+    // The options carry the endpoint's name; the value is the URN the org domain completes.
+    await target.selectOption({ label: "helsinki-all" });
   } else {
     await target.fill(TARGET);
   }
