@@ -14,6 +14,15 @@ COPY ui/ ./
 # image build is where that is caught, not the demo.
 RUN pnpm build && test -s dist/index.html && ls dist/assets/*.js >/dev/null
 
+# The kit of AP-56: the dashboard bundle the kit pass fills in, embedded like the UI.
+FROM node:24-slim AS kit
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+WORKDIR /kit
+COPY kit/package.json kit/pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY kit/ ./
+RUN pnpm build && test -s dist/kit.js && test -s dist/kit.css
+
 FROM rust:1.97-slim-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock build.rs ./
@@ -32,6 +41,7 @@ COPY migrations ./migrations
 # a member's manifest is only valid if the targets it names exist.
 COPY apps ./apps
 COPY --from=ui /ui/dist ./ui/dist
+COPY --from=kit /kit/dist ./kit/dist
 # `-p joinedcontext-portal`: this image ships one binary and the reference apps have images of
 # their own, so building the whole workspace here would compile them for nothing.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

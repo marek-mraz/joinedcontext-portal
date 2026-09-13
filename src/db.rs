@@ -247,7 +247,7 @@ pub async fn save_sync_state(pool: &PgPool, row: &SyncStateRow) -> Result<(), sq
 /// the three optional timestamps stay optional.
 const AGENT_RUN_COLUMNS: &str = "id, project, app_name, endpoint_name, endpoint_slug, profile, \
      app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, path_prefix, \
-     status, ticket_hash, workspace, merge_request, preview_url, steps, tokens_used, created_by, \
+     status, ticket_hash, workspace, merge_request, preview_url, files, steps, tokens_used, created_by, \
      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, \
      to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, \
      to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS finished_at, \
@@ -383,6 +383,20 @@ pub async fn set_agent_run_preview_url(
     sqlx::query("UPDATE agent_runs SET preview_url = $2 WHERE id = $1")
         .bind(id)
         .bind(url)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+/// Keeps the files a kit pass wrote (AP-56).
+pub async fn set_agent_run_files(
+    pool: &PgPool,
+    id: &str,
+    files: &serde_json::Value,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE agent_runs SET files = $2 WHERE id = $1")
+        .bind(id)
+        .bind(files)
         .execute(pool)
         .await
         .map(|_| ())

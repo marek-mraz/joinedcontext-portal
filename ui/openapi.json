@@ -823,6 +823,73 @@
         }
       }
     },
+    "/api/v1/projects/{project}/agent-runs/{id}/preview": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "The preview of a kit run: the bundle, the specification and the stylesheet in one document,\nbecause the frame it is shown in has no origin to fetch anything else with (AP-60, UI-41).",
+        "operationId": "preview",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The kit rendering the run's specification, one document",
+            "content": {
+              "text/html": {}
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run, or no pass has written spec.json yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This Portal was built without the kit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/agent-runs/{id}/publish": {
       "post": {
         "tags": [

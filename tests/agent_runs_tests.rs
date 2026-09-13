@@ -150,7 +150,9 @@ fn create_body() -> Value {
     json!({
         "appName": "city-bikes-overview",
         "endpointName": "helsinki-bikes",
-        "appClass": "static",
+        // The workspace shape: a `static` run is the kit pass and never hands out its ticket
+        // (tests/kit_pass_tests.rs).
+        "appClass": "fullstack",
         "visibility": "project",
         "prompt": "Create a live bike availability dashboard with station filtering",
         "dataNeeds": [{

@@ -31,6 +31,7 @@ use crate::agents::run::{
     digest_prompt, mint_run_id, mint_ticket, AgentRun, AgentRunEvent, AgentRunStatus,
 };
 use crate::agents::store::{now_rfc3339, StatusChangeError, StoreError};
+use crate::agents::{kit, oneshot};
 use crate::auth::CurrentUser;
 use crate::config::AgentSettings;
 use crate::error::{ApiError, ProblemDetails};
@@ -308,6 +309,7 @@ pub async fn create_run(
         workspace: None,
         merge_request: None,
         preview_url: None,
+        files: serde_json::Value::Object(serde_json::Map::new()),
         steps: 0,
         tokens_used: 0,
         created_by: user.0.identity.username.clone(),
@@ -326,6 +328,21 @@ pub async fn create_run(
         status_payload(AgentRunStatus::Queued),
     )
     .await?;
+
+    // A static application is the kit pass: the Portal drives it itself, in this process, and
+    // the ticket stays with the driver (AP-56, AG-54). The workspace Job is what the other two
+    // classes get.
+    if request.app_class == "static" {
+        oneshot::spawn(
+            state.clone(),
+            &run,
+            &ticket,
+            &profile,
+            &settings.proxy_base,
+            settings.run_ttl_secs,
+        );
+        return Ok((StatusCode::ACCEPTED, Json(CreatedRun { run, ticket: None })));
+    }
 
     // The workspace is where the ticket goes. Scheduling it is the last step, so a run that
     // could not be recorded never has a pod: the pod is what spends money.
@@ -1109,6 +1126,85 @@ pub fn router() -> Router<AppState> {
             "/projects/{project}/agent-runs/{id}/publish",
             post(publish_run),
         )
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/projects/{project}/agent-runs/{id}/preview",
+    tag = "agents",
+    params(
+        ("project" = String, Path, description = "Project name"),
+        ("id" = String, Path, description = "Run identifier"),
+    ),
+    responses(
+        (status = 200, description = "The kit rendering the run's specification, one document", content_type = "text/html"),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "No such run, or no pass has written spec.json yet", body = ProblemDetails),
+        (status = 503, description = "This Portal was built without the kit", body = ProblemDetails)
+    )
+)]
+/// The preview of a kit run: the bundle, the specification and the stylesheet in one document,
+/// because the frame it is shown in has no origin to fetch anything else with (AP-60, UI-41).
+pub async fn preview(
+    _user: CurrentUser,
+    State(state): State<AppState>,
+    Path((project, id)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let run = state
+        .agents
+        .get_run(&id)
+        .await
+        .map_err(unavailable)?
+        .filter(|run| run.project == project)
+        .ok_or_else(|| {
+            ApiError::NotFound(format!("run '{id}' not found in project '{project}'"))
+        })?;
+    let text = run
+        .files
+        .get(kit::SPEC_FILE)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| ApiError::NotFound(format!("run '{id}' has no preview yet")))?;
+    let spec = kit::parse(text).map_err(|errors| {
+        ApiError::Internal(format!(
+            "the stored spec.json does not validate: {}",
+            errors.join("; ")
+        ))
+    })?;
+    let (js, css) = kit::bundle().ok_or_else(|| {
+        ApiError::Unavailable("this Portal was built without the kit (kit/dist is empty)".into())
+    })?;
+    let html = kit::document(&spec.title, &run.endpoint_slug, &spec, &js, &css);
+    let origin = {
+        let url = &state.config.public_base_url;
+        match url.port() {
+            Some(port) => format!(
+                "{}://{}:{port}",
+                url.scheme(),
+                url.host_str().unwrap_or_default()
+            ),
+            None => format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default()),
+        }
+    };
+    let csp = kit::content_security_policy(&origin, &kit::script_hash(&js));
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_owned()),
+            (header::CONTENT_SECURITY_POLICY, csp),
+            (header::X_FRAME_OPTIONS, "SAMEORIGIN".to_owned()),
+            (header::CACHE_CONTROL, "no-store".to_owned()),
+        ],
+        html,
+    )
+        .into_response())
+}
+
+/// The preview route alone, merged beside the Portal's own routes rather than under them: the
+/// document carries its own policy, and the Portal's `script-src 'self'` would override it.
+pub fn preview_router() -> Router<AppState> {
+    Router::new().route(
+        "/api/v1/projects/{project}/agent-runs/{id}/preview",
+        get(preview),
+    )
 }
 
 /// The two routes the credential proxy calls, served on the internal listener alone (AG-52).

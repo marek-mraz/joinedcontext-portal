@@ -35,7 +35,7 @@ axum = { version = "0.8", features = ["macros", "multipart"] }
 axum-extra = { version = "0.12", features = ["cookie-private"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["set-header", "trace"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "sync", "time"] }
 # The builder run's event stream (AG-45). `sync` alone: the one wrapper needed is the one that
 # turns a broadcast receiver into the `Stream` axum's SSE response wants, and axum has no
 # stream type of its own.
@@ -59,6 +59,8 @@ argon2 = "0.5"
 # The one-click configuration archive (CC-49, MF-16). Deflate only: no encryption, no bzip2.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 thiserror = "2"
+# The SEARCH/REPLACE apply of the kit pass (AP-58); already in the graph through jc-core.
+regex = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 time = { version = "0.3", features = ["formatting"] }

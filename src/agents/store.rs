@@ -227,6 +227,22 @@ impl AgentStore {
         Ok(())
     }
 
+    /// The files a kit pass wrote; the preview is rendered from them (AP-56).
+    pub async fn set_files(
+        &self,
+        run_id: &str,
+        files: serde_json::Value,
+    ) -> Result<(), StoreError> {
+        if let Some(pool) = &self.db {
+            db::set_agent_run_files(pool, run_id, &files).await?;
+            return Ok(());
+        }
+        if let Some(run) = self.memory.write().await.runs.get_mut(run_id) {
+            run.files = files;
+        }
+        Ok(())
+    }
+
     pub async fn set_merge_request(&self, run_id: &str, number: i32) -> Result<(), StoreError> {
         if let Some(pool) = &self.db {
             db::set_agent_run_merge_request(pool, run_id, number).await?;
@@ -284,6 +300,7 @@ mod tests {
             workspace: None,
             merge_request: None,
             preview_url: None,
+            files: serde_json::json!({}),
             steps: 0,
             tokens_used: 0,
             created_by: "demo.steward@hel.fi".to_owned(),

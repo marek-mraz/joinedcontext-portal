@@ -124,6 +124,9 @@ pub struct AgentRun {
     pub merge_request: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_url: Option<String>,
+    /// The files a kit pass wrote, path to content; `{}` for a workspace run (AP-56).
+    #[serde(skip_serializing, default = "empty_files")]
+    pub files: serde_json::Value,
     pub steps: i32,
     pub tokens_used: i64,
     pub created_by: String,
@@ -145,6 +148,10 @@ pub struct AgentRunEvent {
     pub kind: String,
     pub payload: serde_json::Value,
     pub created_at: String,
+}
+
+fn empty_files() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
 }
 
 /// A random RFC 4122 version 4 identifier for one run.

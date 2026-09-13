@@ -64,6 +64,7 @@ use crate::tools::model_tools::{
         crate::api::agent_runs::post_message,
         crate::api::agent_runs::cancel_run,
         crate::api::agent_runs::publish_run,
+        crate::api::agent_runs::preview,
         crate::api::service_accounts::list_keys,
         crate::api::service_accounts::create_key,
         crate::api::service_accounts::rotate_key,

@@ -21,6 +21,8 @@ pub struct Profile {
     /// Image reference pinned by digest, ready for a pod spec (AG-49).
     pub image: String,
     pub model_name: String,
+    /// `anthropic` or `openai-compatible`: which body the model call carries (AG-53).
+    pub model_provider: String,
     pub max_tokens_per_run: u64,
     pub steps_per_run: u32,
     pub requests_per_minute: u32,
@@ -61,6 +63,7 @@ impl Profile {
             role,
             image,
             model_name: string_at(spec, &["model", "name"], name)?,
+            model_provider: string_at(spec, &["model", "provider"], name)?,
             max_tokens_per_run: u64_at(spec, &["model", "maxTokensPerRun"], name)?,
             steps_per_run: u64_at(spec, &["limits", "stepsPerRun"], name)? as u32,
             requests_per_minute: u64_at(spec, &["limits", "requestsPerMinute"], name)? as u32,
