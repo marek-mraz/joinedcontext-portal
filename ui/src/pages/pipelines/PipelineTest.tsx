@@ -171,12 +171,14 @@ export interface PipelineTestProps {
   sampleUrl?: string;
   /** The test's answer for the mapping it ran (PL-49). */
   onVerdict?: (ok: boolean, bloblang: string) => void;
+  /** Notifies whenever the test trace is produced or cleared. */
+  onTrace?: (trace: Trace | null) => void;
 }
 
 /** A sample is a file held in memory, or a URL the runner fetches itself (PL-43, PL-48). */
 type SampleSource = { name: string; format: SampleFormat } & ({ text: string; url?: undefined } | { url: string; text?: undefined });
 
-export function PipelineTest({ project, draft, onChange, toManifest, sampleUrl, onVerdict }: PipelineTestProps): JSX.Element {
+export function PipelineTest({ project, draft, onChange, toManifest, sampleUrl, onVerdict, onTrace }: PipelineTestProps): JSX.Element {
   const { t } = useTranslation();
   const [sample, setSample] = useState<SampleSource | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
@@ -189,6 +191,7 @@ export function PipelineTest({ project, draft, onChange, toManifest, sampleUrl, 
       return;
     }
     setTrace(null);
+    onTrace?.(null);
     setError(null);
     if (file.size > MAX_SAMPLE_BYTES) {
       setSample(null);
@@ -231,17 +234,20 @@ export function PipelineTest({ project, draft, onChange, toManifest, sampleUrl, 
       if (!response.ok) {
         const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
         setTrace(null);
+        onTrace?.(null);
         setError(problem?.detail ?? t("pipelines.test.failed", { status: response.status }));
         return;
       }
       const answer = (await response.json()) as Trace;
       setTrace(answer);
+      onTrace?.(answer);
       onVerdict?.(
         answer.errors.length === 0 && answer.validation.length > 0 && answer.validation.every((v) => v.ok),
         bloblang,
       );
     } catch {
       setTrace(null);
+      onTrace?.(null);
       setError(t("pipelines.test.failed", { status: 0 }));
     } finally {
       setRunning(false);
@@ -288,6 +294,7 @@ export function PipelineTest({ project, draft, onChange, toManifest, sampleUrl, 
             variant="secondary"
             onClick={() => {
               setTrace(null);
+              onTrace?.(null);
               setError(null);
               setSample({ name: sampleUrl, url: sampleUrl, format: "json" });
             }}

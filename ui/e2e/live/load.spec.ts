@@ -94,6 +94,7 @@ test("a data source and a pipeline, checked, tested, proposed and approved throu
   await studio.locator("#root_compute_kind").selectOption("bloblang");
   await studio.locator("#root_compute_bloblang").fill(MAPPING);
   await studio.locator("#root_output_type").fill("Vehicle");
+  await studio.locator("#root_output_mode").selectOption("upsert");
   // Propose is closed until the test is green for this mapping (PL-49).
   const propose = studio.getByRole("button", { name: "Propose change" });
   await expect(propose).toBeDisabled();

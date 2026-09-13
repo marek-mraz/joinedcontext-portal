@@ -473,6 +473,28 @@
       "useUrl": "Test on the source's URL",
       "urlSample": "{url} · json · fetched by the runner",
       "gate": "Test the mapping first: Propose opens when the test is green for this mapping."
+    },
+    "flow": {
+      "palette": "Compute palette",
+      "canvas": "Pipeline flow",
+      "node": {
+        "source": "Source",
+        "compute": "Compute",
+        "output": "Output"
+      },
+      "passThrough": "Pass-through",
+      "eventsIn": "in",
+      "eventsOut": "out",
+      "remove": "Remove stage",
+      "selectedHint": "Configure this stage in the form below.",
+      "view": {
+        "flow": "Flow",
+        "yaml": "YAML",
+        "form": "Form"
+      },
+      "samplesIn": "Sample in",
+      "samplesOut": "Sample out",
+      "noSample": "No sample"
     }
   },
   "dashboards": {

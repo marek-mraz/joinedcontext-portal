@@ -13,6 +13,8 @@ import type { Entity, EntityQuery, FilterSlot } from "../../components/entities/
 import { Alert, Button, Field, Input, Select } from "../../components/ui";
 import { entityTypesOf, pickReadEndpoint, spaceOf } from "../spaces/SpaceInside";
 import type { PipelineForm } from "./PipelineEditor";
+import { PipelineFlow, setComputeKind } from "./PipelineFlow";
+import type { FlowNode } from "./PipelineFlow";
 import { PipelineTest } from "./PipelineTest";
 import type { Trace } from "./PipelineTest";
 
@@ -246,6 +248,11 @@ export function PipelineStudio({
   const [sampleError, setSampleError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [aggregateAttribute, setAggregateAttribute] = useState("");
+  const [studioView, setStudioView] = useState<"flow" | "form">("flow");
+  const [selectedNode, setSelectedNode] = useState<FlowNode["id"] | null>(() =>
+    draft?.compute?.kind ? "compute" : "source",
+  );
+  const [flowTrace, setFlowTrace] = useState<Trace | null>(null);
   // The kind and the space are the author's choice until the form carries them: a chosen kind
   // with nothing picked yet, or a space with no endpoint, is not in the manifest at all.
   const [kindChoice, setKindChoice] = useState<SourceKind>(() => sourceKindOf(draft));
@@ -303,10 +310,7 @@ export function PipelineStudio({
       period: params.period,
       source: {
         ...draft?.source,
-        endpointRef: {
-          kind: "Endpoint",
-          name: params.endpointName,
-        } as unknown as string,
+        endpointRef: params.endpointName,
         query: { type: params.type, attrs: [params.attribute] },
       },
       compute: {
@@ -758,6 +762,216 @@ export function PipelineStudio({
         </section>
       ) : (
         <>
+          <section className={sectionClass} aria-labelledby="studio-flow">
+            <div className="flex items-center justify-between">
+              <h3 id="studio-flow" className="text-body font-semibold text-fg">
+                {t("pipelines.flow.canvas", { defaultValue: "Pipeline canvas" })}
+              </h3>
+              <div
+                role="tablist"
+                aria-label={t("pipelines.flow.canvas", { defaultValue: "Pipeline canvas" })}
+                className="flex items-center gap-1"
+              >
+                <Button
+                  role="tab"
+                  size="sm"
+                  variant={studioView === "flow" ? "secondary" : "ghost"}
+                  aria-selected={studioView === "flow"}
+                  data-testid="studio-view-flow"
+                  onClick={() => setStudioView("flow")}
+                >
+                  {t("pipelines.flow.view.flow", { defaultValue: "Flow" })}
+                </Button>
+                <Button
+                  role="tab"
+                  size="sm"
+                  variant={studioView === "form" ? "secondary" : "ghost"}
+                  aria-selected={studioView === "form"}
+                  data-testid="studio-view-form"
+                  onClick={() => setStudioView("form")}
+                >
+                  {t("pipelines.flow.view.form", { defaultValue: "Form" })}
+                </Button>
+              </div>
+            </div>
+
+            {studioView === "flow" ? (
+              <div className="flex flex-col gap-3">
+                <PipelineFlow
+                  form={draft}
+                  onChange={onChange}
+                  trace={flowTrace}
+                  selected={selectedNode}
+                  onSelect={setSelectedNode}
+                  dataSources={dataSources}
+                  endpoints={endpoints}
+                />
+
+                {selectedNode === "compute" ? (
+                  <div
+                    className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
+                    data-testid="flow-node-editor-compute"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-caption font-semibold text-fg">
+                        {t("pipelines.flow.node.compute", { defaultValue: "Compute" })} (
+                        {draft?.compute?.kind ??
+                          t("pipelines.flow.passThrough", { defaultValue: "pass-through" })}
+                        )
+                      </span>
+                      {draft?.compute?.kind ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            onChange(setComputeKind(draft, null));
+                          }}
+                        >
+                          {t("pipelines.flow.remove", { defaultValue: "Remove" })}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {draft?.compute?.kind === "bloblang" ? (
+                      <Field id="flow-bloblang-field" label={t("pipelines.field.bloblang")}>
+                        <textarea
+                          id="flow-bloblang-field"
+                          data-testid="flow-bloblang"
+                          aria-label={t("pipelines.field.bloblang")}
+                          rows={6}
+                          className="focus-ring w-full rounded-md border border-border bg-surface p-2 font-mono text-caption text-fg"
+                          value={draft?.compute?.bloblang ?? ""}
+                          onChange={(e) => {
+                            onChange({
+                              ...draft,
+                              compute: {
+                                ...draft?.compute,
+                                kind: "bloblang",
+                                bloblang: e.target.value,
+                              },
+                            });
+                          }}
+                        />
+                      </Field>
+                    ) : draft?.compute?.kind === "mapping" ? (
+                      <Field id="flow-mapping-field" label={t("pipelines.field.mappingRef")}>
+                        <Input
+                          id="flow-mapping-field"
+                          data-testid="flow-mapping-ref"
+                          value={draft?.compute?.mappingRef ?? ""}
+                          onChange={(e) => {
+                            onChange({
+                              ...draft,
+                              compute: {
+                                ...draft?.compute,
+                                kind: "mapping",
+                                mappingRef: e.target.value,
+                              },
+                            });
+                          }}
+                        />
+                      </Field>
+                    ) : draft?.compute?.kind === "wasm" || draft?.compute?.kind === "container" ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Field id="flow-module-field" label={t("pipelines.field.module")}>
+                          <Input
+                            id="flow-module-field"
+                            data-testid="flow-module"
+                            value={draft?.compute?.module ?? ""}
+                            onChange={(e) => {
+                              onChange({
+                                ...draft,
+                                compute: {
+                                  ...draft?.compute,
+                                  module: e.target.value,
+                                },
+                              });
+                            }}
+                          />
+                        </Field>
+                        <Field id="flow-function-field" label={t("pipelines.field.function")}>
+                          <Input
+                            id="flow-function-field"
+                            data-testid="flow-function"
+                            value={draft?.compute?.function ?? ""}
+                            onChange={(e) => {
+                              onChange({
+                                ...draft,
+                                compute: {
+                                  ...draft?.compute,
+                                  function: e.target.value,
+                                },
+                              });
+                            }}
+                          />
+                        </Field>
+                      </div>
+                    ) : (
+                      <p className="text-caption text-fg-muted">
+                        {t("pipelines.flow.passThrough", {
+                          defaultValue: "Pass-through (no compute step)",
+                        })}
+                      </p>
+                    )}
+                  </div>
+                ) : selectedNode === "source" || selectedNode === "output" ? (
+                  <p className="text-caption text-fg-muted">
+                    {t("pipelines.flow.selectedHint", {
+                      defaultValue: "Edit source and output in the sections below.",
+                    })}
+                  </p>
+                ) : null}
+
+                {flowTrace && selectedNode ? (
+                  <div className="grid gap-2 sm:grid-cols-2" data-testid="flow-sample-drawer">
+                    <div className="flex flex-col gap-1 rounded-md border border-border bg-surface p-2">
+                      <span className="text-caption font-semibold text-fg">
+                        {t("pipelines.flow.samplesIn", { defaultValue: "Input sample" })}
+                      </span>
+                      <pre
+                        data-testid="flow-sample-in"
+                        className="max-h-36 overflow-auto font-mono text-caption whitespace-pre-wrap break-words"
+                      >
+                        {(() => {
+                          const sampleIn =
+                            selectedNode === "source" || selectedNode === "compute"
+                              ? flowTrace.input?.sample
+                              : flowTrace.mapping?.[0];
+                          return sampleIn !== undefined
+                            ? JSON.stringify(sampleIn, null, 2)
+                            : t("pipelines.flow.noSample", { defaultValue: "No sample" });
+                        })()}
+                      </pre>
+                    </div>
+                    <div className="flex flex-col gap-1 rounded-md border border-border bg-surface p-2">
+                      <span className="text-caption font-semibold text-fg">
+                        {t("pipelines.flow.samplesOut", { defaultValue: "Output sample" })}
+                      </span>
+                      <pre
+                        data-testid="flow-sample-out"
+                        className="max-h-36 overflow-auto font-mono text-caption whitespace-pre-wrap break-words"
+                      >
+                        {(() => {
+                          const okValidation = flowTrace.validation?.find((v) => v.ok);
+                          const sampleOut =
+                            selectedNode === "source"
+                              ? flowTrace.input?.sample
+                              : selectedNode === "compute"
+                                ? flowTrace.mapping?.[0]
+                                : okValidation !== undefined
+                                  ? flowTrace.mapping?.[okValidation.index]
+                                  : undefined;
+                          return sampleOut !== undefined
+                            ? JSON.stringify(sampleOut, null, 2)
+                            : t("pipelines.flow.noSample", { defaultValue: "No sample" });
+                        })()}
+                      </pre>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+
           {toManifest ? (
             <PipelineTest
               project={project}
@@ -766,6 +980,7 @@ export function PipelineStudio({
               toManifest={toManifest}
               sampleUrl={sampleUrlOf(draft, dataSources, endpoints)}
               onVerdict={onVerdict}
+              onTrace={setFlowTrace}
             />
           ) : null}
           <section className={sectionClass} aria-labelledby="studio-source">
