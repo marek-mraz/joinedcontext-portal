@@ -1173,7 +1173,19 @@ pub async fn preview(
     let (js, css) = kit::bundle().ok_or_else(|| {
         ApiError::Unavailable("this Portal was built without the kit (kit/dist is empty)".into())
     })?;
-    let html = kit::document(&spec.title, &run.endpoint_slug, &spec, &js, &css);
+    let data = run
+        .files
+        .get(kit::DATA_FILE)
+        .and_then(serde_json::Value::as_str)
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
+    let html = kit::document(
+        &spec.title,
+        &run.endpoint_slug,
+        &spec,
+        data.as_ref(),
+        &js,
+        &css,
+    );
     let origin = {
         let url = &state.config.public_base_url;
         match url.port() {

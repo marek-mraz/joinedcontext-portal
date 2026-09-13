@@ -16,10 +16,16 @@ use sha2::{Digest, Sha256};
 
 /// The file the model writes, and the only one a kit run may write (AP-58).
 pub const SPEC_FILE: &str = "spec.json";
+/// The rows the driver read for the preview, keyed by source name; written by the driver alone.
+pub const DATA_FILE: &str = "data.json";
+/// Entities per page when the driver reads a source; well inside the proxy's response ceiling.
+pub const PAGE: u32 = 500;
 pub const DEFAULT_LIMIT: u32 = 1000;
 pub const MAX_LIMIT: u32 = 5000;
-/// Where the basemap tiles come from; the one host beside the platform a preview may reach.
-pub const TILES: &str = "https://tile.openstreetmap.org";
+/// Where the basemap comes from (style, vector tiles, glyphs, sprites); the one host beside the
+/// platform a preview may reach. OpenFreeMap needs no key and no Referer, and a sandboxed frame
+/// sends none.
+pub const TILES: &str = "https://tiles.openfreemap.org";
 
 /// `kit/dist`, built with the Portal. Empty in a plain `cargo test`, which is what the 503 of
 /// [`bundle`] is for.
@@ -420,14 +426,23 @@ pub fn content_security_policy(origin: &str, hash: &str) -> String {
     )
 }
 
-/// One document: the stylesheet, the specification as data, the script. Nothing in it is
-/// fetched later, because a frame without `allow-same-origin` has no session to fetch with.
-pub fn document(title: &str, slug: &str, spec: &Spec, js: &str, css: &str) -> String {
-    let payload = serde_json::to_string(&serde_json::json!({ "slug": slug, "spec": spec }))
-        .unwrap_or_default()
-        // `</script>` inside the data would end the element; `\u003c` is the same character
-        // to a JSON parser and nothing to the HTML one.
-        .replace('<', "\\u003c");
+/// One document: the stylesheet, the specification and the rows as data, the script. Nothing
+/// in it is fetched later, because a frame without `allow-same-origin` has no session to fetch
+/// with; `data` is what the driver read for this pass, keyed by source name.
+pub fn document(
+    title: &str,
+    slug: &str,
+    spec: &Spec,
+    data: Option<&serde_json::Value>,
+    js: &str,
+    css: &str,
+) -> String {
+    let payload =
+        serde_json::to_string(&serde_json::json!({ "slug": slug, "spec": spec, "data": data }))
+            .unwrap_or_default()
+            // `</script>` inside the data would end the element; `\u003c` is the same character
+            // to a JSON parser and nothing to the HTML one.
+            .replace('<', "\\u003c");
     let title = escape(title);
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
@@ -509,7 +524,15 @@ mod tests {
         let spec = parse(EXAMPLE).expect("valid");
         let mut spec = spec;
         spec.title = "</script><script>alert(1)</script>".to_owned();
-        let html = document("A & <B>", "s1ug", &spec, "console.log(1)", "body{}");
+        let rows = serde_json::json!({ "stations": [{ "id": "urn:1", "type": "T", "name": "</script>" }] });
+        let html = document(
+            "A & <B>",
+            "s1ug",
+            &spec,
+            Some(&rows),
+            "console.log(1)",
+            "body{}",
+        );
         assert!(html.contains("<title>A &amp; &lt;B&gt;</title>"));
         assert!(html.contains("<style>body{}</style>"));
         assert!(html.contains("<script type=\"module\">console.log(1)</script>"));
@@ -519,9 +542,10 @@ mod tests {
             "the data ended the element"
         );
         assert!(html.contains("\\u003c/script>"));
+        assert!(html.contains("\"data\":{\"stations\":[{\"id\":\"urn:1\""));
         let csp = content_security_policy("https://portal.example", &script_hash("console.log(1)"));
         assert!(csp.contains("script-src 'sha256-"));
-        assert!(csp.contains("connect-src https://portal.example https://tile.openstreetmap.org"));
+        assert!(csp.contains("connect-src https://portal.example https://tiles.openfreemap.org"));
         assert!(!csp.contains("script-src 'unsafe-inline'"));
         assert!(csp.contains("style-src 'unsafe-inline'"));
     }

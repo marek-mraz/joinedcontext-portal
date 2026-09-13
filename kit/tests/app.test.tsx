@@ -77,6 +77,13 @@ describe("App", () => {
     expect(screen.getByText(":003", { exact: false })).toBeInTheDocument();
   });
 
+  it("uses the rows the document carries and fetches nothing", async () => {
+    render(<App slug="demo" spec={spec} inline={{ stations: STATIONS.slice(0, 2), ghost: [1, null] }} />);
+    await waitFor(() => expect(screen.getByText("2 entities")).toBeInTheDocument());
+    expect(calls).toEqual([]);
+    expect(screen.getByText("Laivasillankatu")).toBeInTheDocument();
+  });
+
   it("says when the endpoint refuses instead of showing an empty dashboard", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}) })));
     render(<App slug="demo" spec={spec} />);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FilterState, Row } from "./ngsi";
-import { applyFilters, columnKind, distinct, extent, loadSource } from "./ngsi";
-import type { Filter, Spec, View } from "./spec";
+import { applyFilters, columnKind, distinct, extent, loadSource, toRow } from "./ngsi";
+import type { Filter, Source, Spec, View } from "./spec";
 import { sourceOf } from "./spec";
 import { Chart } from "./views/Chart";
 import { Detail } from "./views/Detail";
@@ -14,14 +14,29 @@ const DEFAULT_ACCENT = "#0f766e";
 type Loaded = Record<string, Row[]>;
 
 /** Every source read once; `error` names the first that failed. */
-export function useSources(slug: string, spec: Spec): { data: Loaded; loading: boolean; error: string | null } {
+/** Entities the Portal read for the preview and inlined, keyed by source name. */
+export type Inline = Record<string, unknown[]>;
+
+/**
+ * Rows per source: from the document when the Portal inlined them, from the endpoint
+ * otherwise. The preview frame is sandboxed without an origin, so it can fetch nothing with a
+ * session; the published app is same-origin and reads live.
+ */
+export function useSources(slug: string, spec: Spec, inline?: Inline): { data: Loaded; loading: boolean; error: string | null } {
   const [data, setData] = useState<Loaded>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all(spec.sources.map(async (source) => [source.name, await loadSource(slug, source)] as const))
+    const load = async (source: Source): Promise<Row[]> => {
+      const given = inline?.[source.name];
+      if (Array.isArray(given)) {
+        return given.filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null).map(toRow);
+      }
+      return loadSource(slug, source);
+    };
+    Promise.all(spec.sources.map(async (source) => [source.name, await load(source)] as const))
       .then((pairs) => {
         if (!cancelled) setData(Object.fromEntries(pairs));
       })
@@ -34,7 +49,7 @@ export function useSources(slug: string, spec: Spec): { data: Loaded; loading: b
     return () => {
       cancelled = true;
     };
-  }, [slug, spec]);
+  }, [slug, spec, inline]);
   return { data, loading, error };
 }
 
@@ -101,8 +116,8 @@ function ViewCard({ view, spec, rows, accent, selected, onSelect }: { view: View
   );
 }
 
-export function App({ slug, spec }: { slug: string; spec: Spec }) {
-  const { data, loading, error } = useSources(slug, spec);
+export function App({ slug, spec, inline }: { slug: string; spec: Spec; inline?: Inline }) {
+  const { data, loading, error } = useSources(slug, spec, inline);
   const [state, setState] = useState<FilterState>({});
   const [selected, setSelected] = useState<string | null>(null);
   const accent = spec.theme?.accent ?? DEFAULT_ACCENT;

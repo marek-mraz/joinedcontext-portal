@@ -1,26 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Map as MapLibreMap } from "maplibre-gl";
-import type { GeoJSONSource, StyleSpecification } from "maplibre-gl";
+import type { GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Row } from "../ngsi";
 import { columnKind, extent, format, pointOf } from "../ngsi";
 
 const SOURCE = "rows";
 
-/** A keyless raster basemap, the same one the reference apps use, so no map account exists. */
-const STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    },
-  },
-  layers: [{ id: "osm", type: "raster", source: "osm" }],
-};
+/**
+ * A keyless vector basemap. OpenFreeMap needs no account and no Referer, which the sandboxed
+ * preview frame cannot send; OpenStreetMap's raster tiles refuse a request without one.
+ */
+export const STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 /** One colour per distinct text value, a warm-to-cool ramp for numbers, the accent otherwise. */
 export function colorOf(value: Row[string], range: [number, number] | null, accent: string): string {

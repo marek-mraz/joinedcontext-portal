@@ -261,6 +261,16 @@ impl Driver {
             .await?;
             return Ok(None);
         }
+        // The rows travel inside the preview document, because the sandboxed frame has no
+        // session to read them with; they are read here, once per pass, through the proxy.
+        // ponytail: a snapshot per pass. Live rows in the preview need a data route with a
+        // preview-scoped bearer and CORS for a null origin; the published app reads live.
+        let spec = files
+            .get(kit::SPEC_FILE)
+            .and_then(|text| kit::parse(text).ok())
+            .ok_or_else(|| "spec.json vanished between validation and storage".to_owned())?;
+        let data = self.rows(&spec).await;
+        files.insert(kit::DATA_FILE.to_owned(), data.to_string());
         let stored: serde_json::Map<String, Value> = files
             .iter()
             .map(|(path, content)| (path.clone(), Value::String(content.clone())))
@@ -478,6 +488,83 @@ impl Driver {
         types
     }
 
+    /// Every source's rows, read through the proxy in pages up to the source's limit. A source
+    /// that cannot be read is an empty list and a line in the chat: the dashboard still shows.
+    async fn rows(&self, spec: &kit::Spec) -> Value {
+        let mut data = serde_json::Map::new();
+        for source in &spec.sources {
+            let limit = source
+                .limit
+                .unwrap_or(kit::DEFAULT_LIMIT)
+                .min(kit::MAX_LIMIT);
+            let mut rows: Vec<Value> = Vec::new();
+            let mut failure = None;
+            while (rows.len() as u32) < limit {
+                let page = kit::PAGE.min(limit - rows.len() as u32);
+                let mut url = format!(
+                    "{}/v1/data/ngsi-ld/v1/entities?type={}&options=keyValues&limit={page}&offset={}",
+                    self.proxy_base,
+                    urlencoding(&source.entity_type),
+                    rows.len()
+                );
+                if !source.attrs.is_empty() {
+                    url.push_str(&format!("&attrs={}", urlencoding(&source.attrs.join(","))));
+                }
+                if let Some(q) = &source.q {
+                    url.push_str(&format!("&q={}", urlencoding(q)));
+                }
+                match self.read_entities(&url).await {
+                    Ok(Value::Array(entities)) => {
+                        let got = entities.len() as u32;
+                        rows.extend(entities);
+                        if got < page {
+                            break;
+                        }
+                    }
+                    Ok(_) => {
+                        failure = Some("the endpoint did not answer a list".to_owned());
+                        break;
+                    }
+                    Err(reason) => {
+                        failure = Some(reason);
+                        break;
+                    }
+                }
+            }
+            if let Some(reason) = failure {
+                let _ = self
+                    .thought(&format!(
+                        "The rows of {} could not be read: {reason}",
+                        source.name
+                    ))
+                    .await;
+            }
+            data.insert(source.name.clone(), Value::Array(rows));
+        }
+        Value::Object(data)
+    }
+
+    /// One GET through the proxy with the run's ticket, as JSON.
+    async fn read_entities(&self, url: &str) -> Result<Value, String> {
+        let response = self
+            .http
+            .get(url)
+            .bearer_auth(&self.bearer)
+            .header("accept", "application/json")
+            .send()
+            .await
+            .map_err(|err| err.to_string())?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(format!(
+                "{status}: {}",
+                body.chars().take(200).collect::<String>()
+            ));
+        }
+        serde_json::from_str::<Value>(&body).map_err(|err| err.to_string())
+    }
+
     /// A few entities per type, read through the proxy like the application will (AP-57). A
     /// type that cannot be read is an empty list with the reason beside it: the model still
     /// gets the data needs, and the chat says what was missing.
@@ -489,26 +576,7 @@ impl Driver {
                 self.proxy_base,
                 urlencoding(entity_type)
             );
-            let read = async {
-                let response = self
-                    .http
-                    .get(&url)
-                    .bearer_auth(&self.bearer)
-                    .header("accept", "application/json")
-                    .send()
-                    .await
-                    .map_err(|err| err.to_string())?;
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                if !status.is_success() {
-                    return Err(format!(
-                        "{status}: {}",
-                        body.chars().take(200).collect::<String>()
-                    ));
-                }
-                serde_json::from_str::<Value>(&body).map_err(|err| err.to_string())
-            };
-            match read.await {
+            match self.read_entities(&url).await {
                 Ok(entities) => {
                     samples.insert(entity_type.clone(), entities);
                 }

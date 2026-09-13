@@ -180,6 +180,17 @@ async fn portal(provider: &str, answers: &[String]) -> (axum::Router, String, Mo
         ])))
         .mount(&proxy)
         .await;
+    // The rows of the preview: every entities read that is not the five-entity sample.
+    Mock::given(method("GET"))
+        .and(path("/v1/data/ngsi-ld/v1/entities"))
+        .and(query_param("options", "keyValues"))
+        .and(header_regex("authorization", "^Bearer jcr_"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": "urn:ngsi-ld:BikeHireDockingStation:001", "type": "BikeHireDockingStation", "name": "Kaivopuisto", "availableBikeNumber": 7 },
+            { "id": "urn:ngsi-ld:BikeHireDockingStation:002", "type": "BikeHireDockingStation", "name": "Laivasillankatu", "availableBikeNumber": 2 }
+        ])))
+        .mount(&proxy)
+        .await;
     let route = if provider == "anthropic" {
         "/v1/llm/messages"
     } else {
@@ -386,6 +397,22 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
     // and the run's ticket as the bearer (AP-57, AG-53).
     let requests = model_requests(&proxy).await;
     assert_eq!(requests.len(), 1);
+    // The rows were read once the specification stood, with its attributes and its limit.
+    let reads: Vec<String> = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.url.path() == "/v1/data/ngsi-ld/v1/entities")
+        .map(|r| r.url.query().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(reads.len(), 2, "{reads:?}");
+    assert!(reads[0].contains("limit=5"), "{reads:?}");
+    assert!(
+        reads[1].contains("limit=500")
+            && reads[1].contains("attrs=name%2Clocation%2CavailableBikeNumber"),
+        "{reads:?}"
+    );
     let body = requests[0].to_string();
     assert!(body.contains("Kaivopuisto"), "the samples are in the pack");
     assert!(
@@ -441,11 +468,17 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
             assert!(html.contains("<script id=\"kit-spec\" type=\"application/json\">"));
             assert!(html.contains(&format!("\"slug\":\"{SLUG}\"")));
             assert!(html.contains("Helsinki city bikes"));
+            // serde_json orders keys, so the row is matched by two of them rather than by shape.
+            assert!(
+                html.contains("\"data\":{\"stations\":[{"),
+                "the rows travel with the document"
+            );
+            assert!(html.contains("\"name\":\"Laivasillankatu\""));
             let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
             assert!(csp.contains(&kit::script_hash(&js)), "{csp}");
             assert!(
                 csp.contains(
-                    "connect-src https://portal.example.com https://tile.openstreetmap.org"
+                    "connect-src https://portal.example.com https://tiles.openfreemap.org"
                 ),
                 "{csp}"
             );

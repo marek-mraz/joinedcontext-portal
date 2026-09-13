@@ -1,16 +1,20 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import type { Inline } from "./App";
 import { parseSpec } from "./spec";
 import "./index.css";
 
 /**
- * The Portal inlines `{"slug": …, "spec": …}` into `#kit-spec` when it serves the preview
- * document (Architecture/19 §1.2); `index.html` carries an example for `vite dev`.
+ * The Portal inlines `{"slug": …, "spec": …, "data": …}` into `#kit-spec` when it serves the
+ * preview document (Architecture/19 §1.2): the rows it read for the preview travel with the
+ * document, because the sandboxed frame has no session to read them with. Without `data` the
+ * kit reads the endpoint itself, which is the published app. `index.html` carries an example
+ * for `vite dev`.
  */
 const element = document.getElementById("kit-spec");
 const root = createRoot(document.getElementById("root")!);
-let payload: { slug?: unknown; spec?: unknown } = {};
+let payload: { slug?: unknown; spec?: unknown; data?: unknown } = {};
 try {
   payload = JSON.parse(element?.textContent ?? "{}") as typeof payload;
 } catch {
@@ -20,7 +24,11 @@ const parsed = parseSpec(payload.spec);
 if (parsed.spec && typeof payload.slug === "string" && payload.slug !== "") {
   root.render(
     <StrictMode>
-      <App slug={payload.slug} spec={parsed.spec} />
+      <App
+        slug={payload.slug}
+        spec={parsed.spec}
+        inline={typeof payload.data === "object" && payload.data !== null ? (payload.data as Inline) : undefined}
+      />
     </StrictMode>,
   );
 } else {
