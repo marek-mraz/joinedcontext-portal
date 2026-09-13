@@ -146,7 +146,9 @@ pub async fn handle_mcp(
                     json!({
                         "protocolVersion": protocol_version,
                         "capabilities": {
-                            "tools": {}
+                            "tools": {},
+                            "resources": {},
+                            "prompts": {}
                         },
                         "serverInfo": {
                             "name": "joinedcontext-portal",
@@ -171,7 +173,9 @@ pub async fn handle_mcp(
                     json!({
                         "protocolVersion": protocol_version,
                         "capabilities": {
-                            "tools": {}
+                            "tools": {},
+                            "resources": {},
+                            "prompts": {}
                         },
                         "serverInfo": {
                             "name": "joinedcontext-portal",
@@ -186,20 +190,7 @@ pub async fn handle_mcp(
         }
         "ping" => json_response(StatusCode::OK, &result(id, json!({}))),
         "tools/list" => {
-            let project = params
-                .get("project")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| {
-                    for ns in state.mirror.namespaces() {
-                        let eff = crate::permissions::for_request(&state, &caller.identity, &ns);
-                        if eff.bootstrap || !eff.grants.is_empty() {
-                            return ns;
-                        }
-                    }
-                    "default".to_string()
-                });
-
+            let project = project_of(&params, &state, &caller);
             let ops = crate::ops::listing(&caller, &state, &project);
             let tools: Vec<Value> = ops
                 .into_iter()
@@ -294,7 +285,185 @@ pub async fn handle_mcp(
 
             json_response(StatusCode::OK, &response_val)
         }
+        "resources/list" => {
+            let project = project_of(&params, &state, &caller);
+            if !may_read(&state, &caller, &project) {
+                return json_response(StatusCode::OK, &result(id, json!({ "resources": [] })));
+            }
+            let mut resources = Vec::new();
+            for info in crate::resource::kinds() {
+                let page =
+                    state
+                        .mirror
+                        .list(&project, info.kind, &crate::store::ListOptions::default());
+                for item in page.items {
+                    resources.push(json!({
+                        "uri": format!("jc://{project}/{}/{}", info.plural, item.metadata.name),
+                        "name": item.metadata.name,
+                        "title": format!("{} {}", info.kind, item.metadata.name),
+                        "mimeType": "application/json"
+                    }));
+                }
+            }
+            let drafts = crate::ops::drafts::draft_store(&state)
+                .list(&project)
+                .await
+                .unwrap_or_default();
+            for draft in drafts {
+                resources.push(json!({
+                    "uri": format!("jc://{project}/drafts/{}/{}", draft.kind, draft.name),
+                    "name": draft.name,
+                    "title": format!("Draft {} {}", draft.kind, draft.name),
+                    "mimeType": "application/json"
+                }));
+            }
+            for info in jc_core::KINDS {
+                resources.push(json!({
+                    "uri": format!("jc://schemas/{}", info.kind),
+                    "name": info.kind,
+                    "title": format!("JSON Schema of {}", info.kind),
+                    "mimeType": "application/schema+json"
+                }));
+            }
+            json_response(
+                StatusCode::OK,
+                &result(id, json!({ "resources": resources })),
+            )
+        }
+        "resources/read" => {
+            let uri = params.get("uri").and_then(Value::as_str).unwrap_or("");
+            match read_resource(&state, &caller, uri).await {
+                Some((mime, text)) => json_response(
+                    StatusCode::OK,
+                    &result(
+                        id,
+                        json!({ "contents": [{ "uri": uri, "mimeType": mime, "text": text }] }),
+                    ),
+                ),
+                None => json_response(StatusCode::OK, &error(id, -32002, "resource not found")),
+            }
+        }
+        "prompts/list" => {
+            let prompts: Vec<Value> = UNITS
+                .iter()
+                .map(|(name, description, _)| {
+                    json!({
+                        "name": name,
+                        "title": format!("{} in 60 seconds", capitalise(name)),
+                        "description": description,
+                        "arguments": [{
+                            "name": "project",
+                            "description": "Project slug",
+                            "required": true
+                        }]
+                    })
+                })
+                .collect();
+            json_response(StatusCode::OK, &result(id, json!({ "prompts": prompts })))
+        }
+        "prompts/get" => {
+            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+            let Some((_, description, steps)) = UNITS.iter().find(|(n, _, _)| *n == name) else {
+                return json_response(StatusCode::OK, &error(id, -32602, "unknown prompt"));
+            };
+            let project = params
+                .get("arguments")
+                .and_then(|a| a.get("project"))
+                .and_then(Value::as_str)
+                .unwrap_or("<project>");
+            let text = format!("{description}\nProject: {project}.\n{steps}");
+            json_response(
+                StatusCode::OK,
+                &result(
+                    id,
+                    json!({
+                        "description": description,
+                        "messages": [{ "role": "user", "content": { "type": "text", "text": text } }]
+                    }),
+                ),
+            )
+        }
         _ => json_response(StatusCode::OK, &error(id, -32601, "method not found")),
+    }
+}
+
+/// The units as prompts: name, one-line description, the operations in order (AG-63).
+const UNITS: &[(&str, &str, &str)] = &[
+    (
+        "load",
+        "Load a data source into a space: check the source, build and test the pipeline, propose both.",
+        "1. jc_draft_put a DataSource, jc_datasource_check it until the verdict is ok.\n2. jc_draft_put a Pipeline that maps the sample, jc_pipeline_test it.\n3. jc_datasource_propose and jc_pipeline_propose; the change waits for approval.",
+    ),
+    (
+        "share",
+        "Share a space with another organization through an endpoint and its policy.",
+        "1. jc_catalog_search for the space and its entity types.\n2. jc_draft_put an Endpoint, jc_manifest_dry_run it.\n3. jc_endpoint_propose; jc_change_list shows the change the approver decides.",
+    ),
+    (
+        "analyse",
+        "Compute a KPI over a space and write it back through an endpoint.",
+        "1. jc_catalog_search for the source endpoint.\n2. jc_kpi_compute on a sample to see the numbers.\n3. jc_draft_put a KPI Pipeline, jc_pipeline_test it, jc_pipeline_propose.",
+    ),
+    (
+        "model",
+        "Infer a LinkML data model from samples and propose it.",
+        "1. jc_model_infer over the samples.\n2. jc_draft_put the DataModel, jc_manifest_dry_run it.\n3. jc_model_propose.",
+    ),
+];
+
+fn capitalise(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// The project named in the params, else the first one the caller may read.
+fn project_of(params: &Value, state: &AppState, caller: &crate::ops::Caller) -> String {
+    if let Some(project) = params.get("project").and_then(Value::as_str) {
+        return project.to_string();
+    }
+    state
+        .mirror
+        .namespaces()
+        .into_iter()
+        .find(|ns| may_read(state, caller, ns))
+        .unwrap_or_else(|| "default".to_string())
+}
+
+fn may_read(state: &AppState, caller: &crate::ops::Caller, project: &str) -> bool {
+    let eff = crate::permissions::for_request(state, &caller.identity, project);
+    eff.bootstrap || !eff.grants.is_empty()
+}
+
+/// `jc://schemas/{Kind}`, `jc://{project}/drafts/{Kind}/{name}` or `jc://{project}/{plural}/{name}`.
+async fn read_resource(
+    state: &AppState,
+    caller: &crate::ops::Caller,
+    uri: &str,
+) -> Option<(&'static str, String)> {
+    let rest = uri.strip_prefix("jc://")?;
+    let parts: Vec<&str> = rest.split('/').collect();
+    match parts.as_slice() {
+        ["schemas", kind] => {
+            let schema = jc_core::registry::schema_of(kind)?;
+            Some(("application/schema+json", schema.to_string()))
+        }
+        [project, "drafts", kind, name] if may_read(state, caller, project) => {
+            let draft = crate::ops::drafts::draft_store(state)
+                .get(project, kind, name)
+                .await
+                .ok()
+                .flatten()?;
+            Some(("application/json", serde_json::to_string(&draft).ok()?))
+        }
+        [project, plural, name] if may_read(state, caller, project) => {
+            let info = crate::resource::by_plural(plural)?;
+            let item = state.mirror.get(project, info.kind, name)?;
+            Some(("application/json", serde_json::to_string(&item).ok()?))
+        }
+        _ => None,
     }
 }
 

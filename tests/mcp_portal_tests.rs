@@ -496,3 +496,158 @@ async fn mcp_oauth_protected_resource_metadata() {
     assert_eq!(meta["bearer_methods_supported"], json!(["header"]));
     assert_eq!(meta["scopes_supported"], json!(["mcp:portal"]));
 }
+
+async fn rpc(app: axum::Router, token: &str, body: Value) -> Value {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/mcp")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+#[tokio::test]
+async fn mcp_resources_list_and_read_manifests_drafts_and_schemas() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+
+    // A draft filed through the registry shows up as a resource too.
+    let put = rpc(
+        app.clone(),
+        &token,
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "jc_draft_put", "arguments": {
+                "project": "ovzdusie", "kind": "DataSource", "name": "hsy-air",
+                "manifest": { "apiVersion": "joinedcontext.com/v1", "kind": "DataSource",
+                    "metadata": { "name": "hsy-air", "namespace": "ovzdusie" },
+                    "spec": { "protocol": "http", "url": "https://example.org/air" } }
+            } }
+        }),
+    )
+    .await;
+    assert_eq!(put["result"]["isError"], false, "{put}");
+
+    let listed = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/list", "params": { "project": "ovzdusie" } }),
+    )
+    .await;
+    let uris: Vec<&str> = listed["result"]["resources"]
+        .as_array()
+        .expect("resources")
+        .iter()
+        .filter_map(|r| r["uri"].as_str())
+        .collect();
+    assert!(uris.contains(&"jc://ovzdusie/endpoints/public-air"), "{uris:?}");
+    assert!(uris.contains(&"jc://ovzdusie/drafts/DataSource/hsy-air"), "{uris:?}");
+    assert!(uris.contains(&"jc://schemas/Endpoint"), "{uris:?}");
+
+    for (uri, needle) in [
+        ("jc://ovzdusie/endpoints/public-air", "publicair00000000000000000000"),
+        ("jc://ovzdusie/drafts/DataSource/hsy-air", "https://example.org/air"),
+        ("jc://schemas/Endpoint", "\"properties\""),
+    ] {
+        let read = rpc(
+            app.clone(),
+            &token,
+            json!({ "jsonrpc": "2.0", "id": 3, "method": "resources/read", "params": { "uri": uri } }),
+        )
+        .await;
+        let text = read["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{uri}: {read}"));
+        assert!(text.contains(needle), "{uri}: {text}");
+    }
+
+    let missing = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 4, "method": "resources/read", "params": { "uri": "jc://ovzdusie/endpoints/nope" } }),
+    )
+    .await;
+    assert_eq!(missing["error"]["code"], -32002);
+
+    // A caller without a grant on the project sees nothing and reads nothing.
+    let stranger = sign_token(&signer, &kid, &issuer, PORTAL_AUDIENCE, "nobody", &[], &[]);
+    let listed = rpc(
+        app.clone(),
+        &stranger,
+        json!({ "jsonrpc": "2.0", "id": 5, "method": "resources/list", "params": { "project": "ovzdusie" } }),
+    )
+    .await;
+    assert_eq!(listed["result"]["resources"].as_array().map(Vec::len), Some(0));
+    let read = rpc(
+        app,
+        &stranger,
+        json!({ "jsonrpc": "2.0", "id": 6, "method": "resources/read", "params": { "uri": "jc://ovzdusie/endpoints/public-air" } }),
+    )
+    .await;
+    assert_eq!(read["error"]["code"], -32002);
+}
+
+#[tokio::test]
+async fn mcp_prompts_name_the_units_and_their_operations() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+    let listed = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "prompts/list" }),
+    )
+    .await;
+    let names: Vec<&str> = listed["result"]["prompts"]
+        .as_array()
+        .expect("prompts")
+        .iter()
+        .filter_map(|p| p["name"].as_str())
+        .collect();
+    assert_eq!(names, ["load", "share", "analyse", "model"]);
+
+    let got = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "prompts/get",
+            "params": { "name": "share", "arguments": { "project": "ovzdusie" } } }),
+    )
+    .await;
+    let text = got["result"]["messages"][0]["content"]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text.contains("Project: ovzdusie"), "{text}");
+    assert!(text.contains("jc_endpoint_propose"), "{text}");
+
+    let unknown = rpc(
+        app,
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "prompts/get", "params": { "name": "dance" } }),
+    )
+    .await;
+    assert_eq!(unknown["error"]["code"], -32602);
+}
