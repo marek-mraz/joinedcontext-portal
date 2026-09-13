@@ -14,18 +14,60 @@ const SOURCE = "rows";
 export const STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 /**
- * The worker the Portal inlined as base64 in `#kit-worker`, handed to the library as a blob:
- * the frame's policy allows `worker-src blob:` and nothing can be fetched beside the document.
- * Without the element (vite dev, the published app) the library finds the worker on its own.
+ * The worker the Portal inlined as base64 in `#kit-worker`, handed to the library by URL.
+ *
+ * The preview frame is sandboxed without an origin, and in Chromium such a document may start
+ * a worker from a `data:` URL and from nothing else: not from `blob:`, not from the page's own
+ * host. The library, for its part, wraps every URL that is not same-origin in a `blob:` module
+ * that imports it, so a `data:` URL alone never reaches `new Worker`. The wrapper below hands
+ * the library the `data:` URL at that moment instead. A browser that refuses `data:` workers
+ * (the probe says) gets a `blob:` URL, which the library uses as it is. Without the element
+ * (vite dev, the published app) the library finds the worker beside its own script. Resolves
+ * once the choice is made; the map is built after it.
  */
-export function useInlineWorker(doc: Document = document): boolean {
+export function useInlineWorker(doc: Document = document): Promise<boolean> {
   const text = doc.getElementById("kit-worker")?.textContent?.trim();
-  if (!text) return false;
-  const bytes = Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
-  setWorkerUrl(URL.createObjectURL(new Blob([bytes], { type: "text/javascript" })));
-  return true;
+  if (!text) return Promise.resolve(false);
+  const asData = `data:text/javascript;base64,${text}`;
+  const asBlob = (): string => {
+    const bytes = Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+    return URL.createObjectURL(new Blob([bytes], { type: "text/javascript" }));
+  };
+  return new Promise((resolve) => {
+    const done = (url: string): void => {
+      if (url.startsWith("data:")) {
+        const Native = window.Worker;
+        window.Worker = class extends Native {
+          constructor(script: string | URL, options?: WorkerOptions) {
+            super(String(script).startsWith("blob:") ? url : script, options);
+          }
+        };
+      }
+      setWorkerUrl(url);
+      resolve(true);
+    };
+    try {
+      const probe = new Worker("data:text/javascript,self.postMessage(1)");
+      const timer = setTimeout(() => {
+        probe.terminate();
+        done(asBlob());
+      }, 1500);
+      probe.onmessage = () => {
+        clearTimeout(timer);
+        probe.terminate();
+        done(asData);
+      };
+      probe.onerror = () => {
+        clearTimeout(timer);
+        probe.terminate();
+        done(asBlob());
+      };
+    } catch {
+      done(asBlob());
+    }
+  });
 }
-useInlineWorker();
+const workerReady = useInlineWorker();
 
 /** One colour per distinct text value, a warm-to-cool ramp for numbers, the accent otherwise. */
 export function colorOf(value: Row[string], range: [number, number] | null, accent: string): string {
@@ -75,9 +117,22 @@ export function MapView({ rows, location, label, color, accent, selected, onSele
   const collection = useMemo(() => featureCollection(rows, location, label, color, accent), [rows, location, label, color, accent]);
 
   useEffect(() => {
-    if (!container.current || map.current) return;
-    const instance = new MapLibreMap({ container: container.current, style: STYLE, center: [0, 0], zoom: 1 });
-    map.current = instance;
+    let gone = false;
+    let instance: MapLibreMap | null = null;
+    void workerReady.then(() => {
+      if (gone || !container.current || map.current) return;
+      instance = new MapLibreMap({ container: container.current, style: STYLE, center: [0, 0], zoom: 1 });
+      map.current = instance;
+      // For a person debugging a screenshot: the map instance, reachable from the console.
+      (window as unknown as { kitMap?: MapLibreMap }).kitMap = instance;
+      wire(instance);
+    });
+    const wire = (instance: MapLibreMap): void => {
+      // The library's own failures (a tile, the worker, the style) are said out loud; a silent
+      // map is the hardest kind to debug from a screenshot.
+      instance.on("error", (event) => {
+        console.error("kit: map error", event.error?.message ?? event);
+      });
     instance.on("load", () => {
       instance.addSource(SOURCE, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       instance.addLayer({
@@ -92,8 +147,10 @@ export function MapView({ rows, location, label, color, accent, selected, onSele
       });
       setReady(true);
     });
+    };
     return () => {
-      instance.remove();
+      gone = true;
+      instance?.remove();
       map.current = null;
     };
   }, []);

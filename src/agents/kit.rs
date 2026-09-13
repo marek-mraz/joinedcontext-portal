@@ -428,12 +428,13 @@ pub fn script_hash(js: &str) -> String {
 
 /// The policy of the preview document: the kit's own script, the platform origin and the
 /// tiles, nothing else (AP-49, AP-50). `'unsafe-inline'` styles because the bundle's
-/// stylesheet is inlined and MapLibre writes style attributes.
+/// stylesheet is inlined and MapLibre writes style attributes; `worker-src data:` because a
+/// frame with no origin may start no other kind of worker in Chromium.
 pub fn content_security_policy(origin: &str, hash: &str) -> String {
     format!(
         "default-src 'none'; base-uri 'none'; form-action 'none'; script-src {hash}; \
          style-src 'unsafe-inline'; img-src data: blob: {TILES}; font-src data:; \
-         connect-src {origin} {TILES}; worker-src blob:; child-src blob:; frame-ancestors 'self'"
+         connect-src {origin} {TILES}; worker-src blob: data:; child-src blob: data:; frame-ancestors 'self'"
     )
 }
 
