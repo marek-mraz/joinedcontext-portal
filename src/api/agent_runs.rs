@@ -138,7 +138,7 @@ pub struct MessageRequest {
 pub struct InboxQuery {
     #[serde(default)]
     pub after: i64,
-    /// Seconds to hold the call open when there is nothing new, clamped to [`INBOX_WAIT_SECS`].
+    /// Seconds to hold the call open when there is nothing new, clamped to `INBOX_WAIT_SECS`.
     /// `0` answers at once, which is what an agent between two steps of its own work wants.
     pub wait: Option<u64>,
 }
