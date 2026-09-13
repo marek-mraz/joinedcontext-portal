@@ -715,6 +715,30 @@
     "subset": {
       "nothing": "Nič nie je zaškrtnuté, endpoint by teda nič nezverejnil.",
       "identity": "id a type sú súčasťou každej entity a zostávajú zaškrtnuté."
+    },
+    "infer": {
+      "title": "Model zo súboru",
+      "lead": "Pretiahnite CSV, hárok Excelu, dokument JSON alebo PDF s tabuľkami. Portál ho prečíta raz, v pamäti, a navrhne model: trieda za hárok, slot za stĺpec, rozsahy a jednotky z hodnôt. Nič sa nepublikuje; návrh sa otvorí v editore na opravu.",
+      "drop": "Pretiahnite sem súbor alebo ho vyberte",
+      "chooseFile": "Vybrať vzorový súbor",
+      "reading": "Čítam {name}…",
+      "tooLarge": "Súbor je väčší ako 10 MiB.",
+      "failed": "Vzorku sa nepodarilo prečítať: {detail}",
+      "unreadable": "Odpoveď nebola návrh modelu.",
+      "preview": "Návrh zo súboru {name}",
+      "previewLead": "Prečítaných {rows} riadkov, navrhnutých {classes} tried. Každá hodnota je odhad na opravu v editore.",
+      "class": "Trieda",
+      "column": "Stĺpec",
+      "slot": "Slot",
+      "range": "Rozsah",
+      "kind": "Druh",
+      "unit": "Jednotka",
+      "match": "Zhoda v katalógu",
+      "untyped": "Stĺpce ponechané ako text",
+      "refused": "Editor odmietol {n} operácií",
+      "populate": "Naplniť editor",
+      "cancel": "Zrušiť",
+      "close": "Zavrieť"
     }
   },
   "apps": {

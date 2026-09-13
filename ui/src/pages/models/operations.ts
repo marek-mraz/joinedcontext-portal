@@ -22,7 +22,14 @@ import type { LinkmlModel, NgsiLdKind } from "./linkml";
  * slot IRI under a reserved namespace is refused here rather than only flagged later (DM-16).
  */
 export type Operation =
-  | { op: "addClass"; name: string; class_uri?: string; description?: string }
+  | {
+      op: "addClass";
+      name: string;
+      class_uri?: string;
+      description?: string;
+      /** The parent class; `Entity` makes it an NGSI-LD entity type (DM-09). */
+      is_a?: string;
+    }
   | { op: "removeClass"; name: string }
   | { op: "setClass"; name: string; field: "class_uri" | "description"; value: string }
   | {
@@ -202,6 +209,7 @@ function mutate(document: Document, model: LinkmlModel, operation: Operation): v
       document.setIn(["classes", operation.name], {
         ...(operation.class_uri ? { class_uri: operation.class_uri } : {}),
         ...(operation.description ? { description: operation.description } : {}),
+        ...(operation.is_a ? { is_a: operation.is_a } : {}),
         slots: [],
       });
       return;
@@ -225,7 +233,12 @@ function mutate(document: Document, model: LinkmlModel, operation: Operation): v
         refuse(`slot '${operation.name}' already exists`);
       }
       const owner = operation.class === undefined ? undefined : classOf(model, operation.class);
-      document.setIn(["slots", operation.name], { range: operation.range ?? "string" });
+      // A node, not a plain object: the kind and the IRI below are set into it in this same
+      // operation, and `setIn` can only descend into a YAML collection.
+      document.setIn(
+        ["slots", operation.name],
+        document.createNode({ range: operation.range ?? "string" }),
+      );
       if (owner) {
         document.setIn(
           ["classes", owner.name, "slots"],

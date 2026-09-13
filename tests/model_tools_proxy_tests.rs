@@ -10,7 +10,7 @@ use joinedcontext_portal::auth::session::{self, Identity, Session};
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
-use joinedcontext_portal::tools::model_tools::MAX_REQUEST_BYTES;
+use joinedcontext_portal::tools::model_tools::{MAX_REQUEST_BYTES, MAX_SAMPLE_BYTES};
 use tower::ServiceExt;
 use wiremock::matchers::{body_json_string, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -68,6 +68,41 @@ async fn post(config: Config, uri: &str, body: &str) -> (StatusCode, serde_json:
         .header(CSRF_HEADER, TEST_CSRF_TOKEN);
     let response = app
         .oneshot(request.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+/// Posts one file as `multipart/form-data`, the way the models page uploads a sample.
+async fn upload(
+    config: Config,
+    uri: &str,
+    file_name: &str,
+    content: &[u8],
+) -> (StatusCode, serde_json::Value) {
+    let cookie = session_cookie(&config);
+    let app = server::app(AppState::new(config, None));
+    let boundary = "portal-test-boundary";
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(content);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let request = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(
+            header::CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header(header::COOKIE, &cookie)
+        .header(CSRF_HEADER, TEST_CSRF_TOKEN);
+    let response = app
+        .oneshot(request.body(Body::from(body)).unwrap())
         .await
         .unwrap();
     let status = response.status();
@@ -252,5 +287,106 @@ async fn an_anonymous_caller_cannot_compile() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(tools.received_requests().await.unwrap_or_default().len(), 0);
+}
+
+const INFERRED: &str = r#"{
+  "linkml": "name: Sensors\n",
+  "operations": [{"op": "addClass", "name": "Sensors", "is_a": "Entity"}],
+  "detectedTypes": {"pm10": "integer"},
+  "matches": {},
+  "untyped": [],
+  "rows": 2,
+  "errors": [],
+  "generatorVersion": "linkml-1.11.1"
+}"#;
+
+#[tokio::test]
+async fn a_sample_file_reaches_model_tools_as_base64_and_the_draft_comes_back_verbatim() {
+    // T-0599, DM-54: the file goes as JSON, named as uploaded; a sample past the 512 KiB the
+    // other tools routes take is still within this route's own 10 MiB.
+    let tools = MockServer::start().await;
+    let sample = format!("id,pm10\n{}", "1,12\n".repeat(150_000)).into_bytes();
+    assert!(sample.len() > MAX_REQUEST_BYTES);
+    use base64::Engine as _;
+    let expected = serde_json::json!({
+        "name": "sensors.csv",
+        "content": base64::engine::general_purpose::STANDARD.encode(&sample),
+    });
+    Mock::given(method("POST"))
+        .and(path("/infer-schema"))
+        .and(body_json_string(expected.to_string()))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(INFERRED, "application/json"))
+        .mount(&tools)
+        .await;
+
+    let (status, body) = upload(
+        config_for(&tools),
+        "/api/v1/tools/infer-schema",
+        "sensors.csv",
+        &sample,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["operations"][0]["name"], "Sensors");
+    assert_eq!(body["rows"], 2);
+    assert_eq!(body["generatorVersion"], "linkml-1.11.1");
+}
+
+#[tokio::test]
+async fn a_sample_model_tools_cannot_read_is_the_persons_400_with_the_reason() {
+    let tools = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/infer-schema"))
+        .respond_with(ResponseTemplate::new(400).set_body_raw(
+            r#"{"errors":["the file is not a JSON document"]}"#,
+            "application/json",
+        ))
+        .mount(&tools)
+        .await;
+
+    let (status, body) = upload(
+        config_for(&tools),
+        "/api/v1/tools/infer-schema",
+        "x.json",
+        b"nope",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["detail"], "the file is not a JSON document");
+}
+
+#[tokio::test]
+async fn a_sample_past_the_cap_or_without_a_file_never_reaches_model_tools() {
+    // DM-55: 10 MiB at most, refused here; and an upload with no file is nothing to infer from.
+    let tools = MockServer::start().await;
+    let huge = vec![b'x'; MAX_SAMPLE_BYTES + 1];
+
+    let (status, body) = upload(
+        config_for(&tools),
+        "/api/v1/tools/infer-schema",
+        "huge.csv",
+        &huge,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("larger than"),
+        "{body}"
+    );
+
+    let (status, body) = upload(
+        config_for(&tools),
+        "/api/v1/tools/infer-schema",
+        "empty.csv",
+        b"",
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(tools.received_requests().await.unwrap_or_default().len(), 0);
 }

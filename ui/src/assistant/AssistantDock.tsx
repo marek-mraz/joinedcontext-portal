@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ConversationPanel } from "../pages/apps/ConversationPanel";
 import { TERMINAL_STATES, useAgentRun } from "../pages/apps/useAgentRun";
 import type { RunEvent } from "../pages/apps/useAgentRun";
+import { ModelFileDrop } from "../pages/models/ModelFileDrop";
 import {
   dismissNotice,
   isPortalRoute,
@@ -77,6 +78,20 @@ export function AssistantDock(): JSX.Element | null {
           >
             {t("assistant.dismiss")}
           </button>
+        </div>
+      ) : null}
+      {open ? (
+        <div className="w-full rounded border border-border bg-surface px-3 py-2 shadow">
+          <ModelFileDrop
+            compact
+            project={run.project}
+            onPopulate={(source) => {
+              // The models page picks the draft up as a prefill, the way every assistant
+              // navigation hands a page its form (DM-54, CC-71).
+              rememberPrefill(`/projects/${run.project}/models`, { source });
+              void navigate({ to: "/projects/$project/models", params: { project: run.project } });
+            }}
+          />
         </div>
       ) : null}
       <div className="flex gap-2">

@@ -715,6 +715,30 @@
     "subset": {
       "nothing": "Nichts ist angekreuzt, der Endpunkt würde also nichts veröffentlichen.",
       "identity": "id und type gehören zu jeder Entität und bleiben angekreuzt."
+    },
+    "infer": {
+      "title": "Modell aus einer Datei",
+      "lead": "Legen Sie eine CSV, ein Excel-Blatt, ein JSON-Dokument oder ein PDF mit Tabellen ab. Das Portal liest es einmal im Speicher und entwirft ein Modell: eine Klasse je Blatt, ein Slot je Spalte, Wertebereiche und Einheiten aus den Werten. Nichts wird veröffentlicht; der Entwurf öffnet sich im Editor zur Korrektur.",
+      "drop": "Datei hier ablegen oder auswählen",
+      "chooseFile": "Beispieldatei wählen",
+      "reading": "Lese {name}…",
+      "tooLarge": "Die Datei ist größer als 10 MiB.",
+      "failed": "Die Datei konnte nicht gelesen werden: {detail}",
+      "unreadable": "Die Antwort war kein Modellentwurf.",
+      "preview": "Entwurf aus {name}",
+      "previewLead": "{rows} Zeilen gelesen, {classes} Klassen entworfen. Jeder Wert ist eine Annahme, die im Editor korrigiert wird.",
+      "class": "Klasse",
+      "column": "Spalte",
+      "slot": "Slot",
+      "range": "Wertebereich",
+      "kind": "Art",
+      "unit": "Einheit",
+      "match": "Treffer im Katalog",
+      "untyped": "Als Text belassene Spalten",
+      "refused": "{n} Operationen hat der Editor abgelehnt",
+      "populate": "Editor befüllen",
+      "cancel": "Abbrechen",
+      "close": "Schließen"
     }
   },
   "apps": {

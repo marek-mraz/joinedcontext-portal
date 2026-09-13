@@ -4,9 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../../api/client";
 import { asManifests, refName } from "../../api/manifest";
+import { takePrefill } from "../../assistant/state";
 import { LinkmlEditor } from "./LinkmlEditor";
 import { MappingsEditor } from "./MappingsEditor";
 import type { MappingModel } from "./MappingsEditor";
+import { ModelFileDrop } from "./ModelFileDrop";
 import { SmartDataModelsImport } from "./SmartDataModelsImport";
 import type { CatalogueModel } from "./SmartDataModelsImport";
 import { blankSource, parseModel } from "./linkml";
@@ -54,10 +56,15 @@ export function ModelsPage({
   mappable = [],
 }: ModelsPageProps): JSX.Element {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<Tab>(baseline ? "editor" : "import");
+  // A draft left by the assistant's dock (a dropped file) opens straight in the editor.
+  const [prefilled] = useState(() => {
+    const prefill = takePrefill(window.location.pathname) as { source?: unknown } | null;
+    return typeof prefill?.source === "string" ? prefill.source : undefined;
+  });
+  const [tab, setTab] = useState<Tab>(baseline || prefilled ? "editor" : "import");
   const [published, setPublished] = useState(baseline);
   const [source, setSource] = useState(
-    baseline?.source ?? blankSource(`${project}.sk`, "new-model"),
+    baseline?.source ?? prefilled ?? blankSource(`${project}.sk`, "new-model"),
   );
 
   const model = useMemo(() => parseModel(source), [source]);
@@ -120,6 +127,13 @@ export function ModelsPage({
       lifecycle: "draft",
       name: catalogueModel.name,
     });
+    setTab("editor");
+  };
+
+  // A model inferred from a file is a new draft: nothing published to compare against.
+  const onPopulate = (draft: string) => {
+    setSource(draft);
+    setPublished(undefined);
     setTab("editor");
   };
 
@@ -188,7 +202,12 @@ export function ModelsPage({
       </div>
 
       <div role="tabpanel">
-        {tab === "import" ? <SmartDataModelsImport onImport={onImport} /> : null}
+        {tab === "import" ? (
+          <div className="flex flex-col gap-4">
+            <ModelFileDrop project={project} onPopulate={onPopulate} />
+            <SmartDataModelsImport onImport={onImport} />
+          </div>
+        ) : null}
         {tab === "editor" ? (
           <LinkmlEditor source={source} onChange={setSource} locales={locales} />
         ) : null}

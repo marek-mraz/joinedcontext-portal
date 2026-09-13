@@ -715,6 +715,30 @@
     "subset": {
       "nothing": "Nic není zaškrtnuto, endpoint by tedy nic nezveřejnil.",
       "identity": "id a type jsou součástí každé entity a zůstávají zaškrtnuté."
+    },
+    "infer": {
+      "title": "Model ze souboru",
+      "lead": "Přetáhněte CSV, list Excelu, dokument JSON nebo PDF s tabulkami. Portál jej přečte jednou, v paměti, a navrhne model: třída za list, slot za sloupec, rozsahy a jednotky z hodnot. Nic se nepublikuje; návrh se otevře v editoru k opravě.",
+      "drop": "Přetáhněte sem soubor nebo jej vyberte",
+      "chooseFile": "Vybrat vzorový soubor",
+      "reading": "Čtu {name}…",
+      "tooLarge": "Soubor je větší než 10 MiB.",
+      "failed": "Vzorek se nepodařilo přečíst: {detail}",
+      "unreadable": "Odpověď nebyla návrh modelu.",
+      "preview": "Návrh ze souboru {name}",
+      "previewLead": "Přečteno {rows} řádků, navrženo {classes} tříd. Každá hodnota je odhad k opravě v editoru.",
+      "class": "Třída",
+      "column": "Sloupec",
+      "slot": "Slot",
+      "range": "Rozsah",
+      "kind": "Druh",
+      "unit": "Jednotka",
+      "match": "Shoda v katalogu",
+      "untyped": "Sloupce ponechané jako text",
+      "refused": "Editor odmítl {n} operací",
+      "populate": "Naplnit editor",
+      "cancel": "Zrušit",
+      "close": "Zavřít"
     }
   },
   "apps": {

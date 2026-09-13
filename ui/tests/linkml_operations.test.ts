@@ -97,6 +97,20 @@ describe("LinkML operations", () => {
     expect(parseModel(gone).classes).toEqual([]);
   });
 
+  it("adds a slot with its kind and an entity class in one operation each", () => {
+    // T-0599: inference answers `addSlot` with a kind and `addClass` with `is_a`, so the two
+    // must land in one operation, not need a second `setSlot`.
+    const applied = applyOperations(SOURCE, [
+      { op: "addClass", name: "Reading", is_a: "Entity" },
+      { op: "addSlot", name: "parent", class: "Reading", range: "uriorcurie", kind: "Relationship" },
+    ]);
+
+    expect(applied.refused).toEqual([]);
+    const model = parseModel(applied.source);
+    expect(model.slots.find((slot) => slot.name === "parent")?.kind).toBe("Relationship");
+    expect(applied.source).toContain("is_a: Entity");
+  });
+
   it("refuses by name, and then nothing of the list lands", () => {
     const operations: Operation[] = [
       { op: "addClass", name: "WeatherObserved" },

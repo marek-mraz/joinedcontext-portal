@@ -9,10 +9,13 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use axum::extract::{Query, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
+use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 
 use crate::auth::CurrentUser;
@@ -27,6 +30,10 @@ const COMPILE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Portal caps the payload before it reaches it rather than after (DM-18). A schema this size
 /// is already far past what an editor session produces.
 pub const MAX_REQUEST_BYTES: usize = 512 * 1024;
+
+/// Largest sample `POST /api/v1/tools/infer-schema` takes (DM-55). The route has its own limit
+/// because a sample is a file and a source is a text box.
+pub const MAX_SAMPLE_BYTES: usize = 10 * 1024 * 1024;
 
 /// A LinkML source to compile.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -274,14 +281,119 @@ pub async fn sdm_catalog(
     Ok(Json(catalogue))
 }
 
+/// `POST /api/v1/tools/infer-schema`: a draft model from a sample file (T-0599, DM-54, DM-55).
+///
+/// The body is `multipart/form-data` with the file under `file` and an optional `format`
+/// (`csv`, `xlsx`, `json`, `pdf`; the extension decides otherwise). The bytes go to Model Tools'
+/// `/infer-schema` base64-encoded in JSON, are parsed there in memory and written nowhere, and
+/// the draft comes back as Model Tools wrote it: `linkml`, `operations`, `detectedTypes`,
+/// `matches`, `untyped`, `rows` (API/01 §11). Not in the OpenAPI document: the snapshot the UI
+/// pins cannot be regenerated here, so the UI calls this route directly.
+pub async fn infer_schema(
+    _user: CurrentUser,
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<Value>, ApiError> {
+    let route = "infer-schema";
+    let url = model_tools_url(&state, route)?;
+    let (mut name, mut content, mut format) = (None, None, None);
+    let upload_error = |what: &str, err: &axum::extract::multipart::MultipartError| {
+        if err.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            ApiError::BadRequest(format!(
+                "the sample is larger than the {MAX_SAMPLE_BYTES} byte limit"
+            ))
+        } else {
+            ApiError::BadRequest(format!("{what}: {err}"))
+        }
+    };
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|err| upload_error("the upload did not parse", &err))?
+    {
+        let field_name = field.name().unwrap_or_default().to_owned();
+        match field_name.as_str() {
+            "file" => {
+                name = field.file_name().map(str::to_owned);
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|err| upload_error("field 'file'", &err))?;
+                content = Some(bytes);
+            }
+            "format" => {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|err| upload_error("field 'format'", &err))?;
+                format = Some(String::from_utf8_lossy(&bytes).trim().to_owned());
+            }
+            _ => {}
+        }
+    }
+    let content = content
+        .filter(|bytes| !bytes.is_empty())
+        .ok_or_else(|| ApiError::BadRequest("the upload carries no 'file'".into()))?;
+    if content.len() > MAX_SAMPLE_BYTES {
+        return Err(ApiError::BadRequest(format!(
+            "the sample is larger than the {MAX_SAMPLE_BYTES} byte limit"
+        )));
+    }
+    let mut body = serde_json::json!({
+        "name": name.unwrap_or_else(|| "sample".into()),
+        "content": base64::engine::general_purpose::STANDARD.encode(&content),
+    });
+    if let Some(format) = format.filter(|f| !f.is_empty()) {
+        body["format"] = Value::String(format);
+    }
+
+    let response = http()
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|err| unavailable(route, "unreachable", &err))?;
+    let status = response.status();
+    let answer = response
+        .json::<Value>()
+        .await
+        .map_err(|err| unavailable(route, "answered unreadably", &err))?;
+    if status == reqwest::StatusCode::BAD_REQUEST {
+        // The file could not be read as what it claims to be: the person's to fix, so the
+        // reasons come through, and they name the format, never a value from the file.
+        let reasons = answer["errors"]
+            .as_array()
+            .map(|errors| {
+                errors
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .filter(|joined| !joined.is_empty())
+            .unwrap_or_else(|| "the sample could not be read".into());
+        return Err(ApiError::BadRequest(reasons));
+    }
+    if !status.is_success() || !answer.is_object() {
+        return Err(unavailable(route, "refused", &status));
+    }
+    Ok(Json(answer))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/tools/sdm-catalog", get(sdm_catalog))
         .route("/tools/generate", post(generate))
         .route("/tools/import-sdm", post(import_sdm))
+        // A sample is a file: this route carries its own limit, set closest to the handler so
+        // it wins over the router's (DM-55).
+        .route(
+            "/tools/infer-schema",
+            post(infer_schema).layer(DefaultBodyLimit::max(MAX_SAMPLE_BYTES + 64 * 1024)),
+        )
         // Model Tools is stateless and shared: an oversized source is refused here, before it
         // is read into memory or forwarded (DM-18).
-        .layer(axum::extract::DefaultBodyLimit::max(MAX_REQUEST_BYTES))
+        .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
 }
 
 #[cfg(test)]
