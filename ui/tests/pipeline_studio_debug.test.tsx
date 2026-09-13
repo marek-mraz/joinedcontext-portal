@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import type { PipelineForm } from "../src/pages/pipelines/PipelineEditor";
+import type { Manifest } from "../src/api/manifest";
 
 function MockEditor({ value, onChange }: { value: string; onChange?: (value: string) => void }) {
   return <textarea aria-label="YAML" value={value} onChange={(event) => onChange?.(event.target.value)} />;
@@ -53,7 +54,7 @@ function mockFetch(test: { status: number; body: unknown }) {
   return fetchMock;
 }
 
-const HTTP_SOURCE = {
+const HTTP_SOURCE: Manifest = {
   apiVersion: "joinedcontext.com/v1alpha1",
   kind: "DataSource",
   metadata: { name: "hsl-citybikes-free", namespace: "helsinki" },
@@ -67,7 +68,7 @@ function Harness({
 }: {
   initial?: PipelineForm;
   onForm: (form: PipelineForm) => void;
-  dataSources?: (typeof HTTP_SOURCE)[];
+  dataSources?: Manifest[];
 }) {
   const [draft, setDraft] = useState<PipelineForm | undefined>(initial);
   return (
@@ -85,7 +86,7 @@ function Harness({
   );
 }
 
-function renderStudio(initial?: PipelineForm, dataSources?: (typeof HTTP_SOURCE)[]) {
+function renderStudio(initial?: PipelineForm, dataSources?: Manifest[]) {
   const onForm = vi.fn();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
