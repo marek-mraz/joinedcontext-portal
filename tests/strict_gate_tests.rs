@@ -689,7 +689,15 @@ async fn rest_door_with_a_draft_reaches_the_check_and_the_gate() {
     });
     state
         .drafts
-        .put("ovzdusie", "DataSource", "feed-rest", manifest.clone(), None, "steward", "person")
+        .put(
+            "ovzdusie",
+            "DataSource",
+            "feed-rest",
+            manifest.clone(),
+            None,
+            "steward",
+            "person",
+        )
         .await
         .unwrap();
 

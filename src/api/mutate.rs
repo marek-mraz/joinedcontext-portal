@@ -511,7 +511,10 @@ pub async fn create(
     let is_dry = dry_run::is_dry_run(&dry_run_q)?;
     let mut body_val = parse_body_to_value(&headers, &body)?;
     if let Some(draft) = take_draft(&mut body_val) {
-        return propose_draft(user, front, &state, &project, &plural, is_dry, draft, body_val).await;
+        return propose_draft(
+            user, front, &state, &project, &plural, is_dry, draft, body_val,
+        )
+        .await;
     }
     propose(
         &user,
@@ -559,7 +562,10 @@ pub async fn replace(
     let is_dry = dry_run::is_dry_run(&dry_run_q)?;
     let mut body_val = parse_body_to_value(&headers, &body)?;
     if let Some(draft) = take_draft(&mut body_val) {
-        return propose_draft(user, front, &state, &project, &plural, is_dry, draft, body_val).await;
+        return propose_draft(
+            user, front, &state, &project, &plural, is_dry, draft, body_val,
+        )
+        .await;
     }
     propose(
         &user,
