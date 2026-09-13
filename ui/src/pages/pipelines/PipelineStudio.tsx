@@ -358,10 +358,7 @@ export function PipelineStudio({
       period: kpiPeriod,
       source: {
         ...draft?.source,
-        endpointRef: {
-          kind: "Endpoint",
-          name: kpiEndpoint,
-        } as unknown as string,
+        endpointRef: kpiEndpoint,
         query: { type: kpiType, attrs: [kpiAttribute] },
       },
       compute: {
