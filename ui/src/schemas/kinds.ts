@@ -544,7 +544,11 @@ export function pipelineSchema(
     title,
     items: { type: "string", minLength: 1 },
   });
-  const targets = endpoints.flatMap((endpoint) => (endpoint.urn ? [endpoint.urn] : []));
+  // The option a person picks is the endpoint's name; the value the manifest carries is the
+  // URN the organization domain completes (PL-04).
+  const targets = endpoints.flatMap((endpoint) =>
+    endpoint.urn ? [{ const: endpoint.urn, title: endpoint.name }] : [],
+  );
 
   return {
     type: "object",
@@ -678,15 +682,12 @@ export function pipelineSchema(
           },
         ],
       },
-      targetEndpoint: choice(
-        {
-          type: "string",
-          title: t("pipelines.field.targetEndpoint"),
-          description: t("pipelines.field.targetEndpointHint"),
-          pattern: ENDPOINT_URN_PATTERN,
-        },
-        targets,
-      ),
+      targetEndpoint: {
+        type: "string",
+        title: t("pipelines.field.targetEndpoint"),
+        description: t("pipelines.field.targetEndpointHint"),
+        ...(targets.length > 0 ? { oneOf: targets } : { pattern: ENDPOINT_URN_PATTERN }),
+      },
       output: {
         type: "object",
         title: t("pipelines.field.output"),

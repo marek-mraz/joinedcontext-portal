@@ -293,7 +293,7 @@ describe("pipeline editor", () => {
     await userEvent.selectOptions(within(dialog).getByLabelText(/^Data source/), "mqtt-mesto");
     await userEvent.selectOptions(
       within(dialog).getByLabelText(/^Target endpoint/),
-      "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
+      "public-air",
     );
 
     await userEvent.click(yamlTab(dialog));
@@ -378,7 +378,7 @@ describe("pipeline editor", () => {
     await userEvent.selectOptions(within(dialog).getByLabelText(/^Data source/), "mqtt-mesto");
     await userEvent.selectOptions(
       within(dialog).getByLabelText(/^Target endpoint/),
-      "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
+      "public-air",
     );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
 
@@ -518,7 +518,7 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     await userEvent.type(within(dialog).getByLabelText(/^Name/), "pm10-sum");
     await userEvent.selectOptions(
       within(dialog).getByLabelText(/^Target endpoint/),
-      "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
+      "public-air",
     );
     const propose = within(dialog).getByRole("button", { name: en.pipelines.propose });
     await waitFor(() => expect(propose).toBeEnabled());
