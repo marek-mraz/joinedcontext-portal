@@ -116,7 +116,7 @@ function renderEndpoints() {
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    .filter((request) => request instanceof Request && request.method !== "GET");
+    .filter((request) => request instanceof Request && request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts"));
 }
 
 /** rjsf renders an array editor: one "Add" button, and items that carry an id, not a label. */

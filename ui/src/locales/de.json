@@ -1210,5 +1210,23 @@
   },
   "permissions": {
     "denied": "Deaktiviert: Ihre Rolle erlaubt ''{verb}'' auf ''{kind}'' in diesem Projekt nicht"
+  },
+  "drafts": {
+    "touched": "Entwurf v{version}, zuletzt bearbeitet von {who} ({kind})",
+    "conflict": "Entwurfskonflikt: Eine neuere Version existiert und wurde geladen.",
+    "verdict": {
+      "none": "Noch nicht geprüft",
+      "green": "Geprüft {age}",
+      "red": "Prüfung fehlgeschlagen {age}",
+      "stale": "Seit der Prüfung geändert"
+    },
+    "proposeReason": {
+      "none": "Führen Sie zuerst die Prüfung aus: Ohne frisches grünes Urteil wird nichts vorgeschlagen.",
+      "red": "Die Prüfung ist fehlgeschlagen; beheben Sie die Befunde vor dem Vorschlagen.",
+      "stale": "Der Entwurf hat sich seit der letzten Prüfung geändert; führen Sie die Prüfung erneut aus."
+    },
+    "laxWarning": "Verhaltene Validierung: Prüfung wurde nicht ausgeführt oder ist fehlgeschlagen.",
+    "findings": "Befunde",
+    "strict": "strikte Validierung"
   }
 }

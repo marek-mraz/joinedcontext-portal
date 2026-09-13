@@ -1210,5 +1210,23 @@
   },
   "permissions": {
     "denied": "Disabled: your role does not permit ''{verb}'' on ''{kind}'' in this project"
+  },
+  "drafts": {
+    "touched": "Draft v{version}, last touched by {who} ({kind})",
+    "conflict": "Draft conflict: a newer version exists and was loaded.",
+    "verdict": {
+      "none": "Not checked yet",
+      "green": "Checked {age}",
+      "red": "Check failed {age}",
+      "stale": "Changed since the check"
+    },
+    "proposeReason": {
+      "none": "Run the check first: nothing is proposed without a fresh green verdict.",
+      "red": "The check failed; resolve the findings before proposing.",
+      "stale": "The draft changed since the last check; run the check again."
+    },
+    "laxWarning": "Lax validation: check has not run or passed.",
+    "findings": "Findings",
+    "strict": "strict validation"
   }
 }

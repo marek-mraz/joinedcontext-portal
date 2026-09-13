@@ -144,7 +144,7 @@ function renderEndpoints({ compiled = true } = {}) {
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    .filter((request) => request instanceof Request && request.method !== "GET");
+    .filter((request) => request instanceof Request && request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts"));
 }
 
 async function openEditor() {

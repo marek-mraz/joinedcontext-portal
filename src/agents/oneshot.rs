@@ -1139,11 +1139,31 @@ impl Driver {
                     );
                 }
                 self.thought(&prose).await?;
+                let manifest = serde_json::to_value(&proposal.endpoint).unwrap_or_else(|_| {
+                    serde_json::to_value(&proposal.prefill).unwrap_or(Value::Null)
+                });
+                let _ = self
+                    .state
+                    .drafts
+                    .put(
+                        &self.project,
+                        "Endpoint",
+                        &params.name,
+                        manifest,
+                        None,
+                        &self.created_by,
+                        "assistant",
+                    )
+                    .await;
                 self.event(
                     "navigate",
                     json!({
                         "route": format!("/projects/{}/endpoints", self.project),
                         "prefill": proposal.prefill,
+                        "draft": {
+                            "kind": "Endpoint",
+                            "name": params.name,
+                        },
                     }),
                 )
                 .await?;

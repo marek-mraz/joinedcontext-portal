@@ -15,6 +15,7 @@ use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummar
 use crate::api::ckan::{
     CkanStatus, DataStoreStatus, InstanceSummary, PublicationStatus, ResourceLink,
 };
+use crate::api::drafts::{DraftList, PutDraftRequest};
 use crate::api::dry_run::DryRunResult;
 use crate::api::export::{Revision, RevisionList};
 use crate::api::federation::{Edge, EdgeKind, FederationGraph, Node, NodeHealth, RegistrationCard};
@@ -27,9 +28,12 @@ use crate::api::resources::{ListMeta, ResourceList};
 use crate::api::service_accounts::{KeyInfo, KeyList, MintedKey};
 use crate::auth::oidc::{LogoutTarget, Me};
 use crate::auth::{Front, Identity};
+use crate::branding::Validation;
 use crate::branding::{Branding, Colours, Fonts, Languages};
 use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSummary};
 use crate::error::ProblemDetails;
+use crate::ops::drafts::{Draft, DraftEvent};
+use crate::ops::verdict::{Finding, Level, Verdict};
 use crate::permissions::{Effective, Grant};
 use crate::plan::{FieldChange, PlanDiff};
 use crate::reconciler::SyncStatus;
@@ -74,6 +78,11 @@ use crate::tools::model_tools::{
         crate::api::preferences::put_preferences,
         crate::api::ops::list_ops,
         crate::api::ops::run_op,
+        crate::api::drafts::list_drafts,
+        crate::api::drafts::get_draft,
+        crate::api::drafts::put_draft,
+        crate::api::drafts::drop_draft,
+        crate::api::drafts::stream_draft_events,
         crate::api::mutate::create,
         crate::api::mutate::replace,
         crate::api::mutate::patch,
@@ -171,6 +180,14 @@ use crate::tools::model_tools::{
         Revision,
         RevisionList,
         FlowRequest,
+        Draft,
+        DraftEvent,
+        DraftList,
+        PutDraftRequest,
+        Verdict,
+        Finding,
+        Level,
+        Validation,
     )),
     info(
         title = "joinedcontext Portal API",
@@ -184,6 +201,7 @@ use crate::tools::model_tools::{
         (name = "permissions", description = "What the caller may do in a project (PF-50)"),
         (name = "tools", description = "Model Tools schema generation and preview"),
         (name = "ops", description = "One operation registry behind every door (AG-59, ADR-N-021)"),
+        (name = "drafts", description = "Shared manifest drafts every window shares (AG-61, UI-47)"),
         (name = "preferences", description = "The signed-in person's own UI preferences"),
         (name = "access", description = "ServiceAccounts, their API keys and effective grants")
     ),

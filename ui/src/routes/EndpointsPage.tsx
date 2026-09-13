@@ -180,6 +180,11 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const queryClient = useQueryClient();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
+  const [urlDraftName, setUrlDraftName] = useState(() => {
+    if (typeof window === "undefined") return undefined;
+    return new URLSearchParams(window.location.search).get("draft") ?? undefined;
+  });
+
   // The assistant may have sent the person here with a form in hand (UI-45): taken once,
   // before the first render, so the dialog is open from the start and a reload starts clean.
   const [prefill] = useState(
@@ -189,6 +194,16 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         | null,
   );
   const [editing, setEditing] = useState<EndpointForm | null>(() => {
+    if (urlDraftName) {
+      return {
+        name: urlDraftName,
+        contextSpaceRef: "",
+        slug: generateSlug(),
+        audience: "project-list",
+        enabledRepresentations: ["ngsi-ld"],
+        allowedProjects: [],
+      };
+    }
     if (!prefill) {
       return null;
     }
@@ -205,7 +220,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       ...form,
     };
   });
-  const [isNew, setIsNew] = useState(prefill !== null);
+  const [isNew, setIsNew] = useState(prefill !== null || urlDraftName !== undefined);
   const mayPropose = usePermissions(project).can("Endpoint", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -263,9 +278,18 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   });
 
   const propose = useMutation({
-    mutationFn: async ({ form, create }: { form: EndpointForm; create: boolean }) => {
+    mutationFn: async ({
+      form,
+      create,
+      draft: draftRef,
+    }: {
+      form: EndpointForm;
+      create: boolean;
+      draft?: { kind: string; name: string };
+    }) => {
       setFormError(null);
-      const body = toEnvelope(project, form, hidden) as never;
+      const envelope = toEnvelope(project, form, hidden);
+      const body = (draftRef ? { ...envelope, draft: draftRef } : envelope) as never;
       const result = create
         ? await api.POST("/api/v1/projects/{project}/{plural}", {
             params: { path: { project, plural: "endpoints" } },
@@ -282,6 +306,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         setChange(result);
       }
       setEditing(null);
+      setUrlDraftName(undefined);
       void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, "endpoints") });
     },
     onError: (err) => {
@@ -406,6 +431,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             onClick={() => {
               setFormError(null);
               setIsNew(true);
+              setUrlDraftName(undefined);
               setHidden([]);
               setEditing({
                 name: "",
@@ -508,6 +534,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                           onClick={() => {
                             setFormError(null);
                             setIsNew(false);
+                            setUrlDraftName(endpoint.metadata.name);
                             setHidden(hiddenOf(endpoint));
                             setEditing(toForm(endpoint));
                           }}
@@ -670,8 +697,12 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         onOpenChange={(open) => {
           if (!open) {
             setEditing(null);
+            setUrlDraftName(undefined);
           }
         }}
+        project={project}
+        draftKind="Endpoint"
+        draftName={editing?.name || urlDraftName || undefined}
         title={isNew ? t("endpoints.add") : t("endpoints.edit")}
         description={t("endpoints.addHint")}
         schema={schema}
@@ -680,7 +711,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         submitLabel={t("endpoints.propose")}
         disabled={propose.isPending}
         error={formError}
-        onSubmit={(form) => propose.mutate({ form, create: isNew })}
+        onSubmit={(form, draftRef) => propose.mutate({ form, create: isNew, draft: draftRef })}
         onChange={(form) => {
           // Keeps typed fields when the slug generator replaces one value of the form.
           if (form) {

@@ -11,6 +11,24 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// Proposal validation strictness mode (PF-57).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Validation {
+    #[default]
+    Strict,
+    Lax,
+}
+
+impl Validation {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::Lax => "lax",
+        }
+    }
+}
+
 /// Everything the Portal shows that names or themes an installation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
@@ -47,6 +65,10 @@ pub struct Branding {
     /// taken from the file: the block names a primary colour but no foreground, and white on
     /// a light primary is unreadable (WCAG 1.4.3). A value in the file is overwritten.
     pub primary_foreground: String,
+    /// Proposal validation strictness (PF-57). In strict mode, proposals require a fresh
+    /// green verdict; in lax mode, Green-lane proposals proceed with a warning.
+    #[serde(default)]
+    pub validation: Validation,
 }
 
 /// The five colours a page is built from. Each is validated as a hex triplet or sextet before
@@ -105,6 +127,7 @@ impl Default for Branding {
             fonts: Fonts::default(),
             languages: Languages::default(),
             primary_foreground: "#ffffff".into(),
+            validation: Validation::default(),
         }
     }
 }
@@ -453,5 +476,18 @@ languages:
         };
         assert_eq!(light.primary_foreground(), "#0f172a");
         assert_eq!(Branding::default().primary_foreground(), "#ffffff");
+    }
+
+    #[test]
+    fn validation_mode_defaults_to_strict_and_parses_lax() {
+        assert_eq!(Branding::default().validation, Validation::Strict);
+
+        let yaml = "instanceName: \"Test\"\nvalidation: lax\n";
+        let branding: Branding = serde_yaml_ng::from_str(yaml).unwrap();
+        assert_eq!(branding.validation, Validation::Lax);
+
+        let yaml_strict = "instanceName: \"Test\"\nvalidation: strict\n";
+        let branding_strict: Branding = serde_yaml_ng::from_str(yaml_strict).unwrap();
+        assert_eq!(branding_strict.validation, Validation::Strict);
     }
 }

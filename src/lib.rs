@@ -16,6 +16,8 @@ pub mod git;
 pub mod mcp;
 pub mod openapi;
 pub mod ops;
+pub use ops::drafts;
+pub use ops::verdict;
 pub mod permissions;
 pub mod plan;
 pub mod reconciler;

@@ -12,11 +12,18 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::OnceLock;
 
+pub mod drafts;
+pub mod verdict;
+
+pub use drafts::*;
+pub use verdict::*;
+
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use base64::Engine as _;
 use jc_core::kinds::Verb;
+use jcctl::pipeline_test::Sample;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use utoipa::{PartialSchema, ToSchema};
@@ -42,6 +49,17 @@ pub enum Via {
     Session,
     Bearer,
     Mcp,
+}
+
+impl Via {
+    /// Who last touched a draft, as the draft records it (AG-61).
+    pub fn touched_kind(self) -> &'static str {
+        match self {
+            Via::Session => "person",
+            Via::Bearer => "api-key",
+            Via::Mcp => "mcp",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +104,8 @@ pub enum OpError {
     Forbidden(String),
     #[error("invalid input at {path}: {message}")]
     InvalidInput { path: String, message: String },
+    #[error("conflict: {0}")]
+    Conflict(Value),
     #[error(transparent)]
     Api(#[from] ApiError),
 }
@@ -118,6 +138,12 @@ impl IntoResponse for OpError {
                 })),
             )
                 .into_response(),
+            OpError::Conflict(val) => (
+                StatusCode::CONFLICT,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                Json(val),
+            )
+                .into_response(),
             OpError::Api(err) => err.into_response(),
         }
     }
@@ -130,6 +156,12 @@ impl From<OpError> for ApiError {
             OpError::InvalidInput { path, message } => {
                 ApiError::BadRequest(format!("{path}: {message}"))
             }
+            OpError::Conflict(val) => ApiError::Conflict(
+                val.get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("conflict")
+                    .to_owned(),
+            ),
             OpError::Api(api) => api,
         }
     }
@@ -241,6 +273,63 @@ pub struct CatalogSearchInput {
     pub scope: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DraftRef {
+    pub kind: String,
+    pub name: String,
+}
+
+fn draft_error(err: DraftError) -> OpError {
+    match err {
+        DraftError::Conflict { current } => OpError::Conflict(json!({
+            "type": "https://joinedcontext.com/problems/draft-conflict",
+            "error": "draft_conflict",
+            "current": current,
+        })),
+        DraftError::Secret(path) => OpError::Api(ApiError::BadRequest(format!(
+            "literal secret in field '{path}' is forbidden; use secretRef instead (MF-24)"
+        ))),
+        DraftError::NotFound {
+            project,
+            kind,
+            name,
+        } => OpError::Api(ApiError::NotFound(format!(
+            "draft '{kind}/{name}' not found in project '{project}'"
+        ))),
+        DraftError::Db(msg) => OpError::Api(ApiError::Internal(msg)),
+    }
+}
+
+fn parse_input<T: serde::de::DeserializeOwned>(val: Value) -> Result<T, OpError> {
+    serde_json::from_value(val).map_err(|e| {
+        let (path, message) = serde_error_path_and_message(&e);
+        OpError::InvalidInput { path, message }
+    })
+}
+
+/// The verdict of a DataSource check: the dry run's validity and, for an `http` source, the
+/// probe of its feed (MF-39).
+fn datasource_verdict(out: &Value, manifest: &Value) -> Verdict {
+    let ok = out.get("valid").and_then(Value::as_bool).unwrap_or(false);
+    let mut findings = Vec::new();
+    if !ok {
+        findings.push(Finding {
+            level: Level::Error,
+            path: String::new(),
+            message: "the manifest did not pass the dry run".into(),
+        });
+    }
+    if let Some(skipped) = out.pointer("/probe/skipped").and_then(Value::as_str) {
+        findings.push(Finding {
+            level: Level::Info,
+            path: "spec.http.url".into(),
+            message: skipped.to_owned(),
+        });
+    }
+    Verdict::new(ok, findings, Some(out.clone()), manifest)
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EndpointProposeInput {
@@ -264,6 +353,8 @@ pub struct EndpointProposeInput {
     pub rate_limits: Option<share::RateLimits>,
     #[serde(default)]
     pub manifest: Option<Value>,
+    #[serde(default)]
+    pub draft: Option<DraftRef>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -288,7 +379,44 @@ pub struct KpiComputeInput {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManifestInput {
+    #[serde(default)]
+    pub manifest: Option<Value>,
+    #[serde(default)]
+    pub draft: Option<DraftRef>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PipelineTestInput {
+    #[serde(default)]
+    pub pipeline: Option<Value>,
+    pub sample: Sample,
+    #[serde(default)]
+    pub draft: Option<DraftRef>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DraftPutInput {
+    pub kind: String,
+    pub name: String,
     pub manifest: Value,
+    #[serde(default)]
+    pub expected_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftGetInput {
+    pub kind: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftDropInput {
+    pub kind: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -355,7 +483,16 @@ fn endpoint_propose_input_schema() -> Value {
             "hiddenAttributes": { "type": "array", "items": { "type": "string" } },
             "entityTypes": { "type": "array", "items": { "type": "string" } },
             "rateLimits": { "type": "object" },
-            "manifest": { "type": "object" }
+            "manifest": { "type": "object" },
+            "draft": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string" },
+                    "name": { "type": "string" }
+                },
+                "required": ["kind", "name"],
+                "additionalProperties": false
+            }
         },
         "additionalProperties": false
     })
@@ -383,10 +520,66 @@ fn manifest_input_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "manifest": { "type": "object" }
+            "manifest": { "type": "object" },
+            "draft": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string" },
+                    "name": { "type": "string" }
+                },
+                "required": ["kind", "name"],
+                "additionalProperties": false
+            }
         },
-        "required": ["manifest"],
         "additionalProperties": false
+    })
+}
+
+fn draft_put_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "kind": { "type": "string" },
+            "name": { "type": "string" },
+            "manifest": { "type": "object" },
+            "expectedVersion": { "type": "integer" }
+        },
+        "required": ["kind", "name", "manifest"],
+        "additionalProperties": false
+    })
+}
+
+fn draft_get_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "kind": { "type": "string" },
+            "name": { "type": "string" }
+        },
+        "required": ["kind", "name"],
+        "additionalProperties": false
+    })
+}
+
+fn draft_schema() -> Value {
+    serde_json::to_value(Draft::schema()).unwrap_or_else(|_| json!({ "type": "object" }))
+}
+
+fn draft_list_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "items": { "type": "array", "items": { "type": "object" } }
+        }
+    })
+}
+
+fn draft_drop_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "dropped": { "type": "boolean" }
+        }
     })
 }
 
@@ -402,9 +595,18 @@ fn pipeline_test_input_schema() -> Value {
                     "url": { "type": "string" },
                     "format": { "type": "string", "enum": ["csv", "json", "text"] }
                 }
+            },
+            "draft": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string" },
+                    "name": { "type": "string" }
+                },
+                "required": ["kind", "name"],
+                "additionalProperties": false
             }
         },
-        "required": ["pipeline", "sample"],
+        "required": ["sample"],
         "additionalProperties": false
     })
 }
@@ -443,8 +645,28 @@ fn model_infer_input_schema() -> Value {
 }
 
 fn dry_run_output_schema() -> Value {
-    serde_json::to_value(dry_run::DryRunResult::schema())
-        .unwrap_or_else(|_| json!({ "type": "object" }))
+    let mut val = serde_json::to_value(dry_run::DryRunResult::schema())
+        .unwrap_or_else(|_| json!({ "type": "object" }));
+    if let Some(props) = val
+        .pointer_mut("/properties")
+        .and_then(Value::as_object_mut)
+    {
+        props.insert("verdict".into(), json!({ "type": "object" }));
+    }
+    val
+}
+
+fn pipeline_test_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "input": { "type": "object" },
+            "mapping": { "type": "array" },
+            "validation": { "type": "array" },
+            "errors": { "type": "array" },
+            "verdict": { "type": "object" }
+        }
+    })
 }
 
 fn change_proposal_schema() -> Value {
@@ -509,6 +731,101 @@ async fn mutate_manifest(
     .await?;
 
     Ok(outcome.into_value())
+}
+
+async fn resolve_manifest_input(
+    state: &AppState,
+    project: &str,
+    input: &ManifestInput,
+) -> Result<(Value, Option<DraftRef>), OpError> {
+    if let Some(d) = &input.draft {
+        if let Some(m) = &input.manifest {
+            return Ok((m.clone(), Some(d.clone())));
+        }
+        let draft = draft_store(state)
+            .get(project, &d.kind, &d.name)
+            .await
+            .map_err(|e| OpError::Api(ApiError::Internal(e.to_string())))?
+            .ok_or_else(|| {
+                ApiError::NotFound(format!(
+                    "draft '{}/{}' not found in project '{project}'",
+                    d.kind, d.name
+                ))
+            })?;
+        return Ok((draft.manifest, Some(d.clone())));
+    }
+    if let Some(m) = &input.manifest {
+        return Ok((m.clone(), None));
+    }
+    Err(OpError::InvalidInput {
+        path: "/manifest".into(),
+        message: "either manifest or draft is required".into(),
+    })
+}
+
+fn apply_verdict_gate(state: &AppState, draft: &Draft, check_op: &str) -> Result<bool, OpError> {
+    let mode = verdict::get_validation_mode(state);
+    let reason = match &draft.verdict {
+        None => Some("verdict_absent"),
+        Some(v) if !v.ok => Some("verdict_failed"),
+        Some(v) if !v.is_fresh_for(&draft.manifest) => Some("stale"),
+        _ => None,
+    };
+
+    if let Some(reason) = reason {
+        if mode == verdict::Validation::Strict {
+            return Err(OpError::Conflict(json!({
+                "error": "verdict_required",
+                "check": check_op,
+                "reason": reason,
+            })));
+        } else {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn propose_with_optional_draft(
+    caller: &Caller,
+    state: &AppState,
+    project: &str,
+    plural: &'static str,
+    check_op: &'static str,
+    input: ManifestInput,
+) -> Result<Value, OpError> {
+    if let Some(d) = &input.draft {
+        let draft = draft_store(state)
+            .get(project, &d.kind, &d.name)
+            .await
+            .map_err(|e| OpError::Api(ApiError::Internal(e.to_string())))?
+            .ok_or_else(|| {
+                ApiError::NotFound(format!(
+                    "draft '{}/{}' not found in project '{project}'",
+                    d.kind, d.name
+                ))
+            })?;
+        let warning = apply_verdict_gate(state, &draft, check_op)?;
+        let mut out = mutate_manifest(
+            caller,
+            state,
+            project,
+            plural,
+            draft.manifest.clone(),
+            false,
+        )
+        .await?;
+        let _ = draft_store(state).drop(project, &d.kind, &d.name).await;
+        if warning {
+            out["warning"] = json!("proposed without a fresh green verdict");
+        }
+        return Ok(out);
+    }
+    let manifest = input.manifest.ok_or_else(|| OpError::InvalidInput {
+        path: "/manifest".into(),
+        message: "either manifest or draft is required".into(),
+    })?;
+    mutate_manifest(caller, state, project, plural, manifest, false).await
 }
 
 fn init_registry() -> Vec<Operation> {
@@ -586,6 +903,25 @@ fn init_registry() -> Vec<Operation> {
                         let (path, message) = serde_error_path_and_message(&e);
                         OpError::InvalidInput { path, message }
                     })?;
+                    if let Some(d) = &input.draft {
+                        let draft = draft_store(state)
+                            .get(project, &d.kind, &d.name)
+                            .await
+                            .map_err(|e| OpError::Api(ApiError::Internal(e.to_string())))?
+                            .ok_or_else(|| {
+                                ApiError::NotFound(format!(
+                                    "draft '{}/{}' not found in project '{project}'",
+                                    d.kind, d.name
+                                ))
+                            })?;
+                        let warning = apply_verdict_gate(state, &draft, "jc_manifest_dry_run")?;
+                        let mut out = mutate_manifest(caller, state, project, "endpoints", draft.manifest.clone(), false).await?;
+                        let _ = draft_store(state).drop(project, &d.kind, &d.name).await;
+                        if warning {
+                            out["warning"] = json!("proposed without a fresh green verdict");
+                        }
+                        return Ok(out);
+                    }
                     if let Some(manifest) = input.manifest {
                         return mutate_manifest(caller, state, project, "endpoints", manifest, false).await;
                     }
@@ -683,12 +1019,17 @@ fn init_registry() -> Vec<Operation> {
             verb: None,
             lane: Lane::Green,
             validate: |val| {
-                serde_json::from_value::<ManifestInput>(val.clone())
-                    .map(|_| ())
-                    .map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })
+                let input: ManifestInput = serde_json::from_value(val.clone()).map_err(|e| {
+                    let (path, message) = serde_error_path_and_message(&e);
+                    OpError::InvalidInput { path, message }
+                })?;
+                if input.manifest.is_none() && input.draft.is_none() {
+                    return Err(OpError::InvalidInput {
+                        path: "/manifest".into(),
+                        message: "either manifest or draft is required".into(),
+                    });
+                }
+                Ok(())
             },
             run: |caller, state, project, val| {
                 Box::pin(async move {
@@ -696,14 +1037,37 @@ fn init_registry() -> Vec<Operation> {
                         let (path, message) = serde_error_path_and_message(&e);
                         OpError::InvalidInput { path, message }
                     })?;
+                    let (manifest, draft_ref) = resolve_manifest_input(state, project, &input).await?;
                     let res = dry_run::execute_dry_run(
                         &caller.identity,
                         state,
                         project,
-                        input.manifest,
+                        manifest.clone(),
                     )
                     .await?;
-                    Ok(serde_json::to_value(res)?)
+                    let ok = res.valid;
+                    let mut findings = Vec::new();
+                    if !ok {
+                        findings.push(Finding {
+                            level: Level::Error,
+                            path: "".into(),
+                            message: "plan validation failed".into(),
+                        });
+                    }
+                    let verdict = Verdict::new(
+                        ok,
+                        findings,
+                        Some(serde_json::to_value(&res.plan).unwrap_or_default()),
+                        &manifest,
+                    );
+                    if let Some(d) = &draft_ref {
+                        let _ = draft_store(state)
+                            .set_verdict(project, &d.kind, &d.name, verdict.clone())
+                            .await;
+                    }
+                    let mut out = serde_json::to_value(&res)?;
+                    out["verdict"] = serde_json::to_value(&verdict)?;
+                    Ok(out)
                 })
             },
         },
@@ -712,7 +1076,7 @@ fn init_registry() -> Vec<Operation> {
             title: "Pipeline Test",
             description: "Tests candidate pipeline mapping and validation on runner without writing",
             input: pipeline_test_input_schema,
-            output: || json!({ "type": "object" }),
+            output: pipeline_test_output_schema,
             annotations: OperationAnnotations {
                 read_only_hint: true,
                 destructive_hint: false,
@@ -722,28 +1086,98 @@ fn init_registry() -> Vec<Operation> {
             verb: Some(Verb::Propose),
             lane: Lane::Green,
             validate: |val| {
-                serde_json::from_value::<pipeline_test::TestRequest>(val.clone())
-                    .map(|_| ())
-                    .map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })
+                let input: PipelineTestInput = serde_json::from_value(val.clone()).map_err(|e| {
+                    let (path, message) = serde_error_path_and_message(&e);
+                    OpError::InvalidInput { path, message }
+                })?;
+                if input.pipeline.is_none() && input.draft.is_none() {
+                    return Err(OpError::InvalidInput {
+                        path: "/pipeline".into(),
+                        message: "either pipeline or draft is required".into(),
+                    });
+                }
+                Ok(())
             },
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    let input: pipeline_test::TestRequest =
+                    let input: PipelineTestInput =
                         serde_json::from_value(val).map_err(|e| {
                             let (path, message) = serde_error_path_and_message(&e);
                             OpError::InvalidInput { path, message }
                         })?;
+                    let (pipeline, draft_ref) = if let Some(d) = &input.draft {
+                        if let Some(p) = input.pipeline {
+                            (p, Some(d.clone()))
+                        } else {
+                            let draft = draft_store(state)
+                                .get(project, &d.kind, &d.name)
+                                .await
+                                .map_err(|e| OpError::Api(ApiError::Internal(e.to_string())))?
+                                .ok_or_else(|| {
+                                    ApiError::NotFound(format!(
+                                        "draft '{}/{}' not found in project '{project}'",
+                                        d.kind, d.name
+                                    ))
+                                })?;
+                            (draft.manifest, Some(d.clone()))
+                        }
+                    } else if let Some(p) = input.pipeline {
+                        (p, None)
+                    } else {
+                        return Err(OpError::InvalidInput {
+                            path: "/pipeline".into(),
+                            message: "either pipeline or draft is required".into(),
+                        });
+                    };
+
+                    let req = pipeline_test::TestRequest {
+                        pipeline: pipeline.clone(),
+                        sample: input.sample,
+                    };
                     let trace = pipeline_test::execute_test_pipeline(
                         &caller.identity,
                         state,
                         project,
-                        input,
+                        req,
                     )
                     .await?;
-                    Ok(serde_json::to_value(trace)?)
+
+                    let ok = trace.errors.is_empty()
+                        && !trace.validation.is_empty()
+                        && trace.validation.iter().all(|v| v.ok);
+                    let mut findings = Vec::new();
+                    for err in &trace.errors {
+                        findings.push(Finding {
+                            level: Level::Error,
+                            path: err.stage.clone(),
+                            message: err.message.clone(),
+                        });
+                    }
+                    for val in &trace.validation {
+                        if !val.ok {
+                            for problem in &val.problems {
+                                findings.push(Finding {
+                                    level: Level::Error,
+                                    path: format!("validation[{}]", val.index),
+                                    message: problem.clone(),
+                                });
+                            }
+                        }
+                    }
+                    let verdict = Verdict::new(
+                        ok,
+                        findings,
+                        Some(serde_json::to_value(&trace).unwrap_or_default()),
+                        &pipeline,
+                    );
+                    if let Some(d) = &draft_ref {
+                        let _ = draft_store(state)
+                            .set_verdict(project, &d.kind, &d.name, verdict.clone())
+                            .await;
+                    }
+                    let mut out = serde_json::to_value(&trace)?;
+                    out["verdict"] = serde_json::to_value(&verdict)?;
+                    Ok(out)
                 })
             },
         },
@@ -835,28 +1269,28 @@ fn init_registry() -> Vec<Operation> {
             kind: "DataSource",
             verb: None,
             lane: Lane::Green,
-            validate: |val| {
-                serde_json::from_value::<ManifestInput>(val.clone())
-                    .map(|_| ())
-                    .map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })
-            },
+            validate: |val| parse_input::<ManifestInput>(val.clone()).map(|_| ()),
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    let input: ManifestInput = serde_json::from_value(val).map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })?;
-                    mutate_manifest(caller, state, project, "datasources", input.manifest, true).await
+                    let input: ManifestInput = parse_input(val)?;
+                    let (manifest, draft_ref) = resolve_manifest_input(state, project, &input).await?;
+                    let mut out =
+                        mutate_manifest(caller, state, project, "datasources", manifest.clone(), true).await?;
+                    let verdict = datasource_verdict(&out, &manifest);
+                    if let Some(d) = &draft_ref {
+                        let _ = draft_store(state)
+                            .set_verdict(project, &d.kind, &d.name, verdict.clone())
+                            .await;
+                    }
+                    out["verdict"] = serde_json::to_value(&verdict)?;
+                    Ok(out)
                 })
             },
         },
         Operation {
             name: "jc_datasource_propose",
             title: "Propose DataSource",
-            description: "Proposes creation or update of a DataSource manifest",
+            description: "Proposes creation or update of a DataSource manifest, from a draft when one is named",
             input: manifest_input_schema,
             output: change_schema,
             annotations: OperationAnnotations {
@@ -867,28 +1301,18 @@ fn init_registry() -> Vec<Operation> {
             kind: "DataSource",
             verb: Some(Verb::Propose),
             lane: Lane::Yellow,
-            validate: |val| {
-                serde_json::from_value::<ManifestInput>(val.clone())
-                    .map(|_| ())
-                    .map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })
-            },
+            validate: |val| parse_input::<ManifestInput>(val.clone()).map(|_| ()),
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    let input: ManifestInput = serde_json::from_value(val).map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })?;
-                    mutate_manifest(caller, state, project, "datasources", input.manifest, false).await
+                    let input: ManifestInput = parse_input(val)?;
+                    propose_with_optional_draft(caller, state, project, "datasources", "jc_datasource_check", input).await
                 })
             },
         },
         Operation {
             name: "jc_pipeline_propose",
             title: "Propose Pipeline",
-            description: "Proposes creation or update of a Pipeline manifest",
+            description: "Proposes creation or update of a Pipeline manifest, from a draft when one is named",
             input: manifest_input_schema,
             output: change_schema,
             annotations: OperationAnnotations {
@@ -899,28 +1323,18 @@ fn init_registry() -> Vec<Operation> {
             kind: "Pipeline",
             verb: Some(Verb::Propose),
             lane: Lane::Yellow,
-            validate: |val| {
-                serde_json::from_value::<ManifestInput>(val.clone())
-                    .map(|_| ())
-                    .map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })
-            },
+            validate: |val| parse_input::<ManifestInput>(val.clone()).map(|_| ()),
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    let input: ManifestInput = serde_json::from_value(val).map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })?;
-                    mutate_manifest(caller, state, project, "pipelines", input.manifest, false).await
+                    let input: ManifestInput = parse_input(val)?;
+                    propose_with_optional_draft(caller, state, project, "pipelines", "jc_pipeline_test", input).await
                 })
             },
         },
         Operation {
             name: "jc_space_propose",
             title: "Propose ContextSpace",
-            description: "Proposes creation or update of a ContextSpace manifest",
+            description: "Proposes creation or update of a ContextSpace manifest, from a draft when one is named",
             input: manifest_input_schema,
             output: change_schema,
             annotations: OperationAnnotations {
@@ -931,28 +1345,18 @@ fn init_registry() -> Vec<Operation> {
             kind: "ContextSpace",
             verb: Some(Verb::Propose),
             lane: Lane::Yellow,
-            validate: |val| {
-                serde_json::from_value::<ManifestInput>(val.clone())
-                    .map(|_| ())
-                    .map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })
-            },
+            validate: |val| parse_input::<ManifestInput>(val.clone()).map(|_| ()),
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    let input: ManifestInput = serde_json::from_value(val).map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })?;
-                    mutate_manifest(caller, state, project, "spaces", input.manifest, false).await
+                    let input: ManifestInput = parse_input(val)?;
+                    propose_with_optional_draft(caller, state, project, "spaces", "jc_manifest_dry_run", input).await
                 })
             },
         },
         Operation {
             name: "jc_model_propose",
             title: "Propose DataModel",
-            description: "Proposes creation or update of a DataModel manifest",
+            description: "Proposes creation or update of a DataModel manifest, from a draft when one is named",
             input: manifest_input_schema,
             output: change_schema,
             annotations: OperationAnnotations {
@@ -963,21 +1367,138 @@ fn init_registry() -> Vec<Operation> {
             kind: "DataModel",
             verb: Some(Verb::Propose),
             lane: Lane::Yellow,
-            validate: |val| {
-                serde_json::from_value::<ManifestInput>(val.clone())
-                    .map(|_| ())
-                    .map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })
-            },
+            validate: |val| parse_input::<ManifestInput>(val.clone()).map(|_| ()),
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    let input: ManifestInput = serde_json::from_value(val).map_err(|e| {
-                        let (path, message) = serde_error_path_and_message(&e);
-                        OpError::InvalidInput { path, message }
-                    })?;
-                    mutate_manifest(caller, state, project, "datamodels", input.manifest, false).await
+                    let input: ManifestInput = parse_input(val)?;
+                    propose_with_optional_draft(caller, state, project, "datamodels", "jc_manifest_dry_run", input).await
+                })
+            },
+        },
+        Operation {
+            name: "jc_draft_put",
+            title: "Put Draft",
+            description: "Writes the shared draft of a manifest every window, assistant run and MCP client sees (AG-61)",
+            input: draft_put_input_schema,
+            output: draft_schema,
+            annotations: OperationAnnotations {
+                read_only_hint: false,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "*",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<DraftPutInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: DraftPutInput = parse_input(val)?;
+                    crate::permissions::for_request(state, &caller.identity, project)
+                        .check(&input.kind, Verb::Propose, None)?;
+                    let draft = draft_store(state)
+                        .put(
+                            project,
+                            &input.kind,
+                            &input.name,
+                            input.manifest,
+                            input.expected_version,
+                            &caller.identity.username,
+                            caller.via.touched_kind(),
+                        )
+                        .await
+                        .map_err(draft_error)?;
+                    Ok(serde_json::to_value(draft)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_draft_get",
+            title: "Get Draft",
+            description: "Reads one shared draft with its verdict (AG-61)",
+            input: draft_get_input_schema,
+            output: draft_schema,
+            annotations: OperationAnnotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "*",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<DraftRef>(val.clone()).map(|_| ()),
+            run: |_caller, state, project, val| {
+                Box::pin(async move {
+                    let d: DraftRef = parse_input(val)?;
+                    let draft = draft_store(state)
+                        .get(project, &d.kind, &d.name)
+                        .await
+                        .map_err(draft_error)?
+                        .ok_or_else(|| {
+                            ApiError::NotFound(format!(
+                                "draft '{}/{}' not found in project '{project}'",
+                                d.kind, d.name
+                            ))
+                        })?;
+                    Ok(serde_json::to_value(draft)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_draft_list",
+            title: "List Drafts",
+            description: "Lists the shared drafts of a project (AG-61)",
+            input: || json!({ "type": "object", "additionalProperties": false }),
+            output: draft_list_output_schema,
+            annotations: OperationAnnotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "*",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| {
+                if val.as_object().is_some_and(|o| o.is_empty()) || val.is_null() {
+                    Ok(())
+                } else {
+                    Err(OpError::InvalidInput {
+                        path: String::new(),
+                        message: "no input is accepted".into(),
+                    })
+                }
+            },
+            run: |_caller, state, project, _val| {
+                Box::pin(async move {
+                    let items = draft_store(state).list(project).await.map_err(draft_error)?;
+                    Ok(json!({ "items": items }))
+                })
+            },
+        },
+        Operation {
+            name: "jc_draft_drop",
+            title: "Drop Draft",
+            description: "Discards a shared draft (AG-61)",
+            input: draft_get_input_schema,
+            output: draft_drop_output_schema,
+            annotations: OperationAnnotations {
+                read_only_hint: false,
+                destructive_hint: true,
+                idempotent_hint: true,
+            },
+            kind: "*",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<DraftRef>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let d: DraftRef = parse_input(val)?;
+                    crate::permissions::for_request(state, &caller.identity, project)
+                        .check(&d.kind, Verb::Propose, None)?;
+                    let dropped = draft_store(state)
+                        .drop(project, &d.kind, &d.name)
+                        .await
+                        .map_err(draft_error)?;
+                    Ok(json!({ "dropped": dropped }))
                 })
             },
         },
@@ -1045,7 +1566,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 13);
+        assert_eq!(ops.len(), 17);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -1060,6 +1581,10 @@ mod tests {
             "jc_space_propose",
             "jc_model_propose",
             "jc_model_infer",
+            "jc_draft_put",
+            "jc_draft_get",
+            "jc_draft_list",
+            "jc_draft_drop",
         ] {
             assert!(find(name).is_some(), "missing operation {name}");
         }

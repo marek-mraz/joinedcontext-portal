@@ -52,8 +52,13 @@ export function AssistantDock(): JSX.Element | null {
     if (route === null) {
       return;
     }
+    const draft = next.payload.draft as { kind?: string; name?: string } | undefined;
+    const targetRoute =
+      draft?.name && typeof draft.name === "string"
+        ? `${route}${route.includes("?") ? "&" : "?"}draft=${encodeURIComponent(draft.name)}`
+        : route;
     rememberPrefill(route, prefillOf(next));
-    void navigate({ to: route as "/" });
+    void navigate({ to: targetRoute as "/" });
   }, [events, navigate]);
 
   if (!run) {

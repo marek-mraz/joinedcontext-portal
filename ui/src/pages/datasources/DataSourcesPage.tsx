@@ -8,6 +8,7 @@ import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, prune } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
+import type { Verdict } from "../../api/drafts";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { PlanDiffViewer } from "../../components/diff/PlanDiffViewer";
 import type { FieldChange } from "../../components/diff/PlanDiffViewer";
@@ -128,6 +129,11 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
 
   // The assistant may have sent the person here with a form in hand (UI-45, AG-61): taken
   // once, before the first render, so the dialog is open and filled from the start.
+  const [urlDraftName, setUrlDraftName] = useState(() => {
+    if (typeof window === "undefined") return undefined;
+    return new URLSearchParams(window.location.search).get("draft") ?? undefined;
+  });
+
   const [initial] = useState(() => {
     const taken = takePrefill(window.location.pathname) as (DataSourceForm & { type?: unknown }) | null;
     if (!taken) {
@@ -138,12 +144,13 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   });
   const [type, setType] = useState<DataSourceType>(initial?.type ?? DATA_SOURCE_TYPES[0]);
   const [editing, setEditing] = useState<Manifest | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(initial !== undefined);
+  const [dialogOpen, setDialogOpen] = useState(initial !== undefined || urlDraftName !== undefined);
   const [draft, setDraft] = useState<DataSourceForm | undefined>(initial?.form);
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [plan, setPlan] = useState<FieldChange[] | null>(null);
   const [probe, setProbe] = useState<Probe | null>(null);
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
 
   const list = useQuery({
     queryKey: queryKeys.list(project, PLURAL),
@@ -159,8 +166,9 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   const secrets = useMemo(() => knownSecretNames(sources), [sources]);
 
   /** One request for both buttons: a dry run differs from a proposal only in the query. */
-  const write = async (form: DataSourceForm, dry: boolean) => {
-    const body = toEnvelope(project, type, form) as never;
+  const write = async (form: DataSourceForm, dry: boolean, draftRef?: { kind: string; name: string }) => {
+    const envelope = toEnvelope(project, type, form);
+    const body = (draftRef ? { ...envelope, draft: draftRef } : envelope) as never;
     const query = dry ? { dryRun: "All" } : undefined;
     const name = editing?.metadata.name;
     return unwrap(
@@ -190,12 +198,16 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   const check = useMutation({
     mutationFn: async (form: DataSourceForm) => {
       setFormError(null);
-      return write(form, true);
+      const draftRef = form.name ? { kind: "DataSource", name: form.name } : undefined;
+      return write(form, true, draftRef);
     },
     onSuccess: (result) => {
-      const answer = result as { plan?: { fields?: FieldChange[] }; probe?: Probe };
+      const answer = result as { plan?: { fields?: FieldChange[] }; probe?: Probe; verdict?: Verdict };
       setPlan(answer.plan?.fields ?? []);
       setProbe(answer.probe ?? null);
+      if (answer.verdict) {
+        setVerdict(answer.verdict);
+      }
     },
     onError: (err) => {
       setPlan(null);
@@ -205,9 +217,9 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   });
 
   const propose = useMutation({
-    mutationFn: async (form: DataSourceForm) => {
+    mutationFn: async ({ form, draft: draftRef }: { form: DataSourceForm; draft?: { kind: string; name: string } }) => {
       setFormError(null);
-      return write(form, false);
+      return write(form, false, draftRef);
     },
     onSuccess: (result) => {
       if (isChange(result)) {
@@ -224,13 +236,19 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
     setEditing(null);
     setDraft(undefined);
     setPlan(null);
+    setProbe(null);
+    setVerdict(null);
+    setUrlDraftName(undefined);
   }
 
   function openCreate() {
     setEditing(null);
     setDraft(undefined);
     setPlan(null);
+    setProbe(null);
+    setVerdict(null);
     setFormError(null);
+    setUrlDraftName(undefined);
     setDialogOpen(true);
   }
 
@@ -239,7 +257,10 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
     setType(typeOf(source.spec));
     setDraft(toForm(source));
     setPlan(null);
+    setProbe(null);
+    setVerdict(null);
     setFormError(null);
+    setUrlDraftName(source.metadata.name);
     setDialogOpen(true);
   }
 
@@ -381,6 +402,11 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
             closeDialog();
           }
         }}
+        project={project}
+        draftKind="DataSource"
+        draftName={editing?.metadata.name || urlDraftName || undefined}
+        verdict={verdict}
+        onVerdictChange={setVerdict}
         title={editing ? t("datasources.dialog.edit") : t("datasources.dialog.create")}
         description={t(`datasources.dialog.${type}`)}
         schema={dataSourceSchema(t, type, secrets)}
@@ -394,8 +420,9 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
           setDraft(data);
           setPlan(null);
           setProbe(null);
+          setVerdict(null);
         }}
-        onSubmit={(data) => propose.mutate(data)}
+        onSubmit={(data, draftRef) => propose.mutate({ form: data, draft: draftRef })}
       >
         <div className="space-y-2">
           <p className="text-sm text-surface-fg/70">{t("datasources.secretHint")}</p>

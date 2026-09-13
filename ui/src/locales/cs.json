@@ -1210,5 +1210,23 @@
   },
   "permissions": {
     "denied": "Vypnuto: vaše role nedovoluje ''{verb}'' na ''{kind}'' v tomto projektu"
+  },
+  "drafts": {
+    "touched": "Koncept v{version}, naposledy upravil {who} ({kind})",
+    "conflict": "Konflikt konceptu: existuje novější verze, která byla načtena.",
+    "verdict": {
+      "none": "Zatím nezkontrolováno",
+      "green": "Zkontrolováno {age}",
+      "red": "Kontrola selhala {age}",
+      "stale": "Změněno od kontroly"
+    },
+    "proposeReason": {
+      "none": "Nejprve spusťte kontrolu: nic se nenavrhuje bez čerstvého zeleného verdiktu.",
+      "red": "Kontrola selhala; před navržením vyřešte nálezy.",
+      "stale": "Koncept se od poslední kontroly změnil; spusťte kontrolu znovu."
+    },
+    "laxWarning": "Mírné ověření: kontrola neproběhla nebo neuspěla.",
+    "findings": "Nálezy",
+    "strict": "přísné ověření"
   }
 }

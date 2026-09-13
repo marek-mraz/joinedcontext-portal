@@ -73,6 +73,7 @@ pub async fn list_ops(
         (status = 401, description = "Unauthorized", body = ProblemDetails),
         (status = 403, description = "Forbidden", body = ProblemDetails),
         (status = 404, description = "Operation or project not found", body = ProblemDetails),
+        (status = 409, description = "Conflict or verdict required", body = Object),
         (status = 422, description = "Invalid input according to schema", body = ProblemDetails),
     )
 )]
@@ -117,6 +118,12 @@ pub async fn run_op(
                 Ok((StatusCode::OK, Json(output)).into_response())
             }
         }
+        Err(ops::OpError::Conflict(val)) => Ok((
+            StatusCode::CONFLICT,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            Json(val),
+        )
+            .into_response()),
         Err(err) => Ok(err.into_response()),
     }
 }

@@ -5,6 +5,7 @@ pub mod branding;
 pub mod changes;
 pub mod ckan;
 pub mod delete;
+pub mod drafts;
 pub mod dry_run;
 pub mod export;
 pub mod federation;
@@ -43,6 +44,7 @@ pub fn router() -> Router<AppState> {
         .merge(branding::router())
         .merge(changes::router())
         .merge(ckan::router())
+        .merge(drafts::router())
         .merge(export::router())
         .merge(federation::router())
         .merge(import::router())

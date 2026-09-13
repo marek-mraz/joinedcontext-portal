@@ -108,7 +108,7 @@ function renderDataSources() {
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    .filter((request) => request.method === "POST" || request.method === "PUT");
+    .filter((request) => (request.method === "POST" || request.method === "PUT") && !String((request as Request).url ?? request).includes("/drafts"));
 }
 
 describe("data sources view", () => {

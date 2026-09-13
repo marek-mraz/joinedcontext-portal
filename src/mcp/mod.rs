@@ -20,8 +20,8 @@
 //! - `GET /.well-known/oauth-protected-resource/api/v1/mcp` answers the metadata document.
 //!
 //! Note on interaction lanes (AG-61..AG-63):
-//! - Drafts (AG-61), verdict gating (AG-62), and elicitation (AG-63) are scheduled for later tasks.
-//!   Yellow/Red proposals through MCP currently return the proposed Change directly (`{changeId, lane, url}`),
+//! - Drafts (AG-61) and verdict gating (AG-62) are supported across operations.
+//!   Yellow/Red proposals through MCP return the proposed Change directly (`{changeId, lane, url}`),
 //!   as the required approval by a human reviewer serves as the interaction gate.
 //!
 //! ponytail: per-token rate limiter not yet present in portal (AG-60); skipped per T-0637 instructions.
@@ -267,6 +267,17 @@ pub async fn handle_mcp(
                             "text": serde_json::to_string(&output).unwrap_or_else(|_| "null".to_string())
                         }],
                         "structuredContent": output
+                    }),
+                ),
+                Err(crate::ops::OpError::Conflict(val)) => result(
+                    id,
+                    json!({
+                        "isError": true,
+                        "content": [{
+                            "type": "text",
+                            "text": serde_json::to_string(&val).unwrap_or_else(|_| "conflict".to_string())
+                        }],
+                        "structuredContent": val
                     }),
                 ),
                 Err(err) => result(

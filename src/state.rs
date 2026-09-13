@@ -12,8 +12,10 @@ use crate::agents::store::AgentStore;
 use crate::auth::bearer::BearerVerifier;
 use crate::auth::oidc::OidcClient;
 use crate::auth::session::Session;
+use crate::branding::Branding;
 use crate::config::Config;
 use crate::git::GiteaClient;
+use crate::ops::drafts::{DraftHub, DraftStore};
 use crate::reconciler::{Leadership, StreamDeployer, Syncer};
 use crate::store::Mirror;
 
@@ -44,6 +46,10 @@ pub struct AppState {
     /// The live half of a run's stream: what a connected browser is handed as the events
     /// arrive, while the store is what a reconnecting one replays from (AG-45).
     pub agent_events: Arc<AgentEventHub>,
+    /// Drafts shared across browser windows, assistant runs and MCP clients (AG-61, UI-47).
+    pub drafts: DraftStore,
+    /// Live hub for draft change events (UI-47).
+    pub draft_events: DraftHub,
     /// Where a workspace Job is written. `None` outside a cluster, exactly like
     /// `app_settings`: a run is then refused rather than scheduled nowhere (AG-33).
     pub kube: Option<Arc<crate::apps::kube::KubeClient>>,
@@ -60,6 +66,8 @@ impl AppState {
             .oidc
             .as_ref()
             .map(|o| Arc::new(BearerVerifier::new(&o.issuer, &o.client_id)));
+        let draft_events = DraftHub::new();
+        let drafts = DraftStore::new(None).with_hub(draft_events.clone());
         Self {
             bearer,
             config: Arc::new(config),
@@ -71,6 +79,8 @@ impl AppState {
             db: None,
             agents: Arc::new(AgentStore::new(None)),
             agent_events: Arc::new(AgentEventHub::new()),
+            drafts,
+            draft_events,
             kube: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -93,6 +103,7 @@ impl AppState {
 
     pub fn with_db(mut self, db: sqlx::PgPool) -> Self {
         self.agents = Arc::new(AgentStore::new(Some(db.clone())));
+        self.drafts = DraftStore::new(Some(db.clone())).with_hub(self.draft_events.clone());
         self.db = Some(db);
         self
     }
@@ -125,6 +136,7 @@ impl AppState {
                 "no database: a builder run and its stream live only until this process ends"
             );
         }
+        state.drafts = DraftStore::new(db.clone()).with_hub(state.draft_events.clone());
         state.db = db;
         // A builder run is scheduled into the cluster this Portal runs in (AG-33). The client is
         // the same in-cluster one the app converger uses; outside a cluster it stays `None` and
@@ -221,6 +233,11 @@ impl AppState {
             .ok()
             .and_then(|marks| marks.get(&session.identity.subject).copied())
             .is_some_and(|mark| session.issued_at <= mark)
+    }
+
+    /// The branding of this installation, loaded from `JC_BRANDING_FILE` or neutral defaults.
+    pub fn branding(&self) -> Branding {
+        Branding::load(self.config.branding_file.as_deref())
     }
 }
 
