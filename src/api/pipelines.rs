@@ -149,7 +149,7 @@ pub(crate) fn scrape(body: &str, pipeline: &str, scraped_at: String) -> Pipeline
     metrics
 }
 
-fn http() -> &'static reqwest::Client {
+pub(crate) fn http() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()

@@ -12,6 +12,7 @@ pub mod health;
 pub mod import;
 pub mod mutate;
 pub mod permissions;
+pub mod pipeline_test;
 pub mod pipelines;
 pub mod preferences;
 pub mod projects;
@@ -36,6 +37,7 @@ pub fn router() -> Router<AppState> {
         .merge(auth::oidc::router())
         .merge(agent_runs::router())
         .merge(assistant::router())
+        .merge(pipeline_test::router())
         .merge(blueprints::router())
         .merge(branding::router())
         .merge(changes::router())
