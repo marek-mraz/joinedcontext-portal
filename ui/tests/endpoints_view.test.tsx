@@ -208,4 +208,29 @@ describe("endpoints view", () => {
 
     expect(await screen.findByText("chg-77aa11bb")).toBeInTheDocument();
   });
+
+  it("runs the check as a dry run of the envelope that names the held draft (PF-57, AG-61)", async () => {
+    const fetchMock = renderEndpoints();
+
+    const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
+    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.edit }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const request = writes(fetchMock)[0];
+    expect(request.method).toBe("POST");
+    const url = new URL(request.url);
+    expect(url.pathname).toBe("/api/v1/projects/banskabystrica/endpoints");
+    expect(url.searchParams.get("dryRun")).toBe("All");
+    const body = (await request.clone().json()) as {
+      kind: string;
+      draft: { kind: string; name: string };
+      spec: { slug: string };
+    };
+    expect(body.kind).toBe("Endpoint");
+    expect(body.draft).toEqual({ kind: "Endpoint", name: "public-air" });
+    expect(body.spec.slug).toBe(SLUG);
+  });
 });

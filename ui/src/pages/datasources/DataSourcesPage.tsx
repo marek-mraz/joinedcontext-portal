@@ -407,6 +407,12 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
         draftName={editing?.metadata.name || urlDraftName || undefined}
         verdict={verdict}
         onVerdictChange={setVerdict}
+        // The draft holds the envelope the page proposes, so the check and the proposal read
+        // one manifest (AG-61).
+        source={{
+          toManifest: (form) => toEnvelope(project, type, form),
+          fromManifest: (manifest) => toForm(manifest as Manifest),
+        }}
         title={editing ? t("datasources.dialog.edit") : t("datasources.dialog.create")}
         description={t(`datasources.dialog.${type}`)}
         schema={dataSourceSchema(t, type, secrets)}

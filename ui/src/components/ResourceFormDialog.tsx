@@ -117,6 +117,16 @@ export function ResourceFormDialog<T>({
   const [ownVerdict, setInternalVerdict] = useState<Verdict | null>(null);
   const internalVerdict =
     externalVerdict !== undefined ? externalVerdict : ownVerdict;
+
+  const currentManifest = useMemo(() => {
+    if (!formData) return {};
+    return source ? source.toManifest(formData) : formData;
+  }, [formData, source]);
+
+  const currentDigest = useMemo(
+    () => digestOf(currentManifest),
+    [currentManifest],
+  );
   const [conflict, setConflict] = useState<string | null>(null);
   const lastVersionRef = useRef<number | undefined>(undefined);
   const lastTypedRef = useRef<number>(0);
@@ -232,7 +242,8 @@ export function ResourceFormDialog<T>({
     return () => {
       clearTimeout(timer);
     };
-  }, [formData, open, draftKind, project, activeName, draftName, currentDraft]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- currentDigest stands for the manifest a page builds around the form (a hidden attribute lives outside it)
+  }, [formData, currentDigest, open, draftKind, project, activeName, draftName, currentDraft]);
 
   // Subscribe to project draft events
   const hasDraft = currentDraft !== null;
@@ -280,16 +291,6 @@ export function ResourceFormDialog<T>({
       }
     });
   }, [open, draftKind, project, activeName, hasDraft]);
-
-  const currentManifest = useMemo(() => {
-    if (!formData) return {};
-    return source ? source.toManifest(formData) : formData;
-  }, [formData, source]);
-
-  const currentDigest = useMemo(
-    () => digestOf(currentManifest),
-    [currentManifest],
-  );
 
   const verdictState = useMemo<"none" | "green" | "red" | "stale">(() => {
     if (!internalVerdict) return "none";

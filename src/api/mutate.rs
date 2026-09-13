@@ -8,6 +8,7 @@ use axum::Json;
 use serde_json::Value;
 
 use crate::api::dry_run::{self, DryRunQuery, DryRunResult};
+use crate::auth::session::Front;
 use crate::auth::CurrentUser;
 use crate::change::{self, Change, ChangeMeta, ChangePhase, ChangeStatus, Operation};
 use crate::error::{ApiError, ProblemDetails};
@@ -427,6 +428,57 @@ pub async fn propose_with_identity(
     Ok(ProposeOutcome::Change(change))
 }
 
+/// The `draft` member a form sends beside its manifest (AG-61), taken out of the body.
+fn take_draft(body: &mut Value) -> Option<Value> {
+    body.as_object_mut().and_then(|map| map.remove("draft"))
+}
+
+/// A form proposing or checking the draft it holds: the registered operation of the kind
+/// owns the check and the gate (PF-57), so this door reaches the same operation as MCP and
+/// the ops route (ADR-N-021) instead of parsing the reference as a manifest. The body's
+/// manifest is what a check verifies; a proposal takes the draft's own manifest.
+#[allow(clippy::too_many_arguments)]
+async fn propose_draft(
+    user: CurrentUser,
+    front: Front,
+    state: &AppState,
+    project: &str,
+    plural: &str,
+    dry_run: bool,
+    draft: Value,
+    manifest: Value,
+) -> Result<Response, ApiError> {
+    let name = match (plural, dry_run) {
+        ("datasources", true) => "jc_datasource_check",
+        (_, true) => "jc_manifest_dry_run",
+        ("endpoints", false) => "jc_endpoint_propose",
+        ("datasources", false) => "jc_datasource_propose",
+        ("pipelines", false) => "jc_pipeline_propose",
+        ("spaces", false) => "jc_space_propose",
+        ("datamodels", false) => "jc_model_propose",
+        _ => {
+            return Err(ApiError::BadRequest(format!(
+                "a draft cannot be proposed for '{plural}'; send the manifest itself"
+            )))
+        }
+    };
+    let op = crate::ops::find(name)
+        .ok_or_else(|| ApiError::Internal(format!("operation '{name}' is not registered")))?;
+    let caller = crate::ops::Caller {
+        identity: user.0.identity,
+        via: match front {
+            Front::Portal | Front::Edge => crate::ops::Via::Session,
+            Front::Bearer => crate::ops::Via::Bearer,
+        },
+    };
+    let input = if dry_run {
+        serde_json::json!({ "draft": draft, "manifest": manifest })
+    } else {
+        serde_json::json!({ "draft": draft })
+    };
+    crate::api::ops::respond(crate::ops::call(op, &caller, state, project, input).await)
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/projects/{project}/{plural}",
@@ -449,6 +501,7 @@ pub async fn propose_with_identity(
 )]
 pub async fn create(
     user: CurrentUser,
+    front: Front,
     State(state): State<AppState>,
     Path((project, plural)): Path<(String, String)>,
     Query(dry_run_q): Query<DryRunQuery>,
@@ -456,7 +509,10 @@ pub async fn create(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let is_dry = dry_run::is_dry_run(&dry_run_q)?;
-    let body_val = parse_body_to_value(&headers, &body)?;
+    let mut body_val = parse_body_to_value(&headers, &body)?;
+    if let Some(draft) = take_draft(&mut body_val) {
+        return propose_draft(user, front, &state, &project, &plural, is_dry, draft, body_val).await;
+    }
     propose(
         &user,
         &state,
@@ -493,6 +549,7 @@ pub async fn create(
 )]
 pub async fn replace(
     user: CurrentUser,
+    front: Front,
     State(state): State<AppState>,
     Path((project, plural, name)): Path<(String, String, String)>,
     Query(dry_run_q): Query<DryRunQuery>,
@@ -500,7 +557,10 @@ pub async fn replace(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     let is_dry = dry_run::is_dry_run(&dry_run_q)?;
-    let body_val = parse_body_to_value(&headers, &body)?;
+    let mut body_val = parse_body_to_value(&headers, &body)?;
+    if let Some(draft) = take_draft(&mut body_val) {
+        return propose_draft(user, front, &state, &project, &plural, is_dry, draft, body_val).await;
+    }
     propose(
         &user,
         &state,

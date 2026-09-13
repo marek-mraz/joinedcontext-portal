@@ -107,7 +107,13 @@ pub async fn run_op(
         },
     };
 
-    match ops::call(op, &caller, &state, &project, body_val).await {
+    respond(ops::call(op, &caller, &state, &project, body_val).await)
+}
+
+/// The HTTP answer of a registered operation: 202 for a change, 200 otherwise, and a 409 with
+/// the operation's own body for a conflict (the strict gate names its check there, PF-57).
+pub(crate) fn respond(result: Result<Value, ops::OpError>) -> Result<Response, ApiError> {
+    match result {
         Ok(output) => {
             if output.get("changeId").is_some()
                 || output.get("change_id").is_some()

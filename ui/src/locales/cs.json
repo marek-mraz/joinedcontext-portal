@@ -189,6 +189,7 @@
     }
   },
   "endpoints": {
+    "check": "Zkontrolovat",
     "lead": "Kde je prostor publikován: kdo ho smí volat, v jakých reprezentacích a pod jakou URL.",
     "title": "Rozhraní",
     "empty": "Projekt zatím nezveřejnil žádné rozhraní.",

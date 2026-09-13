@@ -189,6 +189,7 @@
     }
   },
   "endpoints": {
+    "check": "Skontrolovať",
     "lead": "Kde je priestor publikovaný: kto ho smie volať, v akých reprezentáciách a pod akou URL.",
     "title": "Rozhrania",
     "empty": "Projekt zatiaľ nezverejnil žiadne rozhranie.",

@@ -189,6 +189,7 @@
     }
   },
   "endpoints": {
+    "check": "Check",
     "lead": "Where a space is published: who may call it, in which representations, under which URL.",
     "title": "Endpoints",
     "empty": "This project publishes no endpoint yet.",

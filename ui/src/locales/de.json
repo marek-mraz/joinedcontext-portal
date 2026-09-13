@@ -189,6 +189,7 @@
     }
   },
   "endpoints": {
+    "check": "Prüfen",
     "lead": "Wo ein Raum veröffentlicht ist: wer ihn aufrufen darf, in welchen Darstellungen, unter welcher URL.",
     "title": "Endpunkte",
     "empty": "Dieses Projekt veröffentlicht noch keinen Endpunkt.",

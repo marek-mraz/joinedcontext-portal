@@ -668,3 +668,92 @@ async fn space_propose_requires_jc_manifest_dry_run() {
     assert_eq!(body["error"], "verdict_required");
     assert_eq!(body["check"], "jc_manifest_dry_run");
 }
+
+/// The generic REST door with a `draft` beside the manifest reaches the same registered
+/// operations as the ops route (ADR-N-021): a dry run checks the body and files the verdict
+/// on the draft, a proposal without one is the strict gate's 409, with one it is a change.
+#[tokio::test]
+async fn rest_door_with_a_draft_reaches_the_check_and_the_gate() {
+    let (_gitea_server, gitea_client) = setup_mock_gitea().await;
+    let config = Config::for_tests();
+    let mirror = Arc::new(Mirror::new());
+    let state = AppState::new(config.clone(), None)
+        .with_mirror(mirror)
+        .with_gitea(Arc::new(gitea_client));
+
+    let manifest = json!({
+        "apiVersion": API_VERSION,
+        "kind": "DataSource",
+        "metadata": { "name": "feed-rest", "namespace": "ovzdusie" },
+        "spec": { "type": "http", "http": { "url": "https://example.com/bikes.json" } }
+    });
+    state
+        .drafts
+        .put("ovzdusie", "DataSource", "feed-rest", manifest.clone(), None, "steward", "person")
+        .await
+        .unwrap();
+
+    let app = server::app(state.clone());
+    let steward_cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@banskabystrica.sk"),
+        vec!["portal-approver"],
+        vec![],
+    );
+    let mut with_draft = manifest.clone();
+    with_draft["draft"] = json!({ "kind": "DataSource", "name": "feed-rest" });
+    let post = |uri: &str| {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(header::COOKIE, &steward_cookie)
+            .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&with_draft).unwrap()))
+            .unwrap()
+    };
+
+    // Strict, no verdict yet: the gate answers through the generic door too.
+    let resp = app
+        .clone()
+        .oneshot(post("/api/v1/projects/ovzdusie/datasources"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(body["error"], "verdict_required");
+    assert_eq!(body["check"], "jc_datasource_check");
+
+    // The dry run is the check: it answers a verdict and files it on the draft.
+    let resp = app
+        .clone()
+        .oneshot(post("/api/v1/projects/ovzdusie/datasources?dryRun=All"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(body["verdict"]["ok"], true);
+    let draft = state
+        .drafts
+        .get("ovzdusie", "DataSource", "feed-rest")
+        .await
+        .unwrap()
+        .expect("draft exists");
+    assert!(draft.verdict.as_ref().is_some_and(|v| v.ok));
+
+    // With a fresh green verdict the proposal is a change, and the draft is gone.
+    let resp = app
+        .oneshot(post("/api/v1/projects/ovzdusie/datasources"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    assert!(state
+        .drafts
+        .get("ovzdusie", "DataSource", "feed-rest")
+        .await
+        .unwrap()
+        .is_none());
+}

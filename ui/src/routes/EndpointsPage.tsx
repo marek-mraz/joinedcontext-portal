@@ -7,6 +7,7 @@ import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
+import type { Verdict } from "../api/drafts";
 import { useProjects } from "../api/projects";
 import { takePrefill } from "../assistant/state";
 import { PermissionGuard } from "../components/ui/PermissionGuard";
@@ -275,6 +276,39 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
           params: { path: { project, plural: "shared" } },
         }),
       ),
+  });
+
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+
+  /** The check of the form (PF-57): a dry run of the envelope, its Verdict filed on the draft. */
+  const check = useMutation({
+    mutationFn: async (form: EndpointForm) => {
+      setFormError(null);
+      const envelope = toEnvelope(project, form, hidden);
+      const draftRef = form.name ? { kind: "Endpoint", name: form.name } : undefined;
+      const body = (draftRef ? { ...envelope, draft: draftRef } : envelope) as never;
+      return unwrap(
+        await api.POST("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project, plural: "endpoints" }, query: { dryRun: "All" } },
+          body,
+        }),
+      );
+    },
+    onSuccess: (result) => {
+      const answer = result as { verdict?: Verdict };
+      if (answer.verdict) {
+        setVerdict(answer.verdict);
+      }
+    },
+    onError: (err) => {
+      setFormError(
+        err instanceof ApiError
+          ? (err.problem?.detail ?? err.message)
+          : err instanceof Error
+            ? err.message
+            : t("app.error.generic"),
+      );
+    },
   });
 
   const propose = useMutation({
@@ -703,6 +737,14 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         project={project}
         draftKind="Endpoint"
         draftName={editing?.name || urlDraftName || undefined}
+        verdict={verdict}
+        onVerdictChange={setVerdict}
+        // The draft holds the envelope the page proposes, hidden attributes included, so the
+        // check and the proposal read one manifest (AG-61).
+        source={{
+          toManifest: (form) => toEnvelope(project, form, hidden),
+          fromManifest: (manifest) => toForm(manifest as Manifest),
+        }}
         title={isNew ? t("endpoints.add") : t("endpoints.edit")}
         description={t("endpoints.addHint")}
         schema={schema}
@@ -737,6 +779,19 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             {t("endpoints.publicNotice")}
           </Alert>
         ) : null}
+        <div>
+          <Button
+            size="sm"
+            disabled={!editing?.name || check.isPending}
+            onClick={() => {
+              if (editing) {
+                check.mutate(editing);
+              }
+            }}
+          >
+            {t("endpoints.check")}
+          </Button>
+        </div>
         {editing?.slug ? (
           // A new endpoint has no published schema yet, so the panel offers the typed name
           // (UI-31): an attribute is hidden from the first approval, not after a second one.
