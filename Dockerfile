@@ -21,7 +21,7 @@ WORKDIR /kit
 COPY kit/package.json kit/pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY kit/ ./
-RUN pnpm build && test -s dist/kit.js && test -s dist/kit.css
+RUN pnpm build && test -s dist/kit.js && test -s dist/kit.css && test -s dist/kit-worker.js
 
 FROM rust:1.97-slim-bookworm AS build
 WORKDIR /src

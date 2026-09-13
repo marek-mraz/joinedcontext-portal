@@ -462,7 +462,7 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
     // The preview: one document with its own policy, or 503 in a build without the bundle.
     let (status, headers, bytes) = call(&app, &cookie, Method::GET, &preview_url, None).await;
     match kit::bundle() {
-        Some((js, _)) => {
+        Some(bundle) => {
             assert_eq!(status, StatusCode::OK);
             let html = String::from_utf8_lossy(&bytes);
             assert!(html.contains("<script id=\"kit-spec\" type=\"application/json\">"));
@@ -475,7 +475,8 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
             );
             assert!(html.contains("\"name\":\"Laivasillankatu\""));
             let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
-            assert!(csp.contains(&kit::script_hash(&js)), "{csp}");
+            assert!(csp.contains(&kit::script_hash(&bundle.js)), "{csp}");
+            assert!(html.contains("<script id=\"kit-worker\" type=\"text/plain\">"));
             assert!(
                 csp.contains(
                     "connect-src https://portal.example.com https://tiles.openfreemap.org"

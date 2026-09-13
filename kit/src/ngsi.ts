@@ -60,6 +60,11 @@ export function cell(value: unknown): Cell {
     if ("@value" in object) {
       return cell(object["@value"]);
     }
+    // A LanguageProperty in keyValues form: the English text when there is one, else the first.
+    if (typeof object.languageMap === "object" && object.languageMap !== null) {
+      const map = object.languageMap as Record<string, unknown>;
+      return cell(map.en ?? Object.values(map)[0]);
+    }
     if (typeof object.type === "string" && "coordinates" in object) {
       return { type: object.type, coordinates: object.coordinates };
     }

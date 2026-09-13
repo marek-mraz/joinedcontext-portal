@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Map as MapLibreMap } from "maplibre-gl";
+import { Map as MapLibreMap, setWorkerUrl } from "maplibre-gl";
 import type { GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Row } from "../ngsi";
@@ -12,6 +12,20 @@ const SOURCE = "rows";
  * preview frame cannot send; OpenStreetMap's raster tiles refuse a request without one.
  */
 export const STYLE = "https://tiles.openfreemap.org/styles/liberty";
+
+/**
+ * The worker the Portal inlined as base64 in `#kit-worker`, handed to the library as a blob:
+ * the frame's policy allows `worker-src blob:` and nothing can be fetched beside the document.
+ * Without the element (vite dev, the published app) the library finds the worker on its own.
+ */
+export function useInlineWorker(doc: Document = document): boolean {
+  const text = doc.getElementById("kit-worker")?.textContent?.trim();
+  if (!text) return false;
+  const bytes = Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+  setWorkerUrl(URL.createObjectURL(new Blob([bytes], { type: "text/javascript" })));
+  return true;
+}
+useInlineWorker();
 
 /** One colour per distinct text value, a warm-to-cool ramp for numbers, the accent otherwise. */
 export function colorOf(value: Row[string], range: [number, number] | null, accent: string): string {

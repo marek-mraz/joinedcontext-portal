@@ -9,6 +9,10 @@ const rows: Row[] = [
 ];
 
 describe("cell", () => {
+  it("reads a keyValues LanguageProperty as its English or first text", () => {
+    expect(cell({ languageMap: { fi: "Kaivopuisto" } })).toBe("Kaivopuisto");
+    expect(cell({ languageMap: { fi: "Kaivopuisto", en: "Kaivopuisto Park" } })).toBe("Kaivopuisto Park");
+  });
   it("unwraps the broker's keyValues shapes", () => {
     expect(cell({ "@type": "DateTime", "@value": "2026-01-01T00:00:00Z" })).toBe("2026-01-01T00:00:00Z");
     expect(cell({ en: "Bikes", fi: "Pyörät" })).toBe("Bikes");

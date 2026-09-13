@@ -397,14 +397,25 @@ pub fn validate(spec: &Spec) -> Vec<String> {
     errors
 }
 
-/// The built bundle, or nothing when the Portal was compiled without one.
-pub fn bundle() -> Option<(String, String)> {
+/// The built bundle: the script, the stylesheet and MapLibre's worker, or nothing when the
+/// Portal was compiled without one.
+pub struct Bundle {
+    pub js: String,
+    pub css: String,
+    /// `kit-worker.js`, base64: the map's worker travels inside the document as a blob,
+    /// because the library would otherwise look for it beside a script that has no address.
+    pub worker: String,
+}
+
+pub fn bundle() -> Option<Bundle> {
     let js = Dist::get("kit.js")?;
     let css = Dist::get("kit.css")?;
-    Some((
-        String::from_utf8_lossy(&js.data).into_owned(),
-        String::from_utf8_lossy(&css.data).into_owned(),
-    ))
+    let worker = Dist::get("kit-worker.js")?;
+    Some(Bundle {
+        js: String::from_utf8_lossy(&js.data).into_owned(),
+        css: String::from_utf8_lossy(&css.data).into_owned(),
+        worker: base64::engine::general_purpose::STANDARD.encode(&worker.data),
+    })
 }
 
 /// The CSP source of one inline script: its SHA-256, so the policy needs no `'unsafe-inline'`.
@@ -426,7 +437,8 @@ pub fn content_security_policy(origin: &str, hash: &str) -> String {
     )
 }
 
-/// One document: the stylesheet, the specification and the rows as data, the script. Nothing
+/// One document: the stylesheet, the specification and the rows as data, the worker, the
+/// script. Nothing
 /// in it is fetched later, because a frame without `allow-same-origin` has no session to fetch
 /// with; `data` is what the driver read for this pass, keyed by source name.
 pub fn document(
@@ -434,9 +446,9 @@ pub fn document(
     slug: &str,
     spec: &Spec,
     data: Option<&serde_json::Value>,
-    js: &str,
-    css: &str,
+    bundle: &Bundle,
 ) -> String {
+    let Bundle { js, css, worker } = bundle;
     let payload =
         serde_json::to_string(&serde_json::json!({ "slug": slug, "spec": spec, "data": data }))
             .unwrap_or_default()
@@ -449,6 +461,7 @@ pub fn document(
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
          <title>{title}</title>\n<style>{css}</style>\n</head>\n<body>\n<div id=\"root\"></div>\n\
          <script id=\"kit-spec\" type=\"application/json\">{payload}</script>\n\
+         <script id=\"kit-worker\" type=\"text/plain\">{worker}</script>\n\
          <script type=\"module\">{js}</script>\n</body>\n</html>\n"
     )
 }
@@ -525,17 +538,18 @@ mod tests {
         let mut spec = spec;
         spec.title = "</script><script>alert(1)</script>".to_owned();
         let rows = serde_json::json!({ "stations": [{ "id": "urn:1", "type": "T", "name": "</script>" }] });
-        let html = document(
-            "A & <B>",
-            "s1ug",
-            &spec,
-            Some(&rows),
-            "console.log(1)",
-            "body{}",
-        );
+        let bundle = Bundle {
+            js: "console.log(1)".into(),
+            css: "body{}".into(),
+            worker: "c2VsZi5vbm1lc3NhZ2U9bnVsbA==".into(),
+        };
+        let html = document("A & <B>", "s1ug", &spec, Some(&rows), &bundle);
         assert!(html.contains("<title>A &amp; &lt;B&gt;</title>"));
         assert!(html.contains("<style>body{}</style>"));
         assert!(html.contains("<script type=\"module\">console.log(1)</script>"));
+        assert!(html.contains(
+            "<script id=\"kit-worker\" type=\"text/plain\">c2VsZi5vbm1lc3NhZ2U9bnVsbA==</script>"
+        ));
         assert!(html.contains("\"slug\":\"s1ug\""));
         assert!(
             !html.contains("</script><script>alert"),

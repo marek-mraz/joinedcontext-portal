@@ -1170,7 +1170,7 @@ pub async fn preview(
             errors.join("; ")
         ))
     })?;
-    let (js, css) = kit::bundle().ok_or_else(|| {
+    let bundle = kit::bundle().ok_or_else(|| {
         ApiError::Unavailable("this Portal was built without the kit (kit/dist is empty)".into())
     })?;
     let data = run
@@ -1183,8 +1183,7 @@ pub async fn preview(
         &run.endpoint_slug,
         &spec,
         data.as_ref(),
-        &js,
-        &css,
+        &bundle,
     );
     let origin = {
         let url = &state.config.public_base_url;
@@ -1197,7 +1196,7 @@ pub async fn preview(
             None => format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default()),
         }
     };
-    let csp = kit::content_security_policy(&origin, &kit::script_hash(&js));
+    let csp = kit::content_security_policy(&origin, &kit::script_hash(&bundle.js));
     Ok((
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_owned()),
