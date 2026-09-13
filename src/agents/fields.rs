@@ -49,8 +49,9 @@ pub fn field_schema(linkml: &str, types: &[String]) -> Value {
         let mut properties = Map::new();
         let mut required = Vec::new();
         // The class's named slots, defined at the top level, then its inline attributes.
-        let named = class["slots"]
-            .as_array()
+        let named = class
+            .get("slots")
+            .and_then(Value::as_array)
             .map(|list| {
                 list.iter()
                     .filter_map(Value::as_str)
@@ -58,8 +59,9 @@ pub fn field_schema(linkml: &str, types: &[String]) -> Value {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let inline = class["attributes"]
-            .as_object()
+        let inline = class
+            .get("attributes")
+            .and_then(Value::as_object)
             .map(|attrs| {
                 attrs
                     .iter()
@@ -159,9 +161,10 @@ slots:
         );
         assert_eq!(station["properties"]["availableBikeNumber"]["minimum"], 0);
         assert_eq!(station["properties"]["availableBikeNumber"]["maximum"], 500);
+        // Alphabetical: the parsed map orders its keys, and a form lists the values as given.
         assert_eq!(
             station["properties"]["status"]["enum"],
-            json!(["working", "closed"])
+            json!(["closed", "working"])
         );
         assert_eq!(station["properties"]["stewardNote"]["pattern"], "^[^<>]*$");
         assert_eq!(station["required"], json!(["name"]));

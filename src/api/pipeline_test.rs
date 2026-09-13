@@ -91,13 +91,29 @@ impl Drop for Slot {
 }
 
 /// The manifest's spec, once the kind has accepted the whole manifest (MF-37).
-fn spec_of(pipeline: &Value) -> Result<PipelineSpec, ApiError> {
+fn spec_of(pipeline: &Value, project: &str) -> Result<PipelineSpec, ApiError> {
     if pipeline["kind"] != "Pipeline" {
         return Err(ApiError::BadRequest(
             "pipeline.kind must be 'Pipeline'".into(),
         ));
     }
-    let text = serde_json::to_string(pipeline).map_err(|e| ApiError::Internal(e.to_string()))?;
+    // A candidate belongs to the project of the URL: the studio's draft names no namespace,
+    // and one naming another project would be tested on the wrong runner.
+    let mut pipeline = pipeline.clone();
+    match pipeline["metadata"]["namespace"].as_str() {
+        None => {
+            if let Some(metadata) = pipeline["metadata"].as_object_mut() {
+                metadata.insert("namespace".into(), Value::String(project.to_owned()));
+            }
+        }
+        Some(namespace) if namespace != project => {
+            return Err(ApiError::BadRequest(format!(
+                "pipeline.metadata.namespace '{namespace}' is not the project '{project}'"
+            )));
+        }
+        Some(_) => {}
+    }
+    let text = serde_json::to_string(&pipeline).map_err(|e| ApiError::Internal(e.to_string()))?;
     if let Some(checked) = jc_core::registry::validate_yaml("Pipeline", &text) {
         checked.map_err(|e| ApiError::BadRequest(format!("spec is not a valid Pipeline: {e}")))?;
     }
@@ -134,7 +150,7 @@ pub async fn test_pipeline(
     if !is_dns1123(&project) {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
-    let spec = spec_of(&request.pipeline)?;
+    let spec = spec_of(&request.pipeline, &project)?;
     crate::permissions::for_request(&state, &user.0.identity, &project).check(
         "Pipeline",
         Verb::Propose,
@@ -237,22 +253,28 @@ mod tests {
 
     #[test]
     fn a_manifest_of_another_kind_or_a_broken_spec_is_400() {
-        assert!(spec_of(&json!({ "kind": "Endpoint", "spec": {} })).is_err());
+        assert!(spec_of(&json!({ "kind": "Endpoint", "spec": {} }), "helsinki").is_err());
         assert!(spec_of(&json!({
             "apiVersion": "joinedcontext.com/v1alpha1",
             "kind": "Pipeline",
             "metadata": { "name": "x" },
             "spec": { "class": "scheduled", "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:all" }
-        }))
+        }), "helsinki")
         .is_err(), "scheduled without a schedule is what the kind refuses (MF-37)");
-        let spec = spec_of(&json!({
+        // The draft names no namespace: the project of the URL is filled in. Another project's
+        // namespace is refused.
+        let draft = json!({
             "apiVersion": "joinedcontext.com/v1alpha1",
             "kind": "Pipeline",
             "metadata": { "name": "x" },
             "spec": { "class": "resident", "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:all" }
-        }))
-        .expect("a valid pipeline");
+        });
+        let spec = spec_of(&draft, "helsinki").expect("a valid pipeline");
         assert!(spec.compute.is_none());
+        let mut foreign = draft.clone();
+        foreign["metadata"]["namespace"] = json!("espoo");
+        assert!(spec_of(&foreign, "helsinki").is_err());
+        assert!(spec_of(&foreign, "espoo").is_ok());
     }
 
     #[tokio::test]

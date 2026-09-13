@@ -232,6 +232,10 @@ async fn anonymous_is_401() {
                 .method("POST")
                 .uri(URI)
                 .header(header::CONTENT_TYPE, "application/json")
+                // The CSRF pair without a session: CSRF is checked first, so this is what
+                // proves the session check answers 401.
+                .header(header::COOKIE, format!("{CSRF_COOKIE}={CSRF}"))
+                .header(CSRF_HEADER, CSRF)
                 .body(Body::from(request().to_string()))
                 .expect("request"),
         )

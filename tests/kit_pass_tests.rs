@@ -1161,8 +1161,9 @@ async fn an_edit_prompt_gets_a_form_grounded_in_the_field_schema_when_the_app_ma
         html.contains("\"schema\":{\"BikeHireDockingStation\":{\"properties\""),
         "the form's inputs come from the same schema (AP-61)"
     );
+    // The kit names the cookie it reads (`jc_csrf`); the session's values never appear.
     assert!(
-        !html.contains("jc_csrf") && !html.contains("jcr_"),
+        !html.contains(CSRF) && !html.contains("jcr_"),
         "no credential is inlined"
     );
 }

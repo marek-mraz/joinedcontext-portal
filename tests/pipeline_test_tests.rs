@@ -197,8 +197,9 @@ async fn the_trace_is_what_the_harness_posted_back_and_the_stream_is_deleted() {
         json!({ "input": "{\"station_id\":\"01\",\"pm10\":\"18.2\"}", "output": { "id": "urn:ngsi-ld:AirQualityObserved:hel.fi:aq:01", "type": "AirQualityObserved", "pm10": 18.2 }, "error": null }),
         json!({ "input": "{\"station_id\":\"02\",\"pm10\":\"x\"}", "output": null, "error": "failed assignment (line 3): strconv.ParseFloat: parsing \"x\": invalid syntax" }),
     ];
+    let body = request(mapping);
     let (answer, harness) = tokio::join!(
-        post(&state, "dev@hel.fi", "helsinki", &request(mapping)),
+        post(&state, "dev@hel.fi", "helsinki", &body),
         play_runner(&runner, &state, &messages),
     );
     let (status, body) = answer;
@@ -293,6 +294,9 @@ async fn anonymous_is_401_and_a_capture_for_no_test_is_404() {
                 .method("POST")
                 .uri("/api/v1/projects/lahti/pipelines/test")
                 .header(header::CONTENT_TYPE, "application/json")
+                // The CSRF pair without a session: CSRF is checked first.
+                .header(header::COOKIE, format!("{CSRF_COOKIE}={CSRF}"))
+                .header(CSRF_HEADER, CSRF)
                 .body(Body::from(request("root = this").to_string()))
                 .expect("request"),
         )
