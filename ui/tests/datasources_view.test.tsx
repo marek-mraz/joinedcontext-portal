@@ -224,6 +224,22 @@ describe("data sources view", () => {
     expect(await screen.findByText("chg-7f3e")).toBeInTheDocument();
   });
 
+  it("names no authorization for an HTTP source with no credential (T-0626)", async () => {
+    const fetchMock = renderDataSources();
+
+    await userEvent.selectOptions(await screen.findByLabelText(en.datasources.field.type), "http");
+    await userEvent.click(screen.getByRole("button", { name: en.datasources.add }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/Name/), "free-bikes");
+    await userEvent.type(within(dialog).getByLabelText(/URL/), "https://gbfs.example.org/free_bike_status.json");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.check }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const body = (await writes(fetchMock)[0].clone().json()) as { spec: { http: Record<string, unknown> } };
+    expect(body.spec.http.url).toBe("https://gbfs.example.org/free_bike_status.json");
+    expect(body.spec.http).not.toHaveProperty("authorization");
+  });
+
   /** MF-13: the plan is a dry run against the same route, not a second endpoint. */
   it("shows the planned change before the proposal is sent", async () => {
     const fetchMock = renderDataSources();

@@ -304,7 +304,10 @@ export function dataSourceSchema(
           type: "object",
           title: t("datasources.field.authorization"),
           properties: {
-            scheme: { type: "string", title: t("datasources.field.scheme"), default: "Bearer" },
+            // No default: a default would put an `authorization` block with a scheme and no
+            // credential into every HTTP source, which the API refuses (`headerRef` missing).
+            // The API writes `Bearer` in front of a credential when no scheme is named.
+            scheme: { type: "string", title: t("datasources.field.scheme") },
             headerRef: secretRef(t, t("datasources.field.credential"), secrets),
           },
         },
