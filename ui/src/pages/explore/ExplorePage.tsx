@@ -31,16 +31,16 @@ const MAX_COLUMNS = 8;
 function useProjectList(project: string, plural: string) {
   return useQuery({
     queryKey: queryKeys.list(project, plural),
+    // The key is shared with every other page that lists this kind, so the cache holds the
+    // list as the API answers it, whichever page asked first; the manifests are read off it
+    // here (T-0625).
     queryFn: async () =>
-      asManifests(
-        (
-          await unwrap(
-            await api.GET("/api/v1/projects/{project}/{plural}", {
-              params: { path: { project, plural } },
-            }),
-          )
-        ).items ?? [],
+      unwrap(
+        await api.GET("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project, plural } },
+        }),
       ),
+    select: (list) => asManifests(list.items ?? []),
   });
 }
 
