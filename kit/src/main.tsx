@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import type { Inline } from "./App";
+import type { Schema } from "./write";
 import { parseSpec } from "./spec";
 import "./index.css";
 
@@ -14,7 +15,7 @@ import "./index.css";
  */
 const element = document.getElementById("kit-spec");
 const root = createRoot(document.getElementById("root")!);
-let payload: { slug?: unknown; spec?: unknown; data?: unknown } = {};
+let payload: { slug?: unknown; spec?: unknown; data?: unknown; schema?: unknown; bridge?: unknown } = {};
 try {
   payload = JSON.parse(element?.textContent ?? "{}") as typeof payload;
 } catch {
@@ -28,6 +29,8 @@ if (parsed.spec && typeof payload.slug === "string" && payload.slug !== "") {
         slug={payload.slug}
         spec={parsed.spec}
         inline={typeof payload.data === "object" && payload.data !== null ? (payload.data as Inline) : undefined}
+        schema={typeof payload.schema === "object" && payload.schema !== null ? (payload.schema as Schema) : undefined}
+        bridge={payload.bridge === true}
       />
     </StrictMode>,
   );

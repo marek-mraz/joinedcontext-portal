@@ -85,3 +85,7 @@ svg.chart { width: 100%; height: auto; }
 .form-actions button { font: inherit; padding: 0.4rem 0.9rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
 .form-actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .form-note { margin: 0; font-size: 0.75rem; color: var(--muted); }
+.field select { font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+.form-window .error { padding: 0; margin: 0; font-size: 0.85rem; }
+.notice { margin: 0; padding: 0 1.25rem; font-size: 0.85rem; color: var(--accent); }
+button.new { font: inherit; margin-top: 0.5rem; padding: 0.35rem 0.8rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }

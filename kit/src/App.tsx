@@ -9,6 +9,8 @@ import { Form } from "./views/Form";
 import { MapView } from "./views/MapView";
 import { Stats } from "./views/Stats";
 import { Table } from "./views/Table";
+import type { Schema, WriteResult } from "./write";
+import { writeEntity } from "./write";
 
 const DEFAULT_ACCENT = "#0f766e";
 
@@ -91,7 +93,9 @@ function FilterControl({ filter, index, rows, value, onChange }: { filter: Filte
   );
 }
 
-function ViewCard({ view, spec, rows, accent, selected, onSelect, onSave }: { view: View; spec: Spec; rows: Row[]; accent: string; selected: string | null; onSelect: (id: string | null) => void; onSave: (id: string, patch: Record<string, Cell>) => void }) {
+type Save = (source: Source, id: string | null, patch: Record<string, Cell>) => Promise<WriteResult>;
+
+function ViewCard({ view, spec, rows, accent, selected, onSelect, onSave, schema, creating, onCreate }: { view: View; spec: Spec; rows: Row[]; accent: string; selected: string | null; onSelect: (id: string | null) => void; onSave: Save; schema?: Schema; creating: boolean; onCreate: (on: boolean) => void }) {
   const source = sourceOf(spec, view);
   const body = (() => {
     switch (view.kind) {
@@ -106,7 +110,12 @@ function ViewCard({ view, spec, rows, accent, selected, onSelect, onSave }: { vi
       case "detail":
         return <Detail row={rows.find((r) => r.id === selected) ?? null} attrs={source.attrs} />;
       case "form":
-        return <Form row={rows.find((r) => r.id === selected) ?? null} rows={rows} fields={view.fields ?? source.attrs} title={view.title} onSave={onSave} onClose={() => onSelect(null)} />;
+        return (
+          <>
+            <Form row={rows.find((r) => r.id === selected) ?? null} rows={rows} fields={view.fields ?? source.attrs} title={view.title} schema={schema?.[source.type]} creating={creating} onSave={(id, patch) => onSave(source, id, patch)} onClose={() => { onSelect(null); onCreate(false); }} />
+            <button type="button" className="new" onClick={() => { onSelect(null); onCreate(true); }}>New {source.type}</button>
+          </>
+        );
       default:
         return null;
     }
@@ -119,27 +128,45 @@ function ViewCard({ view, spec, rows, accent, selected, onSelect, onSave }: { vi
   );
 }
 
-export function App({ slug, spec, inline }: { slug: string; spec: Spec; inline?: Inline }) {
+export function App({ slug, spec, inline, schema, bridge = false }: { slug: string; spec: Spec; inline?: Inline; schema?: Schema; bridge?: boolean }) {
   const { data, loading, error } = useSources(slug, spec, inline);
   const [state, setState] = useState<FilterState>({});
   const [selected, setSelected] = useState<string | null>(null);
   // What a form saved, by entity id, laid over the rows read: on screen only.
   const [edits, setEdits] = useState<Record<string, Record<string, Cell>>>({});
+  // What a form created, by source name, after the endpoint accepted it.
+  const [created, setCreated] = useState<Record<string, Row[]>>({});
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const pages = pagesOf(spec);
   const [page, setPage] = useState<string>(pages[0] ?? "");
   const accent = spec.theme?.accent ?? DEFAULT_ACCENT;
   const filters = spec.filters ?? [];
   const edited = useMemo(
-    () => Object.fromEntries(spec.sources.map((s) => [s.name, (data[s.name] ?? []).map((row) => (edits[row.id] ? { ...row, ...edits[row.id] } : row))])) as Loaded,
-    [data, edits, spec.sources],
+    () => Object.fromEntries(spec.sources.map((s) => [s.name, [...(data[s.name] ?? []), ...(created[s.name] ?? [])].map((row) => (edits[row.id] ? { ...row, ...edits[row.id] } : row))])) as Loaded,
+    [data, edits, created, spec.sources],
   );
   const filtered = useMemo(
     () => Object.fromEntries(spec.sources.map((s) => [s.name, applyFilters(edited[s.name] ?? [], filters, state, s.name)])) as Loaded,
     [edited, filters, state, spec.sources],
   );
-  const save = (id: string, patch: Record<string, Cell>) => setEdits((e) => ({ ...e, [id]: { ...e[id], ...patch } }));
+  // A save is one write through the endpoint (AP-62); the screen follows only what it accepted.
+  const save: Save = async (source, id, patch) => {
+    const result = id && !creating
+      ? await writeEntity(slug, { id, type: source.type, patch }, bridge)
+      : await writeEntity(slug, { type: source.type, entity: { id: id ?? "", ...Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, { type: "Property", value: v }])) } }, bridge);
+    if (result.ok) {
+      if (id && !creating) {
+        setEdits((e) => ({ ...e, [id]: { ...e[id], ...patch } }));
+      } else if (id) {
+        setCreated((c) => ({ ...c, [source.name]: [...(c[source.name] ?? []), { id, type: source.type, ...patch }] }));
+      }
+      setNotice(`Saved ${id ?? ""}`);
+    }
+    return result;
+  };
   const shown = spec.views.filter((view) => view.page === undefined || view.page === page);
-  const total = spec.sources.reduce((n, s) => n + (data[s.name]?.length ?? 0), 0);
+  const total = spec.sources.reduce((n, s) => n + (edited[s.name]?.length ?? 0), 0);
   const kept = spec.sources.reduce((n, s) => n + (filtered[s.name]?.length ?? 0), 0);
 
   return (
@@ -161,6 +188,7 @@ export function App({ slug, spec, inline }: { slug: string; spec: Spec; inline?:
         </div>
       )}
       {error && <p role="alert" className="error">{error}</p>}
+      {notice && <p className="notice" aria-live="polite">{notice}</p>}
       {pages.length > 0 && (
         <nav className="pages" aria-label="Pages">
           {pages.map((name) => (
@@ -170,7 +198,7 @@ export function App({ slug, spec, inline }: { slug: string; spec: Spec; inline?:
       )}
       <main>
         {shown.map((view) => (
-          <ViewCard key={spec.views.indexOf(view)} view={view} spec={spec} rows={filtered[sourceOf(spec, view).name] ?? []} accent={accent} selected={selected} onSelect={setSelected} onSave={save} />
+          <ViewCard key={spec.views.indexOf(view)} view={view} spec={spec} rows={filtered[sourceOf(spec, view).name] ?? []} accent={accent} selected={selected} onSelect={setSelected} onSave={save} schema={schema} creating={creating} onCreate={setCreating} />
         ))}
       </main>
     </div>

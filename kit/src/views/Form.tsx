@@ -1,60 +1,112 @@
 import { useEffect, useRef, useState } from "react";
 import type { Cell, Row } from "../ngsi";
 import { columnKind, format } from "../ngsi";
+import type { Field, TypeSchema, WriteResult } from "../write";
+import { fieldOf } from "../write";
 
 /**
- * The selected entity as a window of inputs. A save hands the changed cells back to the app,
- * which keeps them on screen: the map, the table and the tiles follow. Nothing is written to
- * the endpoint from here; the preview frame has no session, and a write route is a later slice.
+ * The selected entity as a window of inputs, or a new one (AP-61, AP-62). Each input is what
+ * the endpoint's schema says the attribute is: a select over an enum, a number within its
+ * bounds, a pattern, a required mark. A save writes through the endpoint; a refusal stays on
+ * the form beside the inputs with the reason, and nothing reloads.
  */
-export function Form({ row, rows, fields, title, onSave, onClose }: { row: Row | null; rows: Row[]; fields: string[]; title?: string; onSave: (id: string, patch: Record<string, Cell>) => void; onClose: () => void }) {
+export function Form({ row, rows, fields, title, schema, creating, onSave, onClose }: { row: Row | null; rows: Row[]; fields: string[]; title?: string; schema?: TypeSchema; creating: boolean; onSave: (id: string | null, patch: Record<string, Cell>) => Promise<WriteResult>; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [localId, setLocalId] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const open = creating || row !== null;
   useEffect(() => {
     setDraft(row ? Object.fromEntries(fields.map((f) => [f, format(row[f])])) : {});
+    setLocalId("");
+    setProblem(null);
     const element = dialog.current;
     if (!element) return;
-    if (row && !element.open) element.showModal();
-    if (!row && element.open) element.close();
-  }, [row, fields]);
-  const kinds = Object.fromEntries(fields.map((f) => [f, columnKind(rows, f)]));
-  const submit = (event: React.FormEvent) => {
+    if (open && !element.open) element.showModal();
+    if (!open && element.open) element.close();
+  }, [row, fields, open]);
+  const specs: Record<string, Field> = Object.fromEntries(fields.map((f) => [f, fieldOf(f, schema, columnKind(rows, f))]));
+  const idPrefix = rows[0]?.id.includes(":") ? rows[0].id.slice(0, rows[0].id.lastIndexOf(":") + 1) : "";
+
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!row) return;
     const patch: Record<string, Cell> = {};
     for (const field of fields) {
-      if (kinds[field] === "geo") continue;
+      const spec = specs[field];
+      if (spec.input === "geo") continue;
       const text = draft[field] ?? "";
-      const before = format(row[field]);
-      if (text === before) continue;
-      patch[field] = kinds[field] === "number" ? (text.trim() === "" ? null : Number(text)) : text;
+      if (row && text === format(row[field])) continue;
+      if (spec.input === "number") patch[field] = text.trim() === "" ? null : Number(text);
+      else if (spec.input === "checkbox") patch[field] = text === "true";
+      else patch[field] = text;
     }
-    onSave(row.id, patch);
-    onClose();
+    if (!row && !creating) return;
+    setSaving(true);
+    setProblem(null);
+    const result = await onSave(row ? row.id : `${idPrefix}${localId.trim()}`, patch);
+    setSaving(false);
+    if (result.ok) {
+      onClose();
+    } else {
+      setProblem(result.detail ?? `The endpoint answered ${result.status}.`);
+    }
   };
+
+  const input = (field: string) => {
+    const spec = specs[field];
+    const value = draft[field] ?? "";
+    const set = (next: string) => setDraft((d) => ({ ...d, [field]: next }));
+    switch (spec.input) {
+      case "geo":
+        return <input value={value} readOnly />;
+      case "select":
+        return (
+          <select value={value} required={spec.required} onChange={(e) => set(e.target.value)}>
+            <option value="">—</option>
+            {spec.options?.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        );
+      case "number":
+        return <input type="number" step="any" min={spec.min} max={spec.max} required={spec.required} value={value} onChange={(e) => set(e.target.value)} />;
+      case "checkbox":
+        return <input type="checkbox" checked={value === "true"} onChange={(e) => set(e.target.checked ? "true" : "false")} />;
+      case "date":
+        return <input type="datetime-local" required={spec.required} value={value.replace(/Z$/, "").slice(0, 16)} onChange={(e) => set(e.target.value === "" ? "" : `${e.target.value}:00Z`)} />;
+      default:
+        return <input type="text" pattern={spec.pattern} required={spec.required} value={value} onChange={(e) => set(e.target.value)} />;
+    }
+  };
+
   return (
     <>
       <p className="empty">Pick a point on the map or a row in the table to open the form.</p>
       <dialog ref={dialog} className="form-window" onClose={onClose} aria-label={title ?? "Form"}>
-        {row && (
-          <form onSubmit={submit}>
-            <h2>{title ?? "Entity"}</h2>
-            <p className="mono">{row.id}</p>
+        {open && (
+          <form onSubmit={(e) => void submit(e)}>
+            <h2>{title ?? (row ? "Entity" : "New entity")}</h2>
+            {row ? (
+              <p className="mono">{row.id}</p>
+            ) : (
+              <label className="field">
+                <span>id</span>
+                <input type="text" aria-label="id" required pattern="[A-Za-z0-9._~-]+" placeholder={`${idPrefix}…`} value={localId} onChange={(e) => setLocalId(e.target.value)} />
+              </label>
+            )}
             {fields.map((field) => (
               <label key={field} className="field">
-                <span>{field}</span>
-                {kinds[field] === "geo" ? (
-                  <input value={draft[field] ?? ""} readOnly />
-                ) : (
-                  <input type={kinds[field] === "number" ? "number" : "text"} step="any" value={draft[field] ?? ""} onChange={(e) => setDraft((d) => ({ ...d, [field]: e.target.value }))} />
-                )}
+                <span>{field}{specs[field].required ? " *" : ""}</span>
+                {input(field)}
               </label>
             ))}
+            {problem && <p role="alert" className="error">{problem}</p>}
             <div className="form-actions">
               <button type="button" onClick={onClose}>Close</button>
-              <button type="submit" className="primary">Save</button>
+              <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
             </div>
-            <p className="form-note">Saved on this screen; the endpoint is not written.</p>
+            <p className="form-note">Written through the endpoint with your own access; the Policy decides.</p>
           </form>
         )}
       </dialog>

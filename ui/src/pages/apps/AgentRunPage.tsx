@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../../api/client";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { isChange } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
+import { useKitWriteBridge } from "./kitBridge";
 import { RunTimeline } from "./RunTimeline";
 import { TERMINAL_STATES, useAgentRun } from "./useAgentRun";
 import { rememberRun } from "../../assistant/state";
@@ -32,6 +33,9 @@ export function AgentRunPage({
   useEffect(() => {
     rememberRun({ project, runId });
   }, [project, runId]);
+  // The preview's writes reach the endpoint through this page, never from the frame (AP-63).
+  const frame = useRef<HTMLIFrameElement>(null);
+  useKitWriteBridge(frame, run.data?.endpointSlug);
 
   if (run.isPending) {
     return <p role="status">{t("agentRun.loading")}</p>;
@@ -111,6 +115,7 @@ export function AgentRunPage({
                   frame rather than a stale one.
                 */}
                 <iframe
+                  ref={frame}
                   key={record.previewUrl}
                   title={t("agentRun.preview.frameTitle", { app: record.appName })}
                   src={record.previewUrl}

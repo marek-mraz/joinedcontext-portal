@@ -1263,9 +1263,18 @@ pub async fn preview(
             None => format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default()),
         }
     };
+    // The field schema of AP-61: what the form's inputs are, from the space's DataModel.
+    let types: Vec<String> = spec.sources.iter().map(|s| s.entity_type.clone()).collect();
+    let schema = crate::agents::fields::for_endpoint(&state, &project, &run.endpoint_slug, &types);
     let (html, csp) = match page {
         Some(page) => (
-            kit::page_document(page, &run.endpoint_slug, &spec, data.as_ref()),
+            kit::page_document(
+                page,
+                &run.endpoint_slug,
+                &spec,
+                data.as_ref(),
+                schema.as_ref(),
+            ),
             kit::page_content_security_policy(&origin),
         ),
         None => {
@@ -1280,6 +1289,7 @@ pub async fn preview(
                     &run.endpoint_slug,
                     &spec,
                     data.as_ref(),
+                    schema.as_ref(),
                     &bundle,
                 ),
                 kit::content_security_policy(&origin, &kit::script_hash(&bundle.js)),

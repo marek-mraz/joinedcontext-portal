@@ -1,6 +1,7 @@
 //! Autonomous Agent runner coordination, state, and event management.
 
 pub mod events;
+pub mod fields;
 pub mod kit;
 pub mod kube;
 pub mod needs;

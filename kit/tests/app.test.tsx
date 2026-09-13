@@ -98,8 +98,9 @@ describe("App", () => {
     expect(bikes.value).toBe("3");
     fireEvent.change(bikes, { target: { value: "7" } });
     fireEvent.click(screen.getByText("Save"));
-    // 12 + 7 + 0 now.
-    expect(screen.getByText("Bikes available").previousSibling).toHaveTextContent("19");
+    // 12 + 7 + 0 once the endpoint accepted the write.
+    await waitFor(() => expect(screen.getByText("Bikes available").previousSibling).toHaveTextContent("19"));
+    expect(calls.at(-1)).toContain("/entities/urn%3Angsi-ld%3ABikeHireDockingStation%3Ahel.fi%3Ahelsinki%3A002/attrs");
   });
 
   it("shows one page at a time when views name pages", async () => {

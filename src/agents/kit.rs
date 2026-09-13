@@ -511,11 +511,9 @@ pub fn page_document(
     slug: &str,
     spec: &Spec,
     data: Option<&serde_json::Value>,
+    schema: Option<&serde_json::Value>,
 ) -> String {
-    let payload =
-        serde_json::to_string(&serde_json::json!({ "slug": slug, "spec": spec, "data": data }))
-            .unwrap_or_default()
-            .replace('<', "\\u003c");
+    let payload = payload(slug, spec, data, schema);
     let script = format!("<script>window.kit = {payload};</script>");
     match html.find("<head>") {
         Some(at) => {
@@ -545,15 +543,11 @@ pub fn document(
     slug: &str,
     spec: &Spec,
     data: Option<&serde_json::Value>,
+    schema: Option<&serde_json::Value>,
     bundle: &Bundle,
 ) -> String {
     let Bundle { js, css, worker } = bundle;
-    let payload =
-        serde_json::to_string(&serde_json::json!({ "slug": slug, "spec": spec, "data": data }))
-            .unwrap_or_default()
-            // `</script>` inside the data would end the element; `\u003c` is the same character
-            // to a JSON parser and nothing to the HTML one.
-            .replace('<', "\\u003c");
+    let payload = payload(slug, spec, data, schema);
     let title = escape(title);
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
@@ -563,6 +557,28 @@ pub fn document(
          <script id=\"kit-worker\" type=\"text/plain\">{worker}</script>\n\
          <script type=\"module\">{js}</script>\n</body>\n</html>\n"
     )
+}
+
+/// `window.kit`: the slug, the specification, the rows, the field schema of AP-61, and
+/// `bridge: true`, because every document built here is a preview in a sandboxed frame whose
+/// writes go through the host page (AP-63); the published app is served without this payload.
+fn payload(
+    slug: &str,
+    spec: &Spec,
+    data: Option<&serde_json::Value>,
+    schema: Option<&serde_json::Value>,
+) -> String {
+    serde_json::to_string(&serde_json::json!({
+        "slug": slug,
+        "spec": spec,
+        "data": data,
+        "schema": schema,
+        "bridge": true,
+    }))
+    .unwrap_or_default()
+    // `</script>` inside the data would end the element; `\u003c` is the same character
+    // to a JSON parser and nothing to the HTML one.
+    .replace('<', "\\u003c")
 }
 
 fn escape(text: &str) -> String {
@@ -595,6 +611,7 @@ mod tests {
             "slug",
             &spec,
             Some(&data),
+            None,
         );
         let at = page
             .find("<script>window.kit = ")
@@ -605,7 +622,7 @@ mod tests {
         );
         assert!(!page.contains("</script><b>"), "{page}");
         assert!(page.contains("\\u003c/script>\\u003cb>"));
-        let bare = page_document("<h1>no head</h1>", "slug", &spec, None);
+        let bare = page_document("<h1>no head</h1>", "slug", &spec, None, None);
         assert!(bare.starts_with("<script>window.kit = "));
         let csp = page_content_security_policy("https://portal.example");
         assert!(csp.contains("script-src 'unsafe-inline' https://cdn.jsdelivr.net"));
@@ -672,7 +689,7 @@ mod tests {
             css: "body{}".into(),
             worker: "c2VsZi5vbm1lc3NhZ2U9bnVsbA==".into(),
         };
-        let html = document("A & <B>", "s1ug", &spec, Some(&rows), &bundle);
+        let html = document("A & <B>", "s1ug", &spec, Some(&rows), None, &bundle);
         assert!(html.contains("<title>A &amp; &lt;B&gt;</title>"));
         assert!(html.contains("<style>body{}</style>"));
         assert!(html.contains("<script type=\"module\">console.log(1)</script>"));

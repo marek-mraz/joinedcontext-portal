@@ -114,7 +114,7 @@ fn text_of(value: &Value) -> String {
 }
 
 /// A `contextSpaceRef` is a name or an object naming one.
-fn ref_name(value: &Value) -> Option<String> {
+pub(crate) fn ref_name(value: &Value) -> Option<String> {
     match value {
         Value::String(s) if !s.is_empty() => Some(s.clone()),
         Value::Object(map) => map.get("name").and_then(Value::as_str).map(str::to_owned),

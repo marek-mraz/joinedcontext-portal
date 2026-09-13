@@ -41,6 +41,8 @@ export interface AgentRun {
   project: string;
   appName: string;
   endpointName: string;
+  /** The endpoint the preview's writes go through (AP-63). */
+  endpointSlug?: string;
   appClass: string;
   visibility: string;
   prompt: string;
