@@ -1027,7 +1027,10 @@
       "title": "Náhled",
       "hint": "Postavená aplikace v sandboxu. Běží bez přístupu k vašemu přihlášení do Portálu.",
       "frameTitle": "Náhled aplikace {app}",
-      "open": "Otevřít aplikaci na vlastní kartě"
+      "open": "Otevřít aplikaci na vlastní kartě",
+      "waiting": "Dashboard se tu objeví, jakmile první průchod skončí; chat vpravo ukazuje, co asistent právě dělá.",
+      "none": "Tento běh skončil dřív, než něco ukázal.",
+      "elapsed": "{seconds} s od spuštění"
     }
   }
 }

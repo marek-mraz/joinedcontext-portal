@@ -1027,7 +1027,10 @@
       "title": "Preview",
       "hint": "The built app, framed in a sandbox. It runs with no access to your Portal session.",
       "frameTitle": "Preview of {app}",
-      "open": "Open the app in its own tab"
+      "open": "Open the app in its own tab",
+      "waiting": "The dashboard appears here the moment the first pass lands; the chat on the right shows what the assistant is doing.",
+      "none": "This run ended before it showed anything.",
+      "elapsed": "{seconds} s since the run started"
     }
   }
 }

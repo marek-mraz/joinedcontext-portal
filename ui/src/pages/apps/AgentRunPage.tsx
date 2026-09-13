@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../../api/client";
@@ -83,53 +84,47 @@ export function AgentRunPage({
       )}
 
       {/*
-        The conversation is the page: a person builds an app by talking to the agent, and
-        watches what it built beside the talking. The preview and the controls sit in the
-        column next to it, so neither has to be scrolled past to reach the other.
+        The preview is the page: what the assistant built stands wide on the left from the
+        moment the first pass lands, and the chat that changes it stands beside it (UI-41,
+        UI-42). Until then the left column says which phase the run is in and how long it has
+        been running, so the first minute is watched rather than waited out.
       */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-        <ConversationPanel
-          events={events}
-          streaming={streaming}
-          answering={answer.isPending}
-          sending={send.isPending}
-          live={!over}
-          onAnswer={(questionId, answers) => {
-            answer.mutate({ questionId, answers });
-          }}
-          onSend={(text) => {
-            send.mutate(text);
-          }}
-        />
-
-        <div className="space-y-4 lg:sticky lg:top-4">
-          {record.previewUrl !== undefined && record.previewUrl !== "" && (
-            <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-4">
-              <h2 id="run-preview" className="text-base font-semibold">
-                {t("agentRun.preview.title")}
-              </h2>
-              <p className="text-sm text-fg-muted">{t("agentRun.preview.hint")}</p>
-              {/*
-                No `allow-same-origin`: the app is served from the Portal's own origin, and that
-                pair beside `allow-scripts` is not a sandbox at all — the frame could read the
-                deliberately readable CSRF cookie and write as the signed-in reviewer (AP-19).
-              */}
-              <iframe
-                title={t("agentRun.preview.frameTitle", { app: record.appName })}
-                src={record.previewUrl}
-                sandbox="allow-scripts"
-                className="h-80 w-full rounded border border-border bg-surface"
-              />
-              <a
-                href={record.previewUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-block text-sm text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
-              >
-                {t("agentRun.preview.open")}
-              </a>
-            </section>
-          )}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+        <div className="space-y-4">
+          <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-4">
+            <h2 id="run-preview" className="text-base font-semibold">
+              {t("agentRun.preview.title")}
+            </h2>
+            {record.previewUrl !== undefined && record.previewUrl !== "" ? (
+              <>
+                <p className="text-sm text-fg-muted">{t("agentRun.preview.hint")}</p>
+                {/*
+                  No `allow-same-origin`: the app is served from the Portal's own origin, and
+                  that pair beside `allow-scripts` is not a sandbox at all — the frame could
+                  read the deliberately readable CSRF cookie and write as the signed-in
+                  reviewer (AP-19). The URL carries the pass number, so a new pass is a new
+                  frame rather than a stale one.
+                */}
+                <iframe
+                  key={record.previewUrl}
+                  title={t("agentRun.preview.frameTitle", { app: record.appName })}
+                  src={record.previewUrl}
+                  sandbox="allow-scripts"
+                  className="h-[70vh] min-h-[28rem] w-full rounded border border-border bg-surface"
+                />
+                <a
+                  href={record.previewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block text-sm text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+                >
+                  {t("agentRun.preview.open")}
+                </a>
+              </>
+            ) : (
+              <Waiting createdAt={record.createdAt} status={record.status} over={over} />
+            )}
+          </section>
 
           <RunTimeline status={record.status} steps={record.steps} tokensUsed={record.tokensUsed} />
 
@@ -156,7 +151,71 @@ export function AgentRunPage({
             </button>
           </div>
         </div>
+
+        <div className="lg:sticky lg:top-4">
+          <ConversationPanel
+            events={events}
+            streaming={streaming}
+            answering={answer.isPending}
+            sending={send.isPending}
+            live={!over}
+            onAnswer={(questionId, answers) => {
+              answer.mutate({ questionId, answers });
+            }}
+            onSend={(text) => {
+              send.mutate(text);
+            }}
+          />
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** Seconds since `since`, ticking once a second while `running`. */
+export function useElapsed(since: string, running: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) {
+      return undefined;
+    }
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [running]);
+  return Math.max(0, Math.floor((now - Date.parse(since)) / 1000));
+}
+
+/** The left column before the first preview: the phase, and the clock the promise is measured by. */
+function Waiting({
+  createdAt,
+  status,
+  over,
+}: {
+  createdAt: string;
+  status: string;
+  over: boolean;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const elapsed = useElapsed(createdAt, !over);
+  return (
+    <div
+      role="status"
+      className="flex h-[50vh] min-h-[20rem] flex-col items-center justify-center gap-2 rounded border border-dashed border-border text-center"
+    >
+      {/* A stopped run's state is already the timeline's red line; here it would be said twice. */}
+      {!over && (
+        <p className="text-lg font-medium">
+          {t(`agentRun.states.${status}`, { defaultValue: status })}
+        </p>
+      )}
+      <p className="text-sm text-fg-muted">
+        {over ? t("agentRun.preview.none") : t("agentRun.preview.waiting")}
+      </p>
+      <p className="font-mono text-sm text-fg-muted">{t("agentRun.preview.elapsed", { seconds: elapsed })}</p>
     </div>
   );
 }

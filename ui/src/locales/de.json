@@ -1027,7 +1027,10 @@
       "title": "Vorschau",
       "hint": "Die gebaute Anwendung, in einer Sandbox. Sie läuft ohne Zugriff auf Ihre Portal-Anmeldung.",
       "frameTitle": "Vorschau der Anwendung {app}",
-      "open": "Die Anwendung in einem eigenen Tab öffnen"
+      "open": "Die Anwendung in einem eigenen Tab öffnen",
+      "waiting": "Das Dashboard erscheint hier, sobald der erste Durchlauf fertig ist; der Chat rechts zeigt, was der Assistent gerade tut.",
+      "none": "Dieser Lauf endete, bevor er etwas gezeigt hat.",
+      "elapsed": "{seconds} s seit dem Start"
     }
   }
 }

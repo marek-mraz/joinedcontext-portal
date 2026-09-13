@@ -1027,7 +1027,10 @@
       "title": "Náhľad",
       "hint": "Postavená aplikácia v sandboxe. Beží bez prístupu k vášmu prihláseniu do Portálu.",
       "frameTitle": "Náhľad aplikácie {app}",
-      "open": "Otvoriť aplikáciu na vlastnej karte"
+      "open": "Otvoriť aplikáciu na vlastnej karte",
+      "waiting": "Dashboard sa tu objaví, len čo prvý prechod skončí; chat vpravo ukazuje, čo asistent práve robí.",
+      "none": "Tento beh skončil skôr, než niečo ukázal.",
+      "elapsed": "{seconds} s od spustenia"
     }
   }
 }

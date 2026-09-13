@@ -223,8 +223,8 @@ describe("the app generator", () => {
     await user.type(screen.getByLabelText(en.apps.generate.prompt), "Show me the buses");
 
     expect(screen.getByLabelText(en.apps.generate.prompt)).toHaveValue("Show me the buses");
-    // Fullstack is what the blueprint produces, so it is what the form starts on (AP-25).
-    expect(screen.getByLabelText(en.apps.generate.kind)).toHaveValue("fullstack");
+    // The kit pass is the fast path, so it is what the form starts on (AP-56).
+    expect(screen.getByLabelText(en.apps.generate.kind)).toHaveValue("static");
   });
 
   it("fills the endpoint list from the project's own endpoints", async () => {
@@ -281,7 +281,7 @@ describe("the app generator", () => {
     await waitFor(async () => {
       const body = await runBody(fetchMock);
       expect(body.appName).toBe("ovzdusie-dnes");
-      expect(body.appClass).toBe("fullstack");
+      expect(body.appClass).toBe("static");
       expect(body.endpointName).toBe("ovzdusie-public");
       expect(body.prompt).toBe("A map of the stations with today's PM10");
       const needs = body.dataNeeds as { attrs: string[]; operations: string[] }[];

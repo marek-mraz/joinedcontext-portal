@@ -14,8 +14,11 @@ import { EndpointPreview } from "./EndpointPreview";
 /** The blueprint that turns a description into an app (AP-22, Architecture/16 §3). */
 export const BLUEPRINT = "app-from-prompt";
 
-/** `spec.kind` of the App the blueprint writes; `fullstack` is what it produces (AP-25). */
-export const APP_KINDS = ["fullstack", "static", "service"] as const;
+/**
+ * `spec.kind` of the App the blueprint writes. `static` is the kit pass, a dashboard inside a
+ * minute from one model call (AP-56); `fullstack` is what the workspace builds (AP-25).
+ */
+export const APP_KINDS = ["static", "fullstack", "service"] as const;
 export type AppKind = (typeof APP_KINDS)[number];
 
 /** The two apps that ship with the platform, for a deployment with no builder to point at. */
@@ -102,7 +105,7 @@ export function dataNeeds(
 export function AppGenerator({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const [name, setName] = useState("");
-  const [kind, setKind] = useState<AppKind>("fullstack");
+  const [kind, setKind] = useState<AppKind>("static");
   const [prompt, setPrompt] = useState("");
   const [endpointName, setEndpointName] = useState("");
   const [dropped, setDropped] = useState<string[]>([]);

@@ -297,6 +297,39 @@ describe("watching a run", () => {
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
   });
 
+  it("watches the first minute on the left, then shows each pass in a fresh frame (UI-41, UI-42)", async () => {
+    const { setRun } = renderRun({
+      run: { ...RUN, status: "building", createdAt: new Date(Date.now() - 12_000).toISOString() },
+    });
+    await screen.findByRole("heading", { name: RUN.appName });
+
+    // Before the first pass the preview column says which phase the run is in and how long it
+    // has been running, rather than standing empty.
+    const preview = screen.getByRole("region", { name: en.agentRun.preview.title });
+    expect(within(preview).getByText(en.agentRun.states.building)).toBeInTheDocument();
+    expect(within(preview).getByText(en.agentRun.preview.waiting)).toBeInTheDocument();
+    expect(within(preview).getByText(/^1[0-9] s since the run started$/)).toBeInTheDocument();
+    expect(screen.queryByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName))).toBeNull();
+
+    const first = `/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/preview?v=1`;
+    setRun({ ...RUN, status: "previewing", previewUrl: first });
+    await emit("status", { seq: 5, status: "previewing" });
+    const frame = await screen.findByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName));
+    expect(frame).toHaveAttribute("src", first);
+
+    // A second pass is a second URL: the frame is replaced, never left on the old document.
+    const second = `/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/preview?v=2`;
+    setRun({ ...RUN, status: "previewing", previewUrl: second });
+    await emit("status", { seq: 9, status: "previewing" });
+    await waitFor(() => {
+      expect(
+        screen.getByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName)),
+      ).toHaveAttribute("src", second);
+    });
+    // The chat stands beside the preview with its composer open.
+    expect(screen.getByLabelText(en.agentRun.conversation.placeholder)).toBeEnabled();
+  });
+
   it("says the app lives behind the platform login and nowhere else (ADR-N-019)", async () => {
     renderRun();
     await screen.findByRole("heading", { name: RUN.appName });
