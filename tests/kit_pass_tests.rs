@@ -655,6 +655,10 @@ async fn a_message_is_one_more_pass_over_the_same_file() {
         "the current file is in the pack: {second}"
     );
     assert!(
+        !second.contains("### data.json"),
+        "the rows stay out of the prompt: {second}"
+    );
+    assert!(
         second.contains("Person: Create a live bike"),
         "the conversation is in the pack"
     );
@@ -670,6 +674,25 @@ async fn a_message_is_one_more_pass_over_the_same_file() {
         assert_eq!(status, StatusCode::OK);
         assert!(String::from_utf8_lossy(&bytes).contains("Kaupunkipyörät"));
     }
+}
+
+#[tokio::test]
+async fn an_empty_answer_is_asked_again_once() {
+    let (app, cookie, proxy) = portal(
+        "anthropic",
+        &[
+            "".to_owned(),
+            answer("Second try.", &[("spec.json", "", VALID_SPEC)]),
+        ],
+    )
+    .await;
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
+    assert_eq!(run["status"], json!("previewing"), "{run}");
+    assert_eq!(model_requests(&proxy).await.len(), 2);
 }
 
 #[tokio::test]

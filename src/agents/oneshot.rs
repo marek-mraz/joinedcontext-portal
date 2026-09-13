@@ -31,6 +31,7 @@ const OUTPUT_BUDGET: u32 = 6000;
 const CALL_TIMEOUT: Duration = Duration::from_secs(180);
 /// The name the driver signs its own chat lines with; a message by anyone else is a pass.
 pub const AGENT: &str = "agent";
+const EMPTY_ANSWER: &str = "the model's answer carried no text";
 
 static SYSTEM: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -239,6 +240,9 @@ impl Driver {
         conversation: &[(String, String)],
         instruction: &str,
     ) -> Result<Option<String>, String> {
+        if !files.is_empty() {
+            self.thought("Changing the dashboard…").await?;
+        }
         let user = self.pack(samples, files, conversation, instruction, None);
         let answer = self.complete(&user).await?;
         let (mut prose, mut errors) = self.apply(files, &answer).await?;
@@ -364,10 +368,16 @@ impl Driver {
         pack.push_str("\n```\n\nSample entities per type (`options=keyValues`):\n```json\n");
         pack.push_str(&serde_json::to_string_pretty(samples).unwrap_or_default());
         pack.push_str("\n```\n\n## THE CURRENT FILES\n\n");
-        if files.is_empty() {
+        // Only what the model may write. The rows of the preview live beside the specification
+        // in the same map, and a hundred kilobytes of them in the prompt is a minute of reading.
+        let visible: Vec<(&String, &String)> = files
+            .iter()
+            .filter(|(path, _)| path.as_str() != kit::DATA_FILE)
+            .collect();
+        if visible.is_empty() {
             pack.push_str("(none yet: write spec.json with an empty SEARCH block)\n");
         }
-        for (path, content) in files {
+        for (path, content) in visible {
             pack.push_str(&format!("### {path}\n```json\n{content}\n```\n"));
         }
         if !conversation.is_empty() {
@@ -395,15 +405,27 @@ impl Driver {
             }
             None => {
                 pack.push_str(&format!(
-                    "The person says: {instruction}\n\nChange spec.json accordingly.\n"
+                    "The person says: {instruction}\n\nChange spec.json accordingly. If what is \
+                     asked needs a view kind the kit does not have (a form, an input, a write to \
+                     the endpoint, a page), say so plainly in the sentences before the block, \
+                     name the nearest thing the views can do, and do that.\n"
                 ));
             }
         }
         pack
     }
 
-    /// One call through the proxy, in the body the profile's provider reads (AG-53).
+    /// One call through the proxy, asked twice when the first answer carries no text: a
+    /// provider answers empty now and then, and a second call is cheaper than a failed run.
     async fn complete(&self, user: &str) -> Result<String, String> {
+        match self.complete_once(user).await {
+            Err(reason) if reason == EMPTY_ANSWER => self.complete_once(user).await,
+            other => other,
+        }
+    }
+
+    /// One call through the proxy, in the body the profile's provider reads (AG-53).
+    async fn complete_once(&self, user: &str) -> Result<String, String> {
         let (path, body) = if self.provider == "anthropic" {
             (
                 "/v1/llm/messages",
@@ -464,7 +486,7 @@ impl Driver {
             })
             .unwrap_or_default();
         if joined.is_empty() {
-            return Err("the model's answer carried no text".to_owned());
+            return Err(EMPTY_ANSWER.to_owned());
         }
         Ok(joined)
     }
