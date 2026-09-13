@@ -12,7 +12,13 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
+import {
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { AgentRunPage } from "../src/pages/apps/AgentRunPage";
+import { AssistantDock } from "../src/assistant/AssistantDock";
 
 const PROJECT = "banskabystrica";
 const RUN_ID = "01J8ZQ4T7K9M2N3P4Q5R6S7T8V";
@@ -110,10 +116,21 @@ function renderRun(options: Options = {}) {
   vi.stubGlobal("EventSource", StubEventSource as unknown as typeof EventSource);
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The page and the shell's assistant dock together, the way the Portal shows a run: the
+  // conversation is the dock's, and the dock needs a router to follow a navigate frame.
+  const rootRoute = createRootRoute({
+    component: () => (
+      <>
+        <AgentRunPage project={PROJECT} runId={RUN_ID} onClose={() => {}} />
+        <AssistantDock />
+      </>
+    ),
+  });
+  const router = createRouter({ routeTree: rootRoute });
   const view = render(
     <QueryClientProvider client={client}>
       <I18nextProvider i18n={i18n}>
-        <AgentRunPage project={PROJECT} runId={RUN_ID} onClose={() => {}} />
+        <RouterProvider router={router} />
       </I18nextProvider>
     </QueryClientProvider>,
   );
@@ -129,9 +146,12 @@ function renderRun(options: Options = {}) {
 
 const stream = () => StubEventSource.opened.at(-1) as StubEventSource;
 
+/** A frame reaches every open stream of the run: the page's and the dock's. */
 async function emit(kind: string, payload: unknown, data?: string) {
   await act(async () => {
-    stream().emit(kind, payload, data);
+    for (const source of StubEventSource.opened) {
+      source.emit(kind, payload, data);
+    }
   });
 }
 
@@ -139,6 +159,7 @@ describe("watching a run", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     StubEventSource.opened = [];
+    window.sessionStorage.clear();
   });
 
   afterEach(() => {

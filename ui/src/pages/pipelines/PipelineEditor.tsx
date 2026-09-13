@@ -158,6 +158,8 @@ export interface PipelineEditorDialogProps {
   onOpenChange: (open: boolean) => void;
   /** The manifest being edited, or `null` for a new pipeline. */
   editing: Manifest | null;
+  /** What a new pipeline's form starts with, when the assistant brought the values (UI-45). */
+  initial?: PipelineForm;
   pending: boolean;
   error: string | null;
   onSubmit: (envelope: ReturnType<typeof toEnvelope>) => void;
@@ -175,6 +177,7 @@ export function PipelineEditorDialog({
   project,
   onOpenChange,
   editing,
+  initial,
   pending,
   error,
   onSubmit,
@@ -182,7 +185,7 @@ export function PipelineEditorDialog({
   const { t } = useTranslation();
   const { orgDomain } = useBranding();
   const [draft, setDraft] = useState<PipelineForm | undefined>(() =>
-    editing ? toForm(editing) : undefined,
+    editing ? toForm(editing) : initial,
   );
 
   const dataSources = useQuery({

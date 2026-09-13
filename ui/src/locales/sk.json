@@ -1048,5 +1048,10 @@
       "show": "Show the assistant",
       "hide": "Hide the assistant"
     }
+  },
+  "assistant": {
+    "navigated": "Asistent otvoril {route}",
+    "dismiss": "Zavrieť oznam",
+    "close": "Zavrieť asistenta"
   }
 }

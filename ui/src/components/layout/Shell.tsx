@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
 import { LanguageSwitcher } from "../LanguageSwitcher";
 import { ExportButton } from "../export/ExportButton";
+import { AssistantDock } from "../../assistant/AssistantDock";
 import { useAuth } from "../../auth/AuthProvider";
 import { useProjects } from "../../api/projects";
 import { logoUrl, useBranding } from "../../branding";
@@ -415,6 +416,7 @@ export function Shell({
           ) : null}
         </footer>
       ) : null}
+      <AssistantDock />
     </div>
   );
 }

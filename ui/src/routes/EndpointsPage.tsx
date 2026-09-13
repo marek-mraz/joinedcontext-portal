@@ -8,6 +8,7 @@ import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { useProjects } from "../api/projects";
+import { takePrefill } from "../assistant/state";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
@@ -178,8 +179,25 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const queryClient = useQueryClient();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
-  const [editing, setEditing] = useState<EndpointForm | null>(null);
-  const [isNew, setIsNew] = useState(false);
+  // The assistant may have sent the person here with a form in hand (UI-45): taken once,
+  // before the first render, so the dialog is open from the start and a reload starts clean.
+  const [prefill] = useState(
+    () => takePrefill(window.location.pathname) as Partial<EndpointForm> | null,
+  );
+  const [editing, setEditing] = useState<EndpointForm | null>(() =>
+    prefill
+      ? {
+          name: "",
+          contextSpaceRef: "",
+          slug: generateSlug(),
+          audience: "project-list",
+          enabledRepresentations: ["ngsi-ld"],
+          allowedProjects: [],
+          ...prefill,
+        }
+      : null,
+  );
+  const [isNew, setIsNew] = useState(prefill !== null);
   const mayPropose = usePermissions(project).can("Endpoint", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);

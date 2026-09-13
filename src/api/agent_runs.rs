@@ -930,6 +930,11 @@ pub async fn internal_post_event(
         )));
     }
 
+    // A navigate event is checked before it is recorded: a route that is not a path inside the
+    // Portal never reaches the log, let alone a browser (UI-45).
+    if relayed.kind == "navigate" {
+        navigate_route(&relayed.payload)?;
+    }
     // An event is a record first. The three kinds that also move something are applied after
     // it is recorded, so a stream never shows a state the log does not explain.
     let event = publish_event(&state, &run.id, &relayed.kind, relayed.payload.clone()).await?;
@@ -983,6 +988,38 @@ pub async fn internal_post_event(
     }
 
     Ok((StatusCode::CREATED, Json(EventReceipt { seq: event.seq })))
+}
+
+/// The longest route a `navigate` event may name (UI-45).
+const MAX_ROUTE_CHARS: usize = 512;
+
+/// The route of a `navigate` event, or why it is refused (UI-45, API/04 §4).
+///
+/// Only a path inside the Portal passes: one leading `/`, no scheme, no `//` (a
+/// protocol-relative URL), no `#`, no control character, at most 512 characters. The prefill,
+/// when present, is an object; its values are the form's problem, not this gate's.
+fn navigate_route(payload: &serde_json::Value) -> Result<&str, ApiError> {
+    let route = payload
+        .get("route")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| ApiError::BadRequest("a navigate event names no route".into()))?;
+    let inside = route.starts_with('/')
+        && !route.starts_with("//")
+        && route.len() <= MAX_ROUTE_CHARS
+        && !route.contains('#')
+        && !route.contains(':')
+        && !route.chars().any(char::is_control);
+    if !inside {
+        return Err(ApiError::BadRequest(
+            "a navigate route must be a path inside the Portal".into(),
+        ));
+    }
+    match payload.get("prefill") {
+        None | Some(serde_json::Value::Null) | Some(serde_json::Value::Object(_)) => Ok(route),
+        Some(_) => Err(ApiError::BadRequest(
+            "a navigate prefill must be an object".into(),
+        )),
+    }
 }
 
 /// The bearer the proxy presents. Compared in constant time, and an unconfigured agent runner
@@ -1242,4 +1279,47 @@ pub fn internal_router() -> Router<AppState> {
         .route("/internal/agent-runs/events", post(internal_post_event))
         .route("/internal/agent-runs/{id}", get(internal_get_run))
         .route("/internal/agent-runs/{id}/inbox", get(internal_inbox))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::navigate_route;
+    use serde_json::json;
+
+    #[test]
+    fn a_portal_path_with_a_prefill_passes() {
+        let payload = json!({
+            "route": "/projects/helsinki/endpoints?tab=all",
+            "prefill": {"name": "air-quality-public"}
+        });
+        assert_eq!(
+            navigate_route(&payload).unwrap(),
+            "/projects/helsinki/endpoints?tab=all"
+        );
+        assert!(navigate_route(&json!({"route": "/"})).is_ok());
+        assert!(navigate_route(&json!({"route": "/x", "prefill": null})).is_ok());
+    }
+
+    #[test]
+    fn anything_that_is_not_a_path_inside_the_portal_is_refused() {
+        for route in [
+            "https://evil.example/",
+            "//evil.example/projects",
+            "javascript:alert(1)",
+            "projects/helsinki",
+            "/projects/helsinki#/x",
+            "/projects/hel\nsinki",
+            "",
+        ] {
+            assert!(
+                navigate_route(&json!({ "route": route })).is_err(),
+                "{route:?}"
+            );
+        }
+        let long = format!("/{}", "a".repeat(512));
+        assert!(navigate_route(&json!({ "route": long })).is_err());
+        assert!(navigate_route(&json!({ "prefill": {} })).is_err());
+        assert!(navigate_route(&json!({ "route": "/x", "prefill": "name=x" })).is_err());
+        assert!(navigate_route(&json!({ "route": "/x", "prefill": [1] })).is_err());
+    }
 }

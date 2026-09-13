@@ -32,6 +32,7 @@ export const EVENT_KINDS = [
   "commit",
   "preview",
   "usage",
+  "navigate",
   "lag",
 ] as const;
 

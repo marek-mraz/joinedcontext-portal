@@ -9,7 +9,8 @@ import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { PipelineEditorDialog } from "../pages/pipelines/PipelineEditor";
-import type { toEnvelope } from "../pages/pipelines/PipelineEditor";
+import type { PipelineForm, toEnvelope } from "../pages/pipelines/PipelineEditor";
+import { takePrefill } from "../assistant/state";
 import {
   Alert,
   Badge,
@@ -167,7 +168,12 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Manifest | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // The assistant may have sent the person here with a form in hand (UI-45): taken once,
+  // before the first render, so the editor is open from the start and a reload starts clean.
+  const [initial] = useState(
+    () => (takePrefill(window.location.pathname) as PipelineForm | null) ?? undefined,
+  );
+  const [dialogOpen, setDialogOpen] = useState(initial !== undefined);
   const { can } = usePermissions(project);
   const mayPropose = can("Pipeline", "propose");
   const [formError, setFormError] = useState<string | null>(null);
@@ -435,6 +441,7 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
             }
           }}
           editing={editing}
+          initial={initial}
           pending={propose.isPending}
           error={formError}
           onSubmit={(envelope) =>

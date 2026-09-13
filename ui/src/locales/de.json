@@ -1048,5 +1048,10 @@
       "show": "Show the assistant",
       "hide": "Hide the assistant"
     }
+  },
+  "assistant": {
+    "navigated": "Der Assistent hat {route} geöffnet",
+    "dismiss": "Ausblenden",
+    "close": "Assistent schließen"
   }
 }
