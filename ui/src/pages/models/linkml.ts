@@ -523,7 +523,10 @@ export function setOrDelete(
   value: unknown,
 ): void {
   if (value === undefined || value === "" || value === null || value === false) {
-    document.deleteIn(path);
+    // A missing parent is not an error: clearing what was never set is a no-op, not a throw.
+    if (document.hasIn(path)) {
+      document.deleteIn(path);
+    }
     return;
   }
   document.setIn(path, value);

@@ -665,7 +665,9 @@
       "structure": "Struktur",
       "source": "Quelle",
       "preview": "Vorschau",
-      "mappings": "Mappings"
+      "mappings": "Mappings",
+      "editor": "Editor",
+      "subset": "Teilmenge"
     },
     "sdm": {
       "browse": "Smart-Data-Models-Katalog",
@@ -687,7 +689,12 @@
     "addSlot": "Attribut hinzufügen",
     "addEnum": "Werteliste hinzufügen",
     "addValue": "Wert zu {name} hinzufügen",
-    "loadingEditor": "Editor wird geladen…"
+    "loadingEditor": "Editor wird geladen…",
+    "refused": "Die Änderung wurde abgelehnt: {reason}",
+    "subset": {
+      "nothing": "Nichts ist angekreuzt, der Endpunkt würde also nichts veröffentlichen.",
+      "identity": "id und type gehören zu jeder Entität und bleiben angekreuzt."
+    }
   },
   "apps": {
     "title": "Anwendungen",

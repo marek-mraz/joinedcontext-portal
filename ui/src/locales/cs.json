@@ -665,7 +665,9 @@
       "structure": "Struktura",
       "source": "Zdroj",
       "preview": "Náhled",
-      "mappings": "Mapování"
+      "mappings": "Mapování",
+      "editor": "Editor",
+      "subset": "Podmnožina"
     },
     "sdm": {
       "browse": "Katalog Smart Data Models",
@@ -687,7 +689,12 @@
     "addSlot": "Přidat atribut",
     "addEnum": "Přidat číselník",
     "addValue": "Přidat hodnotu do {name}",
-    "loadingEditor": "Načítá se editor…"
+    "loadingEditor": "Načítá se editor…",
+    "refused": "Změna byla odmítnuta: {reason}",
+    "subset": {
+      "nothing": "Nic není zaškrtnuto, endpoint by tedy nic nezveřejnil.",
+      "identity": "id a type jsou součástí každé entity a zůstávají zaškrtnuté."
+    }
   },
   "apps": {
     "title": "Aplikace",

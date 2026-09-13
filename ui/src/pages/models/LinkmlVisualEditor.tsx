@@ -6,23 +6,24 @@ import {
   NGSI_LD_KINDS,
   RANGES,
   UNIT_CODES,
-  edit,
   parseModel,
   reservedNamespace,
-  setOrDelete,
   slotAffordance,
   unitCode,
   UPSTREAM_ANNOTATION,
 } from "./linkml";
 import type { Diagnostic, LinkmlSlot, NgsiLdKind } from "./linkml";
+import { applyOperations } from "./operations";
+import type { Operation, SlotField } from "./operations";
 
 /**
  * The structured view of the model: classes, slots, enums (DM-13).
  *
- * Every edit is applied to the YAML document and handed back as text, so this view and the
- * source view are two renderings of one document rather than two copies of it. Nothing is
- * mutated in place, and a source that does not parse leaves the view empty rather than
- * showing a stale tree.
+ * Every edit is one `Operation` applied to the YAML document and handed back as text, so this
+ * view and the source view are two renderings of one document rather than two copies of it,
+ * and an assistant editing through `applyOperations` does exactly what a click here does
+ * (DM-31). Nothing is mutated in place, and a source that does not parse leaves the view empty
+ * rather than showing a stale tree.
  */
 export interface LinkmlVisualEditorProps {
   source: string;
@@ -76,12 +77,21 @@ export function LinkmlVisualEditor({
   // The IRI field keeps what was typed even while it is refused: a controlled input that
   // drops the keystroke would fight the person editing it.
   const [iriDraft, setIriDraft] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   const activeClass =
     model.classes.find((klass) => klass.name === selectedClass) ?? model.classes[0];
   const activeSlot = model.slots.find((slot) => slot.name === selectedSlot);
 
-  const apply = (mutate: Parameters<typeof edit>[1]) => onChange(edit(source, mutate));
+  /** One operation, the same way an assistant would send it; a refusal is shown, not swallowed. */
+  const run = (operation: Operation): boolean => {
+    const applied = applyOperations(source, [operation]);
+    setRefusal(applied.refused[0]?.reason ?? null);
+    if (applied.refused.length === 0) {
+      onChange(applied.source);
+    }
+    return applied.refused.length === 0;
+  };
 
   /** Opening another slot starts its IRI field from the document, not from the last draft. */
   const openSlot = (name: string) => {
@@ -95,9 +105,10 @@ export function LinkmlVisualEditor({
     if (!name) {
       return;
     }
-    apply((document) => document.setIn(["classes", name], { slots: [] }));
-    setSelectedClass(name);
-    setNewClass("");
+    if (run({ op: "addClass", name })) {
+      setSelectedClass(name);
+      setNewClass("");
+    }
   };
 
   const addSlot = () => {
@@ -105,17 +116,14 @@ export function LinkmlVisualEditor({
     if (!name || !activeClass) {
       return;
     }
-    apply((document) => {
-      document.setIn(["slots", name], { range: "string" });
-      const existing = model.classes.find((klass) => klass.name === activeClass.name)?.slots ?? [];
-      document.setIn(["classes", activeClass.name, "slots"], [...existing, name]);
-    });
-    openSlot(name);
-    setNewSlot("");
+    if (run({ op: "addSlot", name, class: activeClass.name })) {
+      openSlot(name);
+      setNewSlot("");
+    }
   };
 
-  const setSlotField = (name: string, path: (string | number)[], value: unknown) =>
-    apply((document) => setOrDelete(document, ["slots", name, ...path], value));
+  const setSlotField = (name: string, field: SlotField, value: unknown) =>
+    run({ op: "setSlot", name, field, value });
 
   /**
    * A slot IRI is written only when it is the organisation's to mint (DM-16). A term under a
@@ -132,42 +140,20 @@ export function LinkmlVisualEditor({
       return;
     }
     setIriError(null);
-    setSlotField(name, ["slot_uri"], trimmed);
+    setSlotField(name, "slot_uri", trimmed);
   };
 
-  const setUnit = (name: string, code: string) => {
-    const unit = UNIT_CODES.find((entry) => entry.code === code);
-    apply((document) => {
-      if (!unit) {
-        document.deleteIn(["slots", name, "unit"]);
-        return;
-      }
-      document.setIn(["slots", name, "unit"], {
-        ucum_code: unit.ucum,
-        exact_mappings: [`ucefact:${unit.code}`],
-      });
-    });
-  };
-
-  const setKind = (name: string, kind: NgsiLdKind) =>
-    apply((document) =>
-      setOrDelete(
-        document,
-        ["slots", name, "annotations", "ngsi_ld_kind"],
-        kind === DEFAULT_KIND ? undefined : kind,
-      ),
-    );
-
-  const setTitle = (path: (string | number)[], locale: string, phrase: string) =>
-    apply((document) => setOrDelete(document, [...path, "title", locale], phrase));
+  const setTitle = (target: "class" | "slot", name: string, locale: string, value: string) =>
+    run({ op: "setTitle", target, name, locale, value });
 
   const addEnum = () => {
     const name = newEnum.trim();
     if (!name) {
       return;
     }
-    apply((document) => document.setIn(["enums", name, "permissible_values"], {}));
-    setNewEnum("");
+    if (run({ op: "addEnum", name })) {
+      setNewEnum("");
+    }
   };
 
   const addEnumValue = (enumName: string) => {
@@ -175,10 +161,9 @@ export function LinkmlVisualEditor({
     if (!value) {
       return;
     }
-    apply((document) =>
-      document.setIn(["enums", enumName, "permissible_values", value], { description: "" }),
-    );
-    setNewValue("");
+    if (run({ op: "addEnumValue", enum: enumName, value })) {
+      setNewValue("");
+    }
   };
 
   const messagesFor = (path: string) =>
@@ -186,6 +171,11 @@ export function LinkmlVisualEditor({
 
   return (
     <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
+      {refusal ? (
+        <p role="alert" className="text-sm text-danger-fg lg:col-span-2">
+          {t("models.refused", { reason: refusal })}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-6">
         <section aria-labelledby="models-classes">
           <h3 id="models-classes" className="mb-2 text-sm font-semibold uppercase tracking-wide">
@@ -292,13 +282,12 @@ export function LinkmlVisualEditor({
                   className={INPUT}
                   value={activeClass.class_uri ?? ""}
                   onChange={(event) =>
-                    apply((document) =>
-                      setOrDelete(
-                        document,
-                        ["classes", activeClass.name, "class_uri"],
-                        event.target.value.trim(),
-                      ),
-                    )
+                    run({
+                      op: "setClass",
+                      name: activeClass.name,
+                      field: "class_uri",
+                      value: event.target.value,
+                    })
                   }
                 />
               </Field>
@@ -307,13 +296,12 @@ export function LinkmlVisualEditor({
                   className={INPUT}
                   value={activeClass.description ?? ""}
                   onChange={(event) =>
-                    apply((document) =>
-                      setOrDelete(
-                        document,
-                        ["classes", activeClass.name, "description"],
-                        event.target.value,
-                      ),
-                    )
+                    run({
+                      op: "setClass",
+                      name: activeClass.name,
+                      field: "description",
+                      value: event.target.value,
+                    })
                   }
                 />
               </Field>
@@ -326,7 +314,7 @@ export function LinkmlVisualEditor({
                       className={INPUT}
                       value={activeClass.title?.[locale] ?? ""}
                       onChange={(event) =>
-                        setTitle(["classes", activeClass.name], locale, event.target.value)
+                        setTitle("class", activeClass.name, locale, event.target.value)
                       }
                     />
                   </Field>
@@ -414,7 +402,7 @@ export function LinkmlVisualEditor({
                 <select
                   className={INPUT}
                   value={activeSlot.range ?? ""}
-                  onChange={(event) => setSlotField(activeSlot.name, ["range"], event.target.value)}
+                  onChange={(event) => setSlotField(activeSlot.name, "range", event.target.value)}
                 >
                   <option value="">—</option>
                   {RANGES.map((range) => (
@@ -433,7 +421,9 @@ export function LinkmlVisualEditor({
                 <select
                   className={INPUT}
                   value={activeSlot.kind}
-                  onChange={(event) => setKind(activeSlot.name, event.target.value as NgsiLdKind)}
+                  onChange={(event) =>
+                    setSlotField(activeSlot.name, "kind", event.target.value as NgsiLdKind)
+                  }
                 >
                   {NGSI_LD_KINDS.map((kind) => (
                     <option key={kind} value={kind}>
@@ -453,7 +443,7 @@ export function LinkmlVisualEditor({
                 <select
                   className={INPUT}
                   value={unitCode(activeSlot.unit) ?? ""}
-                  onChange={(event) => setUnit(activeSlot.name, event.target.value)}
+                  onChange={(event) => setSlotField(activeSlot.name, "unit", event.target.value)}
                 >
                   <option value="">—</option>
                   {UNIT_CODES.map((unit) => (
@@ -470,7 +460,7 @@ export function LinkmlVisualEditor({
                   type="checkbox"
                   checked={activeSlot.required === true}
                   onChange={(event) =>
-                    setSlotField(activeSlot.name, ["required"], event.target.checked)
+                    setSlotField(activeSlot.name, "required", event.target.checked)
                   }
                 />
                 {t("models.required")}
@@ -480,7 +470,7 @@ export function LinkmlVisualEditor({
                   type="checkbox"
                   checked={activeSlot.multivalued === true}
                   onChange={(event) =>
-                    setSlotField(activeSlot.name, ["multivalued"], event.target.checked)
+                    setSlotField(activeSlot.name, "multivalued", event.target.checked)
                   }
                 />
                 {t("models.multivalued")}
@@ -490,7 +480,7 @@ export function LinkmlVisualEditor({
                   type="checkbox"
                   checked={activeSlot.deprecated === true}
                   onChange={(event) =>
-                    setSlotField(activeSlot.name, ["deprecated"], event.target.checked)
+                    setSlotField(activeSlot.name, "deprecated", event.target.checked)
                   }
                 />
                 {t("models.deprecatedKeep")}

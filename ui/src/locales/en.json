@@ -665,7 +665,9 @@
       "structure": "Structure",
       "source": "Source",
       "preview": "Preview",
-      "mappings": "Mappings"
+      "mappings": "Mappings",
+      "editor": "Editor",
+      "subset": "Subset"
     },
     "sdm": {
       "browse": "Smart Data Models catalogue",
@@ -687,7 +689,12 @@
     "addSlot": "Add slot",
     "addEnum": "Add enum",
     "addValue": "Add value to {name}",
-    "loadingEditor": "Loading the editor…"
+    "loadingEditor": "Loading the editor…",
+    "refused": "The change was refused: {reason}",
+    "subset": {
+      "nothing": "Nothing is ticked, so the endpoint would expose nothing.",
+      "identity": "id and type are part of every entity and stay ticked."
+    }
   },
   "apps": {
     "title": "Applications",

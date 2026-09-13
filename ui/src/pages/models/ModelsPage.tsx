@@ -4,14 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../../api/client";
 import { asManifests, refName } from "../../api/manifest";
-import { LinkmlPreviewPanel } from "./LinkmlPreviewPanel";
-import { LinkmlSourceEditor } from "./LinkmlSourceEditor";
-import { LinkmlVisualEditor } from "./LinkmlVisualEditor";
+import { LinkmlEditor } from "./LinkmlEditor";
 import { MappingsEditor } from "./MappingsEditor";
 import type { MappingModel } from "./MappingsEditor";
 import { SmartDataModelsImport } from "./SmartDataModelsImport";
 import type { CatalogueModel } from "./SmartDataModelsImport";
-import { blankSource, diagnose, parseModel } from "./linkml";
+import { blankSource, parseModel } from "./linkml";
 import {
   bumpVersion,
   classifyChanges,
@@ -22,12 +20,12 @@ import {
 import type { Lifecycle } from "./breaking_detector";
 
 /**
- * The LinkML editor: one document, four ways of working on it (DM-13, DM-17, DM-23).
+ * The models page: import a model, edit it, map it (DM-07, DM-13, DM-17, DM-23, DM-33).
  *
- * The document lives here as text and nowhere else. The structured view and the source view
- * both edit that one string, the preview compiles it, and the import wizard replaces it, so
- * the views cannot hold different models. Nothing on this page writes to the platform: saving
- * a model is a repository change, which is the ordinary lane flow (CC-32, CC-63).
+ * The document lives here as text and nowhere else. The shared `LinkmlEditor` edits that one
+ * string, the import wizard replaces it and the mappings tab reads it, so the views cannot hold
+ * different models. Nothing on this page writes to the platform: saving a model is a repository
+ * change, which is the ordinary lane flow (CC-32, CC-63; the contract is T-0576).
  */
 export interface ModelsPageProps {
   project: string;
@@ -45,9 +43,9 @@ export interface ModelsPageProps {
   mappable?: MappingModel[];
 }
 
-type Tab = "structure" | "source" | "preview" | "import" | "mappings";
+type Tab = "import" | "editor" | "mappings";
 
-const TABS: Tab[] = ["import", "structure", "source", "preview", "mappings"];
+const TABS: Tab[] = ["import", "editor", "mappings"];
 
 export function ModelsPage({
   project,
@@ -56,14 +54,13 @@ export function ModelsPage({
   mappable = [],
 }: ModelsPageProps): JSX.Element {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<Tab>(baseline ? "structure" : "import");
+  const [tab, setTab] = useState<Tab>(baseline ? "editor" : "import");
   const [published, setPublished] = useState(baseline);
   const [source, setSource] = useState(
     baseline?.source ?? blankSource(`${project}.sk`, "new-model"),
   );
 
   const model = useMemo(() => parseModel(source), [source]);
-  const diagnostics = useMemo(() => diagnose(source, locales), [source, locales]);
 
   const changes = useMemo(
     () => (published ? classifyChanges(parseModel(published.source), model) : []),
@@ -123,7 +120,7 @@ export function ModelsPage({
       lifecycle: "draft",
       name: catalogueModel.name,
     });
-    setTab("structure");
+    setTab("editor");
   };
 
   return (
@@ -192,18 +189,9 @@ export function ModelsPage({
 
       <div role="tabpanel">
         {tab === "import" ? <SmartDataModelsImport onImport={onImport} /> : null}
-        {tab === "structure" ? (
-          <LinkmlVisualEditor
-            source={source}
-            onChange={setSource}
-            diagnostics={diagnostics}
-            locales={locales}
-          />
+        {tab === "editor" ? (
+          <LinkmlEditor source={source} onChange={setSource} locales={locales} />
         ) : null}
-        {tab === "source" ? (
-          <LinkmlSourceEditor source={source} onChange={setSource} diagnostics={diagnostics} />
-        ) : null}
-        {tab === "preview" ? <LinkmlPreviewPanel source={source} /> : null}
         {tab === "mappings" ? (
           <MappingsEditor
             models={[
