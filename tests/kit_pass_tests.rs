@@ -499,8 +499,8 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
     );
     let tool = log
         .iter()
-        .find(|(kind, _)| kind == "tool")
-        .expect("a tool event");
+        .find(|(kind, payload)| kind == "tool" && payload["tool"] == json!("apply_patch"))
+        .expect("the apply_patch tool event");
     assert_eq!(tool.1["exitCode"], json!(0));
     assert_eq!(tool.1["applied"][0]["path"], json!("spec.json"));
     let preview = log
@@ -631,8 +631,8 @@ async fn a_block_for_a_foreign_path_is_refused_and_the_spec_still_lands() {
     let log = events(&app, &cookie, &id).await;
     let tool = log
         .iter()
-        .find(|(kind, _)| kind == "tool")
-        .expect("a tool event");
+        .find(|(kind, payload)| kind == "tool" && payload["tool"] == json!("apply_patch"))
+        .expect("the apply_patch tool event");
     assert_eq!(
         tool.1["refused"].as_array().map(Vec::len),
         Some(2),
