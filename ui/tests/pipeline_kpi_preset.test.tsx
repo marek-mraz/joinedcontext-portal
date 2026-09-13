@@ -154,7 +154,7 @@ describe("PipelineStudio KPI preset", () => {
 
     await waitFor(() => expect(onChange).toHaveBeenCalled());
     const lastForm = (onChange as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0] as PipelineForm;
-    expect((lastForm.source?.endpointRef as unknown as { name: string })?.name).toBe(
+    expect(lastForm.source?.endpointRef).toBe(
       "helsinki-all",
     );
     expect(lastForm.output?.type).toBe("KeyPerformanceIndicator");

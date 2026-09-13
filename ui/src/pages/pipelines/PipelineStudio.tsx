@@ -832,11 +832,11 @@ export function PipelineStudio({
                       ) : null}
                     </div>
                     {draft?.compute?.kind === "bloblang" ? (
-                      <Field id="flow-bloblang-field" label={t("pipelines.field.bloblang")}>
+                      <Field id="flow-bloblang-field" label={t("pipelines.flow.nodeBloblang")}>
                         <textarea
                           id="flow-bloblang-field"
                           data-testid="flow-bloblang"
-                          aria-label={t("pipelines.field.bloblang")}
+                          aria-label={t("pipelines.flow.nodeBloblang")}
                           rows={6}
                           className="focus-ring w-full rounded-md border border-border bg-surface p-2 font-mono text-caption text-fg"
                           value={draft?.compute?.bloblang ?? ""}

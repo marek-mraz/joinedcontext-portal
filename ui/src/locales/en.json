@@ -494,7 +494,8 @@
       },
       "samplesIn": "Sample in",
       "samplesOut": "Sample out",
-      "noSample": "No sample"
+      "noSample": "No sample",
+      "nodeBloblang": "Mapping on the compute node"
     }
   },
   "dashboards": {

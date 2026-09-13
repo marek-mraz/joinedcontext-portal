@@ -473,6 +473,29 @@
       "useUrl": "Mit der URL der Quelle testen",
       "urlSample": "{url} · json · vom Runner geholt",
       "gate": "Erst das Mapping testen: Vorschlagen öffnet sich, wenn der Test für dieses Mapping grün ist."
+    },
+    "flow": {
+      "palette": "Rechenpalette",
+      "canvas": "Pipeline-Fluss",
+      "node": {
+        "source": "Quelle",
+        "compute": "Berechnung",
+        "output": "Ausgabe"
+      },
+      "passThrough": "Ohne Berechnung",
+      "eventsIn": "rein",
+      "eventsOut": "raus",
+      "remove": "Schritt entfernen",
+      "selectedHint": "Diesen Schritt im Formular unten einstellen.",
+      "view": {
+        "flow": "Fluss",
+        "yaml": "YAML",
+        "form": "Formular"
+      },
+      "samplesIn": "Probe am Eingang",
+      "samplesOut": "Probe am Ausgang",
+      "noSample": "Keine Probe",
+      "nodeBloblang": "Mapping am Berechnungsknoten"
     }
   },
   "dashboards": {

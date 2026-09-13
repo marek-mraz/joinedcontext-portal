@@ -473,6 +473,29 @@
       "useUrl": "Otestovat na URL zdroje",
       "urlSample": "{url} · json · stáhne runner",
       "gate": "Nejprve otestujte mapování: Navrhnout se otevře, když je test pro toto mapování zelený."
+    },
+    "flow": {
+      "palette": "Paleta výpočtů",
+      "canvas": "Tok pipeline",
+      "node": {
+        "source": "Zdroj",
+        "compute": "Výpočet",
+        "output": "Výstup"
+      },
+      "passThrough": "Bez výpočtu",
+      "eventsIn": "dovnitř",
+      "eventsOut": "ven",
+      "remove": "Odebrat krok",
+      "selectedHint": "Tento krok nastavíte ve formuláři níže.",
+      "view": {
+        "flow": "Tok",
+        "yaml": "YAML",
+        "form": "Formulář"
+      },
+      "samplesIn": "Vzorek na vstupu",
+      "samplesOut": "Vzorek na výstupu",
+      "noSample": "Bez vzorku",
+      "nodeBloblang": "Mapování na uzlu výpočtu"
     }
   },
   "dashboards": {
