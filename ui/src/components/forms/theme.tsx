@@ -151,6 +151,9 @@ export function ObjectFieldTemplate(props: ObjectFieldTemplateProps): React.JSX.
     );
   }
 
+  // An object with no title of its own (a title map asking for one language) reads as its
+  // fields, not as a boxed section around them.
+  if (!title) return <>{properties.map((prop) => prop.content)}</>;
   return (
     <Fieldset title={title} description={description}>
       {properties.map((prop) => prop.content)}

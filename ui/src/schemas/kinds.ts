@@ -12,16 +12,18 @@ export const DNS1123 = "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$";
 /** RFC 4648 base32, lowercase, unpadded; 26 characters carry 130 bits of entropy (EP-02). */
 export const SLUG_PATTERN = "^[a-z2-7]{26,}$";
 
-const titleProperty = {
-  type: "object",
-  properties: {
-    sk: { type: "string", title: "sk" },
-    en: { type: "string", title: "en" },
-    de: { type: "string", title: "de" },
-    cs: { type: "string", title: "cs" },
-  },
-  additionalProperties: { type: "string" },
-} as const;
+/**
+ * A manifest title is a map of language to text. The form asks for English only: the
+ * instances run English for now, and four inputs for one name was noise on every page. Other
+ * languages a manifest already carries stay valid (`additionalProperties`) and untouched.
+ */
+function titleProperty(label: string) {
+  return {
+    type: "object",
+    properties: { en: { type: "string", title: label } },
+    additionalProperties: { type: "string" },
+  } as const;
+}
 
 export function contextSpaceSchema(t: (key: string) => string): JsonSchema {
   return {
@@ -34,7 +36,7 @@ export function contextSpaceSchema(t: (key: string) => string): JsonSchema {
         pattern: DNS1123,
         maxLength: 63,
       },
-      title: { ...titleProperty, title: t("spaces.field.title") },
+      title: titleProperty(t("spaces.field.title")),
       dataModelRef: { type: "string", title: t("spaces.field.dataModel") },
       defaultLocale: {
         type: "string",
@@ -108,7 +110,7 @@ export function endpointSchema(
         pattern: DNS1123,
         maxLength: 63,
       },
-      title: { ...titleProperty, title: t("endpoints.field.title") },
+      title: titleProperty(t("endpoints.field.title")),
       contextSpaceRef: {
         type: "string",
         title: t("endpoints.field.space"),
@@ -259,7 +261,7 @@ export function dataSourceSchema(
     pattern: DNS1123,
     maxLength: 63,
   };
-  const title = { ...titleProperty, title: t("datasources.field.title") };
+  const title = titleProperty(t("datasources.field.title"));
   const tls: JsonSchema = {
     type: "object",
     title: t("datasources.field.tls"),
@@ -381,7 +383,7 @@ export function contextSourceRegistrationSchema(t: (key: string) => string): Jso
         pattern: DNS1123,
         maxLength: 63,
       },
-      title: { ...titleProperty, title: t("federation.field.title") },
+      title: titleProperty(t("federation.field.title")),
       contextSpaceRef: {
         type: "string",
         title: t("federation.field.space"),
@@ -554,7 +556,7 @@ export function pipelineSchema(
         pattern: DNS1123,
         maxLength: 63,
       },
-      title: { ...titleProperty, title: t("pipelines.field.title") },
+      title: titleProperty(t("pipelines.field.title")),
       class: {
         type: "string",
         title: t("pipelines.field.class"),
@@ -785,7 +787,7 @@ export function dashboardSchema(t: (key: string) => string, layers: string[]): J
     required: ["name", "title", "visibility", "pages"],
     properties: {
       name: { type: "string", title: t("dashboards.field.name"), pattern: DNS1123, maxLength: 63 },
-      title: { ...titleProperty, title: t("dashboards.field.title") },
+      title: titleProperty(t("dashboards.field.title")),
       visibility: {
         type: "string",
         title: t("dashboards.field.visibility"),
