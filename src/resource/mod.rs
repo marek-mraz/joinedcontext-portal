@@ -188,6 +188,9 @@ mod tests {
                 "Policy",
                 "ScopeDefinition",
                 "Endpoint",
+                // Arrived with jc-core-v0.7.12 (T-0563): the reusable subset of a model an
+                // Endpoint exposes (MP-01).
+                "ModelProjection",
                 "SharedSpaceReference",
                 "ContextSourceRegistration",
                 "ServiceAccount",
