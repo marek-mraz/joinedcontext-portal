@@ -1688,6 +1688,168 @@
         }
       }
     },
+    "/api/v1/projects/{project}/ops": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "operationId": "list_ops",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of operations available to caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OperationSummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/ops/{name}": {
+      "post": {
+        "tags": [
+          "ops"
+        ],
+        "operationId": "run_op",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Operation name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Operation input parameters",
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation executed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Operation created a change proposal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Operation or project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input according to schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/permissions/me": {
       "get": {
         "tags": [
@@ -5011,6 +5173,60 @@
         },
         "additionalProperties": false
       },
+      "OperationAnnotations": {
+        "type": "object",
+        "required": [
+          "readOnlyHint",
+          "destructiveHint",
+          "idempotentHint"
+        ],
+        "properties": {
+          "destructiveHint": {
+            "type": "boolean"
+          },
+          "idempotentHint": {
+            "type": "boolean"
+          },
+          "readOnlyHint": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OperationSummary": {
+        "type": "object",
+        "required": [
+          "name",
+          "title",
+          "description",
+          "inputSchema",
+          "outputSchema",
+          "annotations",
+          "lane"
+        ],
+        "properties": {
+          "annotations": {
+            "$ref": "#/components/schemas/OperationAnnotations"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputSchema": {
+            "type": "object"
+          },
+          "lane": {
+            "$ref": "#/components/schemas/Lane"
+          },
+          "name": {
+            "type": "string"
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "PauseRequest": {
         "type": "object",
         "description": "Whether syncing is on or off.",
@@ -5812,6 +6028,10 @@
     {
       "name": "tools",
       "description": "Model Tools schema generation and preview"
+    },
+    {
+      "name": "ops",
+      "description": "One operation registry behind every door (AG-59, ADR-N-021)"
     },
     {
       "name": "preferences",

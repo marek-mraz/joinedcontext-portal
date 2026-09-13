@@ -11,6 +11,7 @@ pub mod federation;
 pub mod health;
 pub mod import;
 pub mod mutate;
+pub mod ops;
 pub mod permissions;
 pub mod pipeline_test;
 pub mod pipelines;
@@ -46,6 +47,7 @@ pub fn router() -> Router<AppState> {
         .merge(federation::router())
         .merge(import::router())
         .merge(resources::router())
+        .merge(ops::router())
         .merge(permissions::router())
         .merge(pipelines::router())
         .merge(preferences::router())

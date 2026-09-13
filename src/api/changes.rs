@@ -175,10 +175,10 @@ pub fn parse_branch_name(branch: &str) -> Option<BranchInfo> {
 /// anything: the cheap answer first, the kind-precise one once the change is loaded (PF-50).
 fn may_approve_anything(
     state: &AppState,
-    user: &CurrentUser,
+    identity: &crate::auth::session::Identity,
     project: &str,
 ) -> Result<(), ApiError> {
-    let effective = crate::permissions::for_request(state, &user.0.identity, project);
+    let effective = crate::permissions::for_request(state, identity, project);
     if effective.bootstrap
         || effective
             .grants
@@ -197,7 +197,7 @@ fn may_approve_anything(
 /// the base one for a deletion.
 fn may_approve(
     state: &AppState,
-    user: &CurrentUser,
+    identity: &crate::auth::session::Identity,
     project: &str,
     data: &ManifestData,
 ) -> Result<(), ApiError> {
@@ -208,7 +208,7 @@ fn may_approve(
         .map(serde_json::to_value)
         .transpose()
         .map_err(|e| ApiError::Internal(e.to_string()))?;
-    crate::permissions::for_request(state, &user.0.identity, project).check(
+    crate::permissions::for_request(state, identity, project).check(
         &data.kind,
         jc_core::kinds::Verb::Approve,
         target.as_ref(),
@@ -487,6 +487,11 @@ pub async fn list_changes(
     State(state): State<AppState>,
     Path(project): Path<String>,
 ) -> Result<Json<ChangeList>, ApiError> {
+    Ok(Json(list_changes_for(&state, &project).await?))
+}
+
+/// Core proposal listing reusable by the REST route, operations registry and MCP.
+pub async fn list_changes_for(state: &AppState, project: &str) -> Result<ChangeList, ApiError> {
     let gitea = state
         .gitea
         .as_deref()
@@ -500,17 +505,17 @@ pub async fn list_changes(
             continue;
         }
 
-        let Some(data) = load_manifest_data(gitea, &pr, &project).await? else {
+        let Some(data) = load_manifest_data(gitea, &pr, project).await? else {
             continue;
         };
 
         let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
-        let proposal = build_proposal(&pr, &project, &data, plan, None);
+        let proposal = build_proposal(&pr, project, &data, plan, None);
         proposals.push(proposal);
     }
 
     proposals.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    Ok(Json(ChangeList::new(proposals)))
+    Ok(ChangeList::new(proposals))
 }
 
 #[utoipa::path(
@@ -604,38 +609,52 @@ pub async fn approve_change(
     Path((project, id)): Path<(String, String)>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
-    may_approve_anything(&state, &user, &project)?;
-    let pr_number = parse_change_id(&id)?;
+    let approve_body: Option<ApproveBody> = if body.is_empty() {
+        None
+    } else {
+        Some(
+            serde_json::from_slice(&body)
+                .map_err(|e| ApiError::BadRequest(format!("invalid json body: {e}")))?,
+        )
+    };
+    let confirm = approve_body.as_ref().and_then(|b| b.confirm.as_deref());
+    let change = approve_change_for(&state, &user.0.identity, &project, &id, confirm).await?;
+    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+}
+
+/// Core approval function factored out for reuse by both the REST route and the operations registry.
+pub async fn approve_change_for(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    id: &str,
+    confirm: Option<&str>,
+) -> Result<Change, ApiError> {
+    may_approve_anything(state, identity, project)?;
+    let pr_number = parse_change_id(id)?;
     let gitea = state
         .gitea
         .as_deref()
         .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
 
     let pr = gitea.pull_request(pr_number).await?;
-    let data = load_manifest_data(gitea, &pr, &project)
+    let data = load_manifest_data(gitea, &pr, project)
         .await?
         .ok_or_else(|| {
             ApiError::NotFound(format!(
                 "change proposal '{id}' not found in project '{project}'"
             ))
         })?;
-    may_approve(&state, &user, &project, &data)?;
+    may_approve(state, identity, project, &data)?;
 
-    let is_author = match (&pr.author_email, &user.0.identity.email) {
+    let is_author = match (&pr.author_email, &identity.email) {
         (Some(pr_email), Some(user_email)) if !pr_email.trim().is_empty() => {
             pr_email.eq_ignore_ascii_case(user_email.trim())
         }
         _ => {
-            let user_name = user
-                .0
-                .identity
-                .name
-                .as_deref()
-                .unwrap_or(&user.0.identity.username);
+            let user_name = identity.name.as_deref().unwrap_or(&identity.username);
             pr.author_name.eq_ignore_ascii_case(user_name)
-                || pr
-                    .author_name
-                    .eq_ignore_ascii_case(&user.0.identity.username)
+                || pr.author_name.eq_ignore_ascii_case(&identity.username)
         }
     };
 
@@ -653,35 +672,18 @@ pub async fn approve_change(
         Lane::Yellow
     };
 
-    let approve_body: Option<ApproveBody> = if body.is_empty() {
-        None
-    } else {
-        Some(
-            serde_json::from_slice(&body)
-                .map_err(|e| ApiError::BadRequest(format!("invalid json body: {e}")))?,
-        )
-    };
-
-    if lane == Lane::Red {
-        let confirm_val = approve_body.as_ref().and_then(|b| b.confirm.as_deref());
-        if confirm_val != Some(&data.name) {
-            return Err(ApiError::BadRequest(format!(
-                "red lane change requires confirm to be '{}' (CC-19, CC-39)",
-                data.name
-            )));
-        }
+    if lane == Lane::Red && confirm != Some(&data.name) {
+        return Err(ApiError::BadRequest(format!(
+            "red lane change requires confirm to be '{}' (CC-19, CC-39)",
+            data.name
+        )));
     }
 
     // The Portal's forge token authored the pull request, and Gitea refuses a review from the
     // author (422 "approve your own pull is not allowed"), so the approval is not a forge review:
     // the Portal checked the binding (PF-50) and the author (CC-34) above, and the merge commit
     // records who approved.
-    let approver = user
-        .0
-        .identity
-        .email
-        .as_deref()
-        .unwrap_or(&user.0.identity.username);
+    let approver = identity.email.as_deref().unwrap_or(&identity.username);
     let merge_msg = format!(
         "Merge change proposal {id}: {}\n\nApproved in the Portal by {approver}",
         pr.title
@@ -710,12 +712,12 @@ pub async fn approve_change(
     }
 
     let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
-    let change_meta = ChangeMeta::from_merge_request(pr_number, &project);
+    let change_meta = ChangeMeta::from_merge_request(pr_number, project);
     let change_status =
         ChangeStatus::new(lane, ChangePhase::Deploying, plan.summary).with_merge_request(pr.url);
     let change = Change::new(change_meta, change_status);
 
-    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+    Ok(change)
 }
 
 #[utoipa::path(
@@ -751,7 +753,7 @@ pub async fn reject_change(
             .map_err(|e| ApiError::BadRequest(format!("invalid json body: {e}")))?;
     }
 
-    may_approve_anything(&state, &user, &project)?;
+    may_approve_anything(&state, &user.0.identity, &project)?;
     let pr_number = parse_change_id(&id)?;
     let gitea = state
         .gitea
@@ -766,7 +768,7 @@ pub async fn reject_change(
                 "change proposal '{id}' not found in project '{project}'"
             ))
         })?;
-    may_approve(&state, &user, &project, &data)?;
+    may_approve(&state, &user.0.identity, &project, &data)?;
 
     // A comment, not a "request changes" review: the forge token is the pull request's author
     // and Gitea refuses the author's verdict on their own pull; the Portal's role check above is

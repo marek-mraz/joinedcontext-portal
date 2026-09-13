@@ -294,8 +294,6 @@ pub async fn infer_schema(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, ApiError> {
-    let route = "infer-schema";
-    let url = model_tools_url(&state, route)?;
     let (mut name, mut content, mut format) = (None, None, None);
     let upload_error = |what: &str, err: &axum::extract::multipart::MultipartError| {
         if err.status() == StatusCode::PAYLOAD_TOO_LARGE {
@@ -334,19 +332,33 @@ pub async fn infer_schema(
     let content = content
         .filter(|bytes| !bytes.is_empty())
         .ok_or_else(|| ApiError::BadRequest("the upload carries no 'file'".into()))?;
+    let answer =
+        infer_schema_from_bytes(&state, name.as_deref(), &content, format.as_deref()).await?;
+    Ok(Json(answer))
+}
+
+/// Core inference function from sample bytes, shared by the multipart upload route and `jc_model_infer`.
+pub async fn infer_schema_from_bytes(
+    state: &AppState,
+    name: Option<&str>,
+    content: &[u8],
+    format: Option<&str>,
+) -> Result<Value, ApiError> {
     if content.len() > MAX_SAMPLE_BYTES {
         return Err(ApiError::BadRequest(format!(
             "the sample is larger than the {MAX_SAMPLE_BYTES} byte limit"
         )));
     }
     let mut body = serde_json::json!({
-        "name": name.unwrap_or_else(|| "sample".into()),
-        "content": base64::engine::general_purpose::STANDARD.encode(&content),
+        "name": name.unwrap_or("sample"),
+        "content": base64::engine::general_purpose::STANDARD.encode(content),
     });
     if let Some(format) = format.filter(|f| !f.is_empty()) {
-        body["format"] = Value::String(format);
+        body["format"] = Value::String(format.to_string());
     }
 
+    let route = "infer-schema";
+    let url = model_tools_url(state, route)?;
     let response = http()
         .post(&url)
         .json(&body)
@@ -359,8 +371,6 @@ pub async fn infer_schema(
         .await
         .map_err(|err| unavailable(route, "answered unreadably", &err))?;
     if status == reqwest::StatusCode::BAD_REQUEST {
-        // The file could not be read as what it claims to be: the person's to fix, so the
-        // reasons come through, and they name the format, never a value from the file.
         let reasons = answer["errors"]
             .as_array()
             .map(|errors| {
@@ -377,7 +387,7 @@ pub async fn infer_schema(
     if !status.is_success() || !answer.is_object() {
         return Err(unavailable(route, "refused", &status));
     }
-    Ok(Json(answer))
+    Ok(answer)
 }
 
 pub fn router() -> Router<AppState> {

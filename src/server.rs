@@ -53,6 +53,10 @@ pub fn app(state: AppState) -> Router {
         // headers and outside `/api/v1`, so no session or CSRF guard stands in front of a
         // scrape; the edge refuses the path, which is what keeps it inside the cluster.
         .merge(telemetry::router())
+        // Portal MCP server and RFC 9728 protected resource metadata (AG-60, AG-32).
+        // Stateless Streamable HTTP with audience-bound Bearer authentication; exempt from
+        // the session refresh and CSRF layers.
+        .merge(crate::mcp::router())
         .merge(portal)
         .with_state(state)
         .layer(from_fn(telemetry::record))

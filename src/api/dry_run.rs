@@ -64,9 +64,92 @@ impl Probe {
     }
 }
 
+/// Executes a dry run for a candidate manifest (MF-13, R17).
+pub async fn execute_dry_run(
+    identity: &crate::auth::session::Identity,
+    state: &crate::state::AppState,
+    project: &str,
+    manifest: serde_json::Value,
+) -> Result<DryRunResult, ApiError> {
+    let kind = manifest
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::BadRequest("manifest must specify 'kind'".to_string()))?;
+    let kind_info = crate::resource::by_kind(kind)
+        .ok_or_else(|| ApiError::NotFound(format!("kind '{kind}' is unknown")))?;
+
+    let name = manifest
+        .pointer("/metadata/name")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let op = match name
+        .as_deref()
+        .and_then(|n| state.mirror.get(project, kind, n))
+    {
+        Some(_) => crate::change::Operation::Update,
+        None => crate::change::Operation::Create,
+    };
+
+    let user = crate::auth::CurrentUser(crate::auth::Session {
+        identity: identity.clone(),
+        expires_at: i64::MAX,
+        issued_at: 0,
+        id_token: String::new(),
+        access_expires_at: i64::MAX,
+        refresh_token: None,
+    });
+
+    let response = crate::api::mutate::propose(
+        &user,
+        state,
+        project,
+        kind_info.plural,
+        name.as_deref(),
+        op,
+        true,
+        manifest,
+    )
+    .await?;
+
+    let bytes = axum::body::to_bytes(response.into_body(), 2 * 1024 * 1024)
+        .await
+        .map_err(|e| ApiError::Internal(format!("failed to read dry-run response: {e}")))?;
+    serde_json::from_slice::<DryRunResult>(&bytes)
+        .map_err(|e| ApiError::Internal(format!("failed to deserialize dry-run result: {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn execute_dry_run_plans_sandbox_space() {
+        let state = crate::state::AppState::new(crate::config::Config::for_tests(), None);
+        let identity = crate::auth::session::Identity {
+            subject: "sub-123".into(),
+            username: "demo.developer".into(),
+            email: Some("demo@example.com".into()),
+            name: Some("Demo Developer".into()),
+            roles: vec![],
+            groups: vec!["portal-approver".into()],
+        };
+        let payload = serde_json::json!({
+            "apiVersion": crate::resource::API_VERSION,
+            "kind": "ContextSpace",
+            "metadata": {
+                "name": "mobility",
+                "namespace": "ovzdusie"
+            },
+            "spec": {
+                "isSandbox": true
+            }
+        });
+        let res = execute_dry_run(&identity, &state, "ovzdusie", payload)
+            .await
+            .expect("dry run executes");
+        assert!(res.valid);
+        assert_eq!(res.lane, Lane::Green);
+    }
 
     #[test]
     fn is_dry_run_none_is_false() {

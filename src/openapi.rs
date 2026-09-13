@@ -19,6 +19,7 @@ use crate::api::dry_run::DryRunResult;
 use crate::api::export::{Revision, RevisionList};
 use crate::api::federation::{Edge, EdgeKind, FederationGraph, Node, NodeHealth, RegistrationCard};
 use crate::api::health::Health;
+use crate::api::ops::{OperationAnnotations, OperationSummary};
 use crate::api::pipelines::PipelineMetrics;
 use crate::api::preferences::Preferences;
 use crate::api::projects::{ProjectList, ProjectSummary};
@@ -71,6 +72,8 @@ use crate::tools::model_tools::{
         crate::api::service_accounts::revoke_key,
         crate::api::preferences::get_preferences,
         crate::api::preferences::put_preferences,
+        crate::api::ops::list_ops,
+        crate::api::ops::run_op,
         crate::api::mutate::create,
         crate::api::mutate::replace,
         crate::api::mutate::patch,
@@ -147,6 +150,8 @@ use crate::tools::model_tools::{
         PlanDiff,
         FieldChange,
         DryRunResult,
+        OperationSummary,
+        OperationAnnotations,
         ChangeProposal,
         ChangeList,
         ChangeSummary,
@@ -178,6 +183,7 @@ use crate::tools::model_tools::{
         (name = "resources", description = "Resource operations"),
         (name = "permissions", description = "What the caller may do in a project (PF-50)"),
         (name = "tools", description = "Model Tools schema generation and preview"),
+        (name = "ops", description = "One operation registry behind every door (AG-59, ADR-N-021)"),
         (name = "preferences", description = "The signed-in person's own UI preferences"),
         (name = "access", description = "ServiceAccounts, their API keys and effective grants")
     ),

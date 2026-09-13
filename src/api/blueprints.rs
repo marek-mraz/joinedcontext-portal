@@ -330,7 +330,7 @@ pub async fn start_flow(
     );
     create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
-    let (author_name, author_email) = author_credentials(&user, &project);
+    let (author_name, author_email) = author_credentials(&user.0.identity, &project);
     for (repo_path, yaml) in &files {
         let existing_sha = gitea
             .get_file(repo_path, &branch)

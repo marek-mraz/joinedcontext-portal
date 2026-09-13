@@ -414,6 +414,26 @@ pub fn org_domain(state: &AppState, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_owned())
 }
 
+/// Executes an endpoint proposal rendering and permission check (EP-72, API/01 §19).
+pub async fn execute_propose_endpoint(
+    identity: &crate::auth::session::Identity,
+    state: &AppState,
+    project: &str,
+    params: share::ProposeEndpoint,
+) -> Result<share::Proposal, ApiError> {
+    if !is_dns1123(project) {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
+    let proposal = share::render(project, &org_domain(state, project), &params)
+        .map_err(ApiError::BadRequest)?;
+    crate::permissions::for_request(state, identity, project).check(
+        "Endpoint",
+        Verb::Propose,
+        Some(&proposal.endpoint),
+    )?;
+    Ok(proposal)
+}
+
 /// The share request rendered, not written (EP-72, API/01 §19): the manifests the person will
 /// submit, refused for a caller who may not propose an Endpoint here (PF-50).
 pub async fn propose_endpoint(
@@ -422,17 +442,9 @@ pub async fn propose_endpoint(
     Path(project): Path<String>,
     Json(params): Json<share::ProposeEndpoint>,
 ) -> Result<Json<share::Proposal>, ApiError> {
-    if !is_dns1123(&project) {
-        return Err(ApiError::NotFound(format!("project '{project}' not found")));
-    }
-    let proposal = share::render(&project, &org_domain(&state, &project), &params)
-        .map_err(ApiError::BadRequest)?;
-    crate::permissions::for_request(&state, &user.0.identity, &project).check(
-        "Endpoint",
-        Verb::Propose,
-        Some(&proposal.endpoint),
-    )?;
-    Ok(Json(proposal))
+    execute_propose_endpoint(&user.0.identity, &state, &project, params)
+        .await
+        .map(Json)
 }
 
 pub fn router() -> Router<AppState> {

@@ -878,7 +878,7 @@ async fn propose_bundle(
     let branch = format!("portal/import-{project}-{:08x}", digest(&files));
     create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
-    let (author_name, author_email) = author_credentials(user, project);
+    let (author_name, author_email) = author_credentials(&user.0.identity, project);
     for (path, content) in &files {
         let existing = gitea
             .get_file(path, &branch)

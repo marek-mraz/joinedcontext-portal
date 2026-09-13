@@ -141,17 +141,17 @@ async fn collect(receiver: &mut mpsc::UnboundedReceiver<Captured>) -> Vec<Captur
     captured
 }
 
-/// `POST /api/v1/projects/{project}/pipelines/test` (PL-43, MF-38).
-pub async fn test_pipeline(
-    user: CurrentUser,
-    State(state): State<AppState>,
-    Path(project): Path<String>,
-    Json(request): Json<TestRequest>,
-) -> Result<Json<TestTrace>, ApiError> {
-    if !is_dns1123(&project) {
+/// Executes a candidate pipeline test and returns the trace (PL-43, MF-38).
+pub async fn execute_test_pipeline(
+    identity: &crate::auth::session::Identity,
+    state: &AppState,
+    project: &str,
+    request: TestRequest,
+) -> Result<TestTrace, ApiError> {
+    if !is_dns1123(project) {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
-    let spec = spec_of(&request.pipeline, &project)?;
+    let spec = spec_of(&request.pipeline, project)?;
     let has_source = spec
         .source
         .as_ref()
@@ -161,14 +161,24 @@ pub async fn test_pipeline(
             "pipeline.spec.source must declare dataSourceRef or endpointRef".into(),
         ));
     }
-    crate::permissions::for_request(&state, &user.0.identity, &project).check(
+    crate::permissions::for_request(state, identity, project).check(
         "Pipeline",
         Verb::Propose,
         Some(&request.pipeline),
     )?;
-    Ok(Json(
-        run_harness(&state, &project, &spec, &request.sample).await?,
-    ))
+    run_harness(state, project, &spec, &request.sample).await
+}
+
+/// `POST /api/v1/projects/{project}/pipelines/test` (PL-43, MF-38).
+pub async fn test_pipeline(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(project): Path<String>,
+    Json(request): Json<TestRequest>,
+) -> Result<Json<TestTrace>, ApiError> {
+    execute_test_pipeline(&user.0.identity, &state, &project, request)
+        .await
+        .map(Json)
 }
 
 /// One run of `spec` over `sample` on the project's runner: the harness (PL-43) as an

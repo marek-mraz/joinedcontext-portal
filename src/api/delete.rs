@@ -163,7 +163,7 @@ pub async fn delete_resource(
     let branch = branch_name(&project, kind_info.kind, &name, Operation::Delete);
     create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
-    let (author_name, author_email) = author_credentials(&user, &project);
+    let (author_name, author_email) = author_credentials(&user.0.identity, &project);
     let commit_msg = format!("delete {} {name}", kind_info.kind);
 
     let file_del = FileDelete {

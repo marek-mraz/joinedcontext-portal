@@ -151,18 +151,17 @@ pub(crate) fn resolve_repo_path(
         .map_err(ApiError::BadRequest)
 }
 
-pub(crate) fn author_credentials(user: &CurrentUser, project: &str) -> (String, String) {
-    let author_name = user
-        .0
-        .identity
+pub(crate) fn author_credentials(
+    identity: &crate::auth::session::Identity,
+    project: &str,
+) -> (String, String) {
+    let author_name = identity
         .name
         .as_deref()
-        .unwrap_or(&user.0.identity.username)
+        .unwrap_or(&identity.username)
         .to_string();
-    let fallback_email = format!("{}@{project}.local", user.0.identity.username);
-    let author_email = user
-        .0
-        .identity
+    let fallback_email = format!("{}@{project}.local", identity.username);
+    let author_email = identity
         .email
         .as_deref()
         .unwrap_or(&fallback_email)
@@ -172,6 +171,28 @@ pub(crate) fn author_credentials(user: &CurrentUser, project: &str) -> (String, 
 
 /// Shared mutation engine: validates manifest constraints, plans diffs, and submits
 /// merge requests to Git under human authorship (MF-12, CC-03, CC-44, CC-63).
+#[allow(clippy::too_many_arguments)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum ProposeOutcome {
+    DryRun(DryRunResult),
+    Change(Change),
+}
+
+impl ProposeOutcome {
+    pub fn into_value(self) -> serde_json::Value {
+        match self {
+            Self::DryRun(dr) => serde_json::to_value(dr).unwrap_or(serde_json::Value::Null),
+            Self::Change(chg) => serde_json::json!({
+                "changeId": chg.metadata.name,
+                "lane": chg.status.lane,
+                "url": chg.status.merge_request,
+                "change": chg,
+            }),
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn propose(
     user: &CurrentUser,
@@ -183,6 +204,38 @@ pub async fn propose(
     dry_run: bool,
     body_val: Value,
 ) -> Result<Response, ApiError> {
+    let outcome = propose_with_identity(
+        &user.0.identity,
+        state,
+        project,
+        plural,
+        path_name,
+        operation,
+        dry_run,
+        body_val,
+    )
+    .await?;
+
+    match outcome {
+        ProposeOutcome::DryRun(res) => Ok((StatusCode::OK, Json(res)).into_response()),
+        ProposeOutcome::Change(change) => Ok((StatusCode::ACCEPTED, Json(change)).into_response()),
+    }
+}
+
+/// Shared mutation engine that operates on `Identity`: validates manifest constraints, plans diffs,
+/// and submits merge requests to Git under human authorship (MF-12, CC-03, CC-44, CC-63).
+/// Called by both session-based REST routes and the operations registry / MCP server.
+#[allow(clippy::too_many_arguments)]
+pub async fn propose_with_identity(
+    identity: &crate::auth::session::Identity,
+    state: &AppState,
+    project: &str,
+    plural: &str,
+    path_name: Option<&str>,
+    operation: Operation,
+    dry_run: bool,
+    body_val: Value,
+) -> Result<ProposeOutcome, ApiError> {
     // 1. Resolve plural catalogue entry
     let kind_info = resource::by_plural(plural).ok_or_else(|| {
         ApiError::NotFound(format!(
@@ -272,7 +325,7 @@ pub async fn propose(
 
     // 4c. Who may propose this kind here, with this content (T-0526, PF-50): the bindings of
     //     the organization repository, before a Change exists. 403 names the verb or the field.
-    crate::permissions::for_request(state, &user.0.identity, project).check(
+    crate::permissions::for_request(state, identity, project).check(
         kind_info.kind,
         jc_core::kinds::Verb::Propose,
         Some(&body_val),
@@ -297,16 +350,12 @@ pub async fn propose(
         } else {
             None
         };
-        return Ok((
-            StatusCode::OK,
-            Json(DryRunResult {
-                valid: true,
-                lane,
-                plan,
-                probe,
-            }),
-        )
-            .into_response());
+        return Ok(ProposeOutcome::DryRun(DryRunResult {
+            valid: true,
+            lane,
+            plan,
+            probe,
+        }));
     }
 
     // 8. Commit to Git merge request via Gitea client
@@ -342,7 +391,7 @@ pub async fn propose(
         .flatten()
         .map(|f| f.sha);
 
-    let (author_name, author_email) = author_credentials(user, project);
+    let (author_name, author_email) = author_credentials(identity, project);
     let commit_msg = format!("{op_str} {} {}", kind_info.kind, envelope.metadata.name);
 
     let file_write = FileWrite {
@@ -375,7 +424,7 @@ pub async fn propose(
         .with_merge_request(pr.url);
     let change = Change::new(change_meta, change_status);
 
-    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+    Ok(ProposeOutcome::Change(change))
 }
 
 #[utoipa::path(
