@@ -710,6 +710,21 @@ impl GiteaClient {
         Ok(())
     }
 
+    /// `PATCH /pulls/{number}` with `state: closed` — closes the pull request without merging,
+    /// which is what the Portal reads back as a rejected change.
+    pub async fn close_pull_request(&self, number: u64) -> Result<(), GitError> {
+        let url = self.repo_url(&format!("pulls/{number}"))?;
+        let res = self
+            .send(
+                self.http
+                    .patch(url)
+                    .json(&serde_json::json!({ "state": "closed" })),
+            )
+            .await?;
+        Self::check_status(res).await?;
+        Ok(())
+    }
+
     /// `POST /pulls/{number}/merge` — merges the pull request.
     pub async fn merge(
         &self,

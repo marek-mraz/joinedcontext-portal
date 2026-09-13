@@ -672,8 +672,20 @@ pub async fn approve_change(
         }
     }
 
-    gitea.review(pr_number, ReviewEvent::Approve, "").await?;
-    let merge_msg = format!("Merge change proposal {id}: {}", pr.title);
+    // The Portal's forge token authored the pull request, and Gitea refuses a review from the
+    // author (422 "approve your own pull is not allowed"), so the approval is not a forge review:
+    // the Portal checked the binding (PF-50) and the author (CC-34) above, and the merge commit
+    // records who approved.
+    let approver = user
+        .0
+        .identity
+        .email
+        .as_deref()
+        .unwrap_or(&user.0.identity.username);
+    let merge_msg = format!(
+        "Merge change proposal {id}: {}\n\nApproved in the Portal by {approver}",
+        pr.title
+    );
     gitea
         .merge(pr_number, MergeStyle::Squash, &merge_msg)
         .await?;
@@ -746,13 +758,25 @@ pub async fn reject_change(
         })?;
     may_approve(&state, &user, &project, &data)?;
 
+    // A comment, not a "request changes" review: the forge token is the pull request's author
+    // and Gitea refuses the author's verdict on their own pull; the Portal's role check above is
+    // the gate (PF-50), the comment says who rejected.
+    let rejecter = user
+        .0
+        .identity
+        .email
+        .as_deref()
+        .unwrap_or(&user.0.identity.username);
     gitea
         .review(
             pr_number,
-            ReviewEvent::RequestChanges,
-            "Change proposal rejected",
+            ReviewEvent::Comment,
+            &format!("Change proposal rejected in the Portal by {rejecter}"),
         )
         .await?;
+    // Closed, not merged, is what the list reads back as Rejected; a comment alone would leave
+    // the proposal pending.
+    gitea.close_pull_request(pr_number).await?;
 
     let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
     let lane = if data.operation == Operation::Delete {
@@ -1060,16 +1084,22 @@ mod tests {
             other => panic!("expected BadRequest, got {other:?}"),
         }
 
-        // 3. Correct confirm body -> 202 Accepted
+        // 3. Correct confirm body -> 202 Accepted. No review is posted: the forge token is the
+        //    author and the merge message carries the approver instead.
         Mock::given(method("POST"))
             .and(path("/api/v1/repos/test-owner/test-repo/pulls/2/reviews"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .respond_with(ResponseTemplate::new(422))
+            .expect(0)
             .mount(&server)
             .await;
 
         Mock::given(method("POST"))
             .and(path("/api/v1/repos/test-owner/test-repo/pulls/2/merge"))
+            .and(wiremock::matchers::body_string_contains(
+                "Approved in the Portal by",
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
             .mount(&server)
             .await;
 

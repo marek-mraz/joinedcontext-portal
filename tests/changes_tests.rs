@@ -680,6 +680,11 @@ spec:
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .mount(&server)
         .await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
 
     // Caller is the author and rejects their own change proposal
     let author_approver_cookies = session_and_csrf_cookies(
@@ -716,7 +721,8 @@ spec:
     assert_eq!(change.metadata.name, "chg-00000001");
     assert_eq!(change.status.phase, ChangePhase::Rejected);
 
-    // Mock saw review with REQUEST_CHANGES and zero merges
+    // Mock saw one COMMENT review naming the rejecter (the forge token authored the pull, so
+    // a REQUEST_CHANGES verdict would be refused as a self-review), the pull closed, no merge.
     let requests = server.received_requests().await.expect("received requests");
     let reviews: Vec<_> = requests
         .iter()
@@ -725,7 +731,14 @@ spec:
     assert_eq!(reviews.len(), 1);
     let review_body: serde_json::Value =
         serde_json::from_slice(&reviews[0].body).expect("review json body");
-    assert_eq!(review_body["event"], "REQUEST_CHANGES");
+    assert_eq!(review_body["event"], "COMMENT");
+    assert!(review_body["body"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("jana.kovacova@banskabystrica.sk"));
+    assert!(requests
+        .iter()
+        .any(|r| r.method == "PATCH" && r.url.path().ends_with("/pulls/1")));
     assert!(!requests.iter().any(|r| r.url.path().ends_with("/merge")));
 }
 
@@ -915,13 +928,16 @@ spec:
         .filter(|r| r.url.path().ends_with("/merge"))
         .collect();
 
-    assert_eq!(reviews.len(), 1);
+    // No forge review: the forge token authored the pull, so the approver is recorded in the
+    // merge message instead (T-0648).
+    assert_eq!(reviews.len(), 0);
     assert_eq!(merges.len(), 1);
 
-    let review_body: serde_json::Value = serde_json::from_slice(&reviews[0].body).unwrap();
-    assert_eq!(review_body["event"], "APPROVED");
-
     let merge_body: serde_json::Value = serde_json::from_slice(&merges[0].body).unwrap();
+    assert!(merge_body["merge_message_field"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("Approved in the Portal by"));
     assert_eq!(merge_body["Do"], "squash");
 }
 
@@ -1075,6 +1091,11 @@ spec:
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .mount(&server)
         .await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/4"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
 
     let response = app
         .oneshot(
@@ -1102,7 +1123,8 @@ spec:
     assert_eq!(change.metadata.name, "chg-00000004");
     assert_eq!(change.status.phase, ChangePhase::Rejected);
 
-    // Mock saw review with REQUEST_CHANGES and zero merges
+    // Mock saw one COMMENT review naming the rejecter, the pull closed, and zero merges
+    // (T-0648: the forge token authored the pull, so a REQUEST_CHANGES verdict is refused).
     let requests = server.received_requests().await.expect("received requests");
     let reviews: Vec<_> = requests
         .iter()
@@ -1111,9 +1133,14 @@ spec:
     assert_eq!(reviews.len(), 1);
 
     let review_body: serde_json::Value = serde_json::from_slice(&reviews[0].body).unwrap();
-    assert_eq!(review_body["event"], "REQUEST_CHANGES");
-    assert_eq!(review_body["body"], "Change proposal rejected");
-
+    assert_eq!(review_body["event"], "COMMENT");
+    assert!(review_body["body"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("Change proposal rejected in the Portal by "));
+    assert!(requests
+        .iter()
+        .any(|r| r.method == "PATCH" && r.url.path().ends_with("/pulls/4")));
     assert!(!requests.iter().any(|r| r.url.path().ends_with("/merge")));
 }
 
