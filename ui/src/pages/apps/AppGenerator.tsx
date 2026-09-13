@@ -10,7 +10,8 @@ import { fetchJson, publishedTypes } from "../endpoints/SchemaProjectionPanel";
 import type { PublishedType } from "../endpoints/SchemaProjectionPanel";
 import { AgentRunPage } from "./AgentRunPage";
 import { setRunInUrl } from "./useAgentRun";
-import { EndpointPreview } from "./EndpointPreview";
+import { EndpointPreview, accessWords } from "./EndpointPreview";
+import { useAccess } from "../../components/entities/AccessPanel";
 
 /** The blueprint that turns a description into an app (AP-22, Architecture/16 §3). */
 export const BLUEPRINT = "app-from-prompt";
@@ -25,8 +26,9 @@ export type AppKind = (typeof APP_KINDS)[number];
 /** The two apps that ship with the platform, for a deployment with no builder to point at. */
 export const EXAMPLE_APPS = ["hsl-transport", "air-quality"] as const;
 
-/** A generated app reads; a write would need the red lane and a grant the endpoint has not got. */
+/** A generated app reads. It updates only when the person ticks it and their own grant allows it. */
 const OPERATIONS = ["queryEntity", "retrieveEntity"];
+const WRITE_OPERATION = "updateAttrs";
 
 /**
  * A name for the app, from what the person asked for.
@@ -68,6 +70,7 @@ export function dataNeeds(
   endpoint: Manifest,
   types: PublishedType[],
   dropped: string[],
+  write = false,
 ): Record<string, unknown>[] {
   const spec = endpointSpec(endpoint);
   const kept = types
@@ -86,7 +89,7 @@ export function dataNeeds(
       contextSpaceRef: { kind: "ContextSpace", name: refName(spec.contextSpaceRef) },
       types: kept.map((type) => type.name),
       attrs: [...new Set(kept.flatMap((type) => type.attributes))].sort(),
-      operations: OPERATIONS,
+      operations: write ? [...OPERATIONS, WRITE_OPERATION] : OPERATIONS,
       representations: spec.enabledRepresentations ?? [],
     },
   ];
@@ -110,6 +113,7 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
   const [prompt, setPrompt] = useState("");
   const [endpointName, setEndpointName] = useState("");
   const [dropped, setDropped] = useState<string[]>([]);
+  const [write, setWrite] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -137,6 +141,10 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
   const choices = asManifests(endpoints.data?.items ?? []);
   const endpoint = choices.find((candidate) => candidate.metadata.name === endpointName);
   const slug = endpoint ? (endpointSpec(endpoint).slug ?? "") : "";
+  // The option to update exists only where the person's own grant on the endpoint has a write
+  // (AP-22, AP-62): the gateway evaluates each save anyway; this keeps the form honest.
+  const access = useAccess(slug === "" ? undefined : slug);
+  const writes = accessWords(access.data).writes;
 
   // The endpoint's published model, which is where the app's bounds come from.
   const schema = useQuery({
@@ -155,7 +163,7 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
   // Both are a pass over a handful of names; the React Compiler memoizes them, and a manual
   // useMemo here only tells it a dependency might be mutated when none of them is.
   const types = publishedTypes(schema.data);
-  const needs = endpoint ? dataNeeds(endpoint, types, dropped) : [];
+  const needs = endpoint ? dataNeeds(endpoint, types, dropped, write && writes.length > 0) : [];
 
   const generate = useMutation({
     mutationFn: async () => {
@@ -344,6 +352,9 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
               audience={endpoint ? (endpointSpec(endpoint).audience ?? "") : ""}
               types={types}
               dropped={dropped}
+              writes={writes}
+              write={write}
+              onWrite={setWrite}
               state={schema.isPending ? "loading" : schema.isError ? "unavailable" : "ready"}
               onToggle={(attribute) => {
                 setDropped((current) =>
@@ -373,12 +384,18 @@ function NeedsChecklist({
   audience,
   types,
   dropped,
+  writes,
+  write,
+  onWrite,
   state,
   onToggle,
 }: {
   audience: string;
   types: PublishedType[];
   dropped: string[];
+  writes: string[];
+  write: boolean;
+  onWrite: (write: boolean) => void;
   state: "loading" | "unavailable" | "ready";
   onToggle: (attribute: string) => void;
 }): JSX.Element {
@@ -393,6 +410,18 @@ function NeedsChecklist({
         <p className="text-sm text-muted">{t("apps.generate.needs.audience", { audience })}</p>
       )}
       <p className="text-sm text-muted">{t("apps.generate.needs.loginOnly")}</p>
+      {writes.length > 0 && (
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={write}
+            onChange={(event) => {
+              onWrite(event.target.checked);
+            }}
+          />
+          {t("apps.generate.needs.write", { actions: writes.join(", ") })}
+        </label>
+      )}
       {state === "loading" && <p role="status">{t("apps.generate.needs.loading")}</p>}
       {state === "unavailable" && (
         <p role="alert" className="text-danger">

@@ -792,7 +792,8 @@
         "loading": "Načítava sa model endpointu…",
         "unavailable": "Endpoint zatiaľ nepublikuje model, takže z neho nemožno nič odvodiť.",
         "none": "Tento endpoint nepublikuje žiadne atribúty, takže aplikácia nemá čo čítať.",
-        "loginOnly": "Bez ohľadu na to, ako je endpoint publikovaný, vygenerovaná aplikácia beží v platforme a otvoriť ju môže len prihlásený používateľ."
+        "loginOnly": "Bez ohľadu na to, ako je endpoint publikovaný, vygenerovaná aplikácia beží v platforme a otvoriť ju môže len prihlásený používateľ.",
+        "write": "Aplikácia smie tieto entity aj upravovať ({actions}). Každé uloženie prejde pravidlami zápisu rozhrania."
       },
       "preview": {
         "title": "Čo vám tento endpoint dáva",
@@ -805,7 +806,7 @@
         "accessUnavailable": "Endpoint nepovedal, čo smiete čítať; aplikáciu možno postaviť aj tak, z jeho modelu.",
         "denied": "Politika zadržiava: {attrs}.",
         "readOnly": "Len čítanie. Vygenerovaná aplikácia nikdy nezapisuje.",
-        "alsoWrite": "Vaše vlastné oprávnenie dovoľuje aj {actions}, čo vygenerovaná aplikácia nepoužíva.",
+        "alsoWrite": "Vaše vlastné oprávnenie dovoľuje aj {actions}; v podrobnostiach to môžete aplikácii povoliť.",
         "samplesTitle": "Päť entít, ako sa práve podávajú",
         "samplesEmpty": "Endpoint odpovedá, ale zatiaľ nemá žiadne entity.",
         "samplesUnavailable": "Endpoint nepodal žiadne ukážkové dáta.",

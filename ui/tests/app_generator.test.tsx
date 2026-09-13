@@ -107,6 +107,7 @@ interface Options {
   write?: { body: unknown; status: number };
   runStatus?: string;
   grantStatus?: number;
+  grant?: unknown;
   entities?: { body: unknown; status: number };
 }
 
@@ -118,6 +119,7 @@ function renderGenerator(options: Options = {}) {
     write = { body: CREATED_RUN, status: 202 },
     runStatus = "queued",
     grantStatus = 200,
+    grant = GRANT,
     entities = { body: ENTITIES, status: 200 },
   } = options;
 
@@ -144,7 +146,7 @@ function renderGenerator(options: Options = {}) {
       return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: endpoints });
     }
     if (url.pathname.endsWith("/access")) {
-      return json(GRANT, grantStatus);
+      return json(grant, grantStatus);
     }
     if (url.pathname.includes("/ngsi-ld/v1/entities")) {
       return json(entities.body, entities.status);
@@ -288,6 +290,38 @@ describe("the app generator", () => {
       expect(needs[0].attrs).toEqual(["location", "name", "pm10"]);
       expect(needs[0].operations).toEqual(["queryEntity", "retrieveEntity"]);
     });
+  });
+
+  it("offers to update only where the person's own grant has a write, and then sends updateAttrs (AP-22, AP-62)", async () => {
+    const user = userEvent.setup();
+    const fetchMock = renderGenerator({
+      grant: {
+        ...GRANT,
+        permissions: [{ ...GRANT.permissions[0], actions: ["queryEntity", "retrieveEntity", "updateAttrs"] }],
+      },
+    });
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+    await fill(user);
+
+    const option = await screen.findByRole("checkbox", { name: /updateAttrs/ });
+    await user.click(option);
+    await user.click(screen.getByRole("button", { name: en.apps.generate.submit }));
+
+    await waitFor(async () => {
+      const body = await runBody(fetchMock);
+      const needs = body.dataNeeds as { operations: string[] }[];
+      expect(needs[0].operations).toEqual(["queryEntity", "retrieveEntity", "updateAttrs"]);
+    });
+  });
+
+  it("has no update option where the grant is read-only", async () => {
+    const user = userEvent.setup();
+    renderGenerator();
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+    await fill(user);
+    expect(screen.queryByRole("checkbox", { name: /updateAttrs/ })).toBeNull();
   });
 
   it("opens the run it started rather than a saved record (AG-43)", async () => {

@@ -792,7 +792,8 @@
         "loading": "Reading the endpoint's model…",
         "unavailable": "The endpoint does not publish a model yet, so nothing can be derived from it.",
         "none": "This endpoint publishes no attributes, so there is nothing for an app to read.",
-        "loginOnly": "However the endpoint is published, the generated app runs inside the platform and only a signed-in user can open it."
+        "loginOnly": "However the endpoint is published, the generated app runs inside the platform and only a signed-in user can open it.",
+        "write": "The app may also update these entities ({actions}). Every save still passes the endpoint's write rules."
       },
       "preview": {
         "title": "What this endpoint gives you",
@@ -805,7 +806,7 @@
         "accessUnavailable": "The endpoint did not say what you may read; the app can still be built from its model.",
         "denied": "Held back by the policy: {attrs}.",
         "readOnly": "Read only. A generated app never writes back.",
-        "alsoWrite": "Your own grant also allows {actions}, which a generated app does not use.",
+        "alsoWrite": "Your own grant also allows {actions}; under the details you can let the app use it.",
         "samplesTitle": "Five entities, as they are served now",
         "samplesEmpty": "The endpoint answers, but holds no entities yet.",
         "samplesUnavailable": "The endpoint served no sample data.",
