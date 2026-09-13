@@ -90,7 +90,7 @@ export function AgentRunPage({
         UI-42). Until then the left column says which phase the run is in and how long it has
         been running, so the first minute is watched rather than waited out.
       */}
-      <div className="space-y-4 lg:pr-[28rem]">
+      <div className={chatOpen ? "space-y-4 lg:pr-[28rem]" : "space-y-4"}>
         <div className="space-y-4">
           <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-4">
             <h2 id="run-preview" className="text-base font-semibold">
