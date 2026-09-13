@@ -33,6 +33,7 @@ export const NEUTRAL_BRANDING: Branding = {
   fonts: { heading: "system-ui, sans-serif", body: "system-ui, sans-serif" },
   languages: { default: "en", offered: ["en"] },
   primaryForeground: "#ffffff",
+  validation: "strict",
 };
 
 const BrandingContext = createContext<Branding>(NEUTRAL_BRANDING);
