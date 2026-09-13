@@ -54,6 +54,13 @@ pub fn is_allowed(method: &Method, headers: &HeaderMap) -> bool {
     if matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
         return true;
     }
+    // A request that carries `Authorization` is authenticated by that header alone (the
+    // session's `Front` rule: the bearer wins over the cookie), so no cookie is ever the
+    // credential behind it and there is nothing for a cross-site form to ride on. Scripts,
+    // the smoke, MCP clients and agents mutate this way (AG-59).
+    if headers.contains_key(axum::http::header::AUTHORIZATION) {
+        return true;
+    }
     let jar = CookieJar::from_headers(headers);
     let Some(expected) = jar.get(CSRF_COOKIE).map(|c| c.value().to_string()) else {
         return false;
@@ -133,6 +140,16 @@ mod tests {
             &Method::POST,
             &headers_with(Some(""), Some(""))
         ));
+    }
+
+    #[test]
+    fn mutation_with_a_bearer_and_no_cookie_passes() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            "Bearer eyJ.x.y".parse().expect("authorization header"),
+        );
+        assert!(is_allowed(&Method::POST, &headers));
     }
 
     #[test]
