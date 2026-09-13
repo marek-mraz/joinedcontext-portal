@@ -476,7 +476,17 @@ async fn propose_draft(
     } else {
         serde_json::json!({ "draft": draft })
     };
-    crate::api::ops::respond(crate::ops::call(op, &caller, state, project, input).await)
+    // The pages read the same Change envelope the plain door answers (ChangeNotice, its
+    // review link); the operation wraps it as `change` beside `changeId` and `lane`.
+    let result = crate::ops::call(op, &caller, state, project, input)
+        .await
+        .map(
+            |mut output| match output.get_mut("change").map(Value::take) {
+                Some(change) if change.is_object() => change,
+                _ => output,
+            },
+        );
+    crate::api::ops::respond(result)
 }
 
 #[utoipa::path(

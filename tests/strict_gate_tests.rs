@@ -758,6 +758,13 @@ async fn rest_door_with_a_draft_reaches_the_check_and_the_gate() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    // The draft door answers the Change envelope itself, as the plain door does: the page's
+    // notice reads metadata.name and status.lane from it.
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(body["kind"], "Change", "{body}");
+    assert!(body["metadata"]["name"].is_string(), "{body}");
+    assert!(body["status"]["lane"].is_string(), "{body}");
     assert!(state
         .drafts
         .get("ovzdusie", "DataSource", "feed-rest")
