@@ -30,7 +30,7 @@ test("a KPI pipeline configured with the preset, tested on endpoint, proposed, a
   const studio = page.getByRole("dialog");
 
   await studio.locator("#studio-preset").selectOption("kpi");
-  await studio.locator("#studio-kpi-endpoint").selectOption({ label: "helsinki-all" });
+  await studio.locator("#studio-kpi-endpoint").selectOption({ value: "helsinki-all" });
   await studio.locator("#studio-kpi-name").fill(NAME);
 
   await studio.getByTestId("studio-kpi-test").click();
