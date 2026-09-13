@@ -151,6 +151,7 @@ export function ResourceFormDialog<T>({
       setIssues([]);
       setConflict(null);
       setCurrentDraft(null);
+      setLoadedName(undefined);
       lastVersionRef.current = undefined;
     }
     onOpenChange(next);
@@ -162,7 +163,6 @@ export function ResourceFormDialog<T>({
       return;
     }
     let active = true;
-    setLoadedName(undefined);
     void getDraft(project, draftKind, draftName).then((d) => {
       if (!active) return;
       setLoadedName(draftName);
