@@ -4,7 +4,7 @@
 //! stream definitions and applied over the runner's streams REST API. Live state reflects the
 //! runner's actual response, never Git alone.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -25,6 +25,12 @@ pub enum RenderError {
     /// The pipeline has no compute block or its compute kind is not bloblang.
     #[error("pipeline compute is missing or not bloblang")]
     MissingCompute,
+    /// The author's `bento.yaml` is not YAML the runner would read.
+    #[error("bento.yaml: {0}")]
+    Bento(String),
+    /// The author wrote an input and the pipeline names a DataSource too (PL-39).
+    #[error("bento.yaml already declares an input, and spec.source.dataSourceRef names another one; keep one of the two")]
+    BentoInput,
     /// Serialization between norway and json values failed.
     #[error("json serialization error: {0}")]
     Json(#[from] serde_json::Error),
@@ -32,6 +38,10 @@ pub enum RenderError {
     #[error("{0}")]
     Custom(String),
 }
+
+/// The `bento.yaml` beside each Pipeline manifest, by `(project, pipeline)`: the author's
+/// mapping the loader leaves alone (PL-03), read from the staged tree by the sync.
+pub type Bentos = HashMap<(String, String), String>;
 
 /// The result of attempting to apply one pipeline stream to the runner.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +76,11 @@ impl StreamDeployer {
     }
 
     /// Renders and PUTs every eligible Pipeline of `mirror`; returns (namespace, name, outcome).
-    pub async fn converge(&self, mirror: &Mirror) -> Vec<(String, String, StreamOutcome)> {
+    pub async fn converge(
+        &self,
+        mirror: &Mirror,
+        bentos: &Bentos,
+    ) -> Vec<(String, String, StreamOutcome)> {
         let mut outcomes = Vec::new();
         let mut current_live = HashSet::new();
 
@@ -186,7 +200,9 @@ impl StreamDeployer {
                         }
                     };
 
-                    match render_stream(&spec, &name, &ns, &ds_spec, &ds_name, &target_slug) {
+                    let bento = bentos.get(&(ns.clone(), name.clone())).map(String::as_str);
+                    match render_stream(&spec, &name, &ns, &ds_spec, &ds_name, &target_slug, bento)
+                    {
                         Ok(val) => val,
                         Err(err) => {
                             outcomes.push((
@@ -345,6 +361,10 @@ impl StreamDeployer {
 }
 
 /// Renders a native Bento stream configuration for an approved DataSource pipeline.
+///
+/// `bento` is the author's `bento.yaml` beside the manifest, used when the pipeline has no
+/// inline `compute` (PL-03).
+#[allow(clippy::too_many_arguments)]
 pub fn render_stream(
     pipeline: &PipelineSpec,
     name: &str,
@@ -352,6 +372,7 @@ pub fn render_stream(
     source: &DataSourceSpec,
     source_name: &str,
     slug: &str,
+    bento: Option<&str>,
 ) -> Result<Value, RenderError> {
     let context = InputContext {
         source: source_name,
@@ -394,15 +415,19 @@ pub fn render_stream(
         processors.push(serde_json::to_value(&p)?);
     }
 
-    if let Some(compute) = &pipeline.compute {
-        if compute.kind != ComputeKind::Bloblang {
-            return Err(RenderError::MissingCompute);
+    match (&pipeline.compute, bento) {
+        (Some(compute), _) => {
+            if compute.kind != ComputeKind::Bloblang {
+                return Err(RenderError::MissingCompute);
+            }
+            if let Some(bloblang) = compute.bloblang.as_deref().filter(|b| !b.trim().is_empty()) {
+                processors.push(serde_json::json!({
+                    "mapping": bloblang
+                }));
+            }
         }
-        if let Some(bloblang) = compute.bloblang.as_deref().filter(|b| !b.trim().is_empty()) {
-            processors.push(serde_json::json!({
-                "mapping": bloblang
-            }));
-        }
+        (None, Some(bento)) => processors.extend(bento_processors(bento)?),
+        (None, None) => {}
     }
 
     processors.push(serde_json::json!({
@@ -452,6 +477,23 @@ pub fn render_stream(
         },
         "output": output
     }))
+}
+
+/// The author's processors from a `bento.yaml`. Its `input` is refused, the DataSource is the
+/// input (PL-39); its `output` and everything else at the top level are dropped: every stream
+/// writes through the endpoint upsert rendered here (PL-16), and the runner's own resources
+/// (rate limits, caches) come from its resources file.
+fn bento_processors(bento: &str) -> Result<Vec<Value>, RenderError> {
+    let config: Value =
+        serde_yaml_ng::from_str(bento).map_err(|e| RenderError::Bento(e.to_string()))?;
+    if config.get("input").is_some() {
+        return Err(RenderError::BentoInput);
+    }
+    Ok(config
+        .pointer("/pipeline/processors")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
 }
 
 fn percent_encode(val: &str) -> String {
@@ -822,6 +864,7 @@ mod tests {
             &ds,
             "hsl-citybikes-free",
             "abc123",
+            None,
         )
         .expect("rendered stream");
 
@@ -977,12 +1020,68 @@ mod tests {
             &ds,
             "hsl-citybikes-free",
             "abc123",
+            None,
         )
         .expect("renders without compute");
         let processors = rendered["pipeline"]["processors"].as_array().unwrap();
         assert!(!processors
             .iter()
             .any(|p| p.get("mapping").and_then(Value::as_str) == Some("root = this.data.bikes")));
+    }
+
+    const BENTO: &str = r#"
+pipeline:
+  processors:
+    - mapping: root = this.data.stations
+    - unarchive:
+        format: json_array
+output:
+  http_client:
+    url: https://somewhere.example/authored
+"#;
+
+    #[test]
+    fn datasource_with_a_bento_mapping_renders_its_processors_and_the_endpoint_output() {
+        let mut spec = helsinki_pipeline_spec();
+        spec.compute = None;
+        let ds = helsinki_datasource_spec();
+        let rendered = render_stream(
+            &spec,
+            "citybikes-gbfs",
+            "helsinki",
+            &ds,
+            "hsl-citybikes-gbfs",
+            "abc123",
+            Some(BENTO),
+        )
+        .expect("renders from bento.yaml");
+        let processors = rendered["pipeline"]["processors"].as_array().unwrap();
+        // The HTTP poll and its error guard first, the author's two, then the shared tail.
+        assert_eq!(processors[2]["mapping"], "root = this.data.stations");
+        assert_eq!(processors[3]["unarchive"]["format"], "json_array");
+        assert_eq!(processors.len(), 8);
+        let url = rendered["output"]["http_client"]["url"].as_str().unwrap();
+        assert!(url.contains("/api/endpoint/abc123/"), "{url}");
+        assert!(!url.contains("authored"));
+    }
+
+    #[test]
+    fn a_bento_with_its_own_input_is_refused_and_broken_yaml_names_itself() {
+        let mut spec = helsinki_pipeline_spec();
+        spec.compute = None;
+        let ds = helsinki_datasource_spec();
+        let render =
+            |bento: &str| render_stream(&spec, "p", "helsinki", &ds, "src", "abc123", Some(bento));
+        assert!(matches!(
+            render("input:\n  generate: {}\n").unwrap_err(),
+            RenderError::BentoInput
+        ));
+        assert!(matches!(
+            render("pipeline: [\n").unwrap_err(),
+            RenderError::Bento(_)
+        ));
+        // An empty file is an author who has not written the mapping yet: the stream still renders.
+        assert!(render("").is_ok());
     }
 
     #[tokio::test]
@@ -1037,7 +1136,7 @@ mod tests {
         });
 
         let deployer = StreamDeployer::new("http://dummy-runner:4195");
-        let outcomes = deployer.converge(&mirror).await;
+        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
         assert_eq!(outcomes.len(), 1);
         match &outcomes[0].2 {
             StreamOutcome::Error(msg) => {
@@ -1058,7 +1157,7 @@ mod tests {
 
         let deployer = StreamDeployer::new(server.uri());
         let mirror = helsinki_test_mirror();
-        let outcomes = deployer.converge(&mirror).await;
+        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
 
@@ -1072,7 +1171,7 @@ mod tests {
             .await;
 
         let deployer_err = StreamDeployer::new(server_err.uri());
-        let outcomes_err = deployer_err.converge(&mirror).await;
+        let outcomes_err = deployer_err.converge(&mirror, &Bentos::new()).await;
         assert_eq!(outcomes_err.len(), 1);
         match &outcomes_err[0].2 {
             StreamOutcome::Error(err) => {
@@ -1098,7 +1197,7 @@ mod tests {
 
         let deployer = StreamDeployer::new(server.uri());
         let mirror = helsinki_test_mirror();
-        let outcomes = deployer.converge(&mirror).await;
+        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
     }
@@ -1120,11 +1219,11 @@ mod tests {
 
         let deployer = StreamDeployer::new(server.uri());
         let mirror = helsinki_test_mirror();
-        let outcomes = deployer.converge(&mirror).await;
+        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
 
         let empty_mirror = Mirror::new();
-        let outcomes_empty = deployer.converge(&empty_mirror).await;
+        let outcomes_empty = deployer.converge(&empty_mirror, &Bentos::new()).await;
         assert!(outcomes_empty.is_empty());
     }
 }

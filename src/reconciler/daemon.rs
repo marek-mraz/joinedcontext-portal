@@ -25,7 +25,9 @@ use tokio::sync::Mutex;
 use utoipa::ToSchema;
 
 use super::leader::Leadership;
-use super::streams::{eligible, is_stream_pipeline, make_condition, StreamDeployer, StreamOutcome};
+use super::streams::{
+    eligible, is_stream_pipeline, make_condition, Bentos, StreamDeployer, StreamOutcome,
+};
 use crate::apps::converge::{Converger, Outcome};
 use crate::git::{Author, FileWrite, GitError, GiteaClient};
 use crate::resource::ResourceEnvelope;
@@ -218,6 +220,26 @@ impl Syncer {
             tracing::warn!(resource = %id, path = %path.display(), %expected, "manifest is not at the path its kind declares");
         }
 
+        // 4b. The author's mapping beside a Pipeline manifest (PL-03): the loader leaves
+        //     `bento.yaml` alone, so the streams read it from the staged tree by name.
+        let mut bentos = Bentos::new();
+        for (id, resource) in repository.iter() {
+            if id.kind != "Pipeline" {
+                continue;
+            }
+            let beside = scratch
+                .path()
+                .join(&resource.path)
+                .with_file_name("bento.yaml");
+            if let Ok(text) = std::fs::read_to_string(&beside) {
+                let namespace = id
+                    .namespace
+                    .clone()
+                    .unwrap_or_else(|| namespace_of(&resource.path.to_string_lossy()));
+                bentos.insert((namespace, id.name.clone()), text);
+            }
+        }
+
         // 5. Compile the live status of every resource and swap the mirror in one step, so a
         //    reader never sees a half-built repository (MF-04).
         let fresh_mirror = Mirror::new();
@@ -279,7 +301,7 @@ impl Syncer {
 
         // 5b. Deploy resident streams for eligible DataSource pipelines (PL-47).
         if let Some(deployer) = self.streams.as_ref() {
-            for (ns, name, outcome) in deployer.converge(&fresh_mirror).await {
+            for (ns, name, outcome) in deployer.converge(&fresh_mirror, &bentos).await {
                 let Some(mut envelope) = fresh_mirror.get(&ns, "Pipeline", &name) else {
                     continue;
                 };
@@ -559,6 +581,12 @@ pub(crate) async fn stage(gitea: &GiteaClient, revision: &str) -> Result<Scratch
             }
             Err(err) => return Err(SyncError::Git(err)),
         };
+        if path.ends_with("/bento.yaml") {
+            // Not a manifest: the author's Bento mapping beside a Pipeline (PL-03), staged as
+            // written so the streams can render it; the loader skips it by name.
+            scratch.write(path, &file.content)?;
+            continue;
+        }
         match stageable(&file.content) {
             Ok(Some(text)) => {
                 scratch.write(path, &text)?;
