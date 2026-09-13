@@ -114,6 +114,9 @@ export function ResourceFormDialog<T>({
   const [issues, setIssues] = useState<string[]>([]);
 
   const [currentDraft, setCurrentDraft] = useState<Draft | null>(null);
+  // The draft name whose load has answered, with or without a draft: the write below waits
+  // for it, and a name that has no draft yet must not wait forever (T-0631).
+  const [loadedName, setLoadedName] = useState<string | undefined>(undefined);
   const [ownVerdict, setInternalVerdict] = useState<Verdict | null>(null);
   const internalVerdict =
     externalVerdict !== undefined ? externalVerdict : ownVerdict;
@@ -159,8 +162,11 @@ export function ResourceFormDialog<T>({
       return;
     }
     let active = true;
+    setLoadedName(undefined);
     void getDraft(project, draftKind, draftName).then((d) => {
-      if (!active || !d) return;
+      if (!active) return;
+      setLoadedName(draftName);
+      if (!d) return;
       setCurrentDraft(d);
       lastVersionRef.current = d.version;
       if (d.verdict !== undefined) {
@@ -186,7 +192,7 @@ export function ResourceFormDialog<T>({
     }
     // A named draft is loaded before anything is written back: the form's first, empty
     // data must not overwrite what another window typed.
-    if (draftName && currentDraft === null) {
+    if (draftName && loadedName !== draftName) {
       return;
     }
     const manifest = source ? source.toManifest(formData) : formData;
@@ -243,7 +249,7 @@ export function ResourceFormDialog<T>({
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- currentDigest stands for the manifest a page builds around the form (a hidden attribute lives outside it)
-  }, [formData, currentDigest, open, draftKind, project, activeName, draftName, currentDraft]);
+  }, [formData, currentDigest, open, draftKind, project, activeName, draftName, loadedName]);
 
   // Subscribe to project draft events
   const hasDraft = currentDraft !== null;

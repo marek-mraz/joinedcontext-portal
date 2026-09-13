@@ -247,6 +247,79 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
     });
   });
 
+  it("writes a draft for a named resource that has no draft yet (the load answered 404)", async () => {
+    vi.useFakeTimers();
+    const putCalls: string[] = [];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        const method =
+          input instanceof Request ? input.method : (init?.method ?? "GET");
+        if (url.includes("/api/v1/branding")) {
+          return new Response(JSON.stringify({ validation: "strict" }), {
+            status: 200,
+          });
+        }
+        if (url.includes("/drafts/Endpoint/bikes-regional")) {
+          if (method === "GET") {
+            return new Response(JSON.stringify({ detail: "no draft" }), {
+              status: 404,
+            });
+          }
+          putCalls.push(url);
+          return new Response(
+            JSON.stringify({
+              project: "banskabystrica",
+              kind: "Endpoint",
+              name: "bikes-regional",
+              manifest: {},
+              verdict: null,
+              touchedBy: "demo.steward",
+              touchedKind: "person",
+              version: 1,
+              updatedAt: "2026-09-13T12:00:00Z",
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Create endpoint"
+            description="Create draft"
+            project="banskabystrica"
+            draftKind="Endpoint"
+            draftName="bikes-regional"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={() => {}}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    fireEvent.change(screen.getByLabelText(/URL/i), {
+      target: { value: "https://example.org/bikes" },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700);
+    });
+    expect(putCalls).toHaveLength(1);
+  });
+
   it("fetches updated draft and updates form when EventSource emits a higher version put event", async () => {
     const initialManifest = {
       apiVersion: "joinedcontext.com/v1alpha1",
