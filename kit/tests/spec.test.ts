@@ -45,4 +45,10 @@ describe("parseSpec", () => {
     const parsed = parseSpec(example);
     expect(parsed.spec && sourceOf(parsed.spec, { source: undefined }).name).toBe("stations");
   });
+
+  it("checks a form's fields and a view's page", () => {
+    const bad = { ...example, views: [{ kind: "form", fields: ["ghost"], page: "" }] };
+    expect(parseSpec(bad).errors).toEqual(["views[0].page: must be a non-empty string", "views[0].fields[0]: 'ghost' is not among the source's attributes"]);
+    expect(parseSpec({ ...example, views: [{ kind: "form", page: "Edit" }] }).errors).toEqual([]);
+  });
 });

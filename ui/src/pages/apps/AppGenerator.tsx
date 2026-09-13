@@ -9,6 +9,7 @@ import { ChangeNotice } from "../../components/ChangeNotice";
 import { fetchJson, publishedTypes } from "../endpoints/SchemaProjectionPanel";
 import type { PublishedType } from "../endpoints/SchemaProjectionPanel";
 import { AgentRunPage } from "./AgentRunPage";
+import { setRunInUrl } from "./useAgentRun";
 import { EndpointPreview } from "./EndpointPreview";
 
 /** The blueprint that turns a description into an app (AP-22, Architecture/16 §3). */
@@ -178,6 +179,7 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
     onSuccess: (result) => {
       const created = result as unknown as { id?: string };
       if (typeof created.id === "string") {
+        setRunInUrl(created.id);
         setRunId(created.id);
         return;
       }
@@ -201,6 +203,7 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
         project={project}
         runId={runId}
         onClose={() => {
+          setRunInUrl(null);
           setRunId(null);
         }}
       />

@@ -97,6 +97,21 @@ export function openQuestions(events: RunEvent[]): RunQuestion[] {
  * The record is re-read whenever a `status` event arrives rather than polled, so a run that
  * says nothing costs nothing.
  */
+/** The run a page reopens: `?run=<id>` in the address, kept while the run page is open. */
+export function runInUrl(): string | null {
+  return new URLSearchParams(window.location.search).get("run");
+}
+
+export function setRunInUrl(runId: string | null): void {
+  const url = new URL(window.location.href);
+  if (runId === null) {
+    url.searchParams.delete("run");
+  } else {
+    url.searchParams.set("run", runId);
+  }
+  window.history.replaceState(window.history.state, "", url);
+}
+
 export function useAgentRun(project: string, runId: string | null) {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [streaming, setStreaming] = useState(false);

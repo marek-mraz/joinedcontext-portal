@@ -765,7 +765,12 @@
       "promptPlaceholder": "Mapa stanic, filtr na ty, kde ještě jsou kola, a graf volných míst.",
       "details": "Podrobnosti: název, druh a co smí číst ({name})"
     },
-    "newAction": "Vygenerovat vlastní aplikaci"
+    "newAction": "Vygenerovat vlastní aplikaci",
+    "builds": {
+      "title": "Builds",
+      "line": "{state}, started {when}",
+      "open": "Open"
+    }
   },
   "appLifecycle": {
     "draft": "Návrh",
@@ -1031,6 +1036,10 @@
       "waiting": "Dashboard se tu objeví, jakmile první průchod skončí; chat vpravo ukazuje, co asistent právě dělá.",
       "none": "Tento běh skončil dřív, než něco ukázal.",
       "elapsed": "{seconds} s od spuštění"
+    },
+    "chat": {
+      "show": "Show the assistant",
+      "hide": "Hide the assistant"
     }
   }
 }

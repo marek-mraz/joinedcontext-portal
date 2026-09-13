@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FilterState, Row } from "./ngsi";
+import type { Cell, FilterState, Row } from "./ngsi";
 import { applyFilters, columnKind, distinct, extent, loadSource, toRow } from "./ngsi";
 import type { Filter, Source, Spec, View } from "./spec";
-import { sourceOf } from "./spec";
+import { pagesOf, sourceOf } from "./spec";
 import { Chart } from "./views/Chart";
 import { Detail } from "./views/Detail";
+import { Form } from "./views/Form";
 import { MapView } from "./views/MapView";
 import { Stats } from "./views/Stats";
 import { Table } from "./views/Table";
@@ -90,7 +91,7 @@ function FilterControl({ filter, index, rows, value, onChange }: { filter: Filte
   );
 }
 
-function ViewCard({ view, spec, rows, accent, selected, onSelect }: { view: View; spec: Spec; rows: Row[]; accent: string; selected: string | null; onSelect: (id: string) => void }) {
+function ViewCard({ view, spec, rows, accent, selected, onSelect, onSave }: { view: View; spec: Spec; rows: Row[]; accent: string; selected: string | null; onSelect: (id: string | null) => void; onSave: (id: string, patch: Record<string, Cell>) => void }) {
   const source = sourceOf(spec, view);
   const body = (() => {
     switch (view.kind) {
@@ -104,6 +105,8 @@ function ViewCard({ view, spec, rows, accent, selected, onSelect }: { view: View
         return <Chart rows={rows} x={view.x} y={view.y} agg={view.agg} top={view.top} type={view.type} accent={accent} />;
       case "detail":
         return <Detail row={rows.find((r) => r.id === selected) ?? null} attrs={source.attrs} />;
+      case "form":
+        return <Form row={rows.find((r) => r.id === selected) ?? null} rows={rows} fields={view.fields ?? source.attrs} title={view.title} onSave={onSave} onClose={() => onSelect(null)} />;
       default:
         return null;
     }
@@ -120,12 +123,22 @@ export function App({ slug, spec, inline }: { slug: string; spec: Spec; inline?:
   const { data, loading, error } = useSources(slug, spec, inline);
   const [state, setState] = useState<FilterState>({});
   const [selected, setSelected] = useState<string | null>(null);
+  // What a form saved, by entity id, laid over the rows read: on screen only.
+  const [edits, setEdits] = useState<Record<string, Record<string, Cell>>>({});
+  const pages = pagesOf(spec);
+  const [page, setPage] = useState<string>(pages[0] ?? "");
   const accent = spec.theme?.accent ?? DEFAULT_ACCENT;
   const filters = spec.filters ?? [];
-  const filtered = useMemo(
-    () => Object.fromEntries(spec.sources.map((s) => [s.name, applyFilters(data[s.name] ?? [], filters, state, s.name)])) as Loaded,
-    [data, filters, state, spec.sources],
+  const edited = useMemo(
+    () => Object.fromEntries(spec.sources.map((s) => [s.name, (data[s.name] ?? []).map((row) => (edits[row.id] ? { ...row, ...edits[row.id] } : row))])) as Loaded,
+    [data, edits, spec.sources],
   );
+  const filtered = useMemo(
+    () => Object.fromEntries(spec.sources.map((s) => [s.name, applyFilters(edited[s.name] ?? [], filters, state, s.name)])) as Loaded,
+    [edited, filters, state, spec.sources],
+  );
+  const save = (id: string, patch: Record<string, Cell>) => setEdits((e) => ({ ...e, [id]: { ...e[id], ...patch } }));
+  const shown = spec.views.filter((view) => view.page === undefined || view.page === page);
   const total = spec.sources.reduce((n, s) => n + (data[s.name]?.length ?? 0), 0);
   const kept = spec.sources.reduce((n, s) => n + (filtered[s.name]?.length ?? 0), 0);
 
@@ -148,9 +161,16 @@ export function App({ slug, spec, inline }: { slug: string; spec: Spec; inline?:
         </div>
       )}
       {error && <p role="alert" className="error">{error}</p>}
+      {pages.length > 0 && (
+        <nav className="pages" aria-label="Pages">
+          {pages.map((name) => (
+            <button key={name} type="button" aria-current={name === page ? "page" : undefined} onClick={() => setPage(name)}>{name}</button>
+          ))}
+        </nav>
+      )}
       <main>
-        {spec.views.map((view, index) => (
-          <ViewCard key={index} view={view} spec={spec} rows={filtered[sourceOf(spec, view).name] ?? []} accent={accent} selected={selected} onSelect={setSelected} />
+        {shown.map((view) => (
+          <ViewCard key={spec.views.indexOf(view)} view={view} spec={spec} rows={filtered[sourceOf(spec, view).name] ?? []} accent={accent} selected={selected} onSelect={setSelected} onSave={save} />
         ))}
       </main>
     </div>

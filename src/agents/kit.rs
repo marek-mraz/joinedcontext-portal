@@ -130,8 +130,8 @@ pub struct Sort {
     pub dir: SortDir,
 }
 
-/// One card of the dashboard. Views are drawn in order; `stats`, `map` and `table` take the
-/// whole width, the others share a row.
+/// One card of the dashboard. Views are drawn in order; `stats`, `map`, `table` and `form` take
+/// the whole width, the others share a row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase", tag = "kind")]
 pub enum View {
@@ -142,6 +142,10 @@ pub enum View {
         source: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// The page this card sits on; cards that name a page share a tab bar, cards without
+        /// one are on every page.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<String>,
         items: Vec<StatItem>,
     },
     /// A map with one point per entity that has a location.
@@ -151,6 +155,10 @@ pub enum View {
         source: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// The page this card sits on; cards that name a page share a tab bar, cards without
+        /// one are on every page.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<String>,
         /// The GeoProperty drawn; `location` when not named.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         location: Option<String>,
@@ -168,6 +176,10 @@ pub enum View {
         source: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// The page this card sits on; cards that name a page share a tab bar, cards without
+        /// one are on every page.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<String>,
         columns: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sort: Option<Sort>,
@@ -179,6 +191,10 @@ pub enum View {
         source: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// The page this card sits on; cards that name a page share a tab bar, cards without
+        /// one are on every page.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<String>,
         #[serde(rename = "type")]
         chart_type: ChartType,
         x: String,
@@ -188,6 +204,20 @@ pub enum View {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         top: Option<u32>,
     },
+    /// A window over the selected entity, one input per field (every attribute of the source
+    /// when `fields` is absent); a save changes the rows on screen and writes nothing to the
+    /// endpoint.
+    #[serde(rename = "form")]
+    Form {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fields: Option<Vec<String>>,
+    },
     /// Every attribute of the selected entity.
     #[serde(rename = "detail")]
     Detail {
@@ -195,6 +225,10 @@ pub enum View {
         source: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// The page this card sits on; cards that name a page share a tab bar, cards without
+        /// one are on every page.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<String>,
     },
 }
 
@@ -327,6 +361,11 @@ pub fn validate(spec: &Spec) -> Vec<String> {
     }
     for (index, view) in spec.views.iter().enumerate() {
         let path = format!("views[{index}]");
+        if let Some(page) = view.page() {
+            if page.trim().is_empty() {
+                errors.push(format!("{path}.page: must be a non-empty string"));
+            }
+        }
         match view {
             View::Stats { source, items, .. } => {
                 let known = resolve(&mut errors, &path, source.as_deref());
@@ -389,12 +428,31 @@ pub fn validate(spec: &Spec) -> Vec<String> {
                 check(&mut errors, &format!("{path}.x"), &known, x);
                 check(&mut errors, &format!("{path}.y"), &known, y);
             }
+            View::Form { source, fields, .. } => {
+                let known = resolve(&mut errors, &path, source.as_deref());
+                for (i, field) in fields.iter().flatten().enumerate() {
+                    check(&mut errors, &format!("{path}.fields[{i}]"), &known, field);
+                }
+            }
             View::Detail { source, .. } => {
                 resolve(&mut errors, &path, source.as_deref());
             }
         }
     }
     errors
+}
+
+impl View {
+    fn page(&self) -> Option<&str> {
+        match self {
+            View::Stats { page, .. }
+            | View::Map { page, .. }
+            | View::Table { page, .. }
+            | View::Chart { page, .. }
+            | View::Form { page, .. }
+            | View::Detail { page, .. } => page.as_deref(),
+        }
+    }
 }
 
 /// The built bundle: the script, the stylesheet and MapLibre's worker, or nothing when the
@@ -490,7 +548,7 @@ mod tests {
     #[test]
     fn the_schema_names_every_view_kind_and_refuses_unknown_fields() {
         let schema = schema_json();
-        for kind in ["stats", "map", "table", "chart", "detail"] {
+        for kind in ["stats", "map", "table", "chart", "detail", "form"] {
             assert!(
                 schema.contains(&format!("\"{kind}\"")),
                 "{kind} missing from the schema"
@@ -512,7 +570,8 @@ mod tests {
                 {"kind":"chart","type":"bar","x":"a","y":"b"},
                 {"kind":"table","source":"ghost","columns":[]},
                 {"kind":"stats","items":[{"label":"n","agg":"sum"}]},
-                {"kind":"map","color":"nope"}
+                {"kind":"map","color":"nope"},
+                {"kind":"form","fields":["a","zzz"],"page":" "}
               ]
             }"#,
         )
@@ -528,6 +587,8 @@ mod tests {
                 "views[1].columns: must list at least one column",
                 "views[2].items[0].attr: must name an attribute",
                 "views[3].color: 'nope' is not among the source's attributes",
+                "views[4].page: must be a non-empty string",
+                "views[4].fields[1]: 'zzz' is not among the source's attributes",
             ]
         );
         assert!(parse("{").expect_err("json")[0].starts_with("spec.json: "));

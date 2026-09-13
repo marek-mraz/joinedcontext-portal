@@ -32,12 +32,22 @@ export interface StatItem {
   unit?: string;
 }
 
+/** What every view carries: the source it reads, a heading, and the page it sits on. */
+interface Card {
+  source?: string;
+  title?: string;
+  /** Views that name a page share a tab bar; views without one are on every page. */
+  page?: string;
+}
+
 export type View =
-  | { kind: "stats"; source?: string; title?: string; items: StatItem[] }
-  | { kind: "map"; source?: string; title?: string; location?: string; label?: string; color?: string }
-  | { kind: "table"; source?: string; title?: string; columns: string[]; sort?: { attr: string; dir: "asc" | "desc" } }
-  | { kind: "chart"; source?: string; title?: string; type: "bar" | "line" | "pie"; x: string; y: string; agg?: Agg; top?: number }
-  | { kind: "detail"; source?: string; title?: string };
+  | (Card & { kind: "stats"; items: StatItem[] })
+  | (Card & { kind: "map"; location?: string; label?: string; color?: string })
+  | (Card & { kind: "table"; columns: string[]; sort?: { attr: string; dir: "asc" | "desc" } })
+  | (Card & { kind: "chart"; type: "bar" | "line" | "pie"; x: string; y: string; agg?: Agg; top?: number })
+  | (Card & { kind: "detail" })
+  /** A window over the selected entity with one input per field; a save changes the rows on screen. */
+  | (Card & { kind: "form"; fields?: string[] });
 
 export interface Spec {
   title: string;
@@ -52,7 +62,7 @@ export const DEFAULT_LIMIT = 1000;
 export const MAX_LIMIT = 5000;
 const AGGS: Agg[] = ["count", "sum", "avg", "min", "max"];
 const FILTERS = ["search", "select", "range"];
-const VIEWS = ["stats", "map", "table", "chart", "detail"];
+const VIEWS = ["stats", "map", "table", "chart", "detail", "form"];
 const CHARTS = ["bar", "line", "pie"];
 /** Two names every entity carries whatever the source asked for. */
 const ALWAYS = ["id", "type"];
@@ -150,7 +160,18 @@ export function parseSpec(input: unknown): { spec: Spec; errors: [] } | { spec: 
       return;
     }
     const known = resolve(path, v.source);
+    if (v.page !== undefined && (typeof v.page !== "string" || v.page === "")) {
+      at(`${path}.page`, "must be a non-empty string");
+    }
     switch (v.kind) {
+      case "form": {
+        const fields = v.fields === undefined ? [] : Array.isArray(v.fields) ? v.fields : null;
+        if (fields === null) {
+          at(`${path}.fields`, "must be a list");
+        }
+        (fields ?? []).forEach((f, i) => check(`${path}.fields[${i}]`, known, f));
+        break;
+      }
       case "stats": {
         const items = Array.isArray(v.items) ? (v.items as unknown[]) : [];
         if (items.length === 0) {
@@ -206,4 +227,9 @@ export function parseSpec(input: unknown): { spec: Spec; errors: [] } | { spec: 
 /** The source a view or filter reads, the first one when it names none. */
 export function sourceOf<T extends { source?: string }>(spec: Spec, item: T): Source {
   return spec.sources.find((s) => s.name === item.source) ?? spec.sources[0];
+}
+
+/** The page names in order of first appearance; empty when no view names one. */
+export function pagesOf(spec: Spec): string[] {
+  return [...new Set(spec.views.map((v) => v.page).filter((p): p is string => typeof p === "string"))];
 }

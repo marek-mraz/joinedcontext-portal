@@ -84,6 +84,34 @@ describe("App", () => {
     expect(screen.getByText("Laivasillankatu")).toBeInTheDocument();
   });
 
+  it("opens the form on a pick, and a save changes the rows on screen", async () => {
+    // jsdom draws no dialog: the modal calls are recorded, the content renders regardless.
+    const showModal = vi.fn();
+    HTMLDialogElement.prototype.showModal = showModal;
+    HTMLDialogElement.prototype.close = vi.fn();
+    const withForm = { ...spec, views: [...spec.views, { kind: "form" as const, title: "Station", fields: ["name", "availableBikeNumber"] }] };
+    render(<App slug="demo" spec={withForm} inline={{ stations: STATIONS }} />);
+    await waitFor(() => expect(screen.getByText("3 entities")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Laivasillankatu"));
+    expect(showModal).toHaveBeenCalled();
+    const bikes = screen.getByLabelText("availableBikeNumber") as HTMLInputElement;
+    expect(bikes.value).toBe("3");
+    fireEvent.change(bikes, { target: { value: "7" } });
+    fireEvent.click(screen.getByText("Save"));
+    // 12 + 7 + 0 now.
+    expect(screen.getByText("Bikes available").previousSibling).toHaveTextContent("19");
+  });
+
+  it("shows one page at a time when views name pages", async () => {
+    const paged = { ...spec, views: spec.views.map((v, i) => ({ ...v, page: i < 2 ? "Overview" : "Data" })) };
+    render(<App slug="demo" spec={paged} inline={{ stations: STATIONS }} />);
+    await waitFor(() => expect(screen.getByText("3 entities")).toBeInTheDocument());
+    expect(screen.getByRole("navigation", { name: "Pages" })).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Data" }));
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
   it("says when the endpoint refuses instead of showing an empty dashboard", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403, json: async () => ({}) })));
     render(<App slug="demo" spec={spec} />);

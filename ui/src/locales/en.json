@@ -765,7 +765,12 @@
       "promptPlaceholder": "A map of the docking stations, with a filter for the ones that still have bikes, and a chart of free slots.",
       "details": "Details: name, kind, and what it may read ({name})"
     },
-    "newAction": "Generate your own app"
+    "newAction": "Generate your own app",
+    "builds": {
+      "title": "Builds",
+      "line": "{state}, started {when}",
+      "open": "Open"
+    }
   },
   "appLifecycle": {
     "draft": "Draft",
@@ -1031,6 +1036,10 @@
       "waiting": "The dashboard appears here the moment the first pass lands; the chat on the right shows what the assistant is doing.",
       "none": "This run ended before it showed anything.",
       "elapsed": "{seconds} s since the run started"
+    },
+    "chat": {
+      "show": "Show the assistant",
+      "hide": "Hide the assistant"
     }
   }
 }

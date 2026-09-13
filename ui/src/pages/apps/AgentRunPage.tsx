@@ -27,6 +27,7 @@ export function AgentRunPage({
 }): JSX.Element {
   const { t } = useTranslation();
   const { run, events, streaming, answer, send, cancel, publish } = useAgentRun(project, runId);
+  const [chatOpen, setChatOpen] = useState(true);
 
   if (run.isPending) {
     return <p role="status">{t("agentRun.loading")}</p>;
@@ -89,7 +90,7 @@ export function AgentRunPage({
         UI-42). Until then the left column says which phase the run is in and how long it has
         been running, so the first minute is watched rather than waited out.
       */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+      <div className="space-y-4 lg:pr-[28rem]">
         <div className="space-y-4">
           <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-4">
             <h2 id="run-preview" className="text-base font-semibold">
@@ -152,20 +153,38 @@ export function AgentRunPage({
           </div>
         </div>
 
-        <div className="lg:sticky lg:top-4">
-          <ConversationPanel
-            events={events}
-            streaming={streaming}
-            answering={answer.isPending}
-            sending={send.isPending}
-            live={!over}
-            onAnswer={(questionId, answers) => {
-              answer.mutate({ questionId, answers });
+        {/*
+          The chat is a window docked to the right edge, over the page rather than in it: it
+          stays put while the preview scrolls or switches pages, and folds to a button when the
+          preview needs the width (UI-42).
+        */}
+        <div className="fixed bottom-4 right-4 z-30 flex w-[26rem] max-w-[calc(100vw-2rem)] flex-col items-end gap-2">
+          <button
+            type="button"
+            aria-expanded={chatOpen}
+            aria-controls="run-chat"
+            onClick={() => {
+              setChatOpen((open) => !open);
             }}
-            onSend={(text) => {
-              send.mutate(text);
-            }}
-          />
+            className="rounded-full border border-border bg-surface px-4 py-1.5 text-sm shadow hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+          >
+            {chatOpen ? t("agentRun.chat.hide") : t("agentRun.chat.show")}
+          </button>
+          <div id="run-chat" hidden={!chatOpen} className="max-h-[80vh] w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
+            <ConversationPanel
+              events={events}
+              streaming={streaming}
+              answering={answer.isPending}
+              sending={send.isPending}
+              live={!over}
+              onAnswer={(questionId, answers) => {
+                answer.mutate({ questionId, answers });
+              }}
+              onSend={(text) => {
+                send.mutate(text);
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

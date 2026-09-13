@@ -765,7 +765,12 @@
       "promptPlaceholder": "Mapa staníč, filter na tie, kde ešte sú bicykle, a graf voľných miest.",
       "details": "Podrobnosti: názov, druh a čo smí čítať ({name})"
     },
-    "newAction": "Vygenerovať vlastnú aplikáciu"
+    "newAction": "Vygenerovať vlastnú aplikáciu",
+    "builds": {
+      "title": "Builds",
+      "line": "{state}, started {when}",
+      "open": "Open"
+    }
   },
   "appLifecycle": {
     "draft": "Návrh",
@@ -1031,6 +1036,10 @@
       "waiting": "Dashboard sa tu objaví, len čo prvý prechod skončí; chat vpravo ukazuje, čo asistent práve robí.",
       "none": "Tento beh skončil skôr, než niečo ukázal.",
       "elapsed": "{seconds} s od spustenia"
+    },
+    "chat": {
+      "show": "Show the assistant",
+      "hide": "Hide the assistant"
     }
   }
 }

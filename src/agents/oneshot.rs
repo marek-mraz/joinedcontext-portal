@@ -21,6 +21,7 @@ use crate::agents::patch;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
+use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::state::AppState;
 
 /// Entities read per type as the model's sample of the data (AP-57).
@@ -38,8 +39,8 @@ static SYSTEM: LazyLock<String> = LazyLock::new(|| {
         r#"# SYSTEM INSTRUCTION: ONE-SHOT DASHBOARD SPECIFICATION — SEARCH/REPLACE FORMAT
 
 You fill in one file, `spec.json`, for a prebuilt dashboard kit. The kit already holds the code:
-a data loader for NGSI-LD entities, filters, a stats row, a map, a table, SVG charts and a
-detail card. You write only the specification that says which entity types to read, which
+a data loader for NGSI-LD entities, filters, a stats row, a map, a table, SVG charts, a
+detail card, a form window and pages. You write only the specification that says which entity types to read, which
 attributes, and which views to draw. THIS CALL WRITES `spec.json` AND NOTHING ELSE: a block for
 any other path is refused.
 
@@ -58,7 +59,13 @@ Rules the schema cannot say, checked before anything is shown:
 - `sources[].name` is unique; every `source` in a filter or view names one of them; a filter or
   view without `source` reads the first source.
 - Every attribute a filter or view names (`attrs`, `attr`, `columns`, `x`, `y`, `sort.attr`,
-  `location`, `label`, `color`) is in that source's `attrs`, or is `id` / `type`.
+  `location`, `label`, `color`, `fields`) is in that source's `attrs`, or is `id` / `type`.
+- A `form` opens as a window when a point on the map or a row in the table is picked; its
+  inputs are the `fields` (every attribute when absent); a save changes the rows on screen and
+  writes nothing to the endpoint. Add one whenever the person asks for a form, a popup, an
+  edit window or a dialog.
+- `page` on a view puts it on a named tab; views without `page` stay on every tab. Use pages
+  only when the person asks for several pages or screens.
 - `stats.items[].attr` is required unless `agg` is `count`.
 - A map needs a GeoProperty; name it in `attrs` (usually `location`).
 - `limit` is between 1 and 5000; default 1000.
@@ -123,6 +130,11 @@ struct Driver {
     ttl: Duration,
     /// Passes that produced a preview; the `v` of the preview URL.
     passes: AtomicU32,
+    /// Where every pass is committed when the Portal has a forge: the run's branch, the
+    /// application's folder.
+    branch: String,
+    path_prefix: String,
+    created_by: String,
 }
 
 /// Starts the pass in the background. Returns at once; the run's stream is where the outcome
@@ -152,6 +164,9 @@ pub fn spawn(
         provider: profile.model_provider.clone(),
         ttl: Duration::from_secs(ttl_secs.max(1) as u64),
         passes: AtomicU32::new(0),
+        branch: run.branch.clone(),
+        path_prefix: run.path_prefix.clone(),
+        created_by: run.created_by.clone(),
     };
     tokio::spawn(async move {
         let run_id = driver.run_id.clone();
@@ -290,6 +305,7 @@ impl Driver {
             prose.trim().to_owned()
         };
         self.thought(&prose).await?;
+        self.commit(&prose).await?;
         // The URL carries the number of the pass, so a browser reloads the frame once per pass
         // and never from cache.
         let pass = self.passes.fetch_add(1, Ordering::SeqCst) + 1;
@@ -406,8 +422,8 @@ impl Driver {
             None => {
                 pack.push_str(&format!(
                     "The person says: {instruction}\n\nChange spec.json accordingly. If what is \
-                     asked needs a view kind the kit does not have (a form, an input, a write to \
-                     the endpoint, a page), say so plainly in the sentences before the block, \
+                     asked needs something the kit does not have (a write to the endpoint, a \
+                     login, a file upload, a free-form layout), say so plainly in the sentences before the block, \
                      name the nearest thing the views can do, and do that.\n"
                 ));
             }
@@ -626,6 +642,67 @@ impl Driver {
             json!({ "status": status.as_str(), "timestamp": now_rfc3339() }),
         )
         .await
+    }
+
+    /// The specification committed to the run's branch, so the application exists in the forge
+    /// from its first pass and a closed tab loses nothing (AP-24). A Portal without a forge
+    /// keeps the run in its store alone; a forge that refuses is said in the chat and the pass
+    /// stands.
+    async fn commit(&self, message: &str) -> Result<(), String> {
+        let Some(gitea) = self.state.gitea.clone() else {
+            return Ok(());
+        };
+        let Some(spec) = self
+            .state
+            .agents
+            .get_run(&self.run_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|run| {
+                run.files
+                    .get(kit::SPEC_FILE)
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+        else {
+            return Ok(());
+        };
+        let path = format!("{}src/{}", self.path_prefix, kit::SPEC_FILE);
+        let outcome: Result<String, GitError> = async {
+            if gitea.branch_head(&self.branch).await.is_err() {
+                let base = gitea.default_branch().await?;
+                gitea.create_branch(&self.branch, &base).await?;
+            }
+            let sha = gitea
+                .get_file(&path, &self.branch)
+                .await?
+                .map(|file| file.sha);
+            gitea
+                .put_file(&FileWrite {
+                    path: &path,
+                    branch: &self.branch,
+                    message,
+                    content: &spec,
+                    sha: sha.as_deref(),
+                    author: Author {
+                        name: &self.created_by,
+                        email: "agent@joinedcontext.local",
+                    },
+                })
+                .await
+        }
+        .await;
+        match outcome {
+            Ok(sha) => {
+                self.event("commit", json!({ "sha": sha, "message": message }))
+                    .await
+            }
+            Err(err) => {
+                self.thought(&format!("The commit did not land in the forge: {err}"))
+                    .await
+            }
+        }
     }
 
     async fn thought(&self, text: &str) -> Result<(), String> {

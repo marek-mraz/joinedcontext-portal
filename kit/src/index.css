@@ -69,3 +69,19 @@ svg.chart { width: 100%; height: auto; }
 .detail dt { color: var(--muted); }
 .detail dd { margin: 0; overflow-wrap: anywhere; }
 .mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+.pages { display: flex; gap: 0.25rem; padding: 0.5rem 1.25rem 0; border-bottom: 1px solid var(--line); background: var(--card); }
+.pages button { font: inherit; padding: 0.45rem 0.9rem; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted); cursor: pointer; }
+.pages button[aria-current="page"] { color: var(--accent); background: var(--surface); border-color: var(--line); font-weight: 600; }
+.card-form { grid-column: 1 / -1; }
+.form-window { border: 1px solid var(--line); border-radius: 12px; padding: 1.25rem 1.5rem; width: min(32rem, 92vw); background: var(--card); color: var(--ink); }
+.form-window::backdrop { background: rgb(15 23 42 / 0.45); }
+.form-window h2 { margin: 0 0 0.25rem; }
+.form-window form { display: flex; flex-direction: column; gap: 0.6rem; }
+.field { display: flex; flex-direction: column; gap: 0.2rem; }
+.field span { font-size: 0.75rem; color: var(--muted); }
+.field input { font: inherit; padding: 0.4rem 0.55rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+.field input:read-only { color: var(--muted); }
+.form-actions { display: flex; gap: 0.5rem; justify-content: flex-end; padding-top: 0.5rem; }
+.form-actions button { font: inherit; padding: 0.4rem 0.9rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.form-actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.form-note { margin: 0; font-size: 0.75rem; color: var(--muted); }

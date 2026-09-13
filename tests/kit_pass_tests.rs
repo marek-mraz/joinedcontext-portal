@@ -16,13 +16,14 @@ use http_body_util::BodyExt;
 use joinedcontext_portal::agents::kit;
 use joinedcontext_portal::auth::session::{self, Identity, Session};
 use joinedcontext_portal::config::Config;
+use joinedcontext_portal::git::GiteaClient;
 use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
 use joinedcontext_portal::store::Mirror;
 use serde_json::{json, Value};
 use tower::ServiceExt;
-use wiremock::matchers::{header_regex, method, path, query_param};
+use wiremock::matchers::{header_regex, method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const CSRF: &str = "csrf-token-value";
@@ -165,6 +166,46 @@ fn mirror(provider: &str) -> Arc<Mirror> {
 /// A Portal and its stub proxy. The proxy answers the sample read with five stations and the
 /// model route with the canned answers, in order.
 async fn portal(provider: &str, answers: &[String]) -> (axum::Router, String, MockServer) {
+    portal_with(provider, answers, None).await
+}
+
+/// A forge that has no branch and no file for this run yet, and takes the commit.
+async fn forge() -> MockServer {
+    let forge = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/org/manifests"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&forge)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex(
+            "^/api/v1/repos/org/manifests/(branches|contents)/",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .mount(&forge)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/org/manifests/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&forge)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path(
+            "/api/v1/repos/org/manifests/contents/projects/helsinki/apps/city-bikes-overview/src/spec.json",
+        ))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({ "commit": { "sha": "abc123def456" } })),
+        )
+        .mount(&forge)
+        .await;
+    forge
+}
+
+async fn portal_with(
+    provider: &str,
+    answers: &[String],
+    forge: Option<&MockServer>,
+) -> (axum::Router, String, MockServer) {
     let proxy = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v1/data/ngsi-ld/v1/entities"))
@@ -210,7 +251,13 @@ async fn portal(provider: &str, answers: &[String]) -> (axum::Router, String, Mo
             .await;
     }
     let config = config(&proxy.uri());
-    let app = server::app(AppState::new(config.clone(), None).with_mirror(mirror(provider)));
+    let mut state = AppState::new(config.clone(), None).with_mirror(mirror(provider));
+    if let Some(forge) = forge {
+        let client = GiteaClient::new(forge.uri().parse().expect("url"), "org", "manifests", "t")
+            .expect("a forge client");
+        state = state.with_gitea(Arc::new(client));
+    }
+    let app = server::app(state);
     let cookie = session_cookie(&config, STEWARD);
     (app, cookie, proxy)
 }
@@ -750,4 +797,40 @@ async fn a_proxy_that_does_not_answer_fails_the_run_with_the_reason() {
         "{run}"
     );
     assert!(run["previewUrl"].is_null());
+}
+
+#[tokio::test]
+async fn every_pass_is_a_commit_on_the_run_branch_when_there_is_a_forge() {
+    let forge = forge().await;
+    let (app, cookie, _proxy) = portal_with(
+        "anthropic",
+        &[answer("Bikes.", &[("spec.json", "", VALID_SPEC)])],
+        Some(&forge),
+    )
+    .await;
+    let created = create_run(&app, &cookie).await;
+    let id = created["id"].as_str().expect("id");
+    wait_for(&app, &cookie, id, &["previewing", "failed"]).await;
+
+    let events = events(&app, &cookie, id).await;
+    let commit = events
+        .iter()
+        .find(|(kind, _)| kind == "commit")
+        .unwrap_or_else(|| panic!("no commit among {:?}", kinds(&events)));
+    assert_eq!(commit.1["sha"], json!("abc123def456"));
+    let put = forge
+        .received_requests()
+        .await
+        .expect("recording")
+        .into_iter()
+        .find(|r| r.method == "PUT")
+        .expect("the file was written");
+    let body: Value = serde_json::from_slice(&put.body).expect("json");
+    assert!(
+        body["branch"]
+            .as_str()
+            .is_some_and(|b| b.starts_with("agent/app-city-bikes-overview/")),
+        "{body}"
+    );
+    assert_eq!(body["message"], json!("Bikes."));
 }

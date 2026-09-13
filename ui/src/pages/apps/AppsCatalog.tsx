@@ -8,6 +8,8 @@ import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import { AppGenerator } from "./AppGenerator";
+import { AgentRunPage } from "./AgentRunPage";
+import { runInUrl, setRunInUrl } from "./useAgentRun";
 
 interface DataNeed {
   contextSpaceRef?: string | { name?: string };
@@ -108,6 +110,8 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
   const queryClient = useQueryClient();
   const [previewing, setPreviewing] = useState<Manifest | null>(null);
   const [generating, setGenerating] = useState(false);
+  // A run stays where it is: the address names it, so a closed tab reopens the same build.
+  const [runId, setRunId] = useState<string | null>(() => runInUrl());
   const [confirming, setConfirming] = useState<Manifest | null>(null);
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +124,17 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
           params: { path: { project, plural: "apps" } },
         }),
       ),
+  });
+
+  const runs = useQuery({
+    queryKey: [...queryKeys.list(project, "apps"), "runs"],
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/v1/projects/{project}/agent-runs", {
+          params: { path: { project }, query: { limit: 20 } },
+        }),
+      ),
+    refetchInterval: runId === null ? 15000 : false,
   });
 
   const publish = useMutation({
@@ -190,6 +205,20 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
     );
   }
 
+  if (runId !== null) {
+    return (
+      <AgentRunPage
+        project={project}
+        runId={runId}
+        onClose={() => {
+          setRunInUrl(null);
+          setRunId(null);
+          void runs.refetch();
+        }}
+      />
+    );
+  }
+
   if (generating) {
     return (
       <div className="space-y-3">
@@ -232,6 +261,39 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
         <p role="alert" className="text-danger">
           {error}
         </p>
+      )}
+
+      {(runs.data?.items.length ?? 0) > 0 && (
+        <section aria-labelledby="apps-builds" className="space-y-2">
+          <h2 id="apps-builds" className="text-base font-semibold">
+            {t("apps.builds.title")}
+          </h2>
+          <ul className="divide-y divide-border rounded border border-border">
+            {runs.data?.items.map((run) => (
+              <li key={run.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span>
+                  <span className="font-medium">{run.appName}</span>{" "}
+                  <span className="text-muted">
+                    {t("apps.builds.line", {
+                      state: t(`agentRun.states.${run.status}`, { defaultValue: run.status }),
+                      when: new Date(run.createdAt).toLocaleString(i18n.language),
+                    })}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRunInUrl(run.id);
+                    setRunId(run.id);
+                  }}
+                  className="rounded border border-border px-3 py-1 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+                >
+                  {t("apps.builds.open")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {apps.length === 0 && <p>{t("apps.empty")}</p>}
