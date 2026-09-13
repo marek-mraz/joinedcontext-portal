@@ -18,6 +18,12 @@ use sha2::{Digest, Sha256};
 pub const SPEC_FILE: &str = "spec.json";
 /// The rows the driver read for the preview, keyed by source name; written by the driver alone.
 pub const DATA_FILE: &str = "data.json";
+/// The escape hatch: a whole page the model writes when the views are not enough (3D, a
+/// bespoke chart, an animation). When it is present and not empty the preview serves it instead
+/// of the kit, with the rows inlined as `window.kit`.
+pub const PAGE_FILE: &str = "index.html";
+/// The script hosts a page may load libraries from; nothing else on the internet.
+pub const CDN: &str = "https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com";
 /// Entities per page when the driver reads a source; well inside the proxy's response ceiling.
 pub const PAGE: u32 = 500;
 pub const DEFAULT_LIMIT: u32 = 1000;
@@ -496,6 +502,40 @@ pub fn content_security_policy(origin: &str, hash: &str) -> String {
     )
 }
 
+/// The page the model wrote, with the rows in front of it: `window.kit = {slug, spec, data}`
+/// as the first script in `<head>` (or at the top when the page has none). Inline scripts and
+/// the CDN hosts are what [`page_content_security_policy`] allows; the frame is sandboxed like
+/// the kit's.
+pub fn page_document(
+    html: &str,
+    slug: &str,
+    spec: &Spec,
+    data: Option<&serde_json::Value>,
+) -> String {
+    let payload =
+        serde_json::to_string(&serde_json::json!({ "slug": slug, "spec": spec, "data": data }))
+            .unwrap_or_default()
+            .replace('<', "\\u003c");
+    let script = format!("<script>window.kit = {payload};</script>");
+    match html.find("<head>") {
+        Some(at) => {
+            let (before, after) = html.split_at(at + "<head>".len());
+            format!("{before}\n{script}{after}")
+        }
+        None => format!("{script}\n{html}"),
+    }
+}
+
+pub fn page_content_security_policy(origin: &str) -> String {
+    format!(
+        "default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'unsafe-inline' {CDN}; \
+         style-src 'unsafe-inline' {CDN} https://fonts.googleapis.com; \
+         font-src data: {CDN} https://fonts.gstatic.com; img-src data: blob: https:; \
+         connect-src {origin} {TILES} {CDN}; worker-src blob: data:; child-src blob: data:; \
+         frame-ancestors 'self'"
+    )
+}
+
 /// One document: the stylesheet, the specification and the rows as data, the worker, the
 /// script. Nothing
 /// in it is fetched later, because a frame without `allow-same-origin` has no session to fetch
@@ -543,6 +583,33 @@ mod tests {
         assert_eq!(spec.title, "Helsinki city bikes");
         assert_eq!(spec.views.len(), 5);
         assert_eq!(spec.filters.len(), 3);
+    }
+
+    #[test]
+    fn a_page_gets_the_rows_first_and_a_closing_tag_in_the_data_ends_nothing() {
+        let spec = parse(EXAMPLE).expect("valid");
+        let data =
+            serde_json::json!({ "stations": [{ "id": "u", "type": "T", "name": "</script><b>" }] });
+        let page = page_document(
+            "<!doctype html><html><head><title>x</title></head><body><canvas></canvas></body></html>",
+            "slug",
+            &spec,
+            Some(&data),
+        );
+        let at = page
+            .find("<script>window.kit = ")
+            .expect("the rows are inlined");
+        assert!(
+            at < page.find("<title>").unwrap(),
+            "the rows come before the page's own head"
+        );
+        assert!(!page.contains("</script><b>"), "{page}");
+        assert!(page.contains("\\u003c/script>\\u003cb>"));
+        let bare = page_document("<h1>no head</h1>", "slug", &spec, None);
+        assert!(bare.starts_with("<script>window.kit = "));
+        let csp = page_content_security_policy("https://portal.example");
+        assert!(csp.contains("script-src 'unsafe-inline' https://cdn.jsdelivr.net"));
+        assert!(!csp.contains("sha256"));
     }
 
     #[test]

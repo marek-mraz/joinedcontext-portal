@@ -1170,21 +1170,17 @@ pub async fn preview(
             errors.join("; ")
         ))
     })?;
-    let bundle = kit::bundle().ok_or_else(|| {
-        ApiError::Unavailable("this Portal was built without the kit (kit/dist is empty)".into())
-    })?;
     let data = run
         .files
         .get(kit::DATA_FILE)
         .and_then(serde_json::Value::as_str)
         .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
-    let html = kit::document(
-        &spec.title,
-        &run.endpoint_slug,
-        &spec,
-        data.as_ref(),
-        &bundle,
-    );
+    // A page the model wrote replaces the kit (the escape hatch); an empty one hands back.
+    let page = run
+        .files
+        .get(kit::PAGE_FILE)
+        .and_then(serde_json::Value::as_str)
+        .filter(|html| !html.trim().is_empty());
     let origin = {
         let url = &state.config.public_base_url;
         match url.port() {
@@ -1196,7 +1192,29 @@ pub async fn preview(
             None => format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default()),
         }
     };
-    let csp = kit::content_security_policy(&origin, &kit::script_hash(&bundle.js));
+    let (html, csp) = match page {
+        Some(page) => (
+            kit::page_document(page, &run.endpoint_slug, &spec, data.as_ref()),
+            kit::page_content_security_policy(&origin),
+        ),
+        None => {
+            let bundle = kit::bundle().ok_or_else(|| {
+                ApiError::Unavailable(
+                    "this Portal was built without the kit (kit/dist is empty)".into(),
+                )
+            })?;
+            (
+                kit::document(
+                    &spec.title,
+                    &run.endpoint_slug,
+                    &spec,
+                    data.as_ref(),
+                    &bundle,
+                ),
+                kit::content_security_policy(&origin, &kit::script_hash(&bundle.js)),
+            )
+        }
+    };
     Ok((
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_owned()),

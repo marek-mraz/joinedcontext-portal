@@ -834,3 +834,56 @@ async fn every_pass_is_a_commit_on_the_run_branch_when_there_is_a_forge() {
     );
     assert_eq!(body["message"], json!("Bikes."));
 }
+
+#[tokio::test]
+async fn a_page_beside_the_spec_replaces_the_kit_in_the_preview() {
+    const PAGE: &str = "<!doctype html><html><head><title>3D</title>\
+        <script src=\"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js\"></script>\
+        </head><body><canvas id=\"scene\"></canvas><script>const rows = window.kit.data.stations;</script></body></html>";
+    let (app, cookie, _proxy) = portal(
+        "anthropic",
+        &[answer(
+            "A 3D scene of the stations, one column per station.",
+            &[("spec.json", "", VALID_SPEC), ("index.html", "", PAGE)],
+        )],
+    )
+    .await;
+    let created = create_run(&app, &cookie).await;
+    let id = created["id"].as_str().expect("id");
+    let run = wait_for(&app, &cookie, id, &["previewing", "failed"]).await;
+    assert_eq!(run["status"], json!("previewing"), "{run}");
+
+    let (status, headers, body) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let csp = headers
+        .get(header::CONTENT_SECURITY_POLICY)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        csp.contains("script-src 'unsafe-inline' https://cdn.jsdelivr.net"),
+        "{csp}"
+    );
+    assert!(!csp.contains("sha256"), "the page is not the kit: {csp}");
+    let body = String::from_utf8(body).expect("utf8");
+    assert!(
+        body.contains("<script>window.kit = "),
+        "the rows are inlined"
+    );
+    assert!(
+        body.contains("Laivasillankatu"),
+        "the rows the driver read are in the page"
+    );
+    assert!(
+        body.contains("three.min.js"),
+        "the page is served as written"
+    );
+    assert!(!body.contains("kit-worker"), "the kit itself is not loaded");
+}

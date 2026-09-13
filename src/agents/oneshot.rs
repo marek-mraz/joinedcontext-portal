@@ -41,8 +41,8 @@ static SYSTEM: LazyLock<String> = LazyLock::new(|| {
 You fill in one file, `spec.json`, for a prebuilt dashboard kit. The kit already holds the code:
 a data loader for NGSI-LD entities, filters, a stats row, a map, a table, SVG charts, a
 detail card, a form window and pages. You write only the specification that says which entity types to read, which
-attributes, and which views to draw. THIS CALL WRITES `spec.json` AND NOTHING ELSE: a block for
-any other path is refused.
+attributes, and which views to draw. THIS CALL WRITES `spec.json`, AND `index.html` ONLY WHEN
+THE VIEWS ARE NOT ENOUGH (below): a block for any other path is refused.
 
 You answer ONCE per call; a script applies your answer mechanically. There is no tool, no
 follow-up question, no second file.
@@ -80,6 +80,23 @@ Rules the schema cannot say, checked before anything is shown:
   a `range` over the number the prompt cares about.
 - Titles in the language of the prompt; short.
 - Numbers only in `range`, `sum`, `avg`, `min`, `max`, `chart.y` (unless `agg` is `count`).
+
+## WHEN THE VIEWS ARE NOT ENOUGH
+
+Something the views cannot draw (a 3D scene, a bespoke chart, an animation, a free layout, a
+custom widget) is not a refusal: write `index.html` as well, a complete page, and it replaces
+the kit's rendering. `spec.json` stays: its `sources` say which rows the page gets, its views
+are the fallback. The contract of the page:
+- The rows are there before the page's own scripts run: `window.kit = {{ slug, spec, data }}`,
+  where `data[sourceName]` is the array of entities in keyValues form (`id`, `type`, the attrs;
+  a GeoProperty is a GeoJSON geometry, e.g. `location.coordinates` = `[lon, lat]`).
+- Libraries only from `https://cdn.jsdelivr.net`, `https://cdnjs.cloudflare.com` or
+  `https://unpkg.com`, by `<script src>` / `<link>` with a pinned version. A basemap: MapLibre
+  GL from the CDN with the style `https://tiles.openfreemap.org/styles/liberty`. 3D: three.js
+  or deck.gl from the CDN. Nothing else on the network; no fetch to the platform.
+- One file, inline CSS and JS, no build step, no modules that import from elsewhere.
+- To go back to the views, rewrite `index.html` as an empty file.
+Prefer the views whenever they can do it: they are faster, filtered and consistent.
 
 ## THE FORMAT RULES
 
@@ -329,12 +346,12 @@ impl Driver {
         answer: &str,
     ) -> Result<(String, Vec<String>), String> {
         let (blocks, prose) = patch::parse(answer);
-        let (applied, refused) = patch::apply(files, &blocks, &[kit::SPEC_FILE]);
+        let (applied, refused) = patch::apply(files, &blocks, &[kit::SPEC_FILE, kit::PAGE_FILE]);
         self.event(
             "tool",
             json!({
                 "tool": "apply_patch",
-                "command": format!("{} block(s) for spec.json", blocks.len()),
+                "command": format!("{} block(s)", blocks.len()),
                 "exitCode": if refused.is_empty() { 0 } else { 1 },
                 "applied": applied,
                 "refused": refused,
@@ -394,7 +411,12 @@ impl Driver {
             pack.push_str("(none yet: write spec.json with an empty SEARCH block)\n");
         }
         for (path, content) in visible {
-            pack.push_str(&format!("### {path}\n```json\n{content}\n```\n"));
+            let fence = if path.ends_with(".html") {
+                "html"
+            } else {
+                "json"
+            };
+            pack.push_str(&format!("### {path}\n```{fence}\n{content}\n```\n"));
         }
         if !conversation.is_empty() {
             pack.push_str("\n## THE CONVERSATION SO FAR\n\n");
@@ -422,9 +444,11 @@ impl Driver {
             None => {
                 pack.push_str(&format!(
                     "The person says: {instruction}\n\nChange spec.json accordingly. If what is \
-                     asked needs something the kit does not have (a write to the endpoint, a \
-                     login, a file upload, a free-form layout), say so plainly in the sentences before the block, \
-                     name the nearest thing the views can do, and do that.\n"
+                     asked cannot be drawn with the views (3D, a bespoke chart, an animation, a \
+                     free layout, a custom widget), write index.html as well, as the section \
+                     WHEN THE VIEWS ARE NOT ENOUGH says. Only what needs the platform to write \
+                     (a save to the endpoint, a login, a file upload) is out of reach: say so \
+                     plainly in the sentences before the block, and do the nearest thing.\n"
                 ));
             }
         }
