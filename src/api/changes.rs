@@ -534,7 +534,17 @@ pub async fn get_change(
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
 ) -> Result<Json<ChangeProposal>, ApiError> {
-    let pr_number = parse_change_id(&id)?;
+    Ok(Json(change_for(&state, &project, &id).await?))
+}
+
+/// One change with its plan; the read behind the change route and the assistant's
+/// diagnostics door (AG-57).
+pub async fn change_for(
+    state: &AppState,
+    project: &str,
+    id: &str,
+) -> Result<ChangeProposal, ApiError> {
+    let pr_number = parse_change_id(id)?;
     let gitea = state
         .gitea
         .as_deref()
@@ -547,7 +557,7 @@ pub async fn get_change(
         )));
     }
 
-    let data = load_manifest_data(gitea, &pr, &project)
+    let data = load_manifest_data(gitea, &pr, project)
         .await?
         .ok_or_else(|| {
             ApiError::NotFound(format!(
@@ -557,9 +567,13 @@ pub async fn get_change(
 
     let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
     let redacted_fields = redact(plan.fields.clone());
-    let proposal = build_proposal(&pr, &project, &data, plan, Some(redacted_fields));
-
-    Ok(Json(proposal))
+    Ok(build_proposal(
+        &pr,
+        project,
+        &data,
+        plan,
+        Some(redacted_fields),
+    ))
 }
 
 #[utoipa::path(

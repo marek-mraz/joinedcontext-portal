@@ -837,6 +837,40 @@ pub async fn internal_get_run(
     }))
 }
 
+/// What a run may read about a resource of its own project when a step failed (AG-57).
+///
+/// The proxy has already refused an unknown component and an id that is not a name; here the
+/// run's project is the only project asked, so a run learns nothing about another project's
+/// pipelines or changes, not even that they exist.
+pub async fn internal_diagnostics(
+    State(state): State<AppState>,
+    Path((id, component, name)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    authenticate_proxy(&state, &headers)?;
+    let run = state
+        .agents
+        .get_run(&id)
+        .await
+        .map_err(unavailable)?
+        .ok_or_else(|| ApiError::NotFound(format!("run '{id}' not found")))?;
+    let body = match component.as_str() {
+        "pipeline" => serde_json::to_value(
+            crate::api::pipelines::metrics_for(&state, &run.project, &name).await?,
+        ),
+        "change" => serde_json::to_value(
+            crate::api::changes::change_for(&state, &run.project, &name).await?,
+        ),
+        other => {
+            return Err(ApiError::BadRequest(format!(
+                "the diagnostics door knows no component '{other}'"
+            )))
+        }
+    }
+    .map_err(|err| ApiError::Internal(err.to_string()))?;
+    Ok(Json(body))
+}
+
 /// What the person said, for the workspace to act on (AG-45, AG-52).
 ///
 /// One call, one channel: an agent that wants to know whether a question was answered and
@@ -1279,6 +1313,10 @@ pub fn internal_router() -> Router<AppState> {
         .route("/internal/agent-runs/events", post(internal_post_event))
         .route("/internal/agent-runs/{id}", get(internal_get_run))
         .route("/internal/agent-runs/{id}/inbox", get(internal_inbox))
+        .route(
+            "/internal/agent-runs/{id}/diagnostics/{component}/{name}",
+            get(internal_diagnostics),
+        )
 }
 
 #[cfg(test)]

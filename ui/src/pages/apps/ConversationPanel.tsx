@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { SchemaForm } from "../../components/forms/SchemaForm";
 import type { JsonSchema } from "../../components/forms/types";
 import { openQuestions } from "./useAgentRun";
+import { ActionStep } from "./ActionStep";
 import type { RunEvent } from "./useAgentRun";
 
 /** Who a line came from. The three read differently, so they are drawn differently. */
@@ -155,6 +156,13 @@ export function ConversationPanel({
         <ol className="space-y-2 text-sm" aria-label={t("agentRun.conversation.title")}>
           {events.map((event) => {
             const speaker = speakerOf(event.kind);
+            if (event.kind === "tool") {
+              return (
+                <li key={event.seq}>
+                  <ActionStep event={event} live={live} onSend={onSend} />
+                </li>
+              );
+            }
             if (speaker === "activity") {
               return (
                 <li key={event.seq} className="flex gap-2 text-xs text-fg-muted">

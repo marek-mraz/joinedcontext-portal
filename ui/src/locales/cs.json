@@ -1047,6 +1047,19 @@
     "chat": {
       "show": "Show the assistant",
       "hide": "Hide the assistant"
+    },
+    "step": {
+      "ok": "Úspěšný",
+      "failed": "Selhal",
+      "duration": "{ms} ms",
+      "input": "Vstup",
+      "output": "Výstup",
+      "error": "Chyba",
+      "diff": "Změna",
+      "copy": "Kopírovat záznam",
+      "copied": "Záznam zkopírován",
+      "fix": "Požádat asistenta o opravu",
+      "fixMessage": "Krok {tool} selhal: {error}. Oprav to."
     }
   },
   "assistant": {

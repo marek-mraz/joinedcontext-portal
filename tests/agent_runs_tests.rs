@@ -1112,3 +1112,69 @@ async fn a_request_the_app_kind_would_refuse_is_refused_here() {
         );
     }
 }
+
+#[tokio::test]
+async fn the_diagnostics_door_answers_the_proxy_for_the_runs_own_project_only() {
+    let config = config();
+    let (app, internal) = both(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+
+    // AG-57: the door opens for the proxy alone.
+    let (status, _) = internal_call(
+        &internal,
+        None,
+        Method::GET,
+        &format!("/internal/agent-runs/{id}/diagnostics/pipeline/hsl-bikes"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // A run that does not exist has no project to look into.
+    let (status, _) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        "/internal/agent-runs/no-such-run/diagnostics/pipeline/hsl-bikes",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Only the components the door knows.
+    let (status, problem) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        &format!("/internal/agent-runs/{id}/diagnostics/endpoint/hsl-bikes"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+
+    // A pipeline the run's project does not have is not found, whatever other projects hold.
+    let (status, problem) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        &format!("/internal/agent-runs/{id}/diagnostics/pipeline/hsl-bikes"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{problem}");
+
+    // A change needs the forge; without one the door says so instead of inventing a state.
+    let (status, problem) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        &format!("/internal/agent-runs/{id}/diagnostics/change/chg-0000000a"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{problem}");
+}

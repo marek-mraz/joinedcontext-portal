@@ -179,15 +179,25 @@ pub async fn get_metrics(
     State(state): State<AppState>,
     Path((project, name)): Path<(String, String)>,
 ) -> Result<Json<PipelineMetrics>, ApiError> {
+    Ok(Json(metrics_for(&state, &project, &name).await?))
+}
+
+/// The runner's counters for one pipeline; the read behind the metrics route and the
+/// assistant's diagnostics door (AG-57).
+pub async fn metrics_for(
+    state: &AppState,
+    project: &str,
+    name: &str,
+) -> Result<PipelineMetrics, ApiError> {
     let not_found = || ApiError::NotFound(format!("pipeline '{name}' not found in '{project}'"));
     // The names go into the runner URL, so they are checked before anything is built from them,
     // and a pipeline that is not mirrored is not disclosed as existing elsewhere (R20).
-    if !is_dns1123(&project) || !is_dns1123(&name) {
+    if !is_dns1123(project) || !is_dns1123(name) {
         return Err(not_found());
     }
     state
         .mirror
-        .get(&project, "Pipeline", &name)
+        .get(project, "Pipeline", name)
         .ok_or_else(not_found)?;
 
     let template = state
@@ -197,9 +207,7 @@ pub async fn get_metrics(
         .ok_or_else(|| ApiError::Unavailable("no pipeline runner is configured".into()))?;
     let url = format!(
         "{}/metrics",
-        template
-            .replace("{project}", &project)
-            .trim_end_matches('/')
+        template.replace("{project}", project).trim_end_matches('/')
     );
 
     let response = http().get(&url).send().await.map_err(|err| {
@@ -219,7 +227,7 @@ pub async fn get_metrics(
         ApiError::Unavailable("the pipeline runner did not answer".into())
     })?;
 
-    Ok(Json(scrape(&body, &name, now_rfc3339())))
+    Ok(scrape(&body, name, now_rfc3339()))
 }
 
 fn now_rfc3339() -> String {

@@ -96,8 +96,8 @@ describe("the conversation panel", () => {
       screen.getByRole("list", { name: en.agentRun.conversation.title }),
     ).getAllByRole("listitem");
     expect(rows[0]).toHaveTextContent(en.agentRun.conversation.agent);
-    // An activity line carries its kind and no speaker at all.
-    expect(rows[1]).toHaveTextContent("tool");
+    // A tool line is an inspectable step named after its tool, with no speaker at all (AG-56).
+    expect(rows[1]).toHaveTextContent("bash");
     expect(rows[1]).not.toHaveTextContent(en.agentRun.conversation.agent);
   });
 

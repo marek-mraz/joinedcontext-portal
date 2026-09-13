@@ -1047,6 +1047,19 @@
     "chat": {
       "show": "Show the assistant",
       "hide": "Hide the assistant"
+    },
+    "step": {
+      "ok": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "duration": "{ms} ms",
+      "input": "Eingabe",
+      "output": "Ausgabe",
+      "error": "Fehler",
+      "diff": "Änderung",
+      "copy": "Ablauf kopieren",
+      "copied": "Ablauf kopiert",
+      "fix": "Den Assistenten um eine Korrektur bitten",
+      "fixMessage": "Der Schritt {tool} ist fehlgeschlagen: {error}. Behebe das."
     }
   },
   "assistant": {

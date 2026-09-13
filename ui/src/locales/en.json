@@ -1047,6 +1047,19 @@
     "chat": {
       "show": "Show the assistant",
       "hide": "Hide the assistant"
+    },
+    "step": {
+      "ok": "Succeeded",
+      "failed": "Failed",
+      "duration": "{ms} ms",
+      "input": "Input",
+      "output": "Output",
+      "error": "Error",
+      "diff": "Change",
+      "copy": "Copy the trace",
+      "copied": "Trace copied",
+      "fix": "Ask the assistant to fix it",
+      "fixMessage": "The step {tool} failed: {error}. Fix it."
     }
   },
   "assistant": {

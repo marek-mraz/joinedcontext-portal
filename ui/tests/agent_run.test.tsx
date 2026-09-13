@@ -197,14 +197,12 @@ describe("watching a run", () => {
     await emit("tool", { seq: 2, tool: "bash", command: "cargo test", exitCode: 0 });
 
     expect(await screen.findByText("Reading the projected schema")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        en.agentRun.line.tool
-          .replace("{tool}", "bash")
-          .replace("{command}", "cargo test")
-          .replace("{exit}", "0"),
-      ),
-    ).toBeInTheDocument();
+    // A tool line is an inspectable step (AG-56): its name on the summary, its command inside.
+    const step = screen.getByRole("group");
+    expect(within(step).getByText("bash")).toBeInTheDocument();
+    expect(within(step).getByRole("img", { name: en.agentRun.step.ok })).toBeInTheDocument();
+    await userEvent.click(within(step).getByText("bash"));
+    expect(within(step).getByText("cargo test")).toBeInTheDocument();
   });
 
   it("does not double a line the reconnect replayed (AG-45)", async () => {
