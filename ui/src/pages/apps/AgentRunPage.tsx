@@ -90,9 +90,9 @@ export function AgentRunPage({
         UI-42). Until then the left column says which phase the run is in and how long it has
         been running, so the first minute is watched rather than waited out.
       */}
-      <div className={chatOpen ? "space-y-4 lg:pr-[28rem]" : "space-y-4"}>
+      <div className={chatOpen ? "space-y-4 lg:pr-[23rem]" : "space-y-4"}>
         <div className="space-y-4">
-          <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-4">
+          <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-2">
             <h2 id="run-preview" className="text-base font-semibold">
               {t("agentRun.preview.title")}
             </h2>
@@ -111,7 +111,7 @@ export function AgentRunPage({
                   title={t("agentRun.preview.frameTitle", { app: record.appName })}
                   src={record.previewUrl}
                   sandbox="allow-scripts"
-                  className="h-[70vh] min-h-[28rem] w-full rounded border border-border bg-surface"
+                  className="h-[82vh] min-h-[28rem] w-full rounded border border-border bg-surface"
                 />
                 <a
                   href={record.previewUrl}
@@ -158,7 +158,7 @@ export function AgentRunPage({
           stays put while the preview scrolls or switches pages, and folds to a button when the
           preview needs the width (UI-42).
         */}
-        <div className="fixed bottom-4 right-4 z-30 flex w-[26rem] max-w-[calc(100vw-2rem)] flex-col items-end gap-2">
+        <div className="fixed bottom-4 right-4 z-30 flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col items-end gap-2">
           <button
             type="button"
             aria-expanded={chatOpen}
@@ -170,7 +170,7 @@ export function AgentRunPage({
           >
             {chatOpen ? t("agentRun.chat.hide") : t("agentRun.chat.show")}
           </button>
-          <div id="run-chat" hidden={!chatOpen} className="max-h-[80vh] w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
+          <div id="run-chat" hidden={!chatOpen} className="h-[80vh] w-full rounded border border-border bg-surface shadow-lg [&>section]:h-full [&>section]:min-h-0">
             <ConversationPanel
               events={events}
               streaming={streaming}
