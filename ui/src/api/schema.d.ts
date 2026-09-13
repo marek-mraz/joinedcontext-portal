@@ -362,6 +362,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_drafts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/drafts/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stream_draft_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/drafts/{kind}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_draft"];
+        put: operations["put_draft"];
+        post?: never;
+        delete: operations["drop_draft"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/export": {
         parameters: {
             query?: never;
@@ -921,6 +969,8 @@ export interface components {
              * @default joinedcontext
              */
             shortName: string;
+            /** @default strict */
+            validation: components["schemas"]["Validation"];
         };
         /** @description The catalogue index Model Tools caches and refreshes daily (DM-12). */
         Catalogue: {
@@ -1102,6 +1152,39 @@ export interface components {
             /** @description The tabular representation the rows are read through. */
             representation: string;
         };
+        Draft: {
+            kind: string;
+            manifest: unknown;
+            name: string;
+            project: string;
+            touchedBy: string;
+            touchedKind: string;
+            /** Format: date-time */
+            updatedAt: string;
+            verdict?: null | components["schemas"]["Verdict"];
+            /** Format: int64 */
+            version: number;
+        };
+        DraftEvent: {
+            event: string;
+            kind: string;
+            name: string;
+            project: string;
+            touchedBy: string;
+            touchedKind: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: int64 */
+            version: number;
+        };
+        /** @description Collection of drafts returned by the list operation. */
+        DraftList: {
+            items: components["schemas"]["Draft"][];
+        };
+        /** @description Confirmation payload after dropping a draft. */
+        DropDraftResponse: {
+            dropped: boolean;
+        };
         /** @description Reviewer-facing validation and diff result returned on `?dryRun=All` (MF-13, R17). */
         DryRunResult: {
             lane: components["schemas"]["Lane"];
@@ -1158,6 +1241,11 @@ export interface components {
             from?: Record<string, never>;
             path: string;
             to?: Record<string, never>;
+        };
+        Finding: {
+            level: components["schemas"]["Level"];
+            message: string;
+            path: string;
         };
         /** @description Running a blueprint: the parameters the form collected (API/01 §13). */
         FlowRequest: {
@@ -1308,6 +1396,8 @@ export interface components {
              */
             offered: string[];
         };
+        /** @enum {string} */
+        Level: "error" | "warning" | "info";
         ListMeta: {
             continue?: string | null;
             remainingItemCount?: number | null;
@@ -1512,6 +1602,12 @@ export interface components {
             /** @description One resource per enabled representation, plus the schema index (EP-64). */
             resources: components["schemas"]["ResourceLink"][];
         };
+        /** @description Input payload for saving or updating a draft manifest. */
+        PutDraftRequest: {
+            /** Format: int64 */
+            expectedVersion?: number | null;
+            manifest: unknown;
+        };
         /** @description What a registration's card shows (UI-27, PF-48). */
         RegistrationCard: {
             /** @description Whether the source is on this platform or outside it. */
@@ -1657,6 +1753,19 @@ export interface components {
             leader: boolean;
             manifests: number;
             revision?: string | null;
+        };
+        /**
+         * @description Proposal validation strictness mode (PF-57).
+         * @enum {string}
+         */
+        Validation: "strict" | "lax";
+        Verdict: {
+            /** Format: date-time */
+            checkedAt: string;
+            findings: components["schemas"]["Finding"][];
+            inputDigest: string;
+            ok: boolean;
+            trace?: unknown;
         };
     };
     responses: never;
@@ -2722,6 +2831,299 @@ export interface operations {
             };
         };
     };
+    list_drafts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of drafts in the project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    stream_draft_events: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-Sent Events stream of draft events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Manifest kind */
+                kind: string;
+                /** @description Draft name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The draft */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Draft"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Draft or project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    put_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Manifest kind */
+                kind: string;
+                /** @description Draft name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved draft */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Draft"];
+                };
+            };
+            /** @description Bad request, e.g. literal secret */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Draft version conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Invalid input */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    drop_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Manifest kind */
+                kind: string;
+                /** @description Draft name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Draft dropped result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DropDraftResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Project not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     export: {
         parameters: {
             query?: {
@@ -3084,6 +3486,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict or verdict required */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
                 };
             };
             /** @description Invalid input according to schema */

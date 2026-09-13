@@ -1356,6 +1356,397 @@
         }
       }
     },
+    "/api/v1/projects/{project}/drafts": {
+      "get": {
+        "tags": [
+          "drafts"
+        ],
+        "operationId": "list_drafts",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of drafts in the project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/drafts/events": {
+      "get": {
+        "tags": [
+          "drafts"
+        ],
+        "operationId": "stream_draft_events",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events stream of draft events",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/drafts/{kind}/{name}": {
+      "get": {
+        "tags": [
+          "drafts"
+        ],
+        "operationId": "get_draft",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Manifest kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Draft name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Draft"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Draft or project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "drafts"
+        ],
+        "operationId": "put_draft",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Manifest kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Draft name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The saved draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Draft"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request, e.g. literal secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Draft version conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "drafts"
+        ],
+        "operationId": "drop_draft",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "description": "Manifest kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Draft name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Draft dropped result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DropDraftResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/export": {
       "get": {
         "tags": [
@@ -1833,6 +2224,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or verdict required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -4024,6 +4425,15 @@
             "type": "string",
             "description": "Short name: sidebars, tabs, e-mail subjects. A block that omits it gets the full name,\nso the field default is empty rather than the struct's.",
             "default": "joinedcontext"
+          },
+          "validation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Validation",
+                "description": "Proposal validation strictness (PF-57). In strict mode, proposals require a fresh\ngreen verdict; in lax mode, Green-lane proposals proceed with a warning."
+              }
+            ],
+            "default": "strict"
           }
         }
       },
@@ -4472,6 +4882,123 @@
           }
         }
       },
+      "Draft": {
+        "type": "object",
+        "required": [
+          "project",
+          "kind",
+          "name",
+          "manifest",
+          "touchedBy",
+          "touchedKind",
+          "version",
+          "updatedAt"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "manifest": {},
+          "name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "touchedBy": {
+            "type": "string"
+          },
+          "touchedKind": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verdict": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Verdict"
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DraftEvent": {
+        "type": "object",
+        "required": [
+          "project",
+          "kind",
+          "name",
+          "version",
+          "touchedBy",
+          "touchedKind",
+          "event",
+          "updatedAt"
+        ],
+        "properties": {
+          "event": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "touchedBy": {
+            "type": "string"
+          },
+          "touchedKind": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DraftList": {
+        "type": "object",
+        "description": "Collection of drafts returned by the list operation.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Draft"
+            }
+          }
+        }
+      },
+      "DropDraftResponse": {
+        "type": "object",
+        "description": "Confirmation payload after dropping a draft.",
+        "required": [
+          "dropped"
+        ],
+        "properties": {
+          "dropped": {
+            "type": "boolean"
+          }
+        }
+      },
       "DryRunResult": {
         "type": "object",
         "description": "Reviewer-facing validation and diff result returned on `?dryRun=All` (MF-13, R17).",
@@ -4619,6 +5146,26 @@
             "type": "object"
           }
         }
+      },
+      "Finding": {
+        "type": "object",
+        "required": [
+          "level",
+          "path",
+          "message"
+        ],
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "FlowRequest": {
         "type": "object",
@@ -4959,6 +5506,14 @@
             ]
           }
         }
+      },
+      "Level": {
+        "type": "string",
+        "enum": [
+          "error",
+          "warning",
+          "info"
+        ]
       },
       "ListMeta": {
         "type": "object",
@@ -5583,6 +6138,24 @@
           }
         }
       },
+      "PutDraftRequest": {
+        "type": "object",
+        "description": "Input payload for saving or updating a draft manifest.",
+        "required": [
+          "manifest"
+        ],
+        "properties": {
+          "expectedVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "manifest": {}
+        },
+        "additionalProperties": false
+      },
       "RegistrationCard": {
         "type": "object",
         "description": "What a registration's card shows (UI-27, PF-48).",
@@ -6005,6 +6578,43 @@
             ]
           }
         }
+      },
+      "Validation": {
+        "type": "string",
+        "description": "Proposal validation strictness mode (PF-57).",
+        "enum": [
+          "strict",
+          "lax"
+        ]
+      },
+      "Verdict": {
+        "type": "object",
+        "required": [
+          "ok",
+          "findings",
+          "checkedAt",
+          "inputDigest"
+        ],
+        "properties": {
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            }
+          },
+          "inputDigest": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "trace": {}
+        },
+        "additionalProperties": false
       }
     }
   },
@@ -6032,6 +6642,10 @@
     {
       "name": "ops",
       "description": "One operation registry behind every door (AG-59, ADR-N-021)"
+    },
+    {
+      "name": "drafts",
+      "description": "Shared manifest drafts every window shares (AG-61, UI-47)"
     },
     {
       "name": "preferences",
