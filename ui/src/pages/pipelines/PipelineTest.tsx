@@ -167,11 +167,18 @@ export interface PipelineTestProps {
   onChange: (form: PipelineForm) => void;
   /** The manifest the form is right now, as the dialog proposes it. */
   toManifest: (form: PipelineForm) => unknown;
+  /** The `http` DataSource's own URL, offered as the sample the runner fetches (PL-48). */
+  sampleUrl?: string;
+  /** The test's answer for the mapping it ran (PL-49). */
+  onVerdict?: (ok: boolean, bloblang: string) => void;
 }
 
-export function PipelineTest({ project, draft, onChange, toManifest }: PipelineTestProps): JSX.Element {
+/** A sample is a file held in memory, or a URL the runner fetches itself (PL-43, PL-48). */
+type SampleSource = { name: string; format: SampleFormat } & ({ text: string; url?: undefined } | { url: string; text?: undefined });
+
+export function PipelineTest({ project, draft, onChange, toManifest, sampleUrl, onVerdict }: PipelineTestProps): JSX.Element {
   const { t } = useTranslation();
-  const [sample, setSample] = useState<{ name: string; text: string; format: SampleFormat } | null>(null);
+  const [sample, setSample] = useState<SampleSource | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -215,7 +222,10 @@ export function PipelineTest({ project, draft, onChange, toManifest }: PipelineT
         headers: { "content-type": "application/json", "x-csrf-token": readCsrfToken() ?? "" },
         body: JSON.stringify({
           pipeline: toManifest(draft),
-          sample: { text: sample.text, format: sample.format },
+          sample:
+            sample.url !== undefined
+              ? { url: sample.url, format: sample.format }
+              : { text: sample.text, format: sample.format },
         }),
       });
       if (!response.ok) {
@@ -224,7 +234,12 @@ export function PipelineTest({ project, draft, onChange, toManifest }: PipelineT
         setError(problem?.detail ?? t("pipelines.test.failed", { status: response.status }));
         return;
       }
-      setTrace((await response.json()) as Trace);
+      const answer = (await response.json()) as Trace;
+      setTrace(answer);
+      onVerdict?.(
+        answer.errors.length === 0 && answer.validation.length > 0 && answer.validation.every((v) => v.ok),
+        bloblang,
+      );
     } catch {
       setTrace(null);
       setError(t("pipelines.test.failed", { status: 0 }));
@@ -267,9 +282,24 @@ export function PipelineTest({ project, draft, onChange, toManifest }: PipelineT
             }}
           />
         </label>
+        {sampleUrl ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setTrace(null);
+              setError(null);
+              setSample({ name: sampleUrl, url: sampleUrl, format: "json" });
+            }}
+          >
+            {t("pipelines.test.useUrl")}
+          </Button>
+        ) : null}
         {sample ? (
           <span className="font-mono text-caption text-fg-muted">
-            {t("pipelines.test.sample", { name: sample.name, format: sample.format, bytes: sample.text.length })}
+            {sample.url !== undefined
+              ? t("pipelines.test.urlSample", { url: sample.url })
+              : t("pipelines.test.sample", { name: sample.name, format: sample.format, bytes: sample.text.length })}
           </span>
         ) : null}
         <Button

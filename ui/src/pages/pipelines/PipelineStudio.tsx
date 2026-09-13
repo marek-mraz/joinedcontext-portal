@@ -86,6 +86,19 @@ export interface PipelineStudioProps {
   endpoints: Manifest[];
   /** The manifest the form is right now, for the sample test (PL-43); none hides the test. */
   toManifest?: (form: PipelineForm) => unknown;
+  /** The test's answer for the mapping it ran (PL-49). */
+  onVerdict?: (ok: boolean, bloblang: string) => void;
+}
+
+/** The URL of the `http` DataSource the draft reads, if it reads one (PL-48). */
+export function sampleUrlOf(draft: PipelineForm | undefined, dataSources: Manifest[]): string | undefined {
+  const name = draft?.source?.dataSourceRef;
+  const source = name ? dataSources.find((candidate) => candidate.metadata.name === name) : undefined;
+  if (!source || source.spec.type !== "http") {
+    return undefined;
+  }
+  const url = (source.spec.http as { url?: unknown } | undefined)?.url;
+  return typeof url === "string" && /^https?:\/\//.test(url) ? url : undefined;
 }
 
 /**
@@ -100,6 +113,7 @@ export function PipelineStudio({
   dataSources,
   endpoints,
   toManifest,
+  onVerdict,
 }: PipelineStudioProps): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "en";
@@ -260,7 +274,16 @@ export function PipelineStudio({
 
   return (
     <div className="flex flex-col gap-3" data-testid="pipeline-studio">
-      {toManifest ? <PipelineTest project={project} draft={draft} onChange={onChange} toManifest={toManifest} /> : null}
+      {toManifest ? (
+        <PipelineTest
+          project={project}
+          draft={draft}
+          onChange={onChange}
+          toManifest={toManifest}
+          sampleUrl={sampleUrlOf(draft, dataSources)}
+          onVerdict={onVerdict}
+        />
+      ) : null}
       <section className={sectionClass} aria-labelledby="studio-source">
         <h3 id="studio-source" className="text-body font-semibold text-fg">
           {t("pipelines.studio.source")}

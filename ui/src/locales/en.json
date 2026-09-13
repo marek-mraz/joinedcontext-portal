@@ -307,6 +307,11 @@
       "caCert": "Certificate authority reference",
       "secretName": "Secret name",
       "secretKey": "Key in the secret"
+    },
+    "probe": {
+      "title": "One fetch of the feed",
+      "records": "{records} records, {bytes} bytes",
+      "skipped": "Not fetched: {reason}"
     }
   },
   "pipelines": {
@@ -446,7 +451,10 @@
       "ok": "an NGSI-LD entity",
       "errors": "{count} errors",
       "line": "line {line}",
-      "ready": "All {count} messages map to entities. Propose the pipeline below."
+      "ready": "All {count} messages map to entities. Propose the pipeline below.",
+      "useUrl": "Test on the source's URL",
+      "urlSample": "{url} · json · fetched by the runner",
+      "gate": "Test the mapping first: Propose opens when the test is green for this mapping."
     }
   },
   "dashboards": {

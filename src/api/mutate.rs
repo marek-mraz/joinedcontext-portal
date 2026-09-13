@@ -290,14 +290,20 @@ pub async fn propose(
     // change in what people are asking the platform to do.
     crate::telemetry::proposed(lane, kind_info.kind);
 
-    // 7. Dry run short-circuit
+    // 7. Dry run short-circuit; an `http` DataSource is also fetched once (MF-39).
     if dry_run {
+        let probe = if kind_info.kind == "DataSource" {
+            crate::api::pipeline_test::probe_source(state, project, &envelope.spec).await
+        } else {
+            None
+        };
         return Ok((
             StatusCode::OK,
             Json(DryRunResult {
                 valid: true,
                 lane,
                 plan,
+                probe,
             }),
         )
             .into_response());

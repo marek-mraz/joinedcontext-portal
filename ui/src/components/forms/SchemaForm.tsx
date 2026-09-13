@@ -13,6 +13,8 @@ export interface SchemaFormProps<T> {
   formData?: T;
   disabled?: boolean;
   submitLabel?: string;
+  /** Why the submit is closed right now (PL-49): disables the button and says so beside it. */
+  submitDisabledReason?: string;
   /** Rendered beside the submit, on its left: a cancel, a secondary action. */
   actions?: ReactNode;
   onSubmit: (data: T) => void;
@@ -41,7 +43,8 @@ export function errorMessageKey(error: RJSFValidationError): string {
  * validation with translated messages, and no error list (each field carries its own).
  */
 export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
-  const { schema, uiSchema, formData, disabled, submitLabel, actions, onSubmit, onChange } = props;
+  const { schema, uiSchema, formData, disabled, submitLabel, submitDisabledReason, actions, onSubmit, onChange } =
+    props;
   const { t } = useTranslation();
 
   const effectiveUiSchema = React.useMemo(
@@ -51,9 +54,10 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
         ...(uiSchema?.["ui:submitButtonOptions"] as Record<string, unknown> | undefined),
         // rjsf's own default is the untranslated word "Submit".
         submitText: submitLabel ?? t("form.submit"),
+        ...(submitDisabledReason ? { props: { disabled: true, title: submitDisabledReason } } : {}),
       },
     }),
-    [uiSchema, submitLabel, t],
+    [uiSchema, submitLabel, submitDisabledReason, t],
   );
 
   const transformErrors = React.useCallback(

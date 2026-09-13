@@ -53,7 +53,22 @@ function mockFetch(test: { status: number; body: unknown }) {
   return fetchMock;
 }
 
-function Harness({ initial, onForm }: { initial?: PipelineForm; onForm: (form: PipelineForm) => void }) {
+const HTTP_SOURCE = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "DataSource",
+  metadata: { name: "hsl-citybikes-free", namespace: "helsinki" },
+  spec: { type: "http", http: { url: "https://gbfs.example.org/free_bike_status.json", timeout: "15s" } },
+};
+
+function Harness({
+  initial,
+  onForm,
+  dataSources = [],
+}: {
+  initial?: PipelineForm;
+  onForm: (form: PipelineForm) => void;
+  dataSources?: (typeof HTTP_SOURCE)[];
+}) {
   const [draft, setDraft] = useState<PipelineForm | undefined>(initial);
   return (
     <PipelineStudio
@@ -63,20 +78,20 @@ function Harness({ initial, onForm }: { initial?: PipelineForm; onForm: (form: P
         setDraft(form);
         onForm(form);
       }}
-      dataSources={[]}
+      dataSources={dataSources}
       endpoints={[]}
       toManifest={(form) => ({ kind: "Pipeline", metadata: { name: form.name }, spec: form })}
     />
   );
 }
 
-function renderStudio(initial?: PipelineForm) {
+function renderStudio(initial?: PipelineForm, dataSources?: (typeof HTTP_SOURCE)[]) {
   const onForm = vi.fn();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <I18nextProvider i18n={i18n}>
-        <Harness initial={initial} onForm={onForm} />
+        <Harness initial={initial} onForm={onForm} dataSources={dataSources} />
       </I18nextProvider>
     </QueryClientProvider>,
   );
@@ -181,6 +196,40 @@ describe("the sample test in the studio (PL-43)", () => {
     expect(screen.queryByTestId("stage-inspector")).toBeNull();
   });
 
+  it("offers the http source's own URL as the sample and lets the runner fetch it (PL-48)", async () => {
+    const fetchMock = mockFetch({ status: 200, body: CLEAN });
+    renderStudio(
+      {
+        name: "citybikes-free",
+        class: "auto",
+        targetEndpoint: TARGET,
+        source: { dataSourceRef: "hsl-citybikes-free" },
+        compute: { kind: "bloblang", bloblang: "root = this.data.bikes" },
+      },
+      [HTTP_SOURCE],
+    );
+    await userEvent.click(await screen.findByRole("button", { name: en.pipelines.test.useUrl }));
+    expect(screen.getByText(/free_bike_status\.json · json · fetched by the runner/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: en.pipelines.test.run }));
+    const call = await waitFor(() => {
+      const found = fetchMock.mock.calls.find(([input]) => String(input).includes("/pipelines/test"));
+      expect(found).toBeDefined();
+      return found as [string, RequestInit];
+    });
+    const body = JSON.parse(call[1].body as string) as { sample: unknown };
+    expect(body.sample).toEqual({ url: "https://gbfs.example.org/free_bike_status.json", format: "json" });
+    expect(await screen.findByText(/All 1 messages map to entities/)).toBeInTheDocument();
+  });
+
+  it("offers no URL for a source that is not http", async () => {
+    mockFetch({ status: 200, body: CLEAN });
+    renderStudio({ name: "x", class: "auto", targetEndpoint: TARGET, source: { dataSourceRef: "mqtt-x" } }, [
+      { ...HTTP_SOURCE, metadata: { name: "mqtt-x", namespace: "helsinki" }, spec: { type: "mqtt", http: {} } },
+    ]);
+    await screen.findByText(en.pipelines.test.title);
+    expect(screen.queryByRole("button", { name: en.pipelines.test.useUrl })).toBeNull();
+  });
+
   it("refuses a sample over 5 MiB before anything is sent", async () => {
     const fetchMock = mockFetch({ status: 200, body: TRACE });
     renderStudio({ name: "shmu-air", class: "resident", targetEndpoint: TARGET });
@@ -229,5 +278,48 @@ describe("from a sample to a proposal", () => {
     expect(envelope.kind).toBe("Pipeline");
     expect(envelope.spec.compute?.bloblang).toContain('root.type = "AirQuality"');
     expect(envelope.spec.output?.type).toBe("AirQuality");
+  });
+
+  it("keeps Propose closed, with the reason, until the test is green for the mapping in the editor (PL-49)", async () => {
+    mockFetch({ status: 200, body: CLEAN });
+    const onSubmit = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <PipelineEditorDialog
+            project="helsinki"
+            onOpenChange={() => {}}
+            editing={null}
+            initial={{
+              name: "shmu-air",
+              class: "resident",
+              targetEndpoint: TARGET,
+              source: { dataSourceRef: "shmu-csv" },
+              compute: { kind: "bloblang", bloblang: "root.id = this.station_id" },
+            }}
+            pending={false}
+            error={null}
+            onSubmit={onSubmit}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+    const dialog = await screen.findByRole("dialog");
+    const propose = () => within(dialog).getByRole("button", { name: en.pipelines.propose });
+    expect(propose()).toBeDisabled();
+    expect(within(dialog).getByText(en.pipelines.test.gate)).toBeInTheDocument();
+
+    await userEvent.upload(within(dialog).getByLabelText(en.pipelines.test.chooseFile), csvFile());
+    await userEvent.click(await within(dialog).findByRole("button", { name: en.pipelines.test.run }));
+    await within(dialog).findByText(/All 1 messages map to entities/);
+    await waitFor(() => expect(propose()).toBeEnabled());
+    expect(within(dialog).queryByText(en.pipelines.test.gate)).toBeNull();
+
+    // The mapping changed after the test: the verdict no longer describes the editor's text.
+    await userEvent.type(within(dialog).getByLabelText(/Bloblang mapping/), "\nroot.x = 1");
+    await waitFor(() => expect(propose()).toBeDisabled());
+    expect(within(dialog).getByText(en.pipelines.test.gate)).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

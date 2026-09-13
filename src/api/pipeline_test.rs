@@ -17,14 +17,15 @@ use axum::routing::post;
 use axum::{Json, Router};
 use jc_core::kinds::{PipelineSpec, Verb};
 use jcctl::pipeline_test::{
-    harness, lint_errors, trace, Captured, Sample, TestError, TestTrace, MAX_MESSAGES,
-    MAX_SAMPLE_BYTES, STREAM_PREFIX,
+    harness, lint_errors, trace, Captured, Sample, SampleFormat, TestError, TestTrace,
+    MAX_MESSAGES, MAX_SAMPLE_BYTES, STREAM_PREFIX,
 };
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::agents::share;
+use crate::api::dry_run::Probe;
 use crate::api::pipelines::http;
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
@@ -156,12 +157,25 @@ pub async fn test_pipeline(
         Verb::Propose,
         Some(&request.pipeline),
     )?;
+    Ok(Json(
+        run_harness(&state, &project, &spec, &request.sample).await?,
+    ))
+}
+
+/// One run of `spec` over `sample` on the project's runner: the harness (PL-43) as an
+/// ephemeral stream, its captured messages as the trace, the stream deleted whatever happened.
+pub(crate) async fn run_harness(
+    state: &AppState,
+    project: &str,
+    spec: &PipelineSpec,
+    sample: &Sample,
+) -> Result<TestTrace, ApiError> {
     let runner = state
         .config
         .pipeline_runner_url
         .as_deref()
         .ok_or_else(|| ApiError::Unavailable("no pipeline runner is configured".into()))?
-        .replace("{project}", &project)
+        .replace("{project}", project)
         .trim_end_matches('/')
         .to_owned();
     let capture = state
@@ -174,13 +188,13 @@ pub async fn test_pipeline(
 
     let id = share::slug();
     let config = harness(
-        &spec,
-        &request.sample,
+        spec,
+        sample,
         &format!("{capture}/internal/pipeline-tests/{id}"),
     )
     .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     let (sender, mut receiver) = mpsc::unbounded_channel();
-    let _slot = Slot::take(&project, &id, sender)?;
+    let _slot = Slot::take(project, &id, sender)?;
 
     let stream = format!("{runner}/streams/{STREAM_PREFIX}{id}");
     let created = http().post(&stream).json(&config).send().await.map_err(|err| {
@@ -214,7 +228,65 @@ pub async fn test_pipeline(
             message: "the test stream could not be deleted; the runner keeps it until it is".into(),
         });
     }
-    Ok(Json(result))
+    Ok(result)
+}
+
+/// The URL an `http` DataSource is probed at, or why it is not (MF-39): `None` for every other
+/// type, a skipped probe for a source that declares a credential (a dry run resolves none,
+/// MF-38) or names no URL.
+pub(crate) fn probe_plan(spec: &Value) -> Option<Result<String, Probe>> {
+    if spec["type"] != "http" {
+        return None;
+    }
+    let http = &spec["http"];
+    if !http["authorization"].is_null() {
+        return Some(Err(Probe::skipped(
+            "the source declares a credential; a dry run resolves none (MF-38)",
+        )));
+    }
+    match http["url"].as_str() {
+        Some(url) if url.starts_with("http://") || url.starts_with("https://") => {
+            Some(Ok(url.to_owned()))
+        }
+        _ => Some(Err(Probe::skipped("the source names no http(s) URL"))),
+    }
+}
+
+/// One fetch of an `http` DataSource on the project's runner, beside the dry run's plan
+/// (MF-39). Nothing here fails the dry run: a runner that is missing or busy, or a feed that
+/// does not answer, is a skipped probe with the reason.
+pub(crate) async fn probe_source(state: &AppState, project: &str, spec: &Value) -> Option<Probe> {
+    let url = match probe_plan(spec)? {
+        Ok(url) => url,
+        Err(skipped) => return Some(skipped),
+    };
+    // The harness reads only `compute`, which a probe has none of; the rest is the minimum a
+    // PipelineSpec needs to exist.
+    let probe_spec: PipelineSpec = match serde_json::from_value(serde_json::json!({
+        "class": "auto",
+        "targetEndpoint": "urn:ngsi-ld:Endpoint:probe.local:probe:probe"
+    })) {
+        Ok(spec) => spec,
+        Err(err) => return Some(Probe::skipped(format!("probe spec: {err}"))),
+    };
+    let sample = Sample {
+        text: None,
+        url: Some(url),
+        format: SampleFormat::Json,
+    };
+    match run_harness(state, project, &probe_spec, &sample).await {
+        Ok(trace) if trace.errors.is_empty() && trace.input.events > 0 => Some(Probe {
+            records: Some(trace.input.events),
+            bytes: Some(trace.input.bytes),
+            sample: trace.input.sample,
+            skipped: None,
+        }),
+        Ok(trace) => Some(Probe::skipped(match trace.errors.first() {
+            Some(error) => format!("the feed did not parse as JSON: {}", error.message),
+            None => "the feed answered nothing within the test's three seconds".to_owned(),
+        })),
+        Err(err) => Some(Probe::skipped(err.to_string())),
+    }
 }
 
 /// `POST /internal/pipeline-tests/{id}`: what the harness produced, one message per call.
@@ -275,6 +347,34 @@ mod tests {
         foreign["metadata"]["namespace"] = json!("espoo");
         assert!(spec_of(&foreign, "helsinki").is_err());
         assert!(spec_of(&foreign, "espoo").is_ok());
+    }
+
+    #[test]
+    fn only_an_http_source_without_a_credential_is_probed() {
+        assert!(probe_plan(&json!({ "type": "mqtt", "mqtt": {} })).is_none());
+        let with_credential = json!({ "type": "http", "http": {
+            "url": "https://feeds.example/bikes.json",
+            "authorization": { "scheme": "bearer", "headerRef": { "name": "feed", "key": "token" } }
+        }});
+        let skipped = probe_plan(&with_credential)
+            .expect("http")
+            .expect_err("skipped");
+        assert!(skipped
+            .skipped
+            .as_deref()
+            .is_some_and(|r| r.contains("MF-38")));
+        assert!(!format!("{skipped:?}").contains("token\": \"")); // the ref's key, never a value
+        assert_eq!(
+            probe_plan(
+                &json!({ "type": "http", "http": { "url": "https://feeds.example/bikes.json" } })
+            ),
+            Some(Ok("https://feeds.example/bikes.json".to_owned()))
+        );
+        assert!(
+            probe_plan(&json!({ "type": "http", "http": { "url": "ftp://x" } }))
+                .expect("http")
+                .is_err()
+        );
     }
 
     #[tokio::test]

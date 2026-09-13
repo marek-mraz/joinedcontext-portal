@@ -307,6 +307,11 @@
       "caCert": "Odkaz na certifikačnú autoritu",
       "secretName": "Názov tajomstva",
       "secretKey": "Kľúč v tajomstve"
+    },
+    "probe": {
+      "title": "Jedno stiahnutie feedu",
+      "records": "{records} záznamov, {bytes} bajtov",
+      "skipped": "Nestiahnuté: {reason}"
     }
   },
   "pipelines": {
@@ -446,7 +451,10 @@
       "ok": "entita NGSI-LD",
       "errors": "{count} chýb",
       "line": "riadok {line}",
-      "ready": "Všetkých {count} správ sa mapuje na entity. Navrhnite pipeline nižšie."
+      "ready": "Všetkých {count} správ sa mapuje na entity. Navrhnite pipeline nižšie.",
+      "useUrl": "Otestovať na URL zdroja",
+      "urlSample": "{url} · json · stiahne runner",
+      "gate": "Najprv otestujte mapovanie: Navrhnúť sa otvorí, keď je test pre toto mapovanie zelený."
     }
   },
   "dashboards": {

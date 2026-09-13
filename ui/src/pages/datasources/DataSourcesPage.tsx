@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { usePermissions } from "../../api/permissions";
+import { takePrefill } from "../../assistant/state";
 import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, prune } from "../../api/manifest";
@@ -27,6 +28,14 @@ export interface DataSourceForm {
 }
 
 const PLURAL = "datasources";
+
+/** One fetch of an `http` source on the runner, beside the dry run's plan (MF-39). */
+interface Probe {
+  records?: number;
+  bytes?: number;
+  sample?: unknown;
+  skipped?: string;
+}
 
 /** The manifest a form produces (MF-01, MF-35). */
 export function toEnvelope(project: string, type: DataSourceType, form: DataSourceForm) {
@@ -117,13 +126,24 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   const queryClient = useQueryClient();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
-  const [type, setType] = useState<DataSourceType>(DATA_SOURCE_TYPES[0]);
+  // The assistant may have sent the person here with a form in hand (UI-45, AG-61): taken
+  // once, before the first render, so the dialog is open and filled from the start.
+  const [initial] = useState(() => {
+    const taken = takePrefill(window.location.pathname) as (DataSourceForm & { type?: unknown }) | null;
+    if (!taken) {
+      return undefined;
+    }
+    const { type: prefillType, ...form } = taken;
+    return { type: DATA_SOURCE_TYPES.find((candidate) => candidate === prefillType) ?? DATA_SOURCE_TYPES[0], form };
+  });
+  const [type, setType] = useState<DataSourceType>(initial?.type ?? DATA_SOURCE_TYPES[0]);
   const [editing, setEditing] = useState<Manifest | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [draft, setDraft] = useState<DataSourceForm | undefined>(undefined);
+  const [dialogOpen, setDialogOpen] = useState(initial !== undefined);
+  const [draft, setDraft] = useState<DataSourceForm | undefined>(initial?.form);
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [plan, setPlan] = useState<FieldChange[] | null>(null);
+  const [probe, setProbe] = useState<Probe | null>(null);
 
   const list = useQuery({
     queryKey: queryKeys.list(project, PLURAL),
@@ -173,10 +193,13 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
       return write(form, true);
     },
     onSuccess: (result) => {
-      setPlan((result as { plan?: { fields?: FieldChange[] } }).plan?.fields ?? []);
+      const answer = result as { plan?: { fields?: FieldChange[] }; probe?: Probe };
+      setPlan(answer.plan?.fields ?? []);
+      setProbe(answer.probe ?? null);
     },
     onError: (err) => {
       setPlan(null);
+      setProbe(null);
       reportError(err);
     },
   });
@@ -370,6 +393,7 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
         onChange={(data) => {
           setDraft(data);
           setPlan(null);
+          setProbe(null);
         }}
         onSubmit={(data) => propose.mutate(data)}
       >
@@ -391,6 +415,27 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
             <div>
               <h2 className="text-sm font-medium">{t("datasources.plan")}</h2>
               <PlanDiffViewer fields={plan} />
+            </div>
+          ) : null}
+          {probe ? (
+            <div data-testid="datasource-probe">
+              <h2 className="text-sm font-medium">{t("datasources.probe.title")}</h2>
+              {probe.skipped ? (
+                <p role="status" className="text-sm text-surface-fg/70">
+                  {t("datasources.probe.skipped", { reason: probe.skipped })}
+                </p>
+              ) : (
+                <>
+                  <p role="status" className="text-sm">
+                    {t("datasources.probe.records", { records: probe.records ?? 0, bytes: probe.bytes ?? 0 })}
+                  </p>
+                  {probe.sample !== undefined ? (
+                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
+                      {JSON.stringify(probe.sample, null, 2)}
+                    </pre>
+                  ) : null}
+                </>
+              )}
             </div>
           ) : null}
         </div>

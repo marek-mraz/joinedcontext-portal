@@ -225,10 +225,18 @@ export function SubmitButton(props: SubmitButtonProps): React.JSX.Element | null
   if (options.norender) {
     return null;
   }
+  // A gate the caller closes (PL-49, UI-47): the button stays visible, disabled, with the reason
+  // beside it, never hidden.
+  const gate = (options.props ?? {}) as { disabled?: boolean; title?: string };
   return (
     <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+      {gate.disabled && gate.title ? (
+        <span role="status" className="text-caption text-fg-muted">
+          {gate.title}
+        </span>
+      ) : null}
       {secondary}
-      <Button type="submit" variant="primary">
+      <Button type="submit" variant="primary" disabled={gate.disabled} title={gate.title}>
         {options.submitText}
       </Button>
     </div>

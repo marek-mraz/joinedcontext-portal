@@ -187,6 +187,19 @@ export function PipelineEditorDialog({
   const [draft, setDraft] = useState<PipelineForm | undefined>(() =>
     editing ? toForm(editing) : initial,
   );
+  // The last test's answer, tied to the mapping it ran (PL-49): a Bloblang pipeline proposes
+  // only while the text in the editor is the text that went green.
+  const [verdict, setVerdict] = useState<{ ok: boolean; bloblang: string } | null>(null);
+  const bloblang = draft?.compute?.kind === "bloblang" ? (draft.compute.bloblang ?? "") : "";
+  // Gated where the test can run today: a DataSource pipeline tests on a file or the source's
+  // URL. A pipeline reading an endpoint tests on the studio's loaded sample once T-0633 hands
+  // those rows to the test; until then it proposes as before.
+  const gate =
+    draft?.source?.dataSourceRef !== undefined &&
+    bloblang.trim() !== "" &&
+    !(verdict?.ok && verdict.bloblang === bloblang)
+      ? t("pipelines.test.gate")
+      : undefined;
 
   const dataSources = useQuery({
     queryKey: queryKeys.list(project, "datasources"),
@@ -262,6 +275,7 @@ export function PipelineEditorDialog({
       formData={draft}
       submitLabel={t("pipelines.propose")}
       disabled={pending}
+      submitDisabledReason={gate}
       error={error}
       source={source}
       onChange={setDraft}
@@ -274,6 +288,7 @@ export function PipelineEditorDialog({
         dataSources={dataSourceList}
         endpoints={endpointList}
         toManifest={source.toManifest}
+        onVerdict={(ok, tested) => setVerdict({ ok, bloblang: tested })}
       />
       {draft?.compute?.kind === "bloblang" ? (
         <Alert

@@ -32,6 +32,8 @@ export interface ResourceFormDialogProps<T> {
   formData?: T;
   submitLabel: string;
   disabled?: boolean;
+  /** Why proposing is closed right now (PL-49): both views disable their button and say so. */
+  submitDisabledReason?: string;
   error?: string | null;
   size?: DialogSize;
   /** Adds the YAML view of the manifest beside the form; both edit the same data. */
@@ -57,6 +59,7 @@ export function ResourceFormDialog<T>({
   formData,
   submitLabel,
   disabled,
+  submitDisabledReason,
   error,
   size,
   source,
@@ -179,6 +182,7 @@ export function ResourceFormDialog<T>({
               formData={formData}
               disabled={disabled}
               submitLabel={submitLabel}
+              submitDisabledReason={submitDisabledReason}
               onSubmit={onSubmit}
               onChange={onChange}
               actions={
@@ -225,7 +229,17 @@ export function ResourceFormDialog<T>({
               <DialogClose asChild>
                 <Button variant="ghost">{t("form.cancel")}</Button>
               </DialogClose>
-              <Button variant="primary" disabled={disabled} onClick={submitYaml}>
+              {submitDisabledReason ? (
+                <span role="status" className="text-caption text-fg-muted">
+                  {submitDisabledReason}
+                </span>
+              ) : null}
+              <Button
+                variant="primary"
+                disabled={disabled || Boolean(submitDisabledReason)}
+                title={submitDisabledReason}
+                onClick={submitYaml}
+              >
                 {submitLabel}
               </Button>
             </div>

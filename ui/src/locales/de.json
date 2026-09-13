@@ -307,6 +307,11 @@
       "caCert": "Referenz auf Zertifizierungsstelle",
       "secretName": "Name des Secrets",
       "secretKey": "Schlüssel im Secret"
+    },
+    "probe": {
+      "title": "Ein Abruf des Feeds",
+      "records": "{records} Datensätze, {bytes} Bytes",
+      "skipped": "Nicht abgerufen: {reason}"
     }
   },
   "pipelines": {
@@ -446,7 +451,10 @@
       "ok": "eine NGSI-LD-Entität",
       "errors": "{count} Fehler",
       "line": "Zeile {line}",
-      "ready": "Alle {count} Nachrichten ergeben Entitäten. Pipeline unten vorschlagen."
+      "ready": "Alle {count} Nachrichten ergeben Entitäten. Pipeline unten vorschlagen.",
+      "useUrl": "Mit der URL der Quelle testen",
+      "urlSample": "{url} · json · vom Runner geholt",
+      "gate": "Erst das Mapping testen: Vorschlagen öffnet sich, wenn der Test für dieses Mapping grün ist."
     }
   },
   "dashboards": {

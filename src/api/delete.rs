@@ -136,6 +136,7 @@ pub async fn delete_resource(
                 valid: true,
                 lane,
                 plan,
+                probe: None,
             }),
         )
             .into_response());

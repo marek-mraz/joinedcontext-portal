@@ -33,6 +33,35 @@ pub struct DryRunResult {
     pub valid: bool,
     pub lane: Lane,
     pub plan: PlanDiff,
+    /// What one fetch of an `http` DataSource returned (MF-39); absent for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe: Option<Probe>,
+}
+
+/// One fetch of a DataSource on the project's runner, or why there was none (MF-39).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Probe {
+    /// Messages after the format split; one for a JSON document, one per element of an array.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<usize>,
+    /// The first record as data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample: Option<serde_json::Value>,
+    /// Why the source was not fetched: a credential, no runner, a feed that did not answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
+}
+
+impl Probe {
+    pub fn skipped(reason: impl Into<String>) -> Self {
+        Self {
+            skipped: Some(reason.into()),
+            ..Self::default()
+        }
+    }
 }
 
 #[cfg(test)]

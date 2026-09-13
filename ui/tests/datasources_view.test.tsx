@@ -7,6 +7,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { endpointOf, knownSecretNames, toEnvelope } from "../src/pages/datasources/DataSourcesPage";
+import { rememberPrefill } from "../src/assistant/state";
 import type { Manifest } from "../src/api/manifest";
 
 const IDENTITY = {
@@ -65,6 +66,7 @@ const DRY_RUN = {
   plan: {
     fields: [{ path: "spec.mqtt.urls", to: ["tls://mqtt.banskabystrica.sk:8883"] }],
   },
+  probe: { records: 1, bytes: 512, sample: { last_updated: 1789314850, data: { bikes: [] } } },
 };
 
 function renderDataSources() {
@@ -241,6 +243,35 @@ describe("data sources view", () => {
   });
 
   /** MF-13: the plan is a dry run against the same route, not a second endpoint. */
+  it("shows what one fetch of the feed returned beside the plan (MF-39)", async () => {
+    renderDataSources();
+    await userEvent.selectOptions(await screen.findByLabelText(en.datasources.field.type), "http");
+    await userEvent.click(screen.getByRole("button", { name: en.datasources.add }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/Name/), "free-bikes");
+    await userEvent.type(within(dialog).getByLabelText(/URL/), "https://gbfs.example.org/free_bike_status.json");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.check }));
+    const probe = await within(dialog).findByTestId("datasource-probe");
+    expect(probe).toHaveTextContent("1 records, 512 bytes");
+    expect(probe).toHaveTextContent(/"bikes": \[\]/);
+    // A change to the form is a new manifest: the probe belongs to the old one.
+    await userEvent.type(within(dialog).getByLabelText(/Timeout/), "15s");
+    expect(within(dialog).queryByTestId("datasource-probe")).toBeNull();
+  });
+
+  it("opens the dialog filled when the assistant sent a data source ahead (AG-61)", async () => {
+    rememberPrefill("/projects/banskabystrica/datasources", {
+      type: "http",
+      name: "hsl-citybikes-free",
+      http: { url: "https://gbfs.example.org/free_bike_status.json", timeout: "15s" },
+    });
+    renderDataSources();
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/Name/)).toHaveValue("hsl-citybikes-free");
+    expect(within(dialog).getByLabelText(/URL/)).toHaveValue("https://gbfs.example.org/free_bike_status.json");
+    expect(screen.getByLabelText(en.datasources.field.type)).toHaveValue("http");
+  });
+
   it("shows the planned change before the proposal is sent", async () => {
     const fetchMock = renderDataSources();
 
