@@ -141,19 +141,13 @@ impl Syncer {
 
     /// Synchronizes the mirror once against the Git repository.
     ///
-    /// Answers `Ok(0)` without touching the repository in the two cases where running would
-    /// be wrong rather than merely redundant: another run of this replica is still in
-    /// flight, or this replica is not the leader (CC-03). Both are ordinary states, so
-    /// neither is an error; the webhook that triggered it is already recorded in Git and the
-    /// leader picks it up on its next tick.
+    /// A run that finds another run of this replica in flight waits for it and then runs
+    /// itself: a merge that lands while a sync is fetching is not in that sync, and the
+    /// approval that asked for the refresh must not wait a whole tick for it (CC-08).
+    /// Answers `Ok(0)` without touching the repository only when this replica is not the
+    /// leader (CC-03); that is an ordinary state, not an error.
     pub async fn sync_once(&self) -> Result<usize, SyncError> {
-        let _guard = match self.running.try_lock() {
-            Ok(g) => g,
-            Err(_) => {
-                tracing::info!("mirror sync is already in flight, skipping concurrent execution");
-                return Ok(0);
-            }
-        };
+        let _guard = self.running.lock().await;
 
         if !self.claim_leadership().await {
             tracing::debug!("another replica holds the reconciler lock, skipping this run");
@@ -449,6 +443,8 @@ impl Syncer {
 
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
+            // A tick that fell due while a run waited on an approval's sync is not owed.
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 ticker.tick().await;
                 if let Err(err) = self.sync_once().await {
@@ -696,10 +692,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn concurrency_guard_returns_ok_zero() {
+    async fn a_sync_asked_for_during_a_sync_runs_after_it() {
         let gitea = Arc::new(
             GiteaClient::new(
-                "http://localhost:3000".parse().unwrap(),
+                "http://127.0.0.1:9".parse().unwrap(),
                 "test-owner",
                 "test-repo",
                 "token",
@@ -709,12 +705,25 @@ mod tests {
         let mirror = Arc::new(Mirror::new());
         let syncer = Arc::new(Syncer::new(gitea, mirror));
 
-        let _guard = syncer.running.lock().await;
-        let res = syncer
-            .sync_once()
+        let guard = syncer.running.lock().await;
+        let waiting = tokio::spawn({
+            let syncer = syncer.clone();
+            async move { syncer.sync_once().await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !waiting.is_finished(),
+            "the second run waits for the first instead of answering Ok(0)"
+        );
+        drop(guard);
+        let res = tokio::time::timeout(Duration::from_secs(5), waiting)
             .await
-            .expect("sync_once should return Ok(0)");
-        assert_eq!(res, 0);
+            .expect("the waiting run proceeds once the first releases the guard")
+            .expect("the task joins");
+        assert!(
+            res.is_err(),
+            "the waiting run reached the forge (unreachable here) instead of skipping"
+        );
     }
 
     #[test]
