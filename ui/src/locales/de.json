@@ -426,6 +426,27 @@
         "average": "Mittelwert",
         "count": "Anzahl"
       }
+    },
+    "test": {
+      "title": "An einer Probe ausprobieren",
+      "lead": "CSV- oder JSON-Datei hier ablegen: Typ und Mapping werden aus ihren Spalten entworfen, ein Klick führt das Mapping auf dem Runner des Projekts aus. Nichts wird geschrieben.",
+      "drop": "Datei hier ablegen oder auswählen",
+      "chooseFile": "Probedatei",
+      "sample": "{name} · {format} · {bytes} Bytes",
+      "run": "Mapping testen",
+      "running": "Wird getestet…",
+      "noMapping": "Zuerst ein Bloblang-Mapping schreiben.",
+      "tooLarge": "Die Probe ist größer als 5 MiB; kürzen.",
+      "failed": "Der Test lief nicht (Status {status}).",
+      "input": "Eingabe",
+      "events": "{events} Nachrichten, {bytes} Bytes",
+      "mapping": "Mapping-Ausgabe",
+      "entities": "{count} Entitäten",
+      "validation": "Prüfung",
+      "ok": "eine NGSI-LD-Entität",
+      "errors": "{count} Fehler",
+      "line": "Zeile {line}",
+      "ready": "Alle {count} Nachrichten ergeben Entitäten. Pipeline unten vorschlagen."
     }
   },
   "dashboards": {

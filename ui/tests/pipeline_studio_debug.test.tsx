@@ -1,0 +1,233 @@
+/**
+ * T-0591: a candidate pipeline tried on a dropped sample (PL-43, PL-44, UI-32): the file drafts
+ * the type and the mapping, the test runs through the Portal's route, the trace is drawn as
+ * stages with every error at its line, and the proposal is the dialog's own Propose.
+ */
+import { useState } from "react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { I18nextProvider } from "react-i18next";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "../src/i18n";
+import en from "../src/locales/en.json";
+import type { PipelineForm } from "../src/pages/pipelines/PipelineEditor";
+
+function MockEditor({ value, onChange }: { value: string; onChange?: (value: string) => void }) {
+  return <textarea aria-label="YAML" value={value} onChange={(event) => onChange?.(event.target.value)} />;
+}
+vi.mock("../src/pages/models/MonacoSourceView", () => ({ default: MockEditor }));
+
+const { PipelineStudio } = await import("../src/pages/pipelines/PipelineStudio");
+const { PipelineEditorDialog } = await import("../src/pages/pipelines/PipelineEditor");
+const { draftFromSample, errorLines, idColumnOf, spaceOfTarget, typeOf } = await import(
+  "../src/pages/pipelines/PipelineTest"
+);
+
+const CSV = "station_id,pm10,timestamp\n01,18.2,2026-09-13T07:00:00Z\n02,x,2026-09-13T07:00:00Z\n";
+const TARGET = "urn:ngsi-ld:Endpoint:hel.fi:helsinki:helsinki-all";
+
+const TRACE = {
+  input: { events: 2, bytes: 90, sample: { station_id: "01", pm10: "18.2", timestamp: "2026-09-13T07:00:00Z" } },
+  mapping: [{ id: "urn:ngsi-ld:AirQuality:hel.fi:helsinki:01", type: "AirQuality", pm10: { type: "Property", value: 18.2 } }],
+  validation: [{ index: 0, ok: true, problems: [] }],
+  errors: [{ stage: "mapping", line: 3, message: "failed assignment (line 3): expected number" }],
+};
+
+const CLEAN = { ...TRACE, errors: [] };
+
+const list = (items: unknown[]) => ({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items });
+
+function mockFetch(test: { status: number; body: unknown }) {
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+    const json = (body: unknown, status = 200) =>
+      Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+    if (url.includes("/pipelines/test") && method === "POST") {
+      return json(test.body, test.status);
+    }
+    return json(list([]));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function Harness({ initial, onForm }: { initial?: PipelineForm; onForm: (form: PipelineForm) => void }) {
+  const [draft, setDraft] = useState<PipelineForm | undefined>(initial);
+  return (
+    <PipelineStudio
+      project="helsinki"
+      draft={draft}
+      onChange={(form) => {
+        setDraft(form);
+        onForm(form);
+      }}
+      dataSources={[]}
+      endpoints={[]}
+      toManifest={(form) => ({ kind: "Pipeline", metadata: { name: form.name }, spec: form })}
+    />
+  );
+}
+
+function renderStudio(initial?: PipelineForm) {
+  const onForm = vi.fn();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <I18nextProvider i18n={i18n}>
+        <Harness initial={initial} onForm={onForm} />
+      </I18nextProvider>
+    </QueryClientProvider>,
+  );
+  return onForm;
+}
+
+function csvFile(text = CSV, name = "air_quality.csv"): File {
+  return new File([text], name, { type: "text/csv" });
+}
+
+async function drop(file: File) {
+  await userEvent.upload(screen.getByLabelText(en.pipelines.test.chooseFile), file);
+}
+
+describe("drafting from a sample (PL-44)", () => {
+  it("drafts the type from the file name, the id from the id column and a Property per column", () => {
+    const draft = draftFromSample("air_quality.csv", CSV, "helsinki");
+    expect(draft?.format).toBe("csv");
+    expect(draft?.type).toBe("AirQuality");
+    expect(draft?.idColumn).toBe("station_id");
+    expect(draft?.bloblang).toContain('root.type = "AirQuality"');
+    expect(draft?.bloblang).toContain('"helsinki", this.station_id.string()');
+    expect(draft?.bloblang).toContain("root.pm10 = { \"type\": \"Property\", \"value\": this.pm10.number().catch(this.pm10) }");
+    expect(draft?.bloblang).toContain("root.timestamp = { \"type\": \"Property\", \"value\": this.timestamp }");
+    expect(draft?.bloblang).not.toContain("root.station_id");
+  });
+
+  it("takes a JSON array's first element, and nothing from text it cannot read", () => {
+    const draft = draftFromSample("bikes.json", '[{"id":"b1","free":3},{"id":"b2","free":0}]', "helsinki");
+    expect(draft?.format).toBe("json");
+    expect(draft?.idColumn).toBe("id");
+    expect(draft?.bloblang).toContain("this.free.number()");
+    expect(draftFromSample("notes.txt", "just words", "helsinki")).toBeNull();
+    expect(draftFromSample("empty.csv", "", "helsinki")).toBeNull();
+  });
+
+  it("names things the way the platform does", () => {
+    expect(typeOf("2026-air.csv")).toBe("Sample2026Air");
+    expect(typeOf("bike stations.json")).toBe("BikeStations");
+    expect(idColumnOf(["name", "sensorId", "value"])).toBe("sensorId");
+    expect(idColumnOf(["name", "value"])).toBe("name");
+    expect(spaceOfTarget(TARGET, "fallback")).toBe("helsinki");
+    expect(spaceOfTarget("not-a-urn", "fallback")).toBe("fallback");
+    expect([...errorLines(TRACE)]).toEqual([3]);
+  });
+});
+
+describe("the sample test in the studio (PL-43)", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("drafts the mapping from a dropped CSV, runs the test and draws the stages with the error at its line", async () => {
+    const fetchMock = mockFetch({ status: 200, body: TRACE });
+    const onForm = renderStudio({ name: "shmu-air", class: "resident", targetEndpoint: TARGET });
+    await drop(csvFile());
+
+    await waitFor(() => expect(onForm).toHaveBeenCalled());
+    const form = onForm.mock.calls.at(-1)?.[0] as PipelineForm;
+    expect(form.compute?.kind).toBe("bloblang");
+    expect(form.compute?.bloblang).toContain("this.station_id");
+    expect(form.output?.type).toBe("AirQuality");
+    expect(screen.getByText(/air_quality\.csv · csv/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: en.pipelines.test.run }));
+    const call = await waitFor(() => {
+      const found = fetchMock.mock.calls.find(([input]) => String(input).includes("/pipelines/test"));
+      expect(found).toBeDefined();
+      return found as [string, RequestInit];
+    });
+    expect(call[0]).toBe("/api/v1/projects/helsinki/pipelines/test");
+    expect(call[1].method).toBe("POST");
+    const body = JSON.parse(call[1].body as string) as { pipeline: { spec: PipelineForm }; sample: { text: string; format: string } };
+    expect(body.sample).toEqual({ text: CSV, format: "csv" });
+    expect(body.pipeline.spec.compute?.bloblang).toContain("this.station_id");
+
+    const inspector = await screen.findByTestId("stage-inspector");
+    expect(within(inspector).getByText(/"station_id": "01"/)).toBeInTheDocument();
+    expect(within(inspector).getByText(/urn:ngsi-ld:AirQuality:hel.fi:helsinki:01/)).toBeInTheDocument();
+    expect(within(inspector).getByText(`#1 ${en.pipelines.test.ok}`)).toBeInTheDocument();
+    expect(within(inspector).getByText(/line 3/)).toBeInTheDocument();
+    const marked = inspector.querySelector('[data-line="3"]');
+    expect(marked?.className).toContain("decoration-danger");
+    expect(inspector.querySelector('[data-line="2"]')?.className).not.toContain("decoration-danger");
+    expect(screen.queryByText(/Propose the pipeline below/)).toBeNull();
+  });
+
+  it("says when every message became an entity, and shows the route's reason when it refuses", async () => {
+    mockFetch({ status: 200, body: CLEAN });
+    renderStudio({ name: "shmu-air", class: "resident", targetEndpoint: TARGET });
+    await drop(csvFile());
+    await userEvent.click(await screen.findByRole("button", { name: en.pipelines.test.run }));
+    expect(await screen.findByText(/All 1 messages map to entities/)).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+    mockFetch({ status: 503, body: { status: 503, detail: "no pipeline runner is configured" } });
+    await userEvent.click(screen.getByRole("button", { name: en.pipelines.test.run }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("no pipeline runner is configured");
+    expect(screen.queryByTestId("stage-inspector")).toBeNull();
+  });
+
+  it("refuses a sample over 5 MiB before anything is sent", async () => {
+    const fetchMock = mockFetch({ status: 200, body: TRACE });
+    renderStudio({ name: "shmu-air", class: "resident", targetEndpoint: TARGET });
+    const big = new File([new Uint8Array(5 * 1024 * 1024 + 1)], "big.csv", { type: "text/csv" });
+    await drop(big);
+    expect(await screen.findByRole("alert")).toHaveTextContent(en.pipelines.test.tooLarge);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/pipelines/test"))).toBe(false);
+  });
+});
+
+describe("from a sample to a proposal", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("proposes the manifest with the drafted mapping through the dialog's own button", async () => {
+    mockFetch({ status: 200, body: CLEAN });
+    const onSubmit = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <PipelineEditorDialog
+            project="helsinki"
+            onOpenChange={() => {}}
+            editing={null}
+            initial={{ name: "shmu-air", class: "resident", targetEndpoint: TARGET }}
+            pending={false}
+            error={null}
+            onSubmit={onSubmit}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.upload(within(dialog).getByLabelText(en.pipelines.test.chooseFile), csvFile());
+    await userEvent.click(await within(dialog).findByRole("button", { name: en.pipelines.test.run }));
+    await within(dialog).findByText(/All 1 messages map to entities/);
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const envelope = onSubmit.mock.calls[0][0] as { kind: string; spec: { compute?: { bloblang?: string }; output?: { type?: string } } };
+    expect(envelope.kind).toBe("Pipeline");
+    expect(envelope.spec.compute?.bloblang).toContain('root.type = "AirQuality"');
+    expect(envelope.spec.output?.type).toBe("AirQuality");
+  });
+});

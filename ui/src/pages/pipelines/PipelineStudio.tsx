@@ -12,6 +12,7 @@ import type { Entity, EntityQuery, FilterSlot } from "../../components/entities/
 import { Alert, Button, Field, Input, Select } from "../../components/ui";
 import { entityTypesOf, pickReadEndpoint, spaceOf } from "../spaces/SpaceInside";
 import type { PipelineForm } from "./PipelineEditor";
+import { PipelineTest } from "./PipelineTest";
 
 /** How many rows one sample shows: enough to tick a handful, small enough to read. */
 export const SAMPLE_LIMIT = 20;
@@ -83,6 +84,8 @@ export interface PipelineStudioProps {
   onChange: (form: PipelineForm) => void;
   dataSources: Manifest[];
   endpoints: Manifest[];
+  /** The manifest the form is right now, for the sample test (PL-43); none hides the test. */
+  toManifest?: (form: PipelineForm) => unknown;
 }
 
 /**
@@ -96,6 +99,7 @@ export function PipelineStudio({
   onChange,
   dataSources,
   endpoints,
+  toManifest,
 }: PipelineStudioProps): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "en";
@@ -256,6 +260,7 @@ export function PipelineStudio({
 
   return (
     <div className="flex flex-col gap-3" data-testid="pipeline-studio">
+      {toManifest ? <PipelineTest project={project} draft={draft} onChange={onChange} toManifest={toManifest} /> : null}
       <section className={sectionClass} aria-labelledby="studio-source">
         <h3 id="studio-source" className="text-body font-semibold text-fg">
           {t("pipelines.studio.source")}

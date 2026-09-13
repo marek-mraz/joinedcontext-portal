@@ -273,6 +273,7 @@ export function PipelineEditorDialog({
         onChange={setDraft}
         dataSources={dataSourceList}
         endpoints={endpointList}
+        toManifest={source.toManifest}
       />
       {draft?.compute?.kind === "bloblang" ? (
         <Alert

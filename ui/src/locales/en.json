@@ -426,6 +426,27 @@
         "average": "Average",
         "count": "Count"
       }
+    },
+    "test": {
+      "title": "Try it on a sample",
+      "lead": "Drop a CSV or JSON file: the type and the mapping are drafted from its columns, and one click runs the mapping on the project's runner. Nothing is written.",
+      "drop": "Drop a file here or choose one",
+      "chooseFile": "Sample file",
+      "sample": "{name} · {format} · {bytes} bytes",
+      "run": "Test mapping",
+      "running": "Testing…",
+      "noMapping": "Write a Bloblang mapping first.",
+      "tooLarge": "The sample is over 5 MiB; cut it down.",
+      "failed": "The test did not run (status {status}).",
+      "input": "Input",
+      "events": "{events} messages, {bytes} bytes",
+      "mapping": "Mapping output",
+      "entities": "{count} entities",
+      "validation": "Validation",
+      "ok": "an NGSI-LD entity",
+      "errors": "{count} errors",
+      "line": "line {line}",
+      "ready": "All {count} messages map to entities. Propose the pipeline below."
     }
   },
   "dashboards": {

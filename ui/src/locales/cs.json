@@ -426,6 +426,27 @@
         "average": "Průměr",
         "count": "Počet"
       }
+    },
+    "test": {
+      "title": "Vyzkoušet na vzorku",
+      "lead": "Přetáhněte sem CSV nebo JSON: typ a mapování se navrhnou z jeho sloupců a jedním kliknutím se mapování spustí na runneru projektu. Nic se nezapisuje.",
+      "drop": "Přetáhněte sem soubor nebo jej vyberte",
+      "chooseFile": "Soubor se vzorkem",
+      "sample": "{name} · {format} · {bytes} B",
+      "run": "Otestovat mapování",
+      "running": "Testuje se…",
+      "noMapping": "Nejprve napište Bloblang mapování.",
+      "tooLarge": "Vzorek má více než 5 MiB; zkraťte jej.",
+      "failed": "Test se nespustil (stav {status}).",
+      "input": "Vstup",
+      "events": "{events} zpráv, {bytes} B",
+      "mapping": "Výstup mapování",
+      "entities": "{count} entit",
+      "validation": "Ověření",
+      "ok": "entita NGSI-LD",
+      "errors": "{count} chyb",
+      "line": "řádek {line}",
+      "ready": "Všech {count} zpráv se mapuje na entity. Navrhněte pipeline níže."
     }
   },
   "dashboards": {
