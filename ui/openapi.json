@@ -4325,6 +4325,17 @@
           "plan": {
             "$ref": "#/components/schemas/PlanDiff"
           },
+          "probe": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Probe",
+                "description": "What one fetch of an `http` DataSource returned (MF-39); absent for every other kind."
+              }
+            ]
+          },
           "valid": {
             "type": "boolean"
           }
@@ -5177,6 +5188,37 @@
           }
         },
         "additionalProperties": false
+      },
+      "Probe": {
+        "type": "object",
+        "description": "One fetch of a DataSource on the project's runner, or why there was none (MF-39).",
+        "properties": {
+          "bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "records": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Messages after the format split; one for a JSON document, one per element of an array.",
+            "minimum": 0
+          },
+          "sample": {
+            "description": "The first record as data."
+          },
+          "skipped": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the source was not fetched: a credential, no runner, a feed that did not answer."
+          }
+        }
       },
       "ProblemDetails": {
         "type": "object",

@@ -1074,6 +1074,7 @@ export interface components {
         DryRunResult: {
             lane: components["schemas"]["Lane"];
             plan: components["schemas"]["PlanDiff"];
+            probe?: null | components["schemas"]["Probe"];
             valid: boolean;
         };
         /** @description One directed relation between two nodes. */
@@ -1407,6 +1408,16 @@ export interface components {
             locale?: string | null;
             /** @description `light`, `dark` or `system`. */
             theme?: string | null;
+        };
+        /** @description One fetch of a DataSource on the project's runner, or why there was none (MF-39). */
+        Probe: {
+            bytes?: number | null;
+            /** @description Messages after the format split; one for a JSON document, one per element of an array. */
+            records?: number | null;
+            /** @description The first record as data. */
+            sample?: unknown;
+            /** @description Why the source was not fetched: a credential, no runner, a feed that did not answer. */
+            skipped?: string | null;
         };
         /** @description RFC 7807 Problem Details representation. */
         ProblemDetails: {
