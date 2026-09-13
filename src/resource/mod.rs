@@ -102,16 +102,6 @@ pub struct ResourceKey {
 /// They live apart from [`jc_core::KINDS`] so the difference stays visible: when @platform adds a
 /// kind to jc-core, its row moves out of this list and nothing else changes.
 pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[
-    // In jc-core's catalogue after v0.7.7, the tag the Portal pins; the row moves out on the
-    // next bump (the test below says so). Until then the mirror would drop the one manifest
-    // every agent run loads (AG-26): the profile is read from `agentprofiles/{name}.yaml`
-    // at the organization scope, jc-core's own PATH_TEMPLATE.
-    KindInfo {
-        kind: "AgentProfile",
-        plural: "agentprofiles",
-        scope: Scope::Organization,
-        path_template: "agentprofiles/{name}.yaml",
-    },
     KindInfo {
         kind: "Subscription",
         plural: "subscriptions",
@@ -206,6 +196,9 @@ mod tests {
                 "App",
                 "CkanInstance",
                 "Blueprint",
+                // Arrived with jc-core-v0.7.8 (T-0537, T-0540): the builder profile every
+                // agent run loads.
+                "AgentProfile",
                 "DataSpaceParticipant",
                 "DataOffer",
                 "DataAgreement",
