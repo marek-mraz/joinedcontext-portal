@@ -271,8 +271,13 @@ pub fn schema_json() -> &'static str {
 
 /// `spec.json` as the model wrote it, or every reason the kit cannot render it (AP-59).
 pub fn parse(text: &str) -> Result<Spec, Vec<String>> {
-    let spec: Spec =
+    let mut spec: Spec =
         serde_json::from_str(text).map_err(|error| vec![format!("spec.json: {error}")])?;
+    // `id` and `type` come with every entity; a model that lists them as attributes would
+    // have the endpoint answer 400 to `attrs=id,...` and the dashboard show no rows.
+    for source in &mut spec.sources {
+        source.attrs.retain(|attr| attr != "id" && attr != "type");
+    }
     let errors = validate(&spec);
     if errors.is_empty() {
         Ok(spec)
@@ -641,6 +646,24 @@ mod tests {
         let error = parse(r#"{"title":"x","sources":[{"name":"s","type":"T","attrs":["a"],"secret":1}],"views":[]}"#)
             .expect_err("unknown field");
         assert!(error[0].contains("unknown field `secret`"), "{error:?}");
+    }
+
+    #[test]
+    fn id_and_type_are_not_attributes_to_ask_for() {
+        let table = r#"[{"kind":"table","columns":["id","a"]}]"#;
+        let spec = parse(&format!(
+            r#"{{"title":"x","sources":[{{"name":"s","type":"T","attrs":["id","a","type"]}}],"views":{table}}}"#
+        ))
+        .expect("valid");
+        assert_eq!(spec.sources[0].attrs, vec!["a"]);
+        let errors = parse(
+            r#"{"title":"x","sources":[{"name":"s","type":"T","attrs":["id","type"]}],"views":[{"kind":"table","columns":["id"]}]}"#,
+        )
+        .expect_err("nothing left to read");
+        assert_eq!(
+            errors,
+            vec!["sources[0].attrs: must list at least one attribute"]
+        );
     }
 
     #[test]

@@ -32,8 +32,10 @@ export function entitiesUrl(slug: string, source: Source, offset: number): strin
   if (offset > 0) {
     params.set("offset", String(offset));
   }
-  if (source.attrs.length > 0) {
-    params.set("attrs", source.attrs.join(","));
+  // id and type come with every entity; asking for them as attributes is a 400.
+  const attrs = source.attrs.filter((attr) => attr !== "id" && attr !== "type");
+  if (attrs.length > 0) {
+    params.set("attrs", attrs.join(","));
   }
   if (source.q) {
     params.set("q", source.q);

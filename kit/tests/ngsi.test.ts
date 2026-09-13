@@ -90,6 +90,11 @@ describe("entitiesUrl", () => {
     expect(params.get("limit")).toBe("1000");
     expect(params.get("offset")).toBeNull();
   });
+  it("never asks the endpoint for id or type as attributes", () => {
+    const params = new URLSearchParams(entitiesUrl("s", { name: "s", type: "T", attrs: ["id", "a", "type"] }, 0).split("?")[1]);
+    expect(params.get("attrs")).toBe("a");
+    expect(new URLSearchParams(entitiesUrl("s", { name: "s", type: "T", attrs: ["id"] }, 0).split("?")[1]).get("attrs")).toBeNull();
+  });
   it("pages with an offset and never asks past the source's limit", () => {
     const params = new URLSearchParams(entitiesUrl("s", { name: "s", type: "T", attrs: [], limit: 1200 }, 1000).split("?")[1]);
     expect(params.get("offset")).toBe("1000");
