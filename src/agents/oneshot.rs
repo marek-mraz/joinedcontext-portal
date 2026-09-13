@@ -26,10 +26,11 @@ use crate::state::AppState;
 
 /// Entities read per type as the model's sample of the data (AP-57).
 const SAMPLES_PER_TYPE: u32 = 5;
-/// Output tokens one pass may spend: a specification is a few hundred, a repair fewer.
-const OUTPUT_BUDGET: u32 = 6000;
-/// One model call, wall clock.
-const CALL_TIMEOUT: Duration = Duration::from_secs(180);
+/// Output tokens one pass may spend: a specification is a few hundred, a page of the model's
+/// own (the escape hatch) ten thousand and more. A cut answer is refused whole, below.
+const OUTPUT_BUDGET: u32 = 24000;
+/// One model call, wall clock: the budget above at a hundred tokens a second, with room.
+const CALL_TIMEOUT: Duration = Duration::from_secs(480);
 /// The name the driver signs its own chat lines with; a message by anyone else is a pass.
 pub const AGENT: &str = "agent";
 const EMPTY_ANSWER: &str = "the model's answer carried no text";
@@ -507,6 +508,21 @@ impl Driver {
         }
         let answer: Value = serde_json::from_str(&text)
             .map_err(|err| format!("the model's answer is not JSON: {err}"))?;
+        // An answer the budget cut is not applied at all: half a page is worse than none.
+        let cut = answer
+            .pointer("/choices/0/finish_reason")
+            .and_then(Value::as_str)
+            .is_some_and(|reason| reason == "length")
+            || answer
+                .get("stop_reason")
+                .and_then(Value::as_str)
+                .is_some_and(|reason| reason == "max_tokens");
+        if cut {
+            return Err(format!(
+                "the answer was cut at the output budget of {OUTPUT_BUDGET} tokens and nothing \
+                 was applied; ask for less at once"
+            ));
+        }
         // OpenAI-compatible: choices[0].message.content. Anthropic: content[].text, joined.
         if let Some(content) = answer
             .pointer("/choices/0/message/content")

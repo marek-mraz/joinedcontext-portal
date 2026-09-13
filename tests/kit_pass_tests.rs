@@ -69,6 +69,13 @@ fn openai(text: &str) -> Value {
     })
 }
 
+/// An answer the provider cut at the output budget.
+fn openai_cut(text: &str) -> Value {
+    let mut body = openai(text);
+    body["choices"][0]["finish_reason"] = json!("length");
+    body
+}
+
 fn config(proxy_base: &str) -> Config {
     Config::from_vars(|key| {
         match key {
@@ -886,4 +893,61 @@ async fn a_page_beside_the_spec_replaces_the_kit_in_the_preview() {
         "the page is served as written"
     );
     assert!(!body.contains("kit-worker"), "the kit itself is not loaded");
+}
+
+#[tokio::test]
+async fn a_cut_answer_is_refused_whole_and_the_chat_says_so() {
+    // The first pass is fine; the message's pass comes back cut, and the preview stays.
+    let (app, cookie, proxy) = portal_with("openai-compatible", &[], None).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/llm/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(openai(&answer("Bikes.", &[("spec.json", "", VALID_SPEC)]))),
+        )
+        .up_to_n_times(1)
+        .mount(&proxy)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/llm/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(openai_cut(
+            "A 3D scene.\n\n```text\nindex.html\n<<<<<<< SEARCH\n=======\n<!doctype html><html><body><script>const half",
+        )))
+        .mount(&proxy)
+        .await;
+    let created = create_run(&app, &cookie).await;
+    let id = created["id"].as_str().expect("id");
+    wait_for(&app, &cookie, id, &["previewing", "failed"]).await;
+    let (status, _, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": "Make it 3D." })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "the message is taken");
+    let mut said = false;
+    for _ in 0..50 {
+        let events = events(&app, &cookie, id).await;
+        said = events.iter().any(|(kind, payload)| {
+            kind == "thought"
+                && payload["text"]
+                    .as_str()
+                    .is_some_and(|t| t.contains("cut at the output budget"))
+        });
+        if said {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(said, "the chat names the cut");
+    let run = wait_for(&app, &cookie, id, &["previewing"]).await;
+    assert_eq!(
+        run["previewUrl"],
+        json!(format!(
+            "/api/v1/projects/{PROJECT}/agent-runs/{id}/preview?v=1"
+        )),
+        "the first preview stands"
+    );
 }
