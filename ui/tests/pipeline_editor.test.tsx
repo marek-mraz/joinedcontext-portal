@@ -158,7 +158,8 @@ const CHANGE = {
 function renderPipelines() {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
-    const path = new URL(request.url).pathname;
+    // The client sends Requests; the pipeline test posts a plain URL string.
+    const path = new URL(typeof input === "string" ? input : request.url, "http://localhost").pathname;
     const json = (body: unknown, status = 200) =>
       Promise.resolve(
         new Response(JSON.stringify(body), {
@@ -172,6 +173,9 @@ function renderPipelines() {
     }
     if (path.endsWith("/branding")) {
       return json(BRANDING);
+    }
+    if (path.endsWith("/pipelines/test")) {
+      return json(TRACE);
     }
     if (request.method !== "GET") {
       return json(CHANGE, 202);
@@ -209,11 +213,24 @@ function renderPipelines() {
   return fetchMock;
 }
 
+/** A green trace for the studio's test: one entity out, nothing to report (PL-43). */
+const TRACE = {
+  input: { events: 1, bytes: 120 },
+  mapping: [{ id: "urn:ngsi-ld:AirQualityObservedAggregate:banskabystrica.sk:ovzdusie:sum", type: "AirQualityObservedAggregate" }],
+  validation: [{ index: 0, ok: true, problems: [] }],
+  errors: [],
+};
+
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    // The access panel's dry-run check is a POST that writes nothing (T-0529).
-    .filter((request) => (request.method === "POST" || request.method === "PUT") && !request.url.endsWith("/access/check"));
+    // The access panel's dry-run check and the pipeline test are POSTs that write nothing (T-0529, PL-43).
+    .filter(
+      (request) =>
+        (request.method === "POST" || request.method === "PUT") &&
+        !request.url.endsWith("/access/check") &&
+        !request.url.endsWith("/pipelines/test"),
+    );
 }
 
 async function openNew() {
@@ -488,12 +505,24 @@ it("tells a feed from a space and reads the attributes of a class from an inline
 
     await userEvent.click(within(studio).getByRole("button", { name: en.pipelines.studio.aggregate.sum }));
 
+    // A Bloblang mapping proposes only after a green test (PL-49): the studio offers the
+    // endpoint's own page as the sample, the way the reconciler will read it.
+    await userEvent.click(within(studio).getByRole("button", { name: en.pipelines.test.useUrl }));
+    await userEvent.click(within(studio).getByRole("button", { name: en.pipelines.test.run }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String((call[0] as Request).url ?? call[0]).endsWith("/pipelines/test")),
+      ).toBe(true),
+    );
+
     await userEvent.type(within(dialog).getByLabelText(/^Name/), "pm10-sum");
     await userEvent.selectOptions(
       within(dialog).getByLabelText(/^Target endpoint/),
       "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
     );
-    await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
+    const propose = within(dialog).getByRole("button", { name: en.pipelines.propose });
+    await waitFor(() => expect(propose).toBeEnabled());
+    await userEvent.click(propose);
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
     const body = (await writes(fetchMock)[0].clone().json()) as { spec: Record<string, unknown> };

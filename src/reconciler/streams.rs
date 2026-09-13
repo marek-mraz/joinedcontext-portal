@@ -86,94 +86,107 @@ impl StreamDeployer {
                     }
                 };
 
-                let ds_ref_name = match spec
+                let ds_ref_name = spec
                     .source
                     .as_ref()
                     .and_then(|s| s.data_source_ref.as_ref())
-                    .map(|r| r.name().to_string())
-                {
-                    Some(name) => name,
-                    None => {
-                        outcomes.push((
-                            ns.clone(),
-                            name,
-                            StreamOutcome::Skipped("not a DataSource pipeline"),
-                        ));
-                        continue;
-                    }
-                };
+                    .map(|r| r.name().to_string());
+
+                let ep_ref_name = spec
+                    .source
+                    .as_ref()
+                    .and_then(|s| s.endpoint_ref.as_ref())
+                    .map(|r| r.name().to_string());
+
+                if ds_ref_name.is_none() && ep_ref_name.is_none() {
+                    outcomes.push((
+                        ns.clone(),
+                        name,
+                        StreamOutcome::Skipped("not a supported stream pipeline"),
+                    ));
+                    continue;
+                }
 
                 if !eligible(&spec) {
                     let reason = if !spec.enabled {
                         "pipeline is disabled"
+                    } else if let Some(compute) = &spec.compute {
+                        if compute.kind != ComputeKind::Bloblang {
+                            "compute is not bloblang"
+                        } else {
+                            "endpoint pipeline requires bloblang mapping"
+                        }
                     } else {
-                        "compute is not bloblang"
+                        "not eligible for streams mode"
                     };
                     outcomes.push((ns.clone(), name, StreamOutcome::Skipped(reason)));
                     continue;
                 }
 
-                let ds_env = match mirror.get(&ns, "DataSource", &ds_ref_name) {
-                    Some(e) => e,
-                    None => {
-                        outcomes.push((
-                            ns.clone(),
-                            name,
-                            StreamOutcome::Error(format!(
-                                "data source {ds_ref_name} is not in the mirror"
-                            )),
-                        ));
-                        continue;
-                    }
-                };
-
-                let ds_spec: DataSourceSpec = match serde_json::from_value(ds_env.spec.clone()) {
-                    Ok(s) => s,
-                    Err(err) => {
-                        outcomes.push((
-                            ns.clone(),
-                            name,
-                            StreamOutcome::Error(format!("invalid data source spec: {err}")),
-                        ));
-                        continue;
-                    }
-                };
-
-                let ep_name = spec
+                let target_ep_name = spec
                     .target_endpoint
                     .to_string()
                     .rsplit(':')
                     .next()
                     .unwrap_or("")
                     .to_string();
-                let ep_env = match mirror.get(&ns, "Endpoint", &ep_name) {
+                let ep_env = match mirror.get(&ns, "Endpoint", &target_ep_name) {
                     Some(e) => e,
                     None => {
                         outcomes.push((
                             ns.clone(),
                             name,
                             StreamOutcome::Error(format!(
-                                "target endpoint {ep_name} is not in the mirror"
+                                "target endpoint {target_ep_name} is not in the mirror"
                             )),
                         ));
                         continue;
                     }
                 };
 
-                let slug = match ep_env.spec.get("slug").and_then(Value::as_str) {
+                let target_slug = match ep_env.spec.get("slug").and_then(Value::as_str) {
                     Some(s) => s.to_string(),
                     None => {
                         outcomes.push((
                             ns.clone(),
                             name,
-                            StreamOutcome::Error(format!("target endpoint {ep_name} has no slug")),
+                            StreamOutcome::Error(format!(
+                                "target endpoint {target_ep_name} has no slug"
+                            )),
                         ));
                         continue;
                     }
                 };
 
-                let stream_json =
-                    match render_stream(&spec, &name, &ns, &ds_spec, &ds_ref_name, &slug) {
+                let stream_json = if let Some(ds_name) = ds_ref_name {
+                    let ds_env = match mirror.get(&ns, "DataSource", &ds_name) {
+                        Some(e) => e,
+                        None => {
+                            outcomes.push((
+                                ns.clone(),
+                                name,
+                                StreamOutcome::Error(format!(
+                                    "data source {ds_name} is not in the mirror"
+                                )),
+                            ));
+                            continue;
+                        }
+                    };
+
+                    let ds_spec: DataSourceSpec = match serde_json::from_value(ds_env.spec.clone())
+                    {
+                        Ok(s) => s,
+                        Err(err) => {
+                            outcomes.push((
+                                ns.clone(),
+                                name,
+                                StreamOutcome::Error(format!("invalid data source spec: {err}")),
+                            ));
+                            continue;
+                        }
+                    };
+
+                    match render_stream(&spec, &name, &ns, &ds_spec, &ds_name, &target_slug) {
                         Ok(val) => val,
                         Err(err) => {
                             outcomes.push((
@@ -183,7 +196,50 @@ impl StreamDeployer {
                             ));
                             continue;
                         }
+                    }
+                } else if let Some(source_ep_name) = ep_ref_name {
+                    let source_ep_env = match mirror.get(&ns, "Endpoint", &source_ep_name) {
+                        Some(e) => e,
+                        None => {
+                            outcomes.push((
+                                ns.clone(),
+                                name,
+                                StreamOutcome::Error(format!(
+                                    "source endpoint {source_ep_name} is not in the mirror"
+                                )),
+                            ));
+                            continue;
+                        }
                     };
+
+                    let source_slug = match source_ep_env.spec.get("slug").and_then(Value::as_str) {
+                        Some(s) => s,
+                        None => {
+                            outcomes.push((
+                                ns.clone(),
+                                name,
+                                StreamOutcome::Error(format!(
+                                    "source endpoint {source_ep_name} has no slug"
+                                )),
+                            ));
+                            continue;
+                        }
+                    };
+
+                    match render_endpoint_stream(&spec, source_slug, &target_slug) {
+                        Ok(val) => val,
+                        Err(err) => {
+                            outcomes.push((
+                                ns.clone(),
+                                name,
+                                StreamOutcome::Error(err.to_string()),
+                            ));
+                            continue;
+                        }
+                    }
+                } else {
+                    unreachable!();
+                };
 
                 let outcome = self.deploy_stream(&ns, &name, &stream_json).await;
                 if outcome == StreamOutcome::Live {
@@ -338,14 +394,16 @@ pub fn render_stream(
         processors.push(serde_json::to_value(&p)?);
     }
 
-    let bloblang = pipeline
-        .compute
-        .as_ref()
-        .and_then(|c| c.bloblang.as_ref())
-        .ok_or(RenderError::MissingCompute)?;
-    processors.push(serde_json::json!({
-        "mapping": bloblang
-    }));
+    if let Some(compute) = &pipeline.compute {
+        if compute.kind != ComputeKind::Bloblang {
+            return Err(RenderError::MissingCompute);
+        }
+        if let Some(bloblang) = compute.bloblang.as_deref().filter(|b| !b.trim().is_empty()) {
+            processors.push(serde_json::json!({
+                "mapping": bloblang
+            }));
+        }
+    }
 
     processors.push(serde_json::json!({
         "mapping": "root = if this.type() == \"array\" { this } else { [this] }"
@@ -389,17 +447,202 @@ pub fn render_stream(
     }))
 }
 
+fn percent_encode(val: &str) -> String {
+    let mut out = String::with_capacity(val.len());
+    for b in val.bytes() {
+        match b {
+            b' ' => out.push_str("%20"),
+            b'&' => out.push_str("%26"),
+            b'=' => out.push_str("%3D"),
+            b'#' => out.push_str("%23"),
+            b'%' => out.push_str("%25"),
+            _ => out.push(b as char),
+        }
+    }
+    out
+}
+
+/// Builds the Context Gateway entity query URL for an endpoint-sourced pipeline (PL-31).
+pub fn endpoint_source_url(
+    source_slug: &str,
+    query: &jc_core::kinds::pipeline::SourceQuery,
+) -> String {
+    let mut params = Vec::new();
+    if !query.ids.is_empty() {
+        let ids_str = query
+            .ids
+            .iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        params.push(format!("id={}", percent_encode(&ids_str)));
+    } else if let Some(entity_type) = &query.entity_type {
+        params.push(format!("type={}", percent_encode(entity_type)));
+    }
+
+    if !query.attrs.is_empty() {
+        params.push(format!("attrs={}", query.attrs.join(",")));
+    }
+
+    params.push("limit=1000".to_string());
+
+    if let Some(q) = &query.q {
+        if !q.is_empty() {
+            params.push(format!("q={}", percent_encode(q)));
+        }
+    }
+    if let Some(scope_q) = &query.scope_q {
+        if !scope_q.is_empty() {
+            params.push(format!("scopeQ={}", percent_encode(scope_q)));
+        }
+    }
+    if let Some(geo_q) = &query.geo_q {
+        if !geo_q.is_empty() {
+            params.push(format!("geoQ={}", percent_encode(geo_q)));
+        }
+    }
+
+    let query_str = params.join("&");
+    format!("${{JC_GATEWAY_URL}}/api/endpoint/{source_slug}/ngsi-ld/v1/entities?{query_str}")
+}
+
+/// Renders a native Bento stream configuration for an endpoint-sourced pipeline (PL-31, PL-45).
+pub fn render_endpoint_stream(
+    pipeline: &PipelineSpec,
+    source_slug: &str,
+    target_slug: &str,
+) -> Result<Value, RenderError> {
+    let query = pipeline
+        .source
+        .as_ref()
+        .and_then(|s| s.query.as_ref())
+        .ok_or_else(|| RenderError::Custom("endpoint pipeline missing query".to_string()))?;
+
+    fn non_empty(v: &Option<String>) -> Option<&str> {
+        v.as_deref().filter(|s| !s.trim().is_empty())
+    }
+    let interval = non_empty(&pipeline.period)
+        .or_else(|| non_empty(&pipeline.schedule))
+        .unwrap_or("60s");
+
+    let source_url = endpoint_source_url(source_slug, query);
+
+    let input = serde_json::json!({
+        "generate": {
+            "interval": interval,
+            "mapping": "root = \"\""
+        }
+    });
+
+    let p1 = serde_json::json!({
+        "try": [{
+            "http": {
+                "url": source_url,
+                "verb": "GET",
+                "headers": {
+                    "Accept": "application/json"
+                },
+                "oauth2": {
+                    "enabled": true,
+                    "client_key": "${JC_CLIENT_ID}",
+                    "client_secret": "${JC_CLIENT_SECRET}",
+                    "token_url": "${JC_TOKEN_URL}"
+                },
+                "timeout": "30s"
+            }
+        }]
+    });
+    let p2 = serde_json::json!({
+        "mapping": "root = if errored() { deleted() } else { this }"
+    });
+
+    let mut processors = vec![p1, p2];
+
+    let bloblang = pipeline
+        .compute
+        .as_ref()
+        .and_then(|c| c.bloblang.as_ref())
+        .filter(|b| !b.trim().is_empty())
+        .ok_or(RenderError::MissingCompute)?;
+
+    processors.push(serde_json::json!({
+        "mapping": bloblang
+    }));
+
+    processors.push(serde_json::json!({
+        "mapping": "root = if this.type() == \"array\" { this } else { [this] }"
+    }));
+    processors.push(serde_json::json!({
+        "unarchive": {
+            "format": "json_array"
+        }
+    }));
+    processors.push(serde_json::json!({
+        "archive": {
+            "format": "json_array"
+        }
+    }));
+
+    let output = serde_json::json!({
+        "http_client": {
+            "url": format!("${{JC_GATEWAY_URL}}/api/endpoint/{target_slug}/ngsi-ld/v1/entityOperations/upsert?options=update"),
+            "verb": "POST",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "oauth2": {
+                "enabled": true,
+                "client_key": "${JC_CLIENT_ID}",
+                "client_secret": "${JC_CLIENT_SECRET}",
+                "token_url": "${JC_TOKEN_URL}"
+            },
+            "timeout": "30s",
+            "rate_limit": "pipeline_egress"
+        }
+    });
+
+    Ok(serde_json::json!({
+        "input": input,
+        "pipeline": {
+            "processors": processors
+        },
+        "output": output
+    }))
+}
+
 /// Checks whether a pipeline is eligible for deployment into the runner as a resident stream.
 pub fn eligible(spec: &PipelineSpec) -> bool {
+    if !spec.enabled {
+        return false;
+    }
     let has_ds = spec
         .source
         .as_ref()
         .and_then(|s| s.data_source_ref.as_ref())
         .is_some();
-    let bloblang_ok = spec.compute.as_ref().is_some_and(|c| {
-        c.kind == ComputeKind::Bloblang && c.bloblang.as_ref().is_some_and(|b| !b.trim().is_empty())
-    });
-    has_ds && spec.enabled && bloblang_ok
+    if has_ds {
+        return match &spec.compute {
+            None => true,
+            Some(c) => c.kind == ComputeKind::Bloblang,
+        };
+    }
+    let has_ep = spec
+        .source
+        .as_ref()
+        .and_then(|s| s.endpoint_ref.as_ref())
+        .is_some()
+        && spec
+            .source
+            .as_ref()
+            .and_then(|s| s.query.as_ref())
+            .is_some();
+    if has_ep {
+        return spec.compute.as_ref().is_some_and(|c| {
+            c.kind == ComputeKind::Bloblang
+                && c.bloblang.as_ref().is_some_and(|b| !b.trim().is_empty())
+        });
+    }
+    false
 }
 
 /// Returns whether `spec` is configured to read an external DataSource.
@@ -408,6 +651,19 @@ pub fn is_data_source_pipeline(spec: &PipelineSpec) -> bool {
         .as_ref()
         .and_then(|s| s.data_source_ref.as_ref())
         .is_some()
+}
+
+/// Returns whether `spec` is configured as a stream pipeline (DataSource or Endpoint-sourced).
+pub fn is_stream_pipeline(spec: &PipelineSpec) -> bool {
+    if let Some(source) = &spec.source {
+        if source.data_source_ref.is_some() {
+            return true;
+        }
+        if source.endpoint_ref.is_some() && source.query.is_some() {
+            return true;
+        }
+    }
+    false
 }
 
 /// One `StreamDeployed` condition with the runner's word on why.
@@ -609,6 +865,168 @@ mod tests {
         let mut spec2 = helsinki_pipeline_spec();
         spec2.compute.as_mut().unwrap().kind = ComputeKind::Wasm;
         assert!(!eligible(&spec2));
+    }
+
+    fn endpoint_pipeline_spec(
+        type_name: Option<&str>,
+        ids: Vec<jc_core::urn::Urn>,
+        period: Option<&str>,
+        schedule: Option<&str>,
+    ) -> PipelineSpec {
+        let mut source_json = serde_json::json!({
+            "endpointRef": {
+                "kind": "Endpoint",
+                "name": "helsinki-all"
+            },
+            "query": {
+                "attrs": ["availableBikeNumber"]
+            }
+        });
+        if let Some(t) = type_name {
+            source_json["query"]["type"] = serde_json::json!(t);
+        }
+        if !ids.is_empty() {
+            source_json["query"]["ids"] = serde_json::json!(ids);
+        }
+
+        let mut pipe_json = serde_json::json!({
+            "class": "scheduled",
+            "source": source_json,
+            "compute": {
+                "kind": "bloblang",
+                "bloblang": "root = this"
+            },
+            "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki-kpi:kpi-writer"
+        });
+        if let Some(p) = period {
+            pipe_json["period"] = serde_json::json!(p);
+        }
+        if let Some(s) = schedule {
+            pipe_json["schedule"] = serde_json::json!(s);
+        }
+        serde_json::from_value(pipe_json).expect("valid endpoint PipelineSpec")
+    }
+
+    #[test]
+    fn endpoint_source_renders_get_url_with_type_and_attrs() {
+        let spec =
+            endpoint_pipeline_spec(Some("BikeHireDockingStation"), vec![], Some("15m"), None);
+        let rendered = render_endpoint_stream(&spec, "source_slug_123", "target_slug_456")
+            .expect("rendered endpoint stream");
+
+        assert_eq!(rendered["input"]["generate"]["interval"], "15m");
+        let http = &rendered["pipeline"]["processors"][0]["try"][0]["http"];
+        assert_eq!(
+            http["url"],
+            "${JC_GATEWAY_URL}/api/endpoint/source_slug_123/ngsi-ld/v1/entities?type=BikeHireDockingStation&attrs=availableBikeNumber&limit=1000"
+        );
+        assert_eq!(http["verb"], "GET");
+        assert_eq!(http["headers"]["Accept"], "application/json");
+        assert_eq!(http["oauth2"]["client_key"], "${JC_CLIENT_ID}");
+        assert_eq!(
+            rendered["output"]["http_client"]["url"],
+            "${JC_GATEWAY_URL}/api/endpoint/target_slug_456/ngsi-ld/v1/entityOperations/upsert?options=update"
+        );
+    }
+
+    #[test]
+    fn endpoint_source_ids_renders_id_param() {
+        let urn: jc_core::urn::Urn = "urn:ngsi-ld:BikeHireDockingStation:hel.fi:h:station-1"
+            .parse()
+            .expect("urn");
+        let spec = endpoint_pipeline_spec(None, vec![urn], None, Some("*/15 * * * *"));
+        let rendered = render_endpoint_stream(&spec, "source_slug_123", "target_slug_456")
+            .expect("rendered endpoint stream");
+
+        assert_eq!(rendered["input"]["generate"]["interval"], "*/15 * * * *");
+        let http = &rendered["pipeline"]["processors"][0]["try"][0]["http"];
+        assert_eq!(
+            http["url"],
+            "${JC_GATEWAY_URL}/api/endpoint/source_slug_123/ngsi-ld/v1/entities?id=urn:ngsi-ld:BikeHireDockingStation:hel.fi:h:station-1&attrs=availableBikeNumber&limit=1000"
+        );
+        assert!(!http["url"].as_str().unwrap().contains("type="));
+    }
+
+    #[test]
+    fn datasource_without_compute_renders_without_error() {
+        let mut spec = helsinki_pipeline_spec();
+        spec.compute = None;
+        let ds = helsinki_datasource_spec();
+        let rendered = render_stream(
+            &spec,
+            "citybikes-free",
+            "helsinki",
+            &ds,
+            "hsl-citybikes-free",
+            "abc123",
+        )
+        .expect("renders without compute");
+        let processors = rendered["pipeline"]["processors"].as_array().unwrap();
+        assert!(!processors
+            .iter()
+            .any(|p| p.get("mapping").and_then(Value::as_str) == Some("root = this.data.bikes")));
+    }
+
+    #[tokio::test]
+    async fn missing_source_endpoint_is_error() {
+        let mirror = Mirror::new();
+        let target_ep = serde_json::json!({
+            "contextSpaceRef": "helsinki-kpi",
+            "slug": "targetslug1234567890123456",
+            "audience": "public",
+            "enabledRepresentations": ["ngsi-ld"]
+        });
+        mirror.upsert(ResourceEnvelope {
+            api_version: API_VERSION.to_string(),
+            kind: "Endpoint".to_string(),
+            metadata: ObjectMeta {
+                name: "kpi-writer".to_string(),
+                namespace: Some("helsinki".to_string()),
+                ..Default::default()
+            },
+            spec: target_ep,
+            status: None,
+        });
+
+        let pipe = serde_json::json!({
+            "class": "scheduled",
+            "source": {
+                "endpointRef": {
+                    "kind": "Endpoint",
+                    "name": "nonexistent-endpoint"
+                },
+                "query": {
+                    "type": "BikeHireDockingStation",
+                    "attrs": ["availableBikeNumber"]
+                }
+            },
+            "compute": {
+                "kind": "bloblang",
+                "bloblang": "root = this"
+            },
+            "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki-kpi:kpi-writer"
+        });
+        mirror.upsert(ResourceEnvelope {
+            api_version: API_VERSION.to_string(),
+            kind: "Pipeline".to_string(),
+            metadata: ObjectMeta {
+                name: "kpi-pipe".to_string(),
+                namespace: Some("helsinki".to_string()),
+                ..Default::default()
+            },
+            spec: pipe,
+            status: None,
+        });
+
+        let deployer = StreamDeployer::new("http://dummy-runner:4195");
+        let outcomes = deployer.converge(&mirror).await;
+        assert_eq!(outcomes.len(), 1);
+        match &outcomes[0].2 {
+            StreamOutcome::Error(msg) => {
+                assert!(msg.contains("source endpoint nonexistent-endpoint is not in the mirror"));
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
     }
 
     #[tokio::test]

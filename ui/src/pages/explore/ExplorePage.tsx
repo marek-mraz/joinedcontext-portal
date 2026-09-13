@@ -45,6 +45,10 @@ function useProjectList(project: string, plural: string) {
 }
 
 function cell(value: unknown): string {
+  if (typeof value === "object" && value !== null && "value" in value) {
+    const inner = (value as { value: unknown }).value;
+    return cell(inner);
+  }
   const text = typeof value === "string" ? value : JSON.stringify(value);
   return text.length > 40 ? `${text.slice(0, 39)}…` : text;
 }
@@ -78,10 +82,13 @@ export function ExplorePage({
 
   const spaceEndpoints = (endpoints.data ?? []).filter((e) => spaceOf(e) === space);
   const endpoint =
-    spaceEndpoints.find((e) => e.metadata.name === endpointChoice) ?? pickReadEndpoint(spaceEndpoints);
+    spaceEndpoints.find((e) => e.metadata.name === endpointChoice) ??
+    pickReadEndpoint(spaceEndpoints);
   const slug = typeof endpoint?.spec.slug === "string" ? (endpoint.spec.slug as string) : undefined;
   const spaceManifest = (spaces.data ?? []).find((s) => s.metadata.name === space);
-  const model = (models.data ?? []).find((m) => m.metadata.name === spaceManifest?.spec.dataModelRef);
+  const model = (models.data ?? []).find(
+    (m) => m.metadata.name === spaceManifest?.spec.dataModelRef,
+  );
   const types = model ? entityTypesOf(model) : [];
   const slots = filterSlotsOf(model, query.type);
   const access = useAccess(slug);
@@ -163,7 +170,14 @@ export function ExplorePage({
       </div>
 
       {space ? (
-        <EntityFilters id="explore" types={types} slots={slots} value={query} onChange={changeQuery} denied={denied} />
+        <EntityFilters
+          id="explore"
+          types={types}
+          slots={slots}
+          value={query}
+          onChange={changeQuery}
+          denied={denied}
+        />
       ) : null}
       {space ? <AccessPanel slug={slug} type={query.type} access={access} /> : null}
 
@@ -176,8 +190,15 @@ export function ExplorePage({
       {slug && query.type ? (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3 text-caption text-fg-muted">
-            <span>{count !== undefined ? t("explore.count", { count }) : t("explore.countUnknown")}</span>
-            <span>{t("explore.page", { from: offset + 1, to: offset + rows.length })}</span>
+            <span>
+              {count !== undefined ? t("explore.count", { count }) : t("explore.countUnknown")}
+            </span>
+            <span>
+              {t("explore.page", {
+                from: offset + 1,
+                to: offset + rows.length,
+              })}
+            </span>
             <label className="inline-flex items-center gap-1">
               {t("explore.pageSize")}
               <Select
@@ -195,7 +216,11 @@ export function ExplorePage({
                 ))}
               </Select>
             </label>
-            <Button size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>
+            <Button
+              size="sm"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - limit))}
+            >
               {t("explore.prev")}
             </Button>
             <Button size="sm" disabled={!hasNext} onClick={() => setOffset(offset + limit)}>
@@ -231,7 +256,9 @@ export function ExplorePage({
                       </TableCell>
                       {columns.map((column) => (
                         <TableCell key={column}>
-                          <span className="font-mono">{column in row ? cell(row[column]) : ""}</span>
+                          <span className="font-mono">
+                            {column in row ? cell(row[column]) : ""}
+                          </span>
                         </TableCell>
                       ))}
                     </TableRow>
@@ -246,7 +273,10 @@ export function ExplorePage({
       ) : null}
 
       {selected ? (
-        <section aria-labelledby="explore-detail" className="rounded-md border border-border bg-surface p-3">
+        <section
+          aria-labelledby="explore-detail"
+          className="rounded-md border border-border bg-surface p-3"
+        >
           <div className="flex items-center justify-between gap-2">
             <h2 id="explore-detail" className="text-body font-semibold text-fg">
               {t("explore.detail")} <span className="font-mono font-normal">{selected}</span>

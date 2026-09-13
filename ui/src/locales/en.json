@@ -423,6 +423,24 @@
       "sample": "Sample",
       "tick": "Select",
       "ticked": "{count} entities ticked: the pipeline reads only these (source.query.ids).",
+      "preset": {
+        "title": "Preset",
+        "load": "Load (DataSource)",
+        "kpi": "Analyse (KPI)"
+      },
+      "kpi": {
+        "title": "Analyse (KPI)",
+        "lead": "Aggregate context data from an endpoint into a KeyPerformanceIndicator entity written to the project KPI space.",
+        "endpoint": "Source endpoint",
+        "type": "Entity type",
+        "attribute": "Attribute",
+        "aggregate": "Aggregate",
+        "period": "Period",
+        "name": "Indicator name",
+        "test": "Test on the endpoint's page",
+        "testing": "Testing…",
+        "computedValue": "Computed value"
+      },
       "process": "3. Process",
       "processHint": "A snippet writes the Bloblang below; edit it afterwards or pick another compute kind in the form.",
       "attribute": "Attribute",

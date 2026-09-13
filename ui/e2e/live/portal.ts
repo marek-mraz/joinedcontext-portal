@@ -49,10 +49,18 @@ export async function proposedChange(page: Page): Promise<string> {
   return id;
 }
 
-/** Approves one change as the approver; a Yellow lane needs no typed confirmation. */
-export async function approve(page: Page, project: string, change: string): Promise<void> {
+/**
+ * Approves one change as the approver. A Yellow lane needs no typed confirmation; a Red one
+ * (a public Endpoint, CC-19) asks for the resource name, typed as a person would.
+ */
+export async function approve(page: Page, project: string, change: string, confirm?: string): Promise<void> {
   await page.goto(`/projects/${project}/approvals/${change}?lang=en`, { waitUntil: "networkidle" });
   const button = page.getByRole("button", { name: "Approve", exact: true });
+  if (confirm) {
+    const input = page.locator("#confirm-resource-name");
+    await expect(input).toBeEnabled({ timeout: 60_000 });
+    await input.pressSequentially(confirm, { delay: 60 });
+  }
   await expect(button).toBeEnabled({ timeout: 60_000 });
   await button.click();
   await expect(page.getByText(/Deploying|Merged|Applied|Live/).first()).toBeVisible({ timeout: 90_000 });

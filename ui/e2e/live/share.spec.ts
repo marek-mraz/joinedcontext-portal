@@ -58,7 +58,7 @@ test("an endpoint proposed and approved through the UI: Live, the hidden attribu
 
   const approver = await signIn(browser, APPROVER, `/projects/${PROJECT}/approvals?lang=en`);
   start = Date.now();
-  await approve(approver.page, PROJECT, change);
+  await approve(approver.page, PROJECT, change, ENDPOINT);
   personSeconds += (Date.now() - start) / 1000;
   console.log(`person-seconds: ${personSeconds.toFixed(1)}`);
   expect(personSeconds).toBeLessThan(60);

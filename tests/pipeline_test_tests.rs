@@ -286,6 +286,89 @@ async fn a_caller_without_the_propose_verb_is_403_and_without_a_runner_it_is_503
 }
 
 #[tokio::test]
+async fn endpoint_sourced_candidate_with_sample_json_array_returns_trace() {
+    let runner = MockServer::start().await;
+    let (create, delete) = runner_mocks(ResponseTemplate::new(200));
+    create.mount(&runner).await;
+    delete.mount(&runner).await;
+    let state = AppState::new(config(Some(&runner)), None).with_mirror(mirror("helsinki-kpi-test"));
+
+    let mapping = "root = this";
+    let body = json!({
+        "pipeline": {
+            "apiVersion": "joinedcontext.com/v1alpha1",
+            "kind": "Pipeline",
+            "metadata": { "name": "kpi-pipeline" },
+            "spec": {
+                "class": "scheduled",
+                "schedule": "*/15 * * * *",
+                "source": {
+                    "endpointRef": { "kind": "Endpoint", "name": "helsinki-all" },
+                    "query": { "type": "BikeHireDockingStation", "attrs": ["availableBikeNumber"] }
+                },
+                "compute": { "kind": "bloblang", "bloblang": mapping },
+                "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki-kpi:kpi-writer"
+            }
+        },
+        "sample": {
+            "text": "[{\"id\":\"urn:ngsi-ld:BikeHireDockingStation:hel.fi:h:1\",\"type\":\"BikeHireDockingStation\",\"availableBikeNumber\":5}]",
+            "format": "json"
+        }
+    });
+
+    let messages = [json!({
+        "input": "{\"id\":\"urn:ngsi-ld:BikeHireDockingStation:hel.fi:h:1\",\"type\":\"BikeHireDockingStation\",\"availableBikeNumber\":5}",
+        "output": {
+            "id": "urn:ngsi-ld:BikeHireDockingStation:hel.fi:h:1",
+            "type": "BikeHireDockingStation",
+            "availableBikeNumber": 5
+        },
+        "error": null
+    })];
+
+    let (answer, harness) = tokio::join!(
+        post(&state, "dev@hel.fi", "helsinki-kpi-test", &body),
+        play_runner(&runner, &state, &messages),
+    );
+    let (status, resp) = answer;
+    assert_eq!(status, StatusCode::OK, "{resp}");
+    assert_eq!(resp["input"]["events"], 1);
+    assert_eq!(resp["mapping"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        resp["mapping"][0]["id"],
+        "urn:ngsi-ld:BikeHireDockingStation:hel.fi:h:1"
+    );
+
+    assert_eq!(harness["input"]["generate"]["count"], 1);
+    let processors = harness["pipeline"]["processors"]
+        .as_array()
+        .expect("processors");
+    assert!(processors.iter().any(|p| p["mapping"] == mapping));
+    runner.verify().await;
+}
+
+#[tokio::test]
+async fn candidate_with_neither_source_is_400() {
+    let runner = MockServer::start().await;
+    let state = AppState::new(config(Some(&runner)), None).with_mirror(mirror("helsinki"));
+    let body = json!({
+        "pipeline": {
+            "apiVersion": "joinedcontext.com/v1alpha1",
+            "kind": "Pipeline",
+            "metadata": { "name": "no-source-pipeline" },
+            "spec": {
+                "class": "resident",
+                "compute": { "kind": "bloblang", "bloblang": "root = this" },
+                "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:helsinki-all"
+            }
+        },
+        "sample": { "text": "foo", "format": "text" }
+    });
+    let (status, answer) = post(&state, "dev@hel.fi", "helsinki", &body).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+}
+
+#[tokio::test]
 async fn anonymous_is_401_and_a_capture_for_no_test_is_404() {
     let state = AppState::new(config(None), None).with_mirror(mirror("lahti"));
     let response = server::app(state.clone())

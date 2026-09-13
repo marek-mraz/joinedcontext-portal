@@ -152,6 +152,15 @@ pub async fn test_pipeline(
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
     let spec = spec_of(&request.pipeline, &project)?;
+    let has_source = spec
+        .source
+        .as_ref()
+        .is_some_and(|s| s.data_source_ref.is_some() || s.endpoint_ref.is_some());
+    if !has_source {
+        return Err(ApiError::BadRequest(
+            "pipeline.spec.source must declare dataSourceRef or endpointRef".into(),
+        ));
+    }
     crate::permissions::for_request(&state, &user.0.identity, &project).check(
         "Pipeline",
         Verb::Propose,

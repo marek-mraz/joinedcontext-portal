@@ -25,9 +25,7 @@ use tokio::sync::Mutex;
 use utoipa::ToSchema;
 
 use super::leader::Leadership;
-use super::streams::{
-    eligible, is_data_source_pipeline, make_condition, StreamDeployer, StreamOutcome,
-};
+use super::streams::{eligible, is_stream_pipeline, make_condition, StreamDeployer, StreamOutcome};
 use crate::apps::converge::{Converger, Outcome};
 use crate::git::{Author, FileWrite, GitError, GiteaClient};
 use crate::resource::ResourceEnvelope;
@@ -285,10 +283,10 @@ impl Syncer {
                 let Some(mut envelope) = fresh_mirror.get(&ns, "Pipeline", &name) else {
                     continue;
                 };
-                let is_ds = serde_json::from_value::<jc_core::kinds::pipeline::PipelineSpec>(
+                let is_stream = serde_json::from_value::<jc_core::kinds::pipeline::PipelineSpec>(
                     envelope.spec.clone(),
                 )
-                .map(|s| is_data_source_pipeline(&s))
+                .map(|s| is_stream_pipeline(&s))
                 .unwrap_or(false);
 
                 match outcome {
@@ -312,7 +310,7 @@ impl Syncer {
                         fresh_mirror.upsert(envelope);
                     }
                     StreamOutcome::Skipped(why) => {
-                        if is_ds {
+                        if is_stream {
                             if let Some(status) = envelope.status.as_mut() {
                                 status.phase = crate::resource::Phase::Pending;
                                 let reason = if why.contains("disabled") || why.contains("paused") {

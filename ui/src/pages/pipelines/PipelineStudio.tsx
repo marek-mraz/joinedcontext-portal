@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { api, ApiError, queryKeys, unwrap } from "../../api/client";
+import { api, ApiError, queryKeys, readCsrfToken, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
+import { useBranding } from "../../branding";
 import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
 import { EntityFilters } from "../../components/entities/EntityFilters";
 import { fetchEntities, filterSlotsOf } from "../../components/entities/filters";
@@ -13,6 +14,7 @@ import { Alert, Button, Field, Input, Select } from "../../components/ui";
 import { entityTypesOf, pickReadEndpoint, spaceOf } from "../spaces/SpaceInside";
 import type { PipelineForm } from "./PipelineEditor";
 import { PipelineTest } from "./PipelineTest";
+import type { Trace } from "./PipelineTest";
 
 /** How many rows one sample shows: enough to tick a handful, small enough to read. */
 export const SAMPLE_LIMIT = 20;
@@ -25,6 +27,103 @@ export const AGGREGATES: Aggregate[] = ["sum", "average", "count"];
 
 /** One row of a keyValues sample: the id plus whatever attributes the entity carries. */
 export type SampleRow = Entity;
+
+export type StudioPreset = "load" | "kpi";
+
+/** Converts a duration like "15m", "1h", "30s" to an ISO 8601 duration string. */
+export function toIsoDuration(period: string): string {
+  const trimmed = period.trim();
+  if (trimmed.startsWith("P")) {
+    return trimmed;
+  }
+  const match = /^(\d+)(ms|s|m|h|d)$/i.exec(trimmed);
+  if (!match) {
+    return "PT15M";
+  }
+  const count = match[1];
+  const unit = match[2].toLowerCase();
+  switch (unit) {
+    case "s":
+      return `PT${count}S`;
+    case "m":
+      return `PT${count}M`;
+    case "h":
+      return `PT${count}H`;
+    case "d":
+      return `P${count}D`;
+    default:
+      return "PT15M";
+  }
+}
+
+/** Generates standard KPI indicator Bloblang conforming to Architecture/08. */
+export function kpiBloblang(params: {
+  kpiName: string;
+  project: string;
+  sourceEndpoint: string;
+  sourceSpace: string;
+  type: string;
+  attribute: string;
+  aggregate: "average" | "sum" | "count";
+  period: string;
+}): string {
+  const { kpiName, project, sourceEndpoint, sourceSpace, type, attribute, aggregate, period } =
+    params;
+  const isoDuration = toIsoDuration(period);
+  const formula =
+    aggregate === "count"
+      ? `count(${type})`
+      : `${aggregate === "average" ? "avg" : "sum"}(${attribute}) over ${type}`;
+
+  const valueExpr =
+    aggregate === "count"
+      ? "this.length()"
+      : `if $stations.length() == 0 { 0 } else { $stations.map_each(s -> s.${attribute}.value).sum() / $stations.length() }`;
+
+  const filterLine =
+    aggregate === "count"
+      ? ""
+      : `let stations = this.filter(s -> s.${attribute}.value.type() == "number")\n`;
+
+  return [
+    `let domain = env("JC_ORG_DOMAIN")`,
+    filterLine.trimEnd(),
+    `let now = now()`,
+    `root.id = "urn:ngsi-ld:KeyPerformanceIndicator:%v:${project}-kpi:${kpiName}".format($domain)`,
+    `root.type = "KeyPerformanceIndicator"`,
+    `root.name = { "type": "Property", "value": "${kpiName}" }`,
+    `root.calculationFormula = { "type": "Property", "value": "${formula}" }`,
+    `root.currentValue = {`,
+    `  "type": "Property",`,
+    `  "value": ${valueExpr},`,
+    `  "unitCode": "C62",`,
+    `  "observedAt": $now`,
+    `}`,
+    `root.calculationPeriod = { "type": "Property", "value": { "start": $now.ts_sub_iso8601("${isoDuration}"), "end": $now } }`,
+    `root.updatedAt = { "type": "Property", "value": { "@type": "DateTime", "@value": $now } }`,
+    `root.derivedFrom = { "type": "Relationship", "object": "urn:ngsi-ld:Endpoint:%v:${sourceSpace}:${sourceEndpoint}".format($domain) }`,
+    `root.computedBy = { "type": "Relationship", "object": "urn:ngsi-ld:Pipeline:%v:${project}:${kpiName}".format($domain) }`,
+    "",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
+/** Finds the first Endpoint targeting a KPI space (`{project}-kpi`) to write indicators to. */
+export function findKpiTargetEndpoint(
+  project: string,
+  endpoints: Manifest[],
+  orgDomain?: string,
+): string | undefined {
+  const kpiSpace = `${project}-kpi`;
+  const ep = endpoints.find((e) => spaceOf(e) === kpiSpace || spaceOf(e)?.endsWith("-kpi"));
+  if (!ep) {
+    return undefined;
+  }
+  const space = spaceOf(ep) ?? kpiSpace;
+  const domain = orgDomain || "local";
+  return `urn:ngsi-ld:Endpoint:${domain}:${space}:${ep.metadata.name}`;
+}
 
 /** Where the form's source points: a feed, a space, or nowhere yet. */
 export function sourceKindOf(form: PipelineForm | undefined): SourceKind {
@@ -91,14 +190,39 @@ export interface PipelineStudioProps {
 }
 
 /** The URL of the `http` DataSource the draft reads, if it reads one (PL-48). */
-export function sampleUrlOf(draft: PipelineForm | undefined, dataSources: Manifest[]): string | undefined {
+export function sampleUrlOf(
+  draft: PipelineForm | undefined,
+  dataSources: Manifest[],
+  endpoints: Manifest[] = [],
+): string | undefined {
   const name = draft?.source?.dataSourceRef;
-  const source = name ? dataSources.find((candidate) => candidate.metadata.name === name) : undefined;
-  if (!source || source.spec.type !== "http") {
+  const source = name
+    ? dataSources.find((candidate) => candidate.metadata.name === name)
+    : undefined;
+  if (source) {
+    if (source.spec.type !== "http") {
+      return undefined;
+    }
+    const url = (source.spec.http as { url?: unknown } | undefined)?.url;
+    return typeof url === "string" && /^https?:\/\//.test(url) ? url : undefined;
+  }
+  // An endpoint-sourced pipeline tests on a page of that endpoint, read the way the
+  // reconciler will read it (PL-45): the runner fetches the URL under its own policy.
+  const endpointName = draft?.source?.endpointRef;
+  const endpoint = endpointName
+    ? endpoints.find((candidate) => candidate.metadata.name === endpointName)
+    : undefined;
+  const slug = (endpoint?.spec as { slug?: unknown } | undefined)?.slug;
+  const type = draft?.source?.query?.type;
+  if (typeof slug !== "string" || !slug || typeof type !== "string" || !type) {
     return undefined;
   }
-  const url = (source.spec.http as { url?: unknown } | undefined)?.url;
-  return typeof url === "string" && /^https?:\/\//.test(url) ? url : undefined;
+  const params = new URLSearchParams({ type, limit: "1000" });
+  const attrs = draft?.source?.query?.attrs;
+  if (Array.isArray(attrs) && attrs.length > 0) {
+    params.set("attrs", attrs.join(","));
+  }
+  return `${window.location.origin}/api/endpoint/${slug}/ngsi-ld/v1/entities?${params.toString()}`;
 }
 
 /**
@@ -117,6 +241,7 @@ export function PipelineStudio({
 }: PipelineStudioProps): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "en";
+  const { orgDomain } = useBranding();
   const [sample, setSample] = useState<SampleRow[] | null>(null);
   const [sampleError, setSampleError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -125,6 +250,170 @@ export function PipelineStudio({
   // with nothing picked yet, or a space with no endpoint, is not in the manifest at all.
   const [kindChoice, setKindChoice] = useState<SourceKind>(() => sourceKindOf(draft));
   const [spaceChoice, setSpaceChoice] = useState<string | undefined>(undefined);
+
+  const [preset, setPreset] = useState<StudioPreset>(() =>
+    draft?.output?.type === "KeyPerformanceIndicator" ? "kpi" : "load",
+  );
+
+  const draftEndpointName =
+    typeof draft?.source?.endpointRef === "object"
+      ? ((draft.source.endpointRef as { name?: string })?.name ?? "")
+      : (draft?.source?.endpointRef ?? "");
+
+  const [kpiEndpoint, setKpiEndpoint] = useState<string>(draftEndpointName);
+  const [kpiType, setKpiType] = useState<string>(
+    (draft?.source?.query?.type as string) || "BikeHireDockingStation",
+  );
+  const [kpiAttribute, setKpiAttribute] = useState<string>(
+    (draft?.source?.query?.attrs as string[])?.[0] || "availableBikeNumber",
+  );
+  const [kpiAggregate, setKpiAggregate] = useState<"average" | "sum" | "count">("average");
+  const [kpiPeriod, setKpiPeriod] = useState<string>(draft?.period || "15m");
+  const [kpiName, setKpiName] = useState<string>(draft?.name || "bikes-available-avg");
+  const [kpiTesting, setKpiTesting] = useState(false);
+  const [kpiTestError, setKpiTestError] = useState<string | null>(null);
+  const [kpiValue, setKpiValue] = useState<unknown | null>(null);
+
+  function emitKpi(params: {
+    endpointName: string;
+    type: string;
+    attribute: string;
+    aggregate: "average" | "sum" | "count";
+    period: string;
+    name: string;
+  }) {
+    const ep = endpoints.find((e) => e.metadata.name === params.endpointName);
+    const sourceSpace = (ep ? spaceOf(ep) : undefined) ?? project;
+    const bloblang = kpiBloblang({
+      kpiName: params.name,
+      project,
+      sourceEndpoint: params.endpointName,
+      sourceSpace,
+      type: params.type,
+      attribute: params.attribute,
+      aggregate: params.aggregate,
+      period: params.period,
+    });
+    const targetEndpoint =
+      findKpiTargetEndpoint(project, endpoints, orgDomain) ?? draft?.targetEndpoint;
+    onChange({
+      ...draft,
+      name: params.name,
+      class: "scheduled",
+      period: params.period,
+      source: {
+        ...draft?.source,
+        endpointRef: {
+          kind: "Endpoint",
+          name: params.endpointName,
+        } as unknown as string,
+        query: { type: params.type, attrs: [params.attribute] },
+      },
+      compute: {
+        kind: "bloblang",
+        bloblang,
+      },
+      output: {
+        type: "KeyPerformanceIndicator",
+        mode: "upsert",
+      },
+      targetEndpoint,
+    });
+  }
+
+  async function runKpiTest() {
+    if (!kpiEndpoint) {
+      return;
+    }
+    const chosenEndpoint = endpoints.find((e) => e.metadata.name === kpiEndpoint);
+    const slug =
+      typeof chosenEndpoint?.spec.slug === "string" ? (chosenEndpoint.spec.slug as string) : "";
+    if (!slug) {
+      setKpiTestError(t("pipelines.test.failed", { status: 0 }));
+      return;
+    }
+
+    const sourceSpace = (chosenEndpoint ? spaceOf(chosenEndpoint) : undefined) ?? project;
+    const bloblang = kpiBloblang({
+      kpiName,
+      project,
+      sourceEndpoint: kpiEndpoint,
+      sourceSpace,
+      type: kpiType,
+      attribute: kpiAttribute,
+      aggregate: kpiAggregate,
+      period: kpiPeriod,
+    });
+    const targetEndpoint =
+      findKpiTargetEndpoint(project, endpoints, orgDomain) ?? draft?.targetEndpoint;
+
+    const kpiForm: PipelineForm = {
+      ...draft,
+      name: kpiName,
+      class: "scheduled",
+      period: kpiPeriod,
+      source: {
+        ...draft?.source,
+        endpointRef: {
+          kind: "Endpoint",
+          name: kpiEndpoint,
+        } as unknown as string,
+        query: { type: kpiType, attrs: [kpiAttribute] },
+      },
+      compute: {
+        kind: "bloblang",
+        bloblang,
+      },
+      output: {
+        type: "KeyPerformanceIndicator",
+        mode: "upsert",
+      },
+      targetEndpoint,
+    };
+
+    setKpiTesting(true);
+    setKpiTestError(null);
+    try {
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const url = `${origin}/api/endpoint/${slug}/ngsi-ld/v1/entities?type=${encodeURIComponent(kpiType)}&attrs=${encodeURIComponent(kpiAttribute)}&limit=1000`;
+      const response = await fetch(
+        `/api/v1/projects/${encodeURIComponent(project)}/pipelines/test`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/json",
+            "x-csrf-token": readCsrfToken() ?? "",
+          },
+          body: JSON.stringify({
+            pipeline: toManifest ? toManifest(kpiForm) : kpiForm,
+            sample: { url, format: "json" },
+          }),
+        },
+      );
+      if (!response.ok) {
+        const problem = (await response.json().catch(() => null)) as {
+          detail?: string;
+        } | null;
+        setKpiTestError(problem?.detail ?? t("pipelines.test.failed", { status: response.status }));
+        return;
+      }
+      const answer = (await response.json()) as Trace;
+      const firstMapping = answer.mapping?.[0] as Record<string, unknown> | undefined;
+      const currentValue = firstMapping?.currentValue as Record<string, unknown> | undefined;
+      const val = currentValue?.value ?? null;
+      setKpiValue(val);
+      const isOk =
+        answer.errors.length === 0 &&
+        answer.validation.length > 0 &&
+        answer.validation.every((v) => v.ok);
+      onVerdict?.(isOk, bloblang);
+    } catch {
+      setKpiTestError(t("pipelines.test.failed", { status: 0 }));
+    } finally {
+      setKpiTesting(false);
+    }
+  }
 
   const spaces = useQuery({
     queryKey: queryKeys.list(project, "spaces"),
@@ -203,7 +492,10 @@ export function PipelineStudio({
   }
 
   function chooseDataSource(name: string) {
-    update((form) => ({ ...form, source: name ? { dataSourceRef: name } : {} }));
+    update((form) => ({
+      ...form,
+      source: name ? { dataSourceRef: name } : {},
+    }));
   }
 
   function chooseSpace(name: string) {
@@ -220,7 +512,10 @@ export function PipelineStudio({
 
   function chooseEndpoint(name: string) {
     setSample(null);
-    update((form) => ({ ...form, source: { ...form.source, endpointRef: name, query: undefined } }));
+    update((form) => ({
+      ...form,
+      source: { ...form.source, endpointRef: name, query: undefined },
+    }));
   }
 
   function changeQuery(next: EntityQuery) {
@@ -264,7 +559,12 @@ export function PipelineStudio({
       ...form,
       compute: {
         kind: "bloblang",
-        bloblang: aggregateBloblang(aggregate, { type, attribute, space, outputType }),
+        bloblang: aggregateBloblang(aggregate, {
+          type,
+          attribute,
+          space,
+          outputType,
+        }),
       },
       output: { type: outputType, mode: form.output?.mode ?? "upsert" },
     }));
@@ -274,202 +574,401 @@ export function PipelineStudio({
 
   return (
     <div className="flex flex-col gap-3" data-testid="pipeline-studio">
-      {toManifest ? (
-        <PipelineTest
-          project={project}
-          draft={draft}
-          onChange={onChange}
-          toManifest={toManifest}
-          sampleUrl={sampleUrlOf(draft, dataSources)}
-          onVerdict={onVerdict}
-        />
-      ) : null}
-      <section className={sectionClass} aria-labelledby="studio-source">
-        <h3 id="studio-source" className="text-body font-semibold text-fg">
-          {t("pipelines.studio.source")}
-        </h3>
-        <Field id="studio-source-kind" label={t("pipelines.studio.sourceKind")}>
-          <Select
-            id="studio-source-kind"
-            value={kind}
-            onChange={(event) => chooseKind(event.target.value as SourceKind)}
-          >
-            <option value="none">{t("pipelines.studio.kind.none")}</option>
-            <option value="datasource">{t("pipelines.studio.kind.datasource")}</option>
-            <option value="space">{t("pipelines.studio.kind.space")}</option>
-          </Select>
-        </Field>
-        {kind === "datasource" ? (
-          <Field id="studio-datasource" label={t("pipelines.field.dataSource")}>
-            <Select
-              id="studio-datasource"
-              value={draft?.source?.dataSourceRef ?? ""}
-              onChange={(event) => chooseDataSource(event.target.value)}
-            >
-              <option value="">—</option>
-              {dataSources.map((source) => (
-                <option key={source.metadata.name} value={source.metadata.name}>
-                  {localized(source.metadata.title, locale, source.metadata.name)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
-        {kind === "space" ? (
+      <Field id="studio-preset" label={t("pipelines.studio.preset.title")}>
+        <Select
+          id="studio-preset"
+          value={preset}
+          onChange={(event) => {
+            const next = event.target.value as StudioPreset;
+            setPreset(next);
+            if (next === "kpi" && kpiEndpoint) {
+              emitKpi({
+                endpointName: kpiEndpoint,
+                type: kpiType,
+                attribute: kpiAttribute,
+                aggregate: kpiAggregate,
+                period: kpiPeriod,
+                name: kpiName,
+              });
+            }
+          }}
+        >
+          <option value="load">{t("pipelines.studio.preset.load")}</option>
+          <option value="kpi">{t("pipelines.studio.preset.kpi")}</option>
+        </Select>
+      </Field>
+
+      {preset === "kpi" ? (
+        <section
+          className={sectionClass}
+          aria-labelledby="studio-kpi-title"
+          data-testid="studio-kpi-panel"
+        >
+          <h3 id="studio-kpi-title" className="text-body font-semibold text-fg">
+            {t("pipelines.studio.kpi.title")}
+          </h3>
+          <p className="text-caption text-fg-muted">{t("pipelines.studio.kpi.lead")}</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field id="studio-space" label={t("pipelines.studio.space")}>
+            <Field id="studio-kpi-endpoint" label={t("pipelines.studio.kpi.endpoint")}>
               <Select
-                id="studio-space"
-                value={space ?? ""}
-                onChange={(event) => chooseSpace(event.target.value)}
+                id="studio-kpi-endpoint"
+                value={kpiEndpoint}
+                onChange={(event) => {
+                  const ep = event.target.value;
+                  setKpiEndpoint(ep);
+                  emitKpi({
+                    endpointName: ep,
+                    type: kpiType,
+                    attribute: kpiAttribute,
+                    aggregate: kpiAggregate,
+                    period: kpiPeriod,
+                    name: kpiName,
+                  });
+                }}
               >
                 <option value="">—</option>
-                {spaceList.map((s) => (
-                  <option key={s.metadata.name} value={s.metadata.name}>
-                    {localized(s.metadata.title, locale, s.metadata.name)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field
-              id="studio-endpoint"
-              label={t("pipelines.studio.readThrough")}
-              description={t("pipelines.studio.readThroughHint")}
-            >
-              <Select
-                id="studio-endpoint"
-                value={endpointName ?? ""}
-                disabled={!space}
-                onChange={(event) => chooseEndpoint(event.target.value)}
-              >
-                <option value="">—</option>
-                {spaceEndpoints.map((e) => (
+                {endpoints.map((e) => (
                   <option key={e.metadata.name} value={e.metadata.name}>
                     {localized(e.metadata.title, locale, e.metadata.name)}
                   </option>
                 ))}
               </Select>
             </Field>
+            <Field id="studio-kpi-name" label={t("pipelines.studio.kpi.name")}>
+              <Input
+                id="studio-kpi-name"
+                value={kpiName}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  setKpiName(name);
+                  emitKpi({
+                    endpointName: kpiEndpoint,
+                    type: kpiType,
+                    attribute: kpiAttribute,
+                    aggregate: kpiAggregate,
+                    period: kpiPeriod,
+                    name,
+                  });
+                }}
+              />
+            </Field>
+            <Field id="studio-kpi-type" label={t("pipelines.studio.kpi.type")}>
+              <Input
+                id="studio-kpi-type"
+                value={kpiType}
+                onChange={(event) => {
+                  const nextType = event.target.value;
+                  setKpiType(nextType);
+                  emitKpi({
+                    endpointName: kpiEndpoint,
+                    type: nextType,
+                    attribute: kpiAttribute,
+                    aggregate: kpiAggregate,
+                    period: kpiPeriod,
+                    name: kpiName,
+                  });
+                }}
+              />
+            </Field>
+            <Field id="studio-kpi-attribute" label={t("pipelines.studio.kpi.attribute")}>
+              <Input
+                id="studio-kpi-attribute"
+                value={kpiAttribute}
+                onChange={(event) => {
+                  const nextAttr = event.target.value;
+                  setKpiAttribute(nextAttr);
+                  emitKpi({
+                    endpointName: kpiEndpoint,
+                    type: kpiType,
+                    attribute: nextAttr,
+                    aggregate: kpiAggregate,
+                    period: kpiPeriod,
+                    name: kpiName,
+                  });
+                }}
+              />
+            </Field>
+            <Field id="studio-kpi-agg" label={t("pipelines.studio.kpi.aggregate")}>
+              <Select
+                id="studio-kpi-agg"
+                value={kpiAggregate}
+                onChange={(event) => {
+                  const nextAgg = event.target.value as "average" | "sum" | "count";
+                  setKpiAggregate(nextAgg);
+                  emitKpi({
+                    endpointName: kpiEndpoint,
+                    type: kpiType,
+                    attribute: kpiAttribute,
+                    aggregate: nextAgg,
+                    period: kpiPeriod,
+                    name: kpiName,
+                  });
+                }}
+              >
+                <option value="average">{t("pipelines.studio.aggregate.average")}</option>
+                <option value="sum">{t("pipelines.studio.aggregate.sum")}</option>
+                <option value="count">{t("pipelines.studio.aggregate.count")}</option>
+              </Select>
+            </Field>
+            <Field id="studio-kpi-period" label={t("pipelines.studio.kpi.period")}>
+              <Input
+                id="studio-kpi-period"
+                value={kpiPeriod}
+                onChange={(event) => {
+                  const nextPeriod = event.target.value;
+                  setKpiPeriod(nextPeriod);
+                  emitKpi({
+                    endpointName: kpiEndpoint,
+                    type: kpiType,
+                    attribute: kpiAttribute,
+                    aggregate: kpiAggregate,
+                    period: nextPeriod,
+                    name: kpiName,
+                  });
+                }}
+              />
+            </Field>
           </div>
-        ) : null}
-      </section>
 
-      {kind === "space" && space ? (
-        <section className={sectionClass} aria-labelledby="studio-entities">
-          <h3 id="studio-entities" className="text-body font-semibold text-fg">
-            {t("pipelines.studio.entities")}
-          </h3>
-          <EntityFilters id="studio" types={types} slots={slots} value={query} onChange={changeQuery} denied={denied} />
-          <AccessPanel slug={slug} type={type} access={access} />
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <Button
               size="sm"
-              disabled={!slug || !type || loading}
+              variant="primary"
+              data-testid="studio-kpi-test"
+              disabled={!kpiEndpoint || kpiTesting}
               onClick={() => {
-                void loadSample();
+                void runKpiTest();
               }}
             >
-              {loading ? t("app.loading") : t("pipelines.studio.loadSample")}
+              {kpiTesting ? t("pipelines.studio.kpi.testing") : t("pipelines.studio.kpi.test")}
             </Button>
-            <span className="text-caption text-fg-muted">
-              {slug ? t("pipelines.studio.sampleHint", { count: SAMPLE_LIMIT }) : t("pipelines.studio.noEndpoint")}
-            </span>
+            {kpiValue !== null && kpiValue !== undefined ? (
+              <span className="text-caption text-fg">
+                {t("pipelines.studio.kpi.computedValue")}:{" "}
+                <strong data-testid="studio-kpi-value">{String(kpiValue)}</strong>
+              </span>
+            ) : null}
           </div>
-          {sampleError ? (
+
+          {kpiTestError ? (
             <Alert role="alert" tone="danger">
-              {sampleError}
+              {kpiTestError}
             </Alert>
           ) : null}
-          {sample ? (
-            sample.length === 0 ? (
-              <p className="text-caption text-fg-muted">{t("pipelines.studio.noEntities")}</p>
-            ) : (
-              <div className="max-h-64 overflow-auto rounded-md border border-border bg-surface">
-                <table className="w-full text-left text-caption">
-                  <caption className="sr-only">{t("pipelines.studio.sample")}</caption>
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th scope="col" className="px-2 py-1">
-                        <span className="sr-only">{t("pipelines.studio.tick")}</span>
-                      </th>
-                      <th scope="col" className="px-2 py-1 font-medium">
-                        id
-                      </th>
-                      {attributes.slice(0, 4).map((attribute) => (
-                        <th key={attribute} scope="col" className="px-2 py-1 font-mono font-medium">
-                          {attribute}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {sample.map((row) => (
-                      <tr key={row.id}>
-                        <td className="px-2 py-1">
-                          <input
-                            type="checkbox"
-                            aria-label={row.id}
-                            checked={ids.includes(row.id)}
-                            onChange={(event) => toggleId(row.id, event.target.checked)}
-                          />
-                        </td>
-                        <td className="px-2 py-1 font-mono">{row.id}</td>
-                        {attributes.slice(0, 4).map((attribute) => (
-                          <td key={attribute} className="px-2 py-1 font-mono">
-                            {attribute in row ? cell(row[attribute]) : ""}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          ) : null}
-          {ids.length > 0 ? (
-            <p className="text-caption text-fg-muted">
-              {t("pipelines.studio.ticked", { count: ids.length })}
-            </p>
-          ) : null}
         </section>
-      ) : null}
-
-      {kind === "space" && type ? (
-        <section className={sectionClass} aria-labelledby="studio-process">
-          <h3 id="studio-process" className="text-body font-semibold text-fg">
-            {t("pipelines.studio.process")}
-          </h3>
-          <p className="text-caption text-fg-muted">{t("pipelines.studio.processHint")}</p>
-          <div className="flex flex-wrap items-end gap-2">
-            <Field id="studio-aggregate-attribute" label={t("pipelines.studio.attribute")}>
-              {attributes.length > 0 ? (
+      ) : (
+        <>
+          {toManifest ? (
+            <PipelineTest
+              project={project}
+              draft={draft}
+              onChange={onChange}
+              toManifest={toManifest}
+              sampleUrl={sampleUrlOf(draft, dataSources, endpoints)}
+              onVerdict={onVerdict}
+            />
+          ) : null}
+          <section className={sectionClass} aria-labelledby="studio-source">
+            <h3 id="studio-source" className="text-body font-semibold text-fg">
+              {t("pipelines.studio.source")}
+            </h3>
+            <Field id="studio-source-kind" label={t("pipelines.studio.sourceKind")}>
+              <Select
+                id="studio-source-kind"
+                value={kind}
+                onChange={(event) => chooseKind(event.target.value as SourceKind)}
+              >
+                <option value="none">{t("pipelines.studio.kind.none")}</option>
+                <option value="datasource">{t("pipelines.studio.kind.datasource")}</option>
+                <option value="space">{t("pipelines.studio.kind.space")}</option>
+              </Select>
+            </Field>
+            {kind === "datasource" ? (
+              <Field id="studio-datasource" label={t("pipelines.field.dataSource")}>
                 <Select
-                  id="studio-aggregate-attribute"
-                  value={aggregateAttribute || attributes[0]}
-                  onChange={(event) => setAggregateAttribute(event.target.value)}
+                  id="studio-datasource"
+                  value={draft?.source?.dataSourceRef ?? ""}
+                  onChange={(event) => chooseDataSource(event.target.value)}
                 >
-                  {attributes.map((attribute) => (
-                    <option key={attribute} value={attribute}>
-                      {attribute}
+                  <option value="">—</option>
+                  {dataSources.map((source) => (
+                    <option key={source.metadata.name} value={source.metadata.name}>
+                      {localized(source.metadata.title, locale, source.metadata.name)}
                     </option>
                   ))}
                 </Select>
-              ) : (
-                <Input
-                  id="studio-aggregate-attribute"
-                  value={aggregateAttribute}
-                  onChange={(event) => setAggregateAttribute(event.target.value)}
-                />
-              )}
-            </Field>
-            {AGGREGATES.map((aggregate) => (
-              <Button key={aggregate} size="sm" onClick={() => applyAggregate(aggregate)}>
-                {t(`pipelines.studio.aggregate.${aggregate}`)}
-              </Button>
-            ))}
-          </div>
-        </section>
-      ) : null}
+              </Field>
+            ) : null}
+            {kind === "space" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field id="studio-space" label={t("pipelines.studio.space")}>
+                  <Select
+                    id="studio-space"
+                    value={space ?? ""}
+                    onChange={(event) => chooseSpace(event.target.value)}
+                  >
+                    <option value="">—</option>
+                    {spaceList.map((s) => (
+                      <option key={s.metadata.name} value={s.metadata.name}>
+                        {localized(s.metadata.title, locale, s.metadata.name)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field
+                  id="studio-endpoint"
+                  label={t("pipelines.studio.readThrough")}
+                  description={t("pipelines.studio.readThroughHint")}
+                >
+                  <Select
+                    id="studio-endpoint"
+                    value={endpointName ?? ""}
+                    disabled={!space}
+                    onChange={(event) => chooseEndpoint(event.target.value)}
+                  >
+                    <option value="">—</option>
+                    {spaceEndpoints.map((e) => (
+                      <option key={e.metadata.name} value={e.metadata.name}>
+                        {localized(e.metadata.title, locale, e.metadata.name)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            ) : null}
+          </section>
+
+          {kind === "space" && space ? (
+            <section className={sectionClass} aria-labelledby="studio-entities">
+              <h3 id="studio-entities" className="text-body font-semibold text-fg">
+                {t("pipelines.studio.entities")}
+              </h3>
+              <EntityFilters
+                id="studio"
+                types={types}
+                slots={slots}
+                value={query}
+                onChange={changeQuery}
+                denied={denied}
+              />
+              <AccessPanel slug={slug} type={type} access={access} />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  disabled={!slug || !type || loading}
+                  onClick={() => {
+                    void loadSample();
+                  }}
+                >
+                  {loading ? t("app.loading") : t("pipelines.studio.loadSample")}
+                </Button>
+                <span className="text-caption text-fg-muted">
+                  {slug
+                    ? t("pipelines.studio.sampleHint", { count: SAMPLE_LIMIT })
+                    : t("pipelines.studio.noEndpoint")}
+                </span>
+              </div>
+              {sampleError ? (
+                <Alert role="alert" tone="danger">
+                  {sampleError}
+                </Alert>
+              ) : null}
+              {sample ? (
+                sample.length === 0 ? (
+                  <p className="text-caption text-fg-muted">{t("pipelines.studio.noEntities")}</p>
+                ) : (
+                  <div className="max-h-64 overflow-auto rounded-md border border-border bg-surface">
+                    <table className="w-full text-left text-caption">
+                      <caption className="sr-only">{t("pipelines.studio.sample")}</caption>
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th scope="col" className="px-2 py-1">
+                            <span className="sr-only">{t("pipelines.studio.tick")}</span>
+                          </th>
+                          <th scope="col" className="px-2 py-1 font-medium">
+                            id
+                          </th>
+                          {attributes.slice(0, 4).map((attribute) => (
+                            <th
+                              key={attribute}
+                              scope="col"
+                              className="px-2 py-1 font-mono font-medium"
+                            >
+                              {attribute}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {sample.map((row) => (
+                          <tr key={row.id}>
+                            <td className="px-2 py-1">
+                              <input
+                                type="checkbox"
+                                aria-label={row.id}
+                                checked={ids.includes(row.id)}
+                                onChange={(event) => toggleId(row.id, event.target.checked)}
+                              />
+                            </td>
+                            <td className="px-2 py-1 font-mono">{row.id}</td>
+                            {attributes.slice(0, 4).map((attribute) => (
+                              <td key={attribute} className="px-2 py-1 font-mono">
+                                {attribute in row ? cell(row[attribute]) : ""}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              ) : null}
+              {ids.length > 0 ? (
+                <p className="text-caption text-fg-muted">
+                  {t("pipelines.studio.ticked", { count: ids.length })}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+
+          {kind === "space" && type ? (
+            <section className={sectionClass} aria-labelledby="studio-process">
+              <h3 id="studio-process" className="text-body font-semibold text-fg">
+                {t("pipelines.studio.process")}
+              </h3>
+              <p className="text-caption text-fg-muted">{t("pipelines.studio.processHint")}</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <Field id="studio-aggregate-attribute" label={t("pipelines.studio.attribute")}>
+                  {attributes.length > 0 ? (
+                    <Select
+                      id="studio-aggregate-attribute"
+                      value={aggregateAttribute || attributes[0]}
+                      onChange={(event) => setAggregateAttribute(event.target.value)}
+                    >
+                      {attributes.map((attribute) => (
+                        <option key={attribute} value={attribute}>
+                          {attribute}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <Input
+                      id="studio-aggregate-attribute"
+                      value={aggregateAttribute}
+                      onChange={(event) => setAggregateAttribute(event.target.value)}
+                    />
+                  )}
+                </Field>
+                {AGGREGATES.map((aggregate) => (
+                  <Button key={aggregate} size="sm" onClick={() => applyAggregate(aggregate)}>
+                    {t(`pipelines.studio.aggregate.${aggregate}`)}
+                  </Button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

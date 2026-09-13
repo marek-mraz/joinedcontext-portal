@@ -41,6 +41,17 @@ export function usePermissions(project: string) {
         }),
       ),
     enabled: project !== "",
+    // A fresh Portal pod answers with no grant until its first mirror sync; a page opened in
+    // that window would otherwise keep every control disabled until a reload (T-0630).
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data &&
+        Array.isArray(data.grants) &&
+        data.grants.length === 0 &&
+        data.bootstrap !== true
+        ? 5000
+        : false;
+    },
   });
   return {
     data: query.data,

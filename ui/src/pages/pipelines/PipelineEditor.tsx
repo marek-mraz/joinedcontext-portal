@@ -24,7 +24,9 @@ export interface PipelineForm {
     dataSourceRef?: string;
     endpointRef?: string;
     query?: Record<string, unknown>;
-    trigger?: { subscription?: { type?: string; watchedAttributes?: string[] } };
+    trigger?: {
+      subscription?: { type?: string; watchedAttributes?: string[] };
+    };
   };
   compute?: {
     kind?: string;
@@ -189,15 +191,16 @@ export function PipelineEditorDialog({
   );
   // The last test's answer, tied to the mapping it ran (PL-49): a Bloblang pipeline proposes
   // only while the text in the editor is the text that went green.
-  const [verdict, setVerdict] = useState<{ ok: boolean; bloblang: string } | null>(null);
+  const [verdict, setVerdict] = useState<{
+    ok: boolean;
+    bloblang: string;
+  } | null>(null);
   const bloblang = draft?.compute?.kind === "bloblang" ? (draft.compute.bloblang ?? "") : "";
-  // Gated where the test can run today: a DataSource pipeline tests on a file or the source's
-  // URL. A pipeline reading an endpoint tests on the studio's loaded sample once T-0633 hands
-  // those rows to the test; until then it proposes as before.
+  // Gated: a pipeline with a Bloblang mapping must pass the test before proposing (PL-49).
+  const hasSource =
+    draft?.source?.dataSourceRef !== undefined || draft?.source?.endpointRef !== undefined;
   const gate =
-    draft?.source?.dataSourceRef !== undefined &&
-    bloblang.trim() !== "" &&
-    !(verdict?.ok && verdict.bloblang === bloblang)
+    hasSource && bloblang.trim() !== "" && !(verdict?.ok && verdict.bloblang === bloblang)
       ? t("pipelines.test.gate")
       : undefined;
 
@@ -220,7 +223,10 @@ export function PipelineEditorDialog({
       ),
   });
 
-  const dataSourceList = useMemo(() => asManifests(dataSources.data?.items ?? []), [dataSources.data]);
+  const dataSourceList = useMemo(
+    () => asManifests(dataSources.data?.items ?? []),
+    [dataSources.data],
+  );
   const endpointList = useMemo(() => asManifests(endpoints.data?.items ?? []), [endpoints.data]);
   const dataSourceNames = useMemo(
     () =>
