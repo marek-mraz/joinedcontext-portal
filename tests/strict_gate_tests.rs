@@ -772,3 +772,64 @@ async fn rest_door_with_a_draft_reaches_the_check_and_the_gate() {
         .unwrap()
         .is_none());
 }
+
+#[tokio::test]
+async fn a_check_naming_an_unsaved_draft_creates_it_so_propose_follows_at_once() {
+    let (_gitea_server, gitea_client) = setup_mock_gitea().await;
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None)
+        .with_mirror(Arc::new(Mirror::new()))
+        .with_gitea(Arc::new(gitea_client));
+    let app = server::app(state.clone());
+    let cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@banskabystrica.sk"),
+        vec!["portal-approver"],
+        vec![],
+    );
+    let call = |op: &str, payload: Value| {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/projects/ovzdusie/ops/{op}"))
+            .header(header::COOKIE, &cookie)
+            .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+            .unwrap()
+    };
+    let draft = json!({ "kind": "DataSource", "name": "feed-strict" });
+    let manifest = json!({
+        "apiVersion": API_VERSION,
+        "kind": "DataSource",
+        "metadata": { "name": "feed-strict", "namespace": "ovzdusie" },
+        "spec": { "type": "http", "http": { "url": "https://example.com/bikes.json" } }
+    });
+
+    // The form's debounced save has not run: no draft yet when Check is pressed.
+    let check = app
+        .clone()
+        .oneshot(call(
+            "jc_datasource_check",
+            json!({ "draft": draft, "manifest": manifest }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(check.status(), StatusCode::OK);
+
+    let saved = state
+        .drafts
+        .get("ovzdusie", "DataSource", "feed-strict")
+        .await
+        .unwrap()
+        .expect("the check created the draft");
+    assert_eq!(saved.manifest, manifest);
+    assert_eq!(saved.touched_by, "steward.user");
+    assert!(saved.verdict.as_ref().is_some_and(|v| v.ok));
+
+    let propose = app
+        .oneshot(call("jc_datasource_propose", json!({ "draft": draft })))
+        .await
+        .unwrap();
+    assert_eq!(propose.status(), StatusCode::ACCEPTED);
+}

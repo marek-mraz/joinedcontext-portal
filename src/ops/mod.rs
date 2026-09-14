@@ -764,6 +764,51 @@ async fn resolve_manifest_input(
     })
 }
 
+/// Records a check's verdict on the draft it names (AG-61, AG-62). A form saves its draft after
+/// a debounce, so a check can name a draft that does not exist yet: the check then creates it
+/// from the manifest it judged, for a caller who may propose the kind, and a Check followed at
+/// once by Propose finds the draft and its verdict instead of a 404.
+async fn record_verdict(
+    caller: &Caller,
+    state: &AppState,
+    project: &str,
+    draft: &DraftRef,
+    manifest: &Value,
+    verdict: &Verdict,
+) {
+    let store = draft_store(state);
+    if !matches!(
+        store
+            .set_verdict(project, &draft.kind, &draft.name, verdict.clone())
+            .await,
+        Err(DraftError::NotFound { .. })
+    ) {
+        return;
+    }
+    let may_propose = crate::permissions::for_request(state, &caller.identity, project)
+        .check(&draft.kind, Verb::Propose, None)
+        .is_ok();
+    if !may_propose {
+        return;
+    }
+    let created = store
+        .put(
+            project,
+            &draft.kind,
+            &draft.name,
+            manifest.clone(),
+            Some(0),
+            &caller.identity.username,
+            caller.via.touched_kind(),
+        )
+        .await;
+    if created.is_ok() {
+        let _ = store
+            .set_verdict(project, &draft.kind, &draft.name, verdict.clone())
+            .await;
+    }
+}
+
 fn apply_verdict_gate(state: &AppState, draft: &Draft, check_op: &str) -> Result<bool, OpError> {
     let mode = verdict::get_validation_mode(state);
     let reason = match &draft.verdict {
@@ -1062,9 +1107,7 @@ fn init_registry() -> Vec<Operation> {
                         &manifest,
                     );
                     if let Some(d) = &draft_ref {
-                        let _ = draft_store(state)
-                            .set_verdict(project, &d.kind, &d.name, verdict.clone())
-                            .await;
+                        record_verdict(caller, state, project, d, &manifest, &verdict).await;
                     }
                     let mut out = serde_json::to_value(&res)?;
                     out["verdict"] = serde_json::to_value(&verdict)?;
@@ -1172,9 +1215,7 @@ fn init_registry() -> Vec<Operation> {
                         &pipeline,
                     );
                     if let Some(d) = &draft_ref {
-                        let _ = draft_store(state)
-                            .set_verdict(project, &d.kind, &d.name, verdict.clone())
-                            .await;
+                        record_verdict(caller, state, project, d, &pipeline, &verdict).await;
                     }
                     let mut out = serde_json::to_value(&trace)?;
                     out["verdict"] = serde_json::to_value(&verdict)?;
@@ -1279,9 +1320,7 @@ fn init_registry() -> Vec<Operation> {
                         mutate_manifest(caller, state, project, "datasources", manifest.clone(), true).await?;
                     let verdict = datasource_verdict(&out, &manifest);
                     if let Some(d) = &draft_ref {
-                        let _ = draft_store(state)
-                            .set_verdict(project, &d.kind, &d.name, verdict.clone())
-                            .await;
+                        record_verdict(caller, state, project, d, &manifest, &verdict).await;
                     }
                     out["verdict"] = serde_json::to_value(&verdict)?;
                     Ok(out)
