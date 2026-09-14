@@ -101,6 +101,8 @@ impl StreamDeployer {
         let mut current_live = HashSet::new();
 
         for ns in mirror.namespaces() {
+            // What the runner holds, asked once per project and only when a render is unchanged.
+            let mut running: Option<Option<HashSet<String>>> = None;
             let page = mirror.list(&ns, "Pipeline", &crate::store::ListOptions::default());
             for envelope in page.items {
                 let name = envelope.metadata.name.clone();
@@ -275,11 +277,22 @@ impl StreamDeployer {
 
                 let key = (ns.clone(), name.clone());
                 let hash = config_hash(&stream_json);
-                let unchanged = self
+                let mut unchanged = self
                     .rendered
                     .lock()
                     .map(|rendered| rendered.get(&key) == Some(&hash))
                     .unwrap_or(false);
+                // A runner that restarted holds no streams, so an unchanged render it no longer
+                // runs is sent again; a runner that does not answer the list keeps the hash's word.
+                if unchanged {
+                    if running.is_none() {
+                        running = Some(self.running(&ns).await);
+                    }
+                    unchanged = running
+                        .as_ref()
+                        .and_then(Option::as_ref)
+                        .is_none_or(|names| names.contains(&name));
+                }
                 let outcome = if unchanged {
                     StreamOutcome::Live
                 } else {
@@ -354,6 +367,18 @@ impl StreamDeployer {
                 rendered.remove(&(project.to_string(), name.clone()));
             }
         }
+    }
+
+    /// The names of the streams the runner holds, or `None` when it gave no list.
+    async fn running(&self, project: &str) -> Option<HashSet<String>> {
+        let runner = self.runner_url.replace("{project}", project);
+        let url = format!("{}/streams", runner.trim_end_matches('/'));
+        let response = self.http.get(&url).send().await.ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        let streams: HashMap<String, Value> = response.json().await.ok()?;
+        Some(streams.into_keys().collect())
     }
 
     async fn deploy_stream(&self, project: &str, name: &str, stream_json: &Value) -> StreamOutcome {
@@ -432,7 +457,7 @@ pub fn render_stream(
             }]
         });
         let p2 = serde_json::json!({
-            "mapping": "root = if errored() { deleted() } else { this }"
+            "mutation": "root = if errored() { deleted() }"
         });
         let inp = serde_json::json!({
             "generate": {
@@ -638,7 +663,7 @@ pub fn render_endpoint_stream(
         }]
     });
     let p2 = serde_json::json!({
-        "mapping": "root = if errored() { deleted() } else { this }"
+        "mutation": "root = if errored() { deleted() }"
     });
 
     let mut processors = vec![p1, p2];
@@ -1236,6 +1261,62 @@ output:
         let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
+    }
+
+    #[tokio::test]
+    async fn a_runner_that_restarted_gets_its_unchanged_streams_again() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("PUT"))
+            .and(wiremock::matchers::path("/streams/citybikes-free"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .expect(2)
+            .mount(&server)
+            .await;
+        // The runner lists the stream after the first PUT, then restarts and lists nothing.
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/streams"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "citybikes-free": { "active": true } })),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/streams"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .mount(&server)
+            .await;
+
+        let deployer = StreamDeployer::new(server.uri());
+        let mirror = helsinki_test_mirror();
+        // PUT, then left running, then sent again to the empty runner: two PUTs in three passes.
+        for _ in 0..3 {
+            let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+            assert_eq!(outcomes[0].2, StreamOutcome::Live);
+        }
+    }
+
+    #[test]
+    fn an_http_feed_keeps_a_body_that_is_not_json() {
+        let rendered = render_stream(
+            &helsinki_pipeline_spec(),
+            "p",
+            "helsinki",
+            &helsinki_datasource_spec(),
+            "src",
+            "abc123",
+            None,
+        )
+        .expect("renders");
+        let processors = rendered["pipeline"]["processors"]
+            .as_array()
+            .expect("processors");
+        // `this` would parse an RSS or CSV body as JSON and fail on every fetch.
+        assert_eq!(
+            processors[1],
+            serde_json::json!({ "mutation": "root = if errored() { deleted() }" })
+        );
     }
 
     #[tokio::test]
