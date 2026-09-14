@@ -5,8 +5,8 @@ use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::store::Mirror;
 
-/// Every need checked against the endpoint it belongs to (AP-44): the first of `run_endpoints`
-/// whose context space is the need's, the primary otherwise.
+/// Every need checked against the endpoints it belongs to (AP-44): those of `run_endpoints` whose
+/// context space is the need's, the primary otherwise.
 pub fn validate_data_needs(
     mirror: &Mirror,
     project: &str,
@@ -83,15 +83,23 @@ pub fn validate_data_needs(
             .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
             .unwrap_or_default();
 
+        // An attribute is out of reach only when every endpoint of the need's space hides it:
+        // an operations and a public endpoint of one space each publish their own part.
         let at = endpoints::of_need(run_endpoints, need);
-        let (Some(endpoint), Some(hidden_attrs)) = (run_endpoints.get(at), hidden.get(at)) else {
-            continue;
-        };
         for attr in attrs {
-            if hidden_attrs.iter().any(|h| h == attr) {
+            let hiding: Vec<&str> = at
+                .iter()
+                .filter(|&&i| {
+                    hidden
+                        .get(i)
+                        .is_some_and(|names| names.iter().any(|h| h == attr))
+                })
+                .map(|&i| run_endpoints[i].name.as_str())
+                .collect();
+            if !hiding.is_empty() && hiding.len() == at.len() {
                 violations.push(format!(
                     "attribute '{attr}' is hidden by endpoint '{}'",
-                    endpoint.name
+                    hiding.join("' and '")
                 ));
             }
         }

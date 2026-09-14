@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useAccess, useEntities, useFilters } from "@joinedcontext/sdk";
+import { displayName, useAccess, useEntities, useFilters } from "@joinedcontext/sdk";
 import type { FilterBinding, TypeSchema } from "@joinedcontext/sdk";
 import { BarChartCard, TimeSeriesCard } from "../components/charts";
 import { EntityDetail } from "../components/EntityDetail";
@@ -80,7 +80,7 @@ export function TypePage({ type, schema }: { type: string; schema?: TypeSchema |
       <ExportButton rows={shown} filename={type} formats={shape.geo ? ["csv", "geojson", "pdf"] : ["csv", "pdf"]} location={shape.geo} />
       {selected && !editing && (
         <div className="app-detail">
-          <EntityDetail row={selected} title={shape.label ? String(selected[shape.label] ?? selected.id) : selected.id} onClose={() => setSelectedId(null)} />
+          <EntityDetail row={selected} title={displayName(shape.label ? { ...selected, name: selected[shape.label] } : selected)} onClose={() => setSelectedId(null)} />
           {edit.ok && (
             <button type="button" onClick={() => setEditing(true)}>
               Edit

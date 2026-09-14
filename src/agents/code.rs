@@ -121,6 +121,8 @@ application, then repairs; the section THIS CALL of the user message says what t
   and function you add or change (`*.test.tsx`,
   `*.test.ts`), written like the template's tests: vitest, @testing-library/react,
   `stubClient` or `fakeContext` from `@joinedcontext/sdk/testing`.
+- A row is named on screen with `displayName(row)`, never its `id`; a value is shown with `format`,
+  so a missing number reads `—`, never `NaN`. A map colours by the data's own range (`extent`).
 - Types and attribute names exactly as `src/jc-types.ts` and the samples spell them; import the
   row types with `import type`.
 - A form or any save only when the user message says the application may write.

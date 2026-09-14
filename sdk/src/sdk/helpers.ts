@@ -1,8 +1,8 @@
 import type { Geo, Row } from "../ngsi";
-import { aggregate, columnKind, distinct, extent, format, pointOf } from "../ngsi";
+import { aggregate, columnKind, displayName, distinct, extent, format, pointOf } from "../ngsi";
 import type { Agg } from "../spec";
 
-export { aggregate, columnKind, distinct, extent, format, pointOf };
+export { aggregate, columnKind, displayName, distinct, extent, format, pointOf };
 export type { Agg };
 
 export interface Group {

@@ -167,6 +167,9 @@ export function format(value: Cell, kind: Column = "text"): string {
     return point ? `${point[1].toFixed(5)}, ${point[0].toFixed(5)}` : value.type;
   }
   if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return "—";
+    }
     return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }
   if (kind === "date" && typeof value === "string") {
@@ -174,6 +177,21 @@ export function format(value: Cell, kind: Column = "text"): string {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   }
   return String(value);
+}
+
+/**
+ * What a row is called on screen: its `name`, else its `title`, else the local id at the end of
+ * its URN (`urn:ngsi-ld:{Type}:{domain}:{space}:{localId}`), never the whole URN.
+ */
+export function displayName(row: Row): string {
+  for (const attr of ["name", "title"]) {
+    const text = format(row[attr]).trim();
+    if (text !== "" && !text.startsWith("urn:")) {
+      return text;
+    }
+  }
+  const id = row.id;
+  return id.startsWith("urn:") ? id.slice(id.lastIndexOf(":") + 1) : id;
 }
 
 export type FilterState = Record<number, string | [number, number] | undefined>;

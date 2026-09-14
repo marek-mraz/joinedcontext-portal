@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregate, applyFilters, cell, columnKind, entitiesUrl, extent, format, pointOf, toRow } from "../src/ngsi";
+import { aggregate, applyFilters, cell, columnKind, displayName, entitiesUrl, extent, format, pointOf, toRow } from "../src/ngsi";
 import type { Row } from "../src/ngsi";
 
 const rows: Row[] = [
@@ -46,6 +46,9 @@ describe("columns", () => {
     expect(format(1.23456)).toBe((1.23456).toLocaleString(undefined, { maximumFractionDigits: 2 }));
     expect(format({ type: "Point", coordinates: [24.9, 60.1] })).toBe("60.10000, 24.90000");
     expect(format(null)).toBe("");
+    expect(format(Number.NaN)).toBe("—");
+    expect(format(Number.POSITIVE_INFINITY, "number")).toBe("—");
+    expect(format(0)).toBe("0");
     expect(format("not a date", "date")).toBe("not a date");
   });
 });
@@ -100,5 +103,14 @@ describe("entitiesUrl", () => {
     expect(params.get("offset")).toBe("1000");
     expect(params.get("limit")).toBe("200");
     expect(new URLSearchParams(entitiesUrl("s", { name: "s", type: "T", attrs: [], limit: 99999 }, 0).split("?")[1]).get("limit")).toBe("1000");
+  });
+
+  it("names a row by its name, its title or the local id of its URN, never the whole URN", () => {
+    const id = "urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:001";
+    expect(displayName({ id, type: "BikeHireDockingStation", name: "Kaivopuisto", title: "ignored" })).toBe("Kaivopuisto");
+    expect(displayName({ id, type: "BikeHireDockingStation", name: "  ", title: "Station at the harbour" })).toBe("Station at the harbour");
+    expect(displayName({ id, type: "BikeHireDockingStation", name: id })).toBe("001");
+    expect(displayName({ id, type: "BikeHireDockingStation" })).toBe("001");
+    expect(displayName({ id: "", type: "BikeHireDockingStation", name: null })).toBe("");
   });
 });

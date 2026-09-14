@@ -582,6 +582,95 @@ async fn an_application_reads_several_endpoints_each_need_on_its_own_space() {
     }
 }
 
+/// Operations beside the public stations, both on the space `helsinki`: the operations endpoint
+/// shows the maintenance code and hides where a station stands.
+const OPS_SLUG: &str = "p8vx2kq7w5ayxcbn4ltdj6hofkops";
+
+fn mirror_with_operations() -> Arc<Mirror> {
+    let mirror = mirror(Some(builder_profile_spec()));
+    mirror.upsert(envelope(
+        "Endpoint",
+        "helsinki-bikes-ops",
+        PROJECT,
+        json!({
+            "slug": OPS_SLUG,
+            "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
+            "audience": "project",
+            "projection": { "hiddenAttributes": ["location", "maintenanceInternalCode"] }
+        }),
+    ));
+    mirror
+}
+
+/// AP-44, SDK-02: two endpoints of one space each publish their part of the same stations. An
+/// attribute one of them publishes is readable, one both hide is refused naming both, and the
+/// preview's configuration lists the type under each, so the application names the endpoint and
+/// joins the rows by id.
+#[tokio::test]
+async fn two_endpoints_of_one_space_each_serve_the_type_and_bound_only_what_both_hide() {
+    let config = config();
+    let (state, app, _internal) = with_state(mirror_with_operations(), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let uri = format!("/api/v1/projects/{PROJECT}/agent-runs");
+
+    let mut body = create_body();
+    body.as_object_mut()
+        .expect("an object")
+        .remove("endpointName");
+    body["endpointNames"] = json!(["helsinki-bikes-ops", "helsinki-bikes"]);
+
+    let mut hidden_by_both = body.clone();
+    hidden_by_both["dataNeeds"][0]["attrs"] = json!(["maintenanceInternalCode"]);
+    let (status, problem) = call(&app, &cookie, Method::POST, &uri, Some(hidden_by_both)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+    assert!(
+        problem["errors"][0].as_str().is_some_and(
+            |e| e.contains("hidden by endpoint 'helsinki-bikes-ops' and 'helsinki-bikes'")
+        ),
+        "{problem}"
+    );
+
+    // `location` is hidden by operations alone: the public endpoint publishes it.
+    let (status, created) = call(&app, &cookie, Method::POST, &uri, Some(body)).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run = if created["run"].is_null() {
+        &created
+    } else {
+        &created["run"]
+    };
+    let id = run["id"].as_str().expect("an id").to_owned();
+
+    let mut files = preview::template_files();
+    files.retain(|path, _| path.starts_with("src/") || path.starts_with("functions/"));
+    state.agents.set_files(&id, json!(files)).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/projects/{PROJECT}/agent-runs/{id}/preview"
+                ))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let page = String::from_utf8_lossy(&bytes);
+    if status == StatusCode::OK {
+        assert_eq!(
+            page.matches("\"types\":[\"BikeHireDockingStation\"]")
+                .count(),
+            2,
+            "the type under both endpoints: {page}"
+        );
+    } else {
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{page}");
+    }
+}
+
 /// AP-44: the second endpoint's projection bounds the need of its space, and the names are one
 /// to five endpoints of the project, never beside `endpointName`.
 #[tokio::test]

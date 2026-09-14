@@ -1,7 +1,7 @@
 //! The endpoints an application run reads (AP-44, SDK-02): one to five of the project, the
-//! primary first. Each data need belongs to the first listed endpoint whose context space is the
-//! need's, the primary when none is; a type is read through the endpoint of the first need that
-//! names it.
+//! primary first. Each data need belongs to every listed endpoint whose context space is the
+//! need's, the primary when none is; a type is read through each endpoint of the needs that name
+//! it, and two endpoints of one space (an operations and a public one) join their rows by id.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -104,48 +104,98 @@ pub fn of_run(run: &AgentRun) -> Vec<RunEndpoint> {
     stored
 }
 
-/// The index of the endpoint one data need belongs to.
-pub fn of_need(endpoints: &[RunEndpoint], need: &Value) -> usize {
-    let Some(space) = ref_name(&need["contextSpaceRef"]) else {
-        return 0;
-    };
-    endpoints
+/// The indexes of the endpoints one data need belongs to: every endpoint of its context space,
+/// the primary when none is.
+pub fn of_need(endpoints: &[RunEndpoint], need: &Value) -> Vec<usize> {
+    let space = ref_name(&need["contextSpaceRef"]);
+    let at: Vec<usize> = endpoints
         .iter()
-        .position(|endpoint| !endpoint.space.is_empty() && endpoint.space == space)
-        .unwrap_or(0)
+        .enumerate()
+        .filter(|(_, endpoint)| {
+            !endpoint.space.is_empty() && space.as_deref() == Some(endpoint.space.as_str())
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if at.is_empty() {
+        vec![0]
+    } else {
+        at
+    }
 }
 
 /// The types each endpoint's needs name, aligned with `endpoints`, each once, in need order.
 pub fn types_by_endpoint(endpoints: &[RunEndpoint], data_needs: &Value) -> Vec<Vec<String>> {
     let mut types = vec![Vec::<String>::new(); endpoints.len().max(1)];
     for need in data_needs.as_array().into_iter().flatten() {
-        let at = of_need(endpoints, need);
-        for entity_type in need["types"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-        {
-            if !types[at].iter().any(|known| known == entity_type) {
-                types[at].push(entity_type.to_owned());
+        for at in of_need(endpoints, need) {
+            for entity_type in need["types"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                if !types[at].iter().any(|known| known == entity_type) {
+                    types[at].push(entity_type.to_owned());
+                }
             }
         }
     }
     types
 }
 
-/// The index of the endpoint a type is read through: the endpoint of the first need naming it.
+/// The indexes of the endpoints a type is read through, in endpoint order; the primary when no
+/// need names the type.
+pub fn serving(endpoints: &[RunEndpoint], data_needs: &Value, entity_type: &str) -> Vec<usize> {
+    let at: Vec<usize> = types_by_endpoint(endpoints, data_needs)
+        .iter()
+        .enumerate()
+        .filter(|(_, types)| types.iter().any(|known| known == entity_type))
+        .map(|(i, _)| i)
+        .collect();
+    if at.is_empty() {
+        vec![0]
+    } else {
+        at
+    }
+}
+
+/// The endpoint a single read of a type goes through: the first that serves it.
 pub fn of_type(endpoints: &[RunEndpoint], data_needs: &Value, entity_type: &str) -> usize {
-    data_needs
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|need| {
-            need["types"]
-                .as_array()
-                .is_some_and(|types| types.iter().any(|t| t.as_str() == Some(entity_type)))
-        })
-        .map_or(0, |need| of_need(endpoints, need))
+    serving(endpoints, data_needs, entity_type)[0]
+}
+
+/// Adds the rows one more endpoint answered for a type to those already read: a row with a known
+/// `id` gains the attributes it did not carry, a new `id` is a row of its own.
+pub fn join_by_id(rows: &mut Vec<Value>, read: Vec<Value>) {
+    for entity in read {
+        let known = entity["id"]
+            .as_str()
+            .and_then(|id| rows.iter().position(|row| row["id"].as_str() == Some(id)));
+        match (known, entity) {
+            (Some(at), Value::Object(attributes)) => {
+                if let Value::Object(row) = &mut rows[at] {
+                    for (name, value) in attributes {
+                        row.entry(name).or_insert(value);
+                    }
+                }
+            }
+            (_, entity) => rows.push(entity),
+        }
+    }
+}
+
+/// The attribute names the rows carry, besides `id` and `type`, each once, sorted.
+pub fn attributes_of(rows: &[Value]) -> Vec<String> {
+    let mut names: Vec<String> = rows
+        .iter()
+        .filter_map(Value::as_object)
+        .flat_map(|row| row.keys())
+        .filter(|name| !matches!(name.as_str(), "id" | "type" | "@context"))
+        .cloned()
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// Where one endpoint's data is read through the agent proxy (Architecture/19 §4): `/v1/data`
@@ -217,7 +267,9 @@ pub fn pack_section(endpoints: &[RunEndpoint], data_needs: &Value) -> String {
     }
     if !shared.is_empty() {
         section.push_str(&format!(
-            "\nServed by more than one endpoint, so every call names the endpoint: {}\n",
+            "\nServed by more than one endpoint, so every call names the endpoint; when they carry \
+             different attributes of the same entities, read the type from each and join the rows \
+             by `id`: {}\n",
             shared
                 .iter()
                 .map(|t| t.as_str())
@@ -274,9 +326,9 @@ mod tests {
     fn a_need_belongs_to_the_endpoint_of_its_space_and_otherwise_to_the_primary() {
         let endpoints = two();
         let needs = needs();
-        assert_eq!(of_need(&endpoints, &needs[0]), 0);
-        assert_eq!(of_need(&endpoints, &needs[1]), 1);
-        assert_eq!(of_need(&endpoints, &needs[2]), 0);
+        assert_eq!(of_need(&endpoints, &needs[0]), vec![0]);
+        assert_eq!(of_need(&endpoints, &needs[1]), vec![1]);
+        assert_eq!(of_need(&endpoints, &needs[2]), vec![0]);
         assert_eq!(of_type(&endpoints, &needs, "KeyPerformanceIndicator"), 1);
         assert_eq!(of_type(&endpoints, &needs, "Unknown"), 0);
         assert_eq!(
@@ -321,7 +373,7 @@ mod tests {
         assert!(section.contains("`transportation` (primary)"), "{section}");
         assert!(section.contains("`transportation-kpis` — context space `transportation-kpi`, types: KeyPerformanceIndicator, Vehicle"), "{section}");
         assert!(
-            section.contains("every call names the endpoint: Vehicle"),
+            section.contains("join the rows by `id`: Vehicle"),
             "{section}"
         );
         assert_eq!(pack_section(&endpoints[..1], &needs), "");
@@ -331,5 +383,68 @@ mod tests {
             json!(["KeyPerformanceIndicator", "Vehicle"])
         );
         assert_eq!(config[0]["slug"], json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    }
+
+    fn one_space() -> Vec<RunEndpoint> {
+        vec![
+            RunEndpoint {
+                name: "helsinki-bikes-ops".into(),
+                slug: "cccccccccccccccccccccccccccccccc".into(),
+                space: "helsinki".into(),
+            },
+            RunEndpoint {
+                name: "helsinki-bikes".into(),
+                slug: "dddddddddddddddddddddddddddddddd".into(),
+                space: "helsinki".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn two_endpoints_of_one_space_both_serve_its_types_and_the_pack_says_to_join_them() {
+        let endpoints = one_space();
+        let needs = json!([
+            { "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" }, "types": ["BikeHireDockingStation"], "operations": ["queryEntity"] }
+        ]);
+        assert_eq!(of_need(&endpoints, &needs[0]), vec![0, 1]);
+        assert_eq!(
+            serving(&endpoints, &needs, "BikeHireDockingStation"),
+            vec![0, 1]
+        );
+        assert_eq!(of_type(&endpoints, &needs, "BikeHireDockingStation"), 0);
+        assert_eq!(serving(&endpoints, &needs, "Unknown"), vec![0]);
+        assert_eq!(serving(&[], &needs, "BikeHireDockingStation"), vec![0]);
+        let config = config(&endpoints, &needs);
+        assert_eq!(config[0]["types"], json!(["BikeHireDockingStation"]));
+        assert_eq!(config[1]["types"], json!(["BikeHireDockingStation"]));
+        let section = pack_section(&endpoints, &needs);
+        assert!(
+            section.contains("join the rows by `id`: BikeHireDockingStation"),
+            "{section}"
+        );
+    }
+
+    #[test]
+    fn rows_of_several_endpoints_join_by_id_and_keep_what_was_read_first() {
+        let mut rows = vec![
+            json!({ "id": "urn:a", "type": "S", "status": "working" }),
+            json!({ "id": "urn:b", "type": "S", "status": "outOfService" }),
+        ];
+        join_by_id(
+            &mut rows,
+            vec![
+                json!({ "id": "urn:a", "type": "S", "name": "Kaivopuisto", "status": "ignored", "location": { "type": "Point", "coordinates": [24.95, 60.16] } }),
+                json!({ "id": "urn:c", "type": "S", "name": "Laivasillankatu" }),
+                json!("not an entity"),
+            ],
+        );
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0]["name"], json!("Kaivopuisto"));
+        assert_eq!(rows[0]["status"], json!("working"));
+        assert!(rows[0]["location"].is_object());
+        assert_eq!(rows[1].get("name"), None);
+        assert_eq!(rows[2]["id"], json!("urn:c"));
+        assert_eq!(attributes_of(&rows), vec!["location", "name", "status"]);
+        assert!(attributes_of(&[]).is_empty());
     }
 }

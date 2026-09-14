@@ -75,6 +75,10 @@ function styleFor(basemap?: string): string | StyleSpecification
 ```
 The MapLibre style: the configured basemap URL, or a plain background and `NO_BASEMAP` shown beside it.
 ```ts
+const NO_LOCATIONS: string
+```
+What a map shows instead of a count when none of its rows has a location: read the location from the endpoint that carries it.
+```ts
 function mapWorkerReady(doc?: Document): Promise<boolean>
 ```
 Resolves once MapLibre's worker is set up for the preview frame; create a map only after it.
@@ -107,6 +111,10 @@ function columnKind(rows: Row[], attr: string): Column
 ```
 Infers whether an attribute contains numbers, dates, geometry objects, or text.
 ```ts
+function displayName(row: Row): string
+```
+What a row is called on screen: `name`, else `title`, else the local id at the end of its URN. Use it wherever a row is named; never show `row.id`.
+```ts
 function distinct(rows: Row[], attr: string): string[]
 ```
 Returns a sorted list of unique non-empty string values for an attribute.
@@ -117,7 +125,7 @@ Returns the minimum and maximum numeric values found in an attribute.
 ```ts
 function format(value: Cell, kind?: Column): string
 ```
-Formats a cell value for human-readable display.
+Formats a cell value for human-readable display; a missing or non-numeric number is `—`, never `NaN`.
 ```ts
 function pointOf(value: Cell): [number, number] | null
 ```

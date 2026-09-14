@@ -1,6 +1,8 @@
 import type { StyleSpecification } from "maplibre-gl";
 
 export const NO_BASEMAP = "No basemap is configured";
+/** What a map says when its rows carry no location; the run's check reads it as a map left empty. */
+export const NO_LOCATIONS = "No locations in this data.";
 
 /**
  * Resolves the basemap style: the provided URL if non-empty, or a plain background layer.

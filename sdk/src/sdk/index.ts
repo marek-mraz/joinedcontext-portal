@@ -30,12 +30,12 @@ export { filterRows, useFilters } from "./filters";
 export type { FilterBinding, FilterDef, FilterValue } from "./filters";
 
 // Helpers
-export { aggregate, columnKind, distinct, extent, format, groupBy, pointOf, toFeatureCollection } from "./helpers";
+export { aggregate, columnKind, displayName, distinct, extent, format, groupBy, pointOf, toFeatureCollection } from "./helpers";
 export type { Agg, Group } from "./helpers";
 
 // Tables, maps, exports: what the template's components stand on
 export { compare } from "../views/Table";
-export { mapWorkerReady, NO_BASEMAP, styleFor } from "./map";
+export { mapWorkerReady, NO_BASEMAP, NO_LOCATIONS, styleFor } from "./map";
 export { download, toCsv, toGeoJson, toPdf, toPng } from "../artifact";
 
 // Application Bootstrap

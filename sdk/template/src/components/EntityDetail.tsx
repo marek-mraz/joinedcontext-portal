@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import { columnKind, format, pointOf } from "@joinedcontext/sdk";
+import { columnKind, displayName, format, pointOf } from "@joinedcontext/sdk";
 import type { Cell, Row } from "@joinedcontext/sdk";
 import { Empty } from "./states";
 
@@ -46,7 +46,7 @@ export function EntityDetail({
   return (
     <section className="jc-detail">
       <header>
-        <h2>{title ?? row.id}</h2>
+        <h2>{title ?? displayName(row)}</h2>
         {onClose && (
           <button type="button" aria-label="Close" onClick={onClose}>
             ×

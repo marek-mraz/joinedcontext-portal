@@ -5,7 +5,7 @@ import { MapboxOverlay } from "@deck.gl/mapbox";
 import { ScatterplotLayer } from "@deck.gl/layers";
 import { GridLayer, HexagonLayer } from "@deck.gl/aggregation-layers";
 
-import { currentTokens, extent, format, mapWorkerReady, NO_BASEMAP, pointOf, styleFor, toFeatureCollection, useClient } from "@joinedcontext/sdk";
+import { currentTokens, displayName, extent, format, mapWorkerReady, NO_BASEMAP, NO_LOCATIONS, pointOf, styleFor, toFeatureCollection, useClient } from "@joinedcontext/sdk";
 import type { Cell, DesignTokens, Geo, Row } from "@joinedcontext/sdk";
 
 export const DECK_THRESHOLD = 50_000;
@@ -59,6 +59,12 @@ function deckColorRange(tokens: DesignTokens): [number, number, number][] {
     steps.push([Math.round(r0 + t * (r1 - r0)), Math.round(g0 + t * (g1 - g0)), Math.round(b0 + t * (b1 - b0))]);
   }
   return steps;
+}
+
+/** The label of a row on the map: the `label` attribute when it holds text, else its display name. */
+function nameOf(row: Row, label?: string): string {
+  const text = label ? format(row[label]).trim() : "";
+  return text === "" ? displayName(row) : text;
 }
 
 interface PointRow {
@@ -137,7 +143,7 @@ export function EntityMap({
     const features = base.features.map((f) => {
       const r = rowById.get(f.id);
       const c = color && r ? colorRamp(r[color], ext, tokens) : tokens.map.point;
-      const l = label && r ? format(r[label]) : f.id;
+      const l = r ? nameOf(r, label) : f.id;
       return {
         ...f,
         properties: {
@@ -339,15 +345,19 @@ export function EntityMap({
 
   const n = path === "maplibre" ? collection.features.length : pointRows.length;
   const chosen = selected ? rowById.get(selected) : null;
-  const selectedLabel = chosen ? ` · ${label ? format(chosen[label]) : chosen.id}` : "";
+  const selectedLabel = chosen ? ` · ${nameOf(chosen, label)}` : "";
 
   return (
     <div className="jc-map" style={{ height }}>
       <div className="jc-map-canvas" ref={container} data-testid="jc-map" role="application" aria-label="Map" />
       {!effectiveBasemap && <span className="jc-map-notice">{NO_BASEMAP}</span>}
-      <span className="jc-map-count">
-        {n} on the map{selectedLabel}
-      </span>
+      {n === 0 && rows.length > 0 ? (
+        <span className="jc-map-count">{NO_LOCATIONS}</span>
+      ) : (
+        <span className="jc-map-count">
+          {n} on the map{selectedLabel}
+        </span>
+      )}
     </div>
   );
 }

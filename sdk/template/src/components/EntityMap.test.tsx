@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_TOKENS, JcProvider, NO_BASEMAP } from "@joinedcontext/sdk";
+import { DEFAULT_TOKENS, extent, JcProvider, NO_BASEMAP, NO_LOCATIONS } from "@joinedcontext/sdk";
 import type { Row } from "@joinedcontext/sdk";
 import { stubClient } from "@joinedcontext/sdk/testing";
 
@@ -169,6 +169,41 @@ describe("EntityMap component and helpers", () => {
 
     clickHandlers["jc-points"]?.({ features: [{ properties: { id: "urn:ngsi-ld:Station:002" } }] });
     expect(onSelect).toHaveBeenCalledWith(STATIONS[1]);
+  });
+
+  it("says the data has no locations instead of 0 on the map, and labels rows by name, never by URN", async () => {
+    const client = stubClient({ entities: STATIONS });
+    const unplaced = STATIONS.map((row) => ({ ...row, location: null }));
+    const { unmount } = render(
+      <JcProvider client={client}>
+        <EntityMap rows={unplaced} location="location" />
+      </JcProvider>,
+    );
+    expect(screen.getByText(NO_LOCATIONS)).toBeInTheDocument();
+    expect(screen.queryByText(/0 on the map/)).not.toBeInTheDocument();
+    unmount();
+
+    render(
+      <JcProvider client={client}>
+        <EntityMap rows={[]} location="location" />
+      </JcProvider>,
+    );
+    expect(screen.queryByText(NO_LOCATIONS)).not.toBeInTheDocument();
+  });
+
+  it("colours by the data's own range: equal values and missing ones stay the plain point colour", () => {
+    const tokens = DEFAULT_TOKENS;
+    const rows: Row[] = [
+      { id: "a", type: "S", bikes: 0 },
+      { id: "b", type: "S", bikes: 0 },
+      { id: "c", type: "S", bikes: null },
+    ];
+    const range = extent(rows, "bikes");
+    expect(colorRamp(rows[0].bikes, range, tokens)).toBe(tokens.map.point);
+    expect(colorRamp(rows[2].bikes, range, tokens)).toBe(tokens.map.point);
+    const varied = extent([...rows, { id: "d", type: "S", bikes: 12 }], "bikes");
+    expect(colorRamp(0, varied, tokens)).toBe(tokens.map.low);
+    expect(colorRamp(12, varied, tokens)).toBe(tokens.map.high);
   });
 
   it("mode='hexbin' adds an overlay whose layers hold one HexagonLayer with point rows", async () => {

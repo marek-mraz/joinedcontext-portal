@@ -342,6 +342,9 @@ struct Driver {
     /// The endpoint's `schema/index.json`, read once before the first pass: which types it
     /// serves, so a data need naming anything else never reaches the chat or the model.
     schema_index: OnceLock<Value>,
+    /// Which endpoint carried which attributes of a type several endpoints serve, for the pack:
+    /// the samples are joined by id, and the application has to join the same way.
+    joined: OnceLock<String>,
     /// Where every pass is committed when the Portal has a forge: the run's branch, the
     /// application's folder.
     branch: String,
@@ -388,6 +391,7 @@ pub fn spawn(
         ttl: Duration::from_secs(ttl_secs.max(1) as u64),
         passes: AtomicU32::new(0),
         schema_index: OnceLock::new(),
+        joined: OnceLock::new(),
         branch: run.branch.clone(),
         path_prefix: run.path_prefix.clone(),
         created_by: run.created_by.clone(),
@@ -427,15 +431,7 @@ impl Driver {
         }
 
         self.status(AgentRunStatus::Starting).await?;
-        let types = self.types();
-        if !types.is_empty() {
-            self.thought(&format!(
-                "Reading {SAMPLES_PER_TYPE} entities of {} through the endpoint.",
-                types.join(", ")
-            ))
-            .await?;
-        }
-        let samples = self.samples(&types).await;
+        let samples = self.samples(&self.types()).await?;
         let catalog = self.find(&self.prompt).await?;
         self.status(AgentRunStatus::Building).await?;
 
@@ -531,15 +527,7 @@ impl Driver {
         self.thought("Writing the application for your request.")
             .await?;
 
-        let types = self.types();
-        if !types.is_empty() {
-            self.thought(&format!(
-                "Reading {SAMPLES_PER_TYPE} entities of {} through the endpoint.",
-                types.join(", ")
-            ))
-            .await?;
-        }
-        let samples = self.samples(&types).await;
+        let samples = self.samples(&self.types()).await?;
         self.status(AgentRunStatus::Building).await?;
 
         let mut conversation: Vec<(String, String)> = Vec::new();
@@ -1037,6 +1025,10 @@ impl Driver {
         );
         pack.push_str(&serde_json::to_string_pretty(samples).unwrap_or_default());
         pack.push_str("\n```\n");
+        if let Some(joined) = self.joined.get().filter(|joined| !joined.is_empty()) {
+            pack.push_str("\nTypes read from several endpoints:\n");
+            pack.push_str(joined);
+        }
         if !conversation.is_empty() {
             pack.push_str("\n## THE CONVERSATION SO FAR\n\n");
             for (asked, answered) in conversation {
@@ -2440,31 +2432,79 @@ proposes it.
     }
 
     /// A few entities per type, read through the proxy like the application will (AP-57). A
-    /// type that cannot be read is an empty list with the reason beside it: the model still
-    /// gets the data needs, and the chat says what was missing.
-    async fn samples(&self, types: &[String]) -> Value {
+    /// type several endpoints serve is read through each and joined by id, the first endpoint's
+    /// entities leading. A type that cannot be read is an empty list with the reason in the chat:
+    /// the model still gets the data needs, and the chat says what was missing.
+    async fn samples(&self, types: &[String]) -> Result<Value, String> {
         let mut samples = serde_json::Map::new();
+        let mut joined = String::new();
         for entity_type in types {
-            let url = format!(
-                "{}/ngsi-ld/v1/entities?type={}&limit={SAMPLES_PER_TYPE}&options=keyValues",
-                self.data_base_of(entity_type),
-                urlencoding(entity_type)
-            );
-            match self.read_entities(&url).await {
-                Ok(entities) => {
-                    samples.insert(entity_type.clone(), entities);
+            let serving = endpoints::serving(&self.endpoints, &self.data_needs, entity_type);
+            let names: Vec<&str> = serving
+                .iter()
+                .filter_map(|&at| self.endpoints.get(at))
+                .map(|endpoint| endpoint.name.as_str())
+                .collect();
+            self.thought(&format!(
+                "Reading {SAMPLES_PER_TYPE} entities of {entity_type} through {}.",
+                if self.endpoints.len() < 2 || names.is_empty() {
+                    "the endpoint".to_owned()
+                } else {
+                    names.join(" and ")
                 }
-                Err(reason) => {
-                    let _ = self
-                        .thought(&format!(
-                            "No sample of {entity_type} could be read: {reason}"
+            ))
+            .await?;
+            let mut rows: Vec<Value> = Vec::new();
+            let mut carried: Vec<String> = Vec::new();
+            for &at in &serving {
+                let base = format!(
+                    "{}/ngsi-ld/v1/entities?type={}&limit={SAMPLES_PER_TYPE}&options=keyValues",
+                    self.data_base(at),
+                    urlencoding(entity_type)
+                );
+                let ids: Vec<&str> = rows.iter().filter_map(|row| row["id"].as_str()).collect();
+                // A later endpoint is asked for the entities already read, so their parts meet.
+                let mut read = if ids.is_empty() {
+                    self.read_entities(&base).await
+                } else {
+                    self.read_entities(&format!("{base}&id={}", urlencoding(&ids.join(","))))
+                        .await
+                };
+                if !ids.is_empty() && matches!(&read, Ok(Value::Array(found)) if found.is_empty()) {
+                    read = self.read_entities(&base).await;
+                }
+                let name = self
+                    .endpoints
+                    .get(at)
+                    .map_or("the endpoint", |endpoint| endpoint.name.as_str());
+                match read {
+                    Ok(Value::Array(entities)) => {
+                        carried.push(format!(
+                            "`{name}` carries {}",
+                            endpoints::attributes_of(&entities).join(", ")
+                        ));
+                        endpoints::join_by_id(&mut rows, entities);
+                    }
+                    Ok(_) => {}
+                    Err(reason) => {
+                        self.thought(&format!(
+                            "No sample of {entity_type} could be read through {name}: {reason}"
                         ))
-                        .await;
-                    samples.insert(entity_type.clone(), json!([]));
+                        .await?;
+                    }
                 }
             }
+            if carried.len() > 1 {
+                joined.push_str(&format!(
+                    "- {entity_type}: {}. The samples are these rows joined by `id`; read the \
+                     type from each endpoint with `{{ endpoint }}` and join the rows the same way.\n",
+                    carried.join("; ")
+                ));
+            }
+            samples.insert(entity_type.clone(), Value::Array(rows));
         }
-        Value::Object(samples)
+        let _ = self.joined.set(joined);
+        Ok(Value::Object(samples))
     }
 
     async fn status(&self, status: AgentRunStatus) -> Result<(), String> {
@@ -4227,6 +4267,7 @@ mod tests {
             ttl: Duration::from_secs(60),
             passes: AtomicU32::new(0),
             schema_index: OnceLock::new(),
+            joined: OnceLock::new(),
             branch: "agent/test".into(),
             path_prefix: "apps/test/".into(),
             created_by: "test-user".into(),

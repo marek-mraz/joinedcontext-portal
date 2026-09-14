@@ -10,6 +10,9 @@ use crate::agents::run::AgentRunEvent;
 
 /// Words a page shows when a value never arrived or was drawn from the wrong shape.
 const BROKEN_WORDS: [&str; 4] = ["NaN", "undefined", "[object Object]", "Invalid Date"];
+/// What a map of the template says when none of its rows has a location (the SDK's
+/// `NO_LOCATIONS`).
+const NO_LOCATIONS: &str = "No locations in this data.";
 /// How much of one page's text a verification pass sends back to the model.
 const RENDERED_CHARS: usize = 4000;
 /// A local id shorter than this matches too much page text to say anything.
@@ -90,6 +93,20 @@ pub fn check(samples: &Value, since: &[AgentRunEvent], observation: Option<&Valu
                 ));
             }
         }
+        if page_text.contains("urn:ngsi-ld:") {
+            push(format!(
+                "the page \"{}\" shows entity ids (urn:ngsi-ld:…) where a name belongs: name rows \
+                 with displayName(row)",
+                text(page, "label")
+            ));
+        }
+        if page_text.contains(NO_LOCATIONS) && located(samples) {
+            push(format!(
+                "the map on the page \"{}\" has no locations although the sampled entities carry \
+                 one: read the location from the endpoint that serves it",
+                text(page, "label")
+            ));
+        }
     }
     let (mut problems, mut shown, mut sampled) = (Vec::new(), 0, 0);
     for (entity_type, entities) in samples.as_object().into_iter().flatten() {
@@ -159,6 +176,21 @@ fn marks_of(entity: &Value) -> Vec<String> {
         }
     }
     marks
+}
+
+/// Whether some sampled entity carries a GeoJSON value, so a map of the samples has points.
+fn located(samples: &Value) -> bool {
+    samples
+        .as_object()
+        .into_iter()
+        .flat_map(|types| types.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(Value::as_object)
+        .flat_map(|entity| entity.values())
+        .any(|value| {
+            value.get("type").is_some_and(Value::is_string) && value.get("coordinates").is_some()
+        })
 }
 
 /// Whether `word` stands on its own in `text`, not inside a longer word.
@@ -278,6 +310,37 @@ mod tests {
                 "no page shows any of the sampled BikeHireDockingStation entities (Kaivopuisto, Laivasillankatu)",
             ]
         );
+    }
+
+    #[test]
+    fn raw_entity_ids_and_a_map_left_without_the_sampled_locations_are_problems() {
+        let observation = json!({ "pages": [
+            { "label": "Directory", "text": "urn:ngsi-ld:BikeHireDockingStation:001 — 7 bikes" },
+            { "label": "Map", "text": "No locations in this data." }
+        ] });
+        let found = check(&samples(), &[], Some(&observation));
+        assert_eq!(
+            found.problems,
+            ["the page \"Directory\" shows entity ids (urn:ngsi-ld:…) where a name belongs: name rows with displayName(row)"],
+            "no sampled entity has a location, so an empty map is the data's own"
+        );
+
+        let located = json!({ "BikeHireDockingStation": [
+            { "id": "urn:ngsi-ld:BikeHireDockingStation:001", "name": "Kaivopuisto", "location": { "type": "Point", "coordinates": [24.95, 60.155] } }
+        ] });
+        let observation = json!({ "pages": [
+            { "label": "Map", "text": "Kaivopuisto\nNo locations in this data." }
+        ] });
+        let found = check(&located, &[], Some(&observation));
+        assert_eq!(
+            found.problems,
+            ["the map on the page \"Map\" has no locations although the sampled entities carry one: read the location from the endpoint that serves it"]
+        );
+    }
+
+    #[test]
+    fn the_empty_map_sentence_is_the_one_the_sdk_shows() {
+        assert!(include_str!("../../sdk/src/sdk/map.ts").contains(&format!("\"{NO_LOCATIONS}\"")));
     }
 
     #[test]

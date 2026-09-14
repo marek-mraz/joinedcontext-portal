@@ -1975,6 +1975,138 @@ async fn an_application_of_two_endpoints_reads_each_through_its_own_and_the_pack
     );
 }
 
+/// Operations beside the public stations, on the same space `helsinki`.
+const OPS_SLUG: &str = "p8vx2kq7w5ayxcbn4ltdj6hofkops";
+
+/// SDK-02, SDK-13, AP-44: the stations of the public endpoint and the status of the operations
+/// endpoint, one space. The run samples the type through both, asks the second for the entities
+/// the first answered, joins the rows by id, says in the chat which endpoints it read and tells the
+/// model which endpoint carries which attributes.
+#[tokio::test]
+async fn a_type_two_endpoints_of_one_space_serve_is_sampled_through_both_and_joined_by_id() {
+    let forge = code_forge().await;
+    let answer = code_answer(
+        "A page listing the stations, with its test.",
+        &stations_app(STATIONS),
+    );
+    let (state, app, cookie, proxy) =
+        portal_state_with("openai-compatible", &[answer], Some(&forge)).await;
+    mount_types(&proxy).await;
+    state.mirror.upsert(envelope(
+        "Endpoint",
+        "helsinki-bikes-ops",
+        PROJECT,
+        json!({
+            "slug": OPS_SLUG,
+            "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
+            "audience": "project"
+        }),
+    ));
+    let ops = format!("/v1/data/endpoints/{OPS_SLUG}");
+    Mock::given(method("GET"))
+        .and(path(format!("{ops}/schema/index.json")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "endpoint": OPS_SLUG,
+            "models": [{ "name": "bikes", "version": 1, "types": ["BikeHireDockingStation"], "artifacts": {} }]
+        })))
+        .mount(&proxy)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("{ops}/schema/v1/model.linkml.yaml")))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BIKES_LINKML))
+        .mount(&proxy)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("{ops}/ngsi-ld/v1/entities")))
+        .and(query_param("type", "BikeHireDockingStation"))
+        .and(header_regex("authorization", "^Bearer jcr_"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": "urn:ngsi-ld:BikeHireDockingStation:001", "type": "BikeHireDockingStation", "status": "outOfService" },
+            { "id": "urn:ngsi-ld:BikeHireDockingStation:002", "type": "BikeHireDockingStation", "status": "working" }
+        ])))
+        .mount(&proxy)
+        .await;
+
+    let (status, body) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(json!({
+            "appName": "city-bikes-overview",
+            "endpointNames": ["helsinki-bikes", "helsinki-bikes-ops"],
+            "appClass": "static",
+            "visibility": "project",
+            "prompt": "The stations with their status on a map",
+            "dataNeeds": [{
+                "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
+                "types": ["BikeHireDockingStation"],
+                "attrs": ["name", "location", "status"],
+                "operations": ["queryEntity"]
+            }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let id = body["id"].as_str().expect("a run id").to_owned();
+    wait_for_version(&app, &cookie, &id, 1).await;
+
+    let asked: Vec<String> = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.url.path() == format!("{ops}/ngsi-ld/v1/entities"))
+        .map(|r| {
+            r.url
+                .query_pairs()
+                .find(|(key, _)| key == "id")
+                .map(|(_, ids)| ids.into_owned())
+                .unwrap_or_default()
+        })
+        .collect();
+    assert!(
+        asked
+            .iter()
+            .any(|ids| ids.contains("urn:ngsi-ld:BikeHireDockingStation:001")),
+        "the operations endpoint is asked for the stations already read: {asked:?}"
+    );
+
+    let log = events(&app, &cookie, &id).await;
+    assert!(
+        log.iter().any(|(kind, payload)| kind == "thought"
+            && payload["text"]
+                == json!("Reading 5 entities of BikeHireDockingStation through helsinki-bikes and helsinki-bikes-ops.")),
+        "{log:?}"
+    );
+
+    let requests = model_requests(&proxy).await;
+    let user = requests[0]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    let samples = user
+        .split("Five entities per type, as the SDK's rows (`options=keyValues`):")
+        .nth(1)
+        .and_then(|rest| rest.split("```").nth(1))
+        .and_then(|block| serde_json::from_str::<Value>(block.trim_start_matches("json")).ok())
+        .expect("the samples block");
+    let first = &samples["BikeHireDockingStation"][0];
+    assert_eq!(first["name"], json!("Kaivopuisto"), "{samples}");
+    assert_eq!(first["status"], json!("outOfService"), "{samples}");
+    assert!(
+        user.contains("Types read from several endpoints:"),
+        "{user}"
+    );
+    assert!(
+        user.contains("`helsinki-bikes-ops` carries status"),
+        "{user}"
+    );
+    assert!(
+        user.contains("join the rows by `id`: BikeHireDockingStation"),
+        "{user}"
+    );
+}
+
 #[tokio::test]
 async fn an_application_is_written_in_one_call_and_the_template_never_reaches_the_frame() {
     let forge = code_forge().await;
