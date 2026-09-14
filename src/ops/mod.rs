@@ -13,6 +13,7 @@ use std::pin::Pin;
 use std::sync::OnceLock;
 
 pub mod drafts;
+pub mod space_complete;
 pub mod verdict;
 
 pub use drafts::*;
@@ -1503,6 +1504,27 @@ fn init_registry() -> Vec<Operation> {
             },
         },
         Operation {
+            name: "jc_space_complete",
+            title: "Complete this space",
+            description: "Opens an endpoint or folder that partly defines a space and completes LinkML, data source, and pipeline drafts (MCP clients pass the files)",
+            input: space_complete::input_schema,
+            output: space_complete::output_schema,
+            annotations: OperationAnnotations {
+                read_only_hint: false,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "ContextSpace",
+            verb: Some(Verb::Propose),
+            lane: Lane::Yellow,
+            validate: space_complete::validate_input,
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    space_complete::run(caller, state, project, val).await
+                })
+            },
+        },
+        Operation {
             name: "jc_model_infer",
             title: "Infer Schema",
             description: "Infers a draft LinkML data model from sample data bytes or text",
@@ -1566,7 +1588,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 17);
+        assert_eq!(ops.len(), 18);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -1581,6 +1603,7 @@ mod tests {
             "jc_space_propose",
             "jc_model_propose",
             "jc_model_infer",
+            "jc_space_complete",
             "jc_draft_put",
             "jc_draft_get",
             "jc_draft_list",

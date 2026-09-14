@@ -368,6 +368,10 @@ impl Driver {
         if let Some(call) = kpi::tool_call(&answer) {
             return self.kpi(call, &answer).await.map(Some);
         }
+        // A space complete request is answered with a tool call (T-0642)
+        if let Some(call) = space_complete_tool_call(&answer) {
+            return self.space_complete(call, &answer).await.map(Some);
+        }
         let (mut prose, mut errors) = self.apply(files, &answer).await?;
         if !errors.is_empty() {
             // One repair call: the model is shown what did not validate and answers again.
@@ -959,6 +963,76 @@ impl Driver {
     /// The KPI step (T-0583, PF-54, PF-55): the entities read through the proxy like a
     /// sample, the aggregate computed, the indicator rendered and handed over as a `tool`
     /// event; the card the person sees carries the write, with their own session.
+    async fn space_complete(&self, input: Value, answer: &str) -> Result<String, String> {
+        let started = std::time::Instant::now();
+        let millis = |started: std::time::Instant| {
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+        };
+        let Some(op) = crate::ops::find("jc_space_complete") else {
+            return Err("jc_space_complete not found".into());
+        };
+        let caller = crate::ops::Caller {
+            identity: crate::auth::session::Identity {
+                subject: format!("run:{}", self.run_id),
+                username: self.created_by.clone(),
+                email: None,
+                name: Some(self.created_by.clone()),
+                roles: vec!["portal-approver".into()],
+                groups: vec![],
+            },
+            via: crate::ops::Via::Session,
+        };
+        match crate::ops::call(op, &caller, &self.state, &self.project, input.clone()).await {
+            Ok(output) => {
+                let space_name = output
+                    .get("space")
+                    .and_then(Value::as_str)
+                    .unwrap_or("space");
+                self.event(
+                    "tool",
+                    json!({
+                        "tool": "space_complete",
+                        "status": "ok",
+                        "durationMs": millis(started),
+                        "input": input,
+                        "output": output,
+                    }),
+                )
+                .await?;
+                let mut prose = share::prose_of(answer);
+                if prose.is_empty() {
+                    prose = format!("Completed drafts for context space '{space_name}'.");
+                }
+                self.thought(&prose).await?;
+                self.event(
+                    "navigate",
+                    json!({
+                        "route": format!("/projects/{}/spaces/complete?space={}", self.project, space_name),
+                    }),
+                )
+                .await?;
+                Ok(prose)
+            }
+            Err(e) => {
+                let reason = e.to_string();
+                self.event(
+                    "tool",
+                    json!({
+                        "tool": "space_complete",
+                        "status": "failed",
+                        "durationMs": millis(started),
+                        "input": input,
+                        "error": reason,
+                    }),
+                )
+                .await?;
+                let prose = format!("Completing space failed: {reason}");
+                self.thought(&prose).await?;
+                Ok(prose)
+            }
+        }
+    }
+
     async fn kpi(
         &self,
         call: Result<kpi::ComputeKpi, String>,
@@ -1266,6 +1340,18 @@ fn is_terminal(event: &AgentRunEvent) -> bool {
         .and_then(Value::as_str)
         .and_then(AgentRunStatus::parse)
         .is_some_and(|status| status.is_terminal())
+}
+
+pub(crate) fn space_complete_tool_call(answer: &str) -> Option<Value> {
+    for fence in share::TOOL_FENCE.captures_iter(answer) {
+        let Ok(value) = serde_json::from_str::<Value>(&fence[1]) else {
+            continue;
+        };
+        if value.get("tool").and_then(Value::as_str) == Some("space_complete") {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn sent_by_person(event: &AgentRunEvent) -> bool {

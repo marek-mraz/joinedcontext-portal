@@ -224,17 +224,28 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
         description={t("spaces.lead")}
         aside={<QuotaBar label={t("quota.contextSpaces")} used={spaces.length} limit={limit} />}
         actions={
-          mayPropose ? <Button
-            variant="primary"
-            disabled={quotaExceeded}
-            icon={<Icon name="plus" className="size-4" />}
-            onClick={() => {
-              setFormError(null);
-              setDialogOpen(true);
-            }}
-          >
-            {t("spaces.add")}
-          </Button> : null
+          mayPropose ? (
+            <div className="flex items-center gap-2">
+              <Link
+                to="/projects/$project/spaces/complete"
+                params={{ project }}
+                className={buttonClass("secondary", "md")}
+              >
+                {t("spaces.complete.title")}
+              </Link>
+              <Button
+                variant="primary"
+                disabled={quotaExceeded}
+                icon={<Icon name="plus" className="size-4" />}
+                onClick={() => {
+                  setFormError(null);
+                  setDialogOpen(true);
+                }}
+              >
+                {t("spaces.add")}
+              </Button>
+            </div>
+          ) : null
         }
       />
 

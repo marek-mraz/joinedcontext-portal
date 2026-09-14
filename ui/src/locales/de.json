@@ -186,6 +186,20 @@
       "noPolicies": "Dieser Raum hat noch keine Policy.",
       "assignee": "Empfänger",
       "operations": "Operationen"
+    },
+    "complete": {
+      "title": "Complete this space",
+      "lead": "Provide a sample file or an endpoint URL; the Portal completes the Context Space with LinkML, and builds the data source and pipeline if described.",
+      "space": "Space name",
+      "url": "Endpoint URL",
+      "files": "Files",
+      "dropHint": "Drop files here or browse",
+      "action": "Complete",
+      "proposeAll": "Propose all",
+      "found": "Found",
+      "inferred": "Inferred",
+      "open": "Open",
+      "noDrafts": "No drafts completed yet."
     }
   },
   "endpoints": {

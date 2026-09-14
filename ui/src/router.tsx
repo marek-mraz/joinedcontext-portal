@@ -212,6 +212,22 @@ const federationRoute = createRoute({
   },
 });
 
+import { SpaceComplete } from "./pages/spaces/SpaceComplete";
+
+/** Space Complete route (registered before spaceInsideRoute so /spaces/complete is matched statically). */
+const spaceCompleteRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/spaces/complete",
+  component: function SpaceCompleteRoute() {
+    const { project } = spaceCompleteRoute.useParams();
+    return (
+      <Shell project={project}>
+        <SpaceComplete project={project} />
+      </Shell>
+    );
+  },
+});
+
 /** What one Context Space holds: entity types with counts, endpoints, policies (UI-01). */
 const spaceInsideRoute = createRoute({
   getParentRoute: () => protectedRoute,
@@ -251,6 +267,7 @@ export const routeTree = rootRoute.addChildren([
     exploreRoute,
     ckanRoute,
     federationRoute,
+    spaceCompleteRoute,
     spaceInsideRoute,
     resourceListRoute,
   ]),

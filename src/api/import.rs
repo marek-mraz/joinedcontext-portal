@@ -622,7 +622,67 @@ pub async fn import(
             "the bundle holds nothing to import".into(),
         ));
     }
-    propose_bundle(&user, &state, &project, report, files).await
+    let change = propose_bundle(&state, &user.0.identity, &project, report, files).await?;
+    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+}
+
+/// Commits a bundle of files and manifests as one merge request (MF-21, CC-63).
+pub async fn propose_bundle(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    report: ImportReport,
+    files: Vec<(String, String)>,
+) -> Result<Change, ApiError> {
+    let gitea: &GiteaClient = state
+        .gitea
+        .as_deref()
+        .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
+    let default_branch = gitea.default_branch().await?;
+    let branch = format!("portal/import-{project}-{:08x}", digest(&files));
+    create_or_reuse_branch(gitea, &branch, &default_branch).await?;
+
+    let (author_name, author_email) = author_credentials(identity, project);
+    for (path, content) in &files {
+        let existing = gitea
+            .get_file(path, &branch)
+            .await
+            .ok()
+            .flatten()
+            .map(|file| file.sha);
+        let message = format!("import {path}");
+        gitea
+            .put_file(&FileWrite {
+                path,
+                branch: &branch,
+                message: &message,
+                content,
+                sha: existing.as_deref(),
+                author: Author {
+                    name: &author_name,
+                    email: &author_email,
+                },
+            })
+            .await?;
+    }
+
+    let title = format!("import {} resources into {project}", files.len());
+    let body = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "imported bundle".into());
+    let pull = gitea
+        .create_pull_request(&branch, &default_branch, &title, &body)
+        .await?;
+
+    let summary = crate::change::PlanSummary::new(
+        report.created.len(),
+        report.replaced.len() + report.renamed.len(),
+        0,
+    );
+    let change = Change::new(
+        ChangeMeta::from_merge_request(pull.number, project),
+        ChangeStatus::new(report.lane, ChangePhase::PendingApproval, summary)
+            .with_merge_request(pull.url),
+    );
+    Ok(change)
 }
 
 /// What the import would do, and the files it would write.
@@ -860,65 +920,6 @@ fn reproject(path: &str, project: &str) -> String {
         }
         _ => format!("projects/{project}/{path}"),
     }
-}
-
-/// One branch, every file, one merge request (MF-21, CC-63).
-async fn propose_bundle(
-    user: &CurrentUser,
-    state: &AppState,
-    project: &str,
-    report: ImportReport,
-    files: Vec<(String, String)>,
-) -> Result<Response, ApiError> {
-    let gitea: &GiteaClient = state
-        .gitea
-        .as_deref()
-        .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
-    let default_branch = gitea.default_branch().await?;
-    let branch = format!("portal/import-{project}-{:08x}", digest(&files));
-    create_or_reuse_branch(gitea, &branch, &default_branch).await?;
-
-    let (author_name, author_email) = author_credentials(&user.0.identity, project);
-    for (path, content) in &files {
-        let existing = gitea
-            .get_file(path, &branch)
-            .await
-            .ok()
-            .flatten()
-            .map(|file| file.sha);
-        let message = format!("import {path}");
-        gitea
-            .put_file(&FileWrite {
-                path,
-                branch: &branch,
-                message: &message,
-                content,
-                sha: existing.as_deref(),
-                author: Author {
-                    name: &author_name,
-                    email: &author_email,
-                },
-            })
-            .await?;
-    }
-
-    let title = format!("import {} resources into {project}", files.len());
-    let body = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "imported bundle".into());
-    let pull = gitea
-        .create_pull_request(&branch, &default_branch, &title, &body)
-        .await?;
-
-    let summary = crate::change::PlanSummary::new(
-        report.created.len(),
-        report.replaced.len() + report.renamed.len(),
-        0,
-    );
-    let change = Change::new(
-        ChangeMeta::from_merge_request(pull.number, project),
-        ChangeStatus::new(report.lane, ChangePhase::PendingApproval, summary)
-            .with_merge_request(pull.url),
-    );
-    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
 }
 
 /// A branch name that is the same for the same bundle, so a retry after a failed forge call
