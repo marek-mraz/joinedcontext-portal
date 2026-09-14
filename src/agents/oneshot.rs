@@ -16,12 +16,14 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
+use crate::agents::access::Access;
 use crate::agents::kit;
 use crate::agents::patch;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
 use crate::agents::{fields, kpi, share};
+use crate::auth::session::Identity;
 use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::state::AppState;
 
@@ -226,6 +228,10 @@ struct Driver {
     branch: String,
     path_prefix: String,
     created_by: String,
+    /// The person who started the run: every tool call runs as them, never wider (AG-70).
+    identity: Identity,
+    /// The profile's access block, checked with `identity` before each tool call (AG-70).
+    access: Access,
     kind: String,
     unattended: bool,
     continues: Option<String>,
@@ -236,6 +242,7 @@ struct Driver {
 pub fn spawn(
     state: AppState,
     run: &AgentRun,
+    identity: &Identity,
     ticket: &str,
     profile: &Profile,
     proxy_base: &str,
@@ -263,6 +270,8 @@ pub fn spawn(
         branch: run.branch.clone(),
         path_prefix: run.path_prefix.clone(),
         created_by: run.created_by.clone(),
+        identity: identity.clone(),
+        access: profile.access.clone(),
         kind: run.kind.clone(),
         unattended: run.unattended,
         continues: run.continues.clone(),
@@ -608,7 +617,7 @@ To build an application or a dashboard, explain in one or two plain sentences th
         }
 
         pack.push_str(&format!("\n## THIS TURN\n\nPerson: {text}\n"));
-        pack
+        self.narrowed(&pack)
     }
 
     /// One model call, its blocks applied, the specification checked, the preview refreshed.
@@ -907,7 +916,8 @@ To build an application or a dashboard, explain in one or two plain sentences th
     /// One call through the proxy, asked twice when the first answer carries no text: a
     /// provider answers empty now and then, and a second call is cheaper than a failed run.
     async fn complete(&self, user: &str) -> Result<String, String> {
-        self.complete_with_system(&SYSTEM, user).await
+        self.complete_with_system(&self.narrowed(&SYSTEM), user)
+            .await
     }
 
     async fn complete_with_system(&self, system: &str, user: &str) -> Result<String, String> {
@@ -1279,15 +1289,11 @@ To build an application or a dashboard, explain in one or two plain sentences th
         let Some(op) = crate::ops::find("jc_space_complete") else {
             return Err("jc_space_complete not found".into());
         };
+        if let Err(reason) = self.granted("jc_space_complete") {
+            return self.refused("space_complete", started, input, reason).await;
+        }
         let caller = crate::ops::Caller {
-            identity: crate::auth::session::Identity {
-                subject: format!("run:{}", self.run_id),
-                username: self.created_by.clone(),
-                email: None,
-                name: Some(self.created_by.clone()),
-                roles: vec!["portal-approver".into()],
-                groups: vec![],
-            },
+            identity: self.identity.clone(),
             via: crate::ops::Via::Session,
         };
         match crate::ops::call(op, &caller, &self.state, &self.project, input.clone()).await {
@@ -1368,6 +1374,9 @@ To build an application or a dashboard, explain in one or two plain sentences th
             }
         };
         let input = serde_json::to_value(&params).unwrap_or(Value::Null);
+        if let Err(reason) = self.granted("jc_kpi_compute") {
+            return self.refused("compute_kpi", started, input, reason).await;
+        }
         let mut url = format!(
             "{}/v1/data/ngsi-ld/v1/entities?type={}&options=keyValues&limit=1000",
             self.proxy_base,
@@ -1503,6 +1512,11 @@ To build an application or a dashboard, explain in one or two plain sentences th
             }
         };
         let input = serde_json::to_value(&params).unwrap_or(Value::Null);
+        if let Err(reason) = self.granted("jc_endpoint_propose") {
+            return self
+                .refused("propose_endpoint", started, input, reason)
+                .await;
+        }
         let domain = crate::api::assistant::org_domain(&self.state, &self.project);
         match share::render(&self.project, &domain, &params) {
             Ok(proposal) => {
@@ -1578,6 +1592,11 @@ To build an application or a dashboard, explain in one or two plain sentences th
     /// The catalog search over the person's words, published as the `search_catalog` tool
     /// step (AG-58, UI-46); `None` when nothing matched, so the prompt stays as it was.
     async fn find(&self, question: &str) -> Result<Option<Value>, String> {
+        // The platform runs the search, not the model: outside the run's access it is skipped,
+        // and the prompt goes without it (AG-70).
+        if self.granted("jc_catalog_search").is_err() {
+            return Ok(None);
+        }
         let started = std::time::Instant::now();
         let catalog =
             crate::api::assistant::search(&self.state, &self.project, question, None).await;
@@ -1594,6 +1613,49 @@ To build an application or a dashboard, explain in one or two plain sentences th
         )
         .await?;
         Ok((!catalog.items.is_empty()).then_some(output))
+    }
+
+    /// The profile and the person who started the run both allow the operation behind a tool
+    /// (AG-70).
+    fn granted(&self, operation: &str) -> Result<(), String> {
+        self.access
+            .check(operation, &self.identity, &self.state, &self.project)
+    }
+
+    /// A tool call outside the run's access: a failed `tool` event before anything runs, and the
+    /// reason in the chat (AG-56, AG-70).
+    async fn refused(
+        &self,
+        tool: &str,
+        started: std::time::Instant,
+        input: Value,
+        reason: String,
+    ) -> Result<String, String> {
+        self.event(
+            "tool",
+            json!({
+                "tool": tool,
+                "status": "failed",
+                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "input": input,
+                "error": reason,
+            }),
+        )
+        .await?;
+        let prose = format!("That is outside what this assistant may do: {reason}");
+        self.thought(&prose).await?;
+        Ok(prose)
+    }
+
+    /// A prompt without the sections of the tools this run may not call, so the model is shown
+    /// only the effective tool set (AG-70).
+    fn narrowed(&self, prompt: &str) -> String {
+        TOOL_SECTIONS
+            .iter()
+            .filter(|(_, operation)| self.granted(operation).is_err())
+            .fold(prompt.to_owned(), |text, (heading, _)| {
+                without_section(&text, heading)
+            })
     }
 
     async fn thought(&self, text: &str) -> Result<(), String> {
@@ -1652,6 +1714,31 @@ fn is_terminal(event: &AgentRunEvent) -> bool {
         .is_some_and(|status| status.is_terminal())
 }
 
+/// The prompt section that teaches each tool, by heading, and the operation behind the tool.
+const TOOL_SECTIONS: [(&str, &str); 3] = [
+    (
+        "## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA",
+        "jc_endpoint_propose",
+    ),
+    ("## WHEN THE PERSON ASKS FOR AN INDICATOR", "jc_kpi_compute"),
+    (
+        "## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE",
+        "jc_space_complete",
+    ),
+];
+
+/// The text without the section that starts at `heading`, up to the next `## ` heading.
+fn without_section(text: &str, heading: &str) -> String {
+    let Some(start) = text.find(heading) else {
+        return text.to_owned();
+    };
+    let body = start + heading.len();
+    let end = text[body..]
+        .find("\n## ")
+        .map_or(text.len(), |offset| body + offset + 1);
+    format!("{}{}", &text[..start], &text[end..])
+}
+
 pub(crate) fn space_complete_tool_call(answer: &str) -> Option<Value> {
     for fence in share::TOOL_FENCE.captures_iter(answer) {
         let Ok(value) = serde_json::from_str::<Value>(&fence[1]) else {
@@ -1704,6 +1791,17 @@ fn urlencoding(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn without_section_drops_one_heading_up_to_the_next() {
+        let text = "## A\none\n## B\ntwo\n```json\n{}\n```\n## C\nthree\n";
+        assert_eq!(without_section(text, "## B"), "## A\none\n## C\nthree\n");
+        assert_eq!(
+            without_section(text, "## C"),
+            "## A\none\n## B\ntwo\n```json\n{}\n```\n"
+        );
+        assert_eq!(without_section(text, "## D"), text);
+    }
 
     #[test]
     fn navigate_tool_call_extracts_route() {
@@ -1796,6 +1894,15 @@ mod tests {
             branch: "agent/test".into(),
             path_prefix: "apps/test/".into(),
             created_by: "test-user".into(),
+            identity: Identity {
+                subject: "sub-test-user".into(),
+                username: "test-user".into(),
+                email: None,
+                name: None,
+                roles: vec![],
+                groups: vec![],
+            },
+            access: Access::default(),
             kind: "application".into(),
             unattended: false,
             continues: None,

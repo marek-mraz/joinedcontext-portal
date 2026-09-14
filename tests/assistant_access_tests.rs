@@ -1,0 +1,324 @@
+//! What an assistant may do (T-0674, AG-70): the profile's access block narrows the tools, the
+//! person who started the conversation narrows them again, and a call outside either is a
+//! refused `tool` event before anything runs. The model is a stub proxy that answers every turn
+//! with a share request; the cases differ only in the profile and the person.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::body::Body;
+use axum::http::{header, Request, StatusCode};
+use axum::response::IntoResponse;
+use axum_extra::extract::cookie::PrivateCookieJar;
+use http_body_util::BodyExt;
+use joinedcontext_portal::agents::run::AgentRunEvent;
+use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
+use joinedcontext_portal::auth::session::{self, Identity, Session};
+use joinedcontext_portal::config::Config;
+use joinedcontext_portal::permissions::ORG_NAMESPACE;
+use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+use joinedcontext_portal::server;
+use joinedcontext_portal::state::AppState;
+use joinedcontext_portal::store::Mirror;
+use serde_json::{json, Value};
+use tower::ServiceExt;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+const CSRF: &str = "test-csrf-token-access";
+const SHARE_SECTION: &str = "## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA";
+const KPI_SECTION: &str = "## WHEN THE PERSON ASKS FOR AN INDICATOR";
+
+fn config(proxy_base: &str) -> Config {
+    Config::from_vars(|key| {
+        match key {
+            "JC_AGENTS_NAMESPACE" => Some("agents"),
+            "JC_AGENT_PROXY_BASE" => Some(proxy_base),
+            "JC_AGENT_PROXY_TOKEN" => Some("the-token-only-jc-agent-proxy-has"),
+            "JC_PORTAL_BOOTSTRAP_ADMINS" => Some("portal-approver"),
+            "JC_PORTAL_PUBLIC_URL" => Some("https://portal.example.com"),
+            _ => None,
+        }
+        .map(str::to_owned)
+    })
+    .expect("the agent runner block is complete")
+}
+
+fn person(email: &str, groups: &[&str]) -> Identity {
+    Identity {
+        subject: format!("f:1:{email}"),
+        username: email.split('@').next().unwrap_or(email).to_owned(),
+        email: Some(email.to_owned()),
+        name: None,
+        roles: Vec::new(),
+        groups: groups.iter().map(|g| (*g).to_owned()).collect(),
+    }
+}
+
+fn cookie(config: &Config, identity: Identity) -> String {
+    let now = session::now_unix();
+    let s = Session {
+        identity,
+        expires_at: now + 3600,
+        issued_at: now,
+        id_token: "id".into(),
+        access_expires_at: now + 3600,
+        refresh_token: None,
+    };
+    let jar = session::store(PrivateCookieJar::new(config.cookie_key.clone()), &s).expect("store");
+    let response = (jar, StatusCode::OK).into_response();
+    let mut parts: Vec<String> = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .map(|raw| raw.split(';').next().unwrap_or_default().to_owned())
+        .collect();
+    parts.push(format!("{CSRF_COOKIE}={CSRF}"));
+    parts.join("; ")
+}
+
+fn envelope(kind: &str, name: &str, namespace: &str, spec: Value) -> ResourceEnvelope {
+    ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: kind.to_owned(),
+        metadata: ObjectMeta::new(name, namespace),
+        spec,
+        status: None,
+    }
+}
+
+/// The organization, the builder profile with `access` (or none), and a reader who may start a
+/// conversation (propose an App) and nothing else.
+fn mirror(access: Option<Value>) -> Arc<Mirror> {
+    let mirror = Arc::new(Mirror::new());
+    mirror.upsert(envelope(
+        "Organization",
+        "hel",
+        ORG_NAMESPACE,
+        json!({ "domain": "hel.fi", "locales": ["en"], "defaultLocale": "en" }),
+    ));
+    let mut profile = json!({
+        "role": "builder",
+        "runtime": {
+            "image": "ghcr.io/all-hands-ai/agent-server:v1.4.0",
+            "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "model": { "provider": "openai-compatible", "name": "deepseek/deepseek-v4.1-flash", "maxTokensPerRun": 400000 },
+        "limits": { "stepsPerRun": 120, "wallClock": "PT20M", "concurrentRunsPerOrganization": 2, "requestsPerMinute": 60, "maxResponseBytes": 2097152 },
+        "egress": { "allowedHosts": ["registry.npmjs.org"] },
+        "tools": ["shell"],
+        "workspace": { "cpu": "1", "memory": "2Gi", "ephemeralStorage": "4Gi" }
+    });
+    if let Some(access) = access {
+        profile["access"] = access;
+    }
+    mirror.upsert(envelope(
+        "AgentProfile",
+        "app-builder",
+        ORG_NAMESPACE,
+        profile,
+    ));
+    mirror.upsert(envelope(
+        "Role",
+        "app-starter",
+        ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": ["App"], "verbs": ["propose"] }] }),
+    ));
+    mirror.upsert(envelope(
+        "RoleBinding",
+        "reader-starts-apps",
+        ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": "reader@hel.fi" }],
+            "role": "app-starter",
+            "scope": { "project": "helsinki" }
+        }),
+    ));
+    mirror
+}
+
+const SHARE_ANSWER: &str = "I will draft that endpoint.\n\n```json\n{\"tool\":\"propose_endpoint\",\"contextSpace\":\"helsinki\",\"name\":\"bikes-regional-transport\",\"title\":\"City bikes for regional transport\",\"audience\":\"project-list\",\"allowedProjects\":[\"regional-transport\"],\"representations\":[\"ngsi-ld\"],\"hiddenAttributes\":[],\"entityTypes\":[\"BikeHireDockingStation\"]}\n```\n";
+
+/// Starts a conversation as `who` under a profile with `access`, and returns the state, the
+/// run's `propose_endpoint` tool event once it is published, and every prompt the model was sent.
+async fn converse(access: Option<Value>, who: Identity) -> (AppState, Value, String) {
+    let proxy = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/llm/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-1", "object": "chat.completion",
+            "choices": [{ "index": 0, "message": { "role": "assistant", "content": SHARE_ANSWER }, "finish_reason": "stop" }],
+            "usage": { "total_tokens": 900 }
+        })))
+        .mount(&proxy)
+        .await;
+    let config = config(&proxy.uri());
+    let state = AppState::new(config.clone(), None).with_mirror(mirror(access));
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/assistant/conversations")
+                .header(header::COOKIE, cookie(&config, who))
+                .header(CSRF_HEADER, CSRF)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "message": "Share the city bikes with the regional transport team" })
+                        .to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let created: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let id = created["id"].as_str().expect("run id").to_owned();
+
+    let mut tool = None;
+    for _ in 0..200 {
+        let events: Vec<AgentRunEvent> = state.agents.events_since(&id, 0).await.expect("events");
+        if let Some(event) = events
+            .iter()
+            .find(|e| e.kind == "tool" && e.payload["tool"] == "propose_endpoint")
+        {
+            tool = Some(event.payload.clone());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let tool = tool.expect("the run published the propose_endpoint tool event");
+    let prompts = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|request| String::from_utf8_lossy(&request.body).into_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
+    (state, tool, prompts)
+}
+
+#[tokio::test]
+async fn a_tool_outside_the_profile_is_absent_from_the_prompt_and_refused_when_called() {
+    let access = json!({ "operations": ["jc_catalog_search"], "kinds": [] });
+    let (state, tool, prompts) =
+        converse(Some(access), person("admin@hel.fi", &["portal-approver"])).await;
+
+    assert!(!prompts.is_empty(), "the model was asked");
+    assert!(
+        !prompts.contains(SHARE_SECTION),
+        "the share tool is not offered"
+    );
+    assert!(
+        !prompts.contains(KPI_SECTION),
+        "the KPI tool is not offered"
+    );
+    assert_eq!(tool["tool"], "propose_endpoint");
+    assert_eq!(tool["status"], "failed");
+    assert!(
+        tool["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("does not grant jc_endpoint_propose")),
+        "{tool}"
+    );
+    let draft = state
+        .drafts
+        .get("helsinki", "Endpoint", "bikes-regional-transport")
+        .await
+        .expect("drafts");
+    assert!(draft.is_none(), "nothing ran");
+}
+
+#[tokio::test]
+async fn a_profile_that_grants_the_tool_never_widens_a_person_who_may_not_propose() {
+    let access = json!({
+        "operations": ["jc_catalog_search", "jc_endpoint_propose"],
+        "kinds": [{ "kind": "Endpoint", "verbs": ["read", "propose"] }]
+    });
+    let (state, tool, prompts) = converse(Some(access), person("reader@hel.fi", &[])).await;
+
+    assert!(
+        !prompts.contains(SHARE_SECTION),
+        "the person may not propose an Endpoint"
+    );
+    assert_eq!(tool["status"], "failed", "{tool}");
+    let draft = state
+        .drafts
+        .get("helsinki", "Endpoint", "bikes-regional-transport")
+        .await
+        .expect("drafts");
+    assert!(draft.is_none(), "a profile never widens the reader");
+}
+
+#[tokio::test]
+async fn a_granted_tool_runs_as_the_person_who_started_the_conversation() {
+    let access = json!({
+        "operations": ["jc_catalog_search", "jc_endpoint_propose"],
+        "kinds": [{ "kind": "Endpoint", "verbs": ["read", "propose"] }]
+    });
+    let (state, tool, prompts) =
+        converse(Some(access), person("admin@hel.fi", &["portal-approver"])).await;
+
+    assert!(prompts.contains(SHARE_SECTION));
+    assert!(
+        !prompts.contains(KPI_SECTION),
+        "jc_kpi_compute is not named"
+    );
+    assert_eq!(tool["status"], "ok", "{tool}");
+    let draft = state
+        .drafts
+        .get("helsinki", "Endpoint", "bikes-regional-transport")
+        .await
+        .expect("drafts")
+        .expect("the share drafted the endpoint");
+    assert_eq!(draft.touched_by, "admin");
+}
+
+#[tokio::test]
+async fn a_profile_without_an_access_block_offers_only_read_only_tools() {
+    let (_, tool, prompts) = converse(None, person("admin@hel.fi", &["portal-approver"])).await;
+
+    // jc_endpoint_propose renders manifests and writes nothing, so it carries readOnlyHint.
+    assert!(prompts.contains(SHARE_SECTION));
+    assert!(!prompts.contains("## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE"));
+    assert_eq!(tool["status"], "ok", "{tool}");
+}
+
+#[tokio::test]
+async fn a_profile_naming_an_operation_the_portal_does_not_register_is_refused_on_admission() {
+    let config = config("http://proxy.invalid");
+    let app = server::app(AppState::new(config.clone(), None).with_mirror(mirror(None)));
+    let mut profile = mirror(None)
+        .get(ORG_NAMESPACE, "AgentProfile", "app-builder")
+        .expect("the seeded profile");
+    profile.spec["access"] = json!({ "operations": ["jc_catalog_search", "jc_launch_rockets"] });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/projects/{ORG_NAMESPACE}/agentprofiles?dryRun=All"
+                ))
+                .header(
+                    header::COOKIE,
+                    cookie(&config, person("admin@hel.fi", &["portal-approver"])),
+                )
+                .header(CSRF_HEADER, CSRF)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&profile).expect("json")))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8_lossy(&bytes);
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.contains("jc_launch_rockets") && body.contains("MF-40"),
+        "{body}"
+    );
+}

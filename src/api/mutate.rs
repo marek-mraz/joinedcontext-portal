@@ -314,6 +314,24 @@ pub async fn propose_with_identity(
         })?;
     }
 
+    // 4b''. An agent profile names only operations this Portal registers (MF-40): jc-core checks
+    //       the shape of an operation name, the registry is the Portal's to know.
+    if kind_info.kind == "AgentProfile" {
+        let unknown = envelope
+            .spec
+            .pointer("/access/operations")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .find(|name| crate::ops::find(name).is_none());
+        if let Some(name) = unknown {
+            return Err(ApiError::BadRequest(format!(
+                "spec.access.operations names '{name}', which is not a registered operation (MF-40)"
+            )));
+        }
+    }
+
     // 4b'. A public dashboard reads only through public Endpoints (UI-19, T-0528): the one
     //      rule that spans three manifests, so it is checked against the mirror here.
     crate::dashboards::check(

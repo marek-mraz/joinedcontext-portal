@@ -605,6 +605,7 @@ pub async fn start_conversation(
     oneshot::spawn(
         state.clone(),
         &run,
+        &user.0.identity,
         &ticket,
         &profile,
         &settings.proxy_base,

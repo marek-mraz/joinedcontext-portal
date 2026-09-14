@@ -388,6 +388,7 @@ pub async fn create_run(
         oneshot::spawn(
             state.clone(),
             &run,
+            &user.0.identity,
             &ticket,
             &profile,
             &settings.proxy_base,

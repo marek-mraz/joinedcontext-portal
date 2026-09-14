@@ -8,6 +8,7 @@
 
 use serde_json::Value;
 
+use crate::agents::access::Access;
 use crate::api::blueprints::ORG_NAMESPACE;
 use crate::error::ApiError;
 use crate::store::Mirror;
@@ -32,6 +33,8 @@ pub struct Profile {
     pub cpu: String,
     pub memory: String,
     pub ephemeral_storage: String,
+    /// What the run's agent may call, intersected with the person at each call (AG-70).
+    pub access: Access,
 }
 
 impl Profile {
@@ -81,6 +84,7 @@ impl Profile {
             cpu: string_at(spec, &["workspace", "cpu"], name)?,
             memory: string_at(spec, &["workspace", "memory"], name)?,
             ephemeral_storage: string_at(spec, &["workspace", "ephemeralStorage"], name)?,
+            access: Access::from_spec(spec),
         })
     }
 

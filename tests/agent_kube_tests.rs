@@ -50,6 +50,7 @@ fn profile() -> Profile {
         cpu: "1".into(),
         memory: "2Gi".into(),
         ephemeral_storage: "4Gi".into(),
+        access: Default::default(),
     }
 }
 

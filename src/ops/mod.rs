@@ -218,7 +218,20 @@ pub async fn call(
     project: &str,
     input: Value,
 ) -> Result<Value, OpError> {
-    let effective = crate::permissions::for_request(state, &caller.identity, project);
+    permitted(op, &caller.identity, state, project)?;
+    (op.validate)(&input)?;
+    (op.run)(caller, state, project, input).await
+}
+
+/// The person's half of a call (PF-50): the operation's verb on its kind, or any grant in the
+/// project for a verbless operation.
+pub fn permitted(
+    op: &Operation,
+    identity: &crate::auth::session::Identity,
+    state: &AppState,
+    project: &str,
+) -> Result<(), OpError> {
+    let effective = crate::permissions::for_request(state, identity, project);
     if let Some(verb) = op.verb {
         effective.check(op.kind, verb, None)?;
     } else if !effective.bootstrap && effective.grants.is_empty() {
@@ -226,9 +239,7 @@ pub async fn call(
             "no role grants access in project {project} (PF-50)"
         ))));
     }
-
-    (op.validate)(&input)?;
-    (op.run)(caller, state, project, input).await
+    Ok(())
 }
 
 pub fn listing(caller: &Caller, state: &AppState, project: &str) -> Vec<OperationSummary> {
