@@ -341,12 +341,32 @@
       "tls": "TLS",
       "caCert": "Referenz auf Zertifizierungsstelle",
       "secretName": "Name des Secrets",
-      "secretKey": "Schlüssel im Secret"
+      "secretKey": "Schlüssel im Secret",
+      "input": "Eingabekonfiguration"
     },
     "probe": {
       "title": "Ein Abruf des Feeds",
       "records": "{records} Datensätze, {bytes} Bytes",
       "skipped": "Nicht abgerufen: {reason}"
+    },
+    "group": {
+      "typed": "Übliche Verbindungen",
+      "brokers": "Message-Broker",
+      "files": "Dateien und Objektspeicher",
+      "databases": "Datenbanken",
+      "http": "HTTP, Sockets und Streams",
+      "streams": "Streaming-Plattformen",
+      "queues": "Cloud-Warteschlangen",
+      "utility": "Hilfsmittel"
+    },
+    "runner": {
+      "summary": "Was der Runner über diese Eingabe sagt",
+      "yamlError": "{field}: kein gültiges YAML: {error}"
+    },
+    "secretRef": {
+      "name": "Secret-Name",
+      "key": "Schlüssel",
+      "known": "Bekannte Secrets"
     }
   },
   "pipelines": {

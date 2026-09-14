@@ -341,12 +341,32 @@
       "tls": "TLS",
       "caCert": "Odkaz na certifikační autoritu",
       "secretName": "Název tajemství",
-      "secretKey": "Klíč v tajemství"
+      "secretKey": "Klíč v tajemství",
+      "input": "Konfigurace vstupu"
     },
     "probe": {
       "title": "Jedno stažení feedu",
       "records": "{records} záznamů, {bytes} bajtů",
       "skipped": "Nestaženo: {reason}"
+    },
+    "group": {
+      "typed": "Běžná připojení",
+      "brokers": "Message brokery",
+      "files": "Soubory a objektová úložiště",
+      "databases": "Databáze",
+      "http": "HTTP, sokety a streamy",
+      "streams": "Streamovací platformy",
+      "queues": "Cloudové fronty",
+      "utility": "Pomocné"
+    },
+    "runner": {
+      "summary": "Co runner říká o tomto vstupu",
+      "yamlError": "{field}: neplatný YAML: {error}"
+    },
+    "secretRef": {
+      "name": "Název tajemství",
+      "key": "Klíč",
+      "known": "Známá tajemství"
     }
   },
   "pipelines": {

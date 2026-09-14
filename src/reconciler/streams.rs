@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use jc_core::kinds::data_source::{DataSourceSpec, DataSourceType};
+use jc_core::kinds::data_source::{check_class, DataSourceSpec, DataSourceType};
 use jc_core::kinds::pipeline::{ComputeKind, PipelineSpec};
 use jc_core::Condition;
 use jcctl::bento::InputContext;
@@ -25,6 +25,9 @@ pub enum RenderError {
     /// The pipeline has no compute block or its compute kind is not bloblang.
     #[error("pipeline compute is missing or not bloblang")]
     MissingCompute,
+    /// The pipeline class does not fit the data source (PL-04, PL-50).
+    #[error("pipeline class does not fit data source: {0}")]
+    Class(String),
     /// The author's `bento.yaml` is not YAML the runner would read.
     #[error("bento.yaml: {0}")]
     Bento(String),
@@ -404,15 +407,18 @@ pub fn render_stream(
     slug: &str,
     bento: Option<&str>,
 ) -> Result<Value, RenderError> {
+    check_class(pipeline, source).map_err(|e| RenderError::Class(e.to_string()))?;
+
     let context = InputContext {
         source: source_name,
         project,
         pipeline: name,
+        pipeline_spec: Some(pipeline),
     };
     let input_yaml = jcctl::bento::input_of(source, &context);
     let input_json: Value = serde_json::to_value(&input_yaml)?;
 
-    let (input, input_processors) = if source.source_type == DataSourceType::Http {
+    let (input, input_processors) = if matches!(source.source_type, DataSourceType::Http) {
         let interval = pipeline.period.as_deref().unwrap_or("60s");
         let http_client = match input_json {
             Value::Object(mut map) => map
@@ -1282,5 +1288,62 @@ output:
         let empty_mirror = Mirror::new();
         let outcomes_empty = deployer.converge(&empty_mirror, &Bentos::new()).await;
         assert!(outcomes_empty.is_empty());
+    }
+
+    #[test]
+    fn runner_nats_source_renders_verbatim_and_refuses_scheduled_class() {
+        let mut pipe = helsinki_pipeline_spec();
+        pipe.class = jc_core::kinds::PipelineClass::Resident;
+        pipe.period = None;
+
+        let ds: DataSourceSpec = serde_json::from_value(serde_json::json!({
+            "type": "nats",
+            "input": {
+                "urls": ["nats://nats.helsinki.fi:4222"],
+                "subject": "city.bikes.updates"
+            }
+        }))
+        .expect("valid runner DataSourceSpec");
+
+        let rendered = render_stream(
+            &pipe,
+            "bikes-stream",
+            "helsinki",
+            &ds,
+            "city-nats",
+            "abc123456789",
+            None,
+        )
+        .expect("renders nats stream");
+
+        assert_eq!(
+            rendered["input"]["nats"]["urls"][0],
+            "nats://nats.helsinki.fi:4222"
+        );
+        assert_eq!(rendered["input"]["nats"]["subject"], "city.bikes.updates");
+        assert_eq!(
+            rendered["output"]["http_client"]["url"],
+            "${JC_GATEWAY_URL}/api/endpoint/abc123456789/ngsi-ld/v1/entityOperations/upsert?options=update"
+        );
+
+        let mut sched_pipe = pipe;
+        sched_pipe.class = jc_core::kinds::PipelineClass::Scheduled;
+        sched_pipe.schedule = Some("*/10 * * * *".to_string());
+
+        let err = render_stream(
+            &sched_pipe,
+            "bikes-stream",
+            "helsinki",
+            &ds,
+            "city-nats",
+            "abc123456789",
+            None,
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(err, RenderError::Class(_)),
+            "expected RenderError::Class, got: {err:?}"
+        );
     }
 }

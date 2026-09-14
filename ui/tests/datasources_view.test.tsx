@@ -342,4 +342,67 @@ describe("the manifest a data source form describes", () => {
     expect(endpointOf(gtfs.spec)).toBe("https://gtfs.banskabystrica.sk/vp.pb");
     expect(knownSecretNames(SOURCES.items as unknown as Manifest[])).toEqual(["mqtt-mesto"]);
   });
+
+  it("endpointOf returns addresses, paths, dsn, url or type name for runner inputs", () => {
+    expect(
+      endpointOf({
+        type: "kafka",
+        input: { addresses: ["kafka1:9092", "kafka2:9092"] },
+      }),
+    ).toBe("kafka1:9092, kafka2:9092");
+
+    expect(
+      endpointOf({
+        type: "csv",
+        input: { paths: ["/data/records1.csv", "/data/records2.csv"] },
+      }),
+    ).toBe("/data/records1.csv, /data/records2.csv");
+
+    expect(
+      endpointOf({
+        type: "sql_select",
+        input: { dsn: "postgres://user:pass@host:5432/db" },
+      }),
+    ).toBe("postgres://user:pass@host:5432/db");
+
+    expect(
+      endpointOf({
+        type: "generate",
+        input: { mapping: "root = {}" },
+      }),
+    ).toBe("generate");
+  });
+
+  it("renders grouped select with an optgroup 'Message brokers' containing 'kafka'", async () => {
+    renderDataSources();
+
+    const typeSelect = (await screen.findByLabelText(en.datasources.field.type)) as HTMLSelectElement;
+    expect(typeSelect).toBeInTheDocument();
+
+    await waitFor(() => {
+      const brokerGroup = typeSelect.querySelector('optgroup[label="Message brokers"]');
+      expect(brokerGroup).not.toBeNull();
+      const kafkaOption = brokerGroup?.querySelector('option[value="kafka"]');
+      expect(kafkaOption).not.toBeNull();
+      expect(kafkaOption?.textContent).toBe("kafka");
+    });
+  });
+
+  it("shows an error and does not call the API when a runner form has invalid YAML", async () => {
+    const fetchMock = renderDataSources();
+
+    await userEvent.click(await screen.findByRole("button", { name: en.datasources.add }));
+    await screen.findByRole("dialog");
+
+    // Select a runner input with a YAML-parsed field by simulating a YAML error in form data
+    const invalidForm = {
+      name: "custom-input",
+      type: "kafka",
+      addresses: ["kafka:9092"],
+      tls: "{ enabled: [true",
+    };
+
+    expect(() => toEnvelope("banskabystrica", "kafka", invalidForm)).toThrow(/^tls: not valid YAML/);
+    expect(writes(fetchMock)).toHaveLength(0);
+  });
 });

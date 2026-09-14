@@ -13,13 +13,23 @@ import { ChangeNotice } from "../../components/ChangeNotice";
 import { PlanDiffViewer } from "../../components/diff/PlanDiffViewer";
 import type { FieldChange } from "../../components/diff/PlanDiffViewer";
 import { ResourceFormDialog } from "../../components/ResourceFormDialog";
+import { stringify as stringifyYaml } from "yaml";
 import {
   CONNECTION_BLOCK,
   DATA_SOURCE_TYPES,
   dataSourceSchema,
   dataSourceUiSchema,
+  findEnvVars,
+  isTypedDataSource,
+  parseYamlStrings,
+  runnerDataSourceSchema,
+  yamlPathsOf,
+  YamlFieldError,
 } from "../../schemas/kinds";
-import type { DataSourceType } from "../../schemas/kinds";
+import type { CatalogInput, DataSourceType, TypedDataSourceType } from "../../schemas/kinds";
+import { useBentoInputs } from "./RunnerInputForm";
+import { SecretRefContext } from "../../components/forms/widgets/SecretRef";
+import type { SecretRefValue } from "../../components/forms/widgets/SecretRef";
 
 /** The form of one source: the metadata a manifest carries plus the block its type names. */
 export interface DataSourceForm {
@@ -39,8 +49,59 @@ interface Probe {
 }
 
 /** The manifest a form produces (MF-01, MF-35). */
-export function toEnvelope(project: string, type: DataSourceType, form: DataSourceForm) {
-  const { name, title, ...connection } = form;
+export interface DataSourceEnvelope {
+  apiVersion: string;
+  kind: "DataSource";
+  metadata: { name: string; namespace: string; title?: unknown };
+  spec: Record<string, unknown>;
+}
+
+export function toEnvelope(
+  project: string,
+  type: DataSourceType,
+  form: DataSourceForm,
+  inputDef?: CatalogInput
+): DataSourceEnvelope {
+  if (isTypedDataSource(type)) {
+    const { name, title, ...connection } = form;
+    delete connection.secrets;
+    return {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "DataSource",
+      metadata: {
+        name: name ?? "",
+        namespace: project,
+        ...(title && Object.keys(title).length > 0 ? { title } : {}),
+      },
+      spec: { type, ...prune(connection) },
+    };
+  }
+
+  const { name, title, secrets: formSecrets = [], ...connection } = form;
+  const rawInput =
+    connection.input && typeof connection.input === "object" && !Array.isArray(connection.input)
+      ? { ...(connection.input as Record<string, unknown>), ...connection }
+      : { ...connection };
+  delete rawInput.input;
+
+  const parsedInput = parseYamlStrings(rawInput, yamlPathsOf(inputDef));
+  const cleanedInput = prune(parsedInput) as Record<string, unknown>;
+
+  const usedEnvVars = new Set<string>();
+  findEnvVars(cleanedInput, usedEnvVars);
+
+  const secretsList = Array.isArray(formSecrets) ? formSecrets : [];
+  const dedupedSecrets: Array<{ name: string; key?: string; envVar: string }> = [];
+  const seenEnvVars = new Set<string>();
+  for (const s of secretsList as SecretRefValue[]) {
+    if (s && typeof s === "object" && typeof s.envVar === "string") {
+      if (usedEnvVars.has(s.envVar) && !seenEnvVars.has(s.envVar)) {
+        seenEnvVars.add(s.envVar);
+        dedupedSecrets.push({ name: s.name, key: s.key, envVar: s.envVar });
+      }
+    }
+  }
+
   return {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "DataSource",
@@ -49,14 +110,40 @@ export function toEnvelope(project: string, type: DataSourceType, form: DataSour
       namespace: project,
       ...(title && Object.keys(title).length > 0 ? { title } : {}),
     },
-    spec: { type, ...prune(connection) },
+    spec: {
+      type,
+      input: cleanedInput,
+      ...(dedupedSecrets.length > 0 ? { secrets: dedupedSecrets } : {}),
+    },
   };
 }
 
 /** The form one manifest fills, so editing starts from what is in Git rather than from blank. */
 export function toForm(source: Manifest): DataSourceForm {
-  const connection = { ...source.spec };
-  // The type is the selector's, not the form's: it decides which block the form even has.
+  const spec = source.spec || {};
+  const type = typeOf(spec);
+  if (!isTypedDataSource(type)) {
+    const input =
+      spec.input && typeof spec.input === "object" && !Array.isArray(spec.input)
+        ? (spec.input as Record<string, unknown>)
+        : {};
+    const flattened: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input)) {
+      if (Array.isArray(v) && v.length > 0 && typeof v[0] === "object" && v[0] !== null) {
+        flattened[k] = stringifyYaml(v).trim();
+      } else {
+        flattened[k] = v;
+      }
+    }
+    return {
+      name: source.metadata.name,
+      ...(source.metadata.title ? { title: source.metadata.title } : {}),
+      ...flattened,
+      ...(Array.isArray(spec.secrets) ? { secrets: spec.secrets } : {}),
+    };
+  }
+
+  const connection = { ...spec };
   delete connection.type;
   return {
     name: source.metadata.name,
@@ -75,6 +162,21 @@ export function endpointOf(spec: Record<string, unknown>): string {
     if (connection?.urls?.length) {
       return connection.urls.join(", ");
     }
+  }
+  if (spec.input && typeof spec.input === "object") {
+    const input = spec.input as Record<string, unknown>;
+    const candidates = [input.url, input.urls, input.addresses, input.paths, input.dsn];
+    for (const c of candidates) {
+      if (typeof c === "string" && c.trim()) {
+        return c.trim();
+      }
+      if (Array.isArray(c) && c.length > 0) {
+        return c.join(", ");
+      }
+    }
+  }
+  if (typeof spec.type === "string" && spec.type.trim()) {
+    return spec.type.trim();
   }
   return "";
 }
@@ -97,7 +199,7 @@ export function knownSecretNames(manifests: Manifest[]): string[] {
       return;
     }
     for (const [key, member] of Object.entries(value)) {
-      if (key.endsWith("Ref") || key === "secretRefs") {
+      if (key.endsWith("Ref") || key === "secretRefs" || key === "secrets") {
         for (const entry of Array.isArray(member) ? member : [member]) {
           const named = (entry ?? {}) as { name?: unknown };
           if (typeof named.name === "string") {
@@ -115,10 +217,23 @@ export function knownSecretNames(manifests: Manifest[]): string[] {
 }
 
 /** The type a stored manifest declares, or the first one for a manifest that lost it. */
-function typeOf(spec: Record<string, unknown>): DataSourceType {
+export function typeOf(spec: Record<string, unknown>): DataSourceType {
   const declared = spec["type"];
-  return DATA_SOURCE_TYPES.find((candidate) => candidate === declared) ?? DATA_SOURCE_TYPES[0];
+  if (typeof declared === "string" && declared.trim()) {
+    return declared.trim();
+  }
+  return DATA_SOURCE_TYPES[0];
 }
+
+const RUNNER_GROUPS = [
+  "brokers",
+  "files",
+  "databases",
+  "http",
+  "streams",
+  "queues",
+  "utility",
+] as const;
 
 /** DataSources of one project: what the city reads from, and with which credential (MF-35). */
 export function DataSourcesPage({ project }: { project: string }): JSX.Element {
@@ -143,11 +258,13 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
     return { type: DATA_SOURCE_TYPES.find((candidate) => candidate === prefillType) ?? DATA_SOURCE_TYPES[0], form };
   });
   const [type, setType] = useState<DataSourceType>(initial?.type ?? DATA_SOURCE_TYPES[0]);
+  const catalog = useBentoInputs();
   const [editing, setEditing] = useState<Manifest | null>(null);
   const [dialogOpen, setDialogOpen] = useState(initial !== undefined || urlDraftName !== undefined);
   const [draft, setDraft] = useState<DataSourceForm | undefined>(initial?.form);
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [collectedSecrets, setCollectedSecrets] = useState<Record<string, SecretRefValue>>({});
   const [plan, setPlan] = useState<FieldChange[] | null>(null);
   const [probe, setProbe] = useState<Probe | null>(null);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -165,9 +282,33 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   const sources = useMemo(() => asManifests(list.data?.items ?? []), [list.data]);
   const secrets = useMemo(() => knownSecretNames(sources), [sources]);
 
+  const runnerCatalogInput = catalog?.inputs.find((i) => i.name === type);
+  const selectedSummary = runnerCatalogInput?.summary;
+
+  const handleSecretRef = (envVar: string, ref: SecretRefValue) => {
+    setCollectedSecrets((prev) => ({ ...prev, [envVar]: ref }));
+  };
+
+  const validateForm = (form: DataSourceForm): boolean => {
+    try {
+      toEnvelope(project, type, form, runnerCatalogInput);
+      return true;
+    } catch (err) {
+      if (!(err instanceof YamlFieldError)) throw err;
+      setFormError(
+        t("datasources.runner.yamlError", {
+          field: err.field,
+          error: err.detail,
+          defaultValue: err.message,
+        })
+      );
+      return false;
+    }
+  };
+
   /** One request for both buttons: a dry run differs from a proposal only in the query. */
   const write = async (form: DataSourceForm, dry: boolean, draftRef?: { kind: string; name: string }) => {
-    const envelope = toEnvelope(project, type, form);
+    const envelope = toEnvelope(project, type, form, runnerCatalogInput);
     const body = (draftRef ? { ...envelope, draft: draftRef } : envelope) as never;
     const query = dry ? { dryRun: "All" } : undefined;
     const name = editing?.metadata.name;
@@ -218,7 +359,6 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
 
   const propose = useMutation({
     mutationFn: async ({ form, draft: draftRef }: { form: DataSourceForm; draft?: { kind: string; name: string } }) => {
-      setFormError(null);
       return write(form, false, draftRef);
     },
     onSuccess: (result) => {
@@ -238,6 +378,7 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
     setPlan(null);
     setProbe(null);
     setVerdict(null);
+    setCollectedSecrets({});
     setUrlDraftName(undefined);
   }
 
@@ -248,19 +389,30 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
     setProbe(null);
     setVerdict(null);
     setFormError(null);
+    setCollectedSecrets({});
     setUrlDraftName(undefined);
     setDialogOpen(true);
   }
 
   function openEdit(source: Manifest) {
     setEditing(source);
-    setType(typeOf(source.spec));
+    const storedType = typeOf(source.spec);
+    setType(storedType);
     setDraft(toForm(source));
     setPlan(null);
     setProbe(null);
     setVerdict(null);
     setFormError(null);
     setUrlDraftName(source.metadata.name);
+    if (Array.isArray(source.spec.secrets)) {
+      const initial: Record<string, SecretRefValue> = {};
+      for (const s of source.spec.secrets as SecretRefValue[]) {
+        if (s.envVar) initial[s.envVar] = s;
+      }
+      setCollectedSecrets(initial);
+    } else {
+      setCollectedSecrets({});
+    }
     setDialogOpen(true);
   }
 
@@ -302,21 +454,47 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
             <select
               value={type}
               onChange={(event) => {
-                // The block a form offers is the one the type names, so a new type starts a
-                // new draft rather than carrying the previous connection into it.
                 setType(event.target.value as DataSourceType);
                 setDraft(undefined);
                 setPlan(null);
+                setProbe(null);
+                setCollectedSecrets({});
               }}
               className="rounded border border-border bg-surface px-3 py-1.5 text-sm text-surface-fg focus:outline-none focus:ring-2 focus:ring-border-focus"
             >
-              {DATA_SOURCE_TYPES.map((option) => (
-                <option key={option} value={option}>
-                  {t(`datasources.type.${option}`)}
-                </option>
-              ))}
+              <optgroup label={t("datasources.group.typed", { defaultValue: "Common connections" })}>
+                {DATA_SOURCE_TYPES.map((option) => (
+                  <option key={option} value={option}>
+                    {t(`datasources.type.${option}`, { defaultValue: option })}
+                  </option>
+                ))}
+              </optgroup>
+              {catalog &&
+                RUNNER_GROUPS.map((group) => {
+                  const items = catalog.inputs.filter((i) => i.group === group);
+                  if (items.length === 0) return null;
+                  return (
+                    <optgroup
+                      key={group}
+                      label={t(`datasources.group.${group}`, {
+                        defaultValue: group.charAt(0).toUpperCase() + group.slice(1),
+                      })}
+                    >
+                      {items.map((item) => (
+                        <option key={item.name} value={item.name}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
             </select>
           </label>
+          {selectedSummary ? (
+            <p data-testid="input-summary" className="max-w-xs text-xs text-surface-fg/70">
+              {selectedSummary}
+            </p>
+          ) : null}
           <PermissionGuard project={project} kind="DataSource" verb="propose">
           <button
             type="button"
@@ -370,7 +548,11 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-4 py-2">{t(`datasources.type.${typeOf(source.spec)}`)}</td>
+                    <td className="px-4 py-2">
+                      {isTypedDataSource(typeOf(source.spec))
+                        ? t(`datasources.type.${typeOf(source.spec)}`, { defaultValue: typeOf(source.spec) })
+                        : typeOf(source.spec)}
+                    </td>
                     <td className="break-all px-4 py-2 font-mono text-xs">
                       {endpointOf(source.spec)}
                     </td>
@@ -395,51 +577,103 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
         </div>
       )}
 
-      <ResourceFormDialog<DataSourceForm>
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            closeDialog();
-          }
+      <SecretRefContext.Provider
+        value={{
+          knownSecretNames: secrets,
+          onSecretRef: handleSecretRef,
+          secrets: Object.values(collectedSecrets),
         }}
-        project={project}
-        draftKind="DataSource"
-        draftName={editing?.metadata.name || urlDraftName || undefined}
-        verdict={verdict}
-        onVerdictChange={setVerdict}
-        // The draft holds the envelope the page proposes, so the check and the proposal read
-        // one manifest (AG-61).
-        source={{
-          toManifest: (form) => toEnvelope(project, type, form),
-          fromManifest: (manifest) => toForm(manifest as Manifest),
-        }}
-        title={editing ? t("datasources.dialog.edit") : t("datasources.dialog.create")}
-        description={t(`datasources.dialog.${type}`)}
-        schema={dataSourceSchema(t, type, secrets)}
-        // A rename is a new manifest at a new path, so the name is fixed once it exists.
-        uiSchema={editing ? { ...dataSourceUiSchema, name: { "ui:readonly": true } } : dataSourceUiSchema}
-        formData={draft}
-        submitLabel={t("datasources.propose")}
-        disabled={propose.isPending}
-        error={formError}
-        onChange={(data) => {
-          setDraft(data);
-          setPlan(null);
-          setProbe(null);
-          setVerdict(null);
-        }}
-        onSubmit={(data, draftRef) => propose.mutate({ form: data, draft: draftRef })}
       >
-        <div className="space-y-2">
-          <p className="text-sm text-surface-fg/70">{t("datasources.secretHint")}</p>
-          <button
-            type="button"
-            disabled={!draft?.name || check.isPending}
-            onClick={() => {
-              if (draft) {
-                check.mutate(draft);
-              }
-            }}
+        <ResourceFormDialog<DataSourceForm>
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              closeDialog();
+            }
+          }}
+          project={project}
+          draftKind="DataSource"
+          draftName={editing?.metadata.name || urlDraftName || undefined}
+          verdict={verdict}
+          onVerdictChange={setVerdict}
+          source={{
+            toManifest: (form) =>
+              toEnvelope(project, type, {
+                ...form,
+                secrets: Object.values(collectedSecrets),
+              }),
+            fromManifest: (manifest) => toForm(manifest as Manifest),
+          }}
+          title={editing ? t("datasources.dialog.edit") : t("datasources.dialog.create")}
+          description={
+            isTypedDataSource(type)
+              ? t(`datasources.dialog.${type}`)
+              : runnerCatalogInput?.summary ?? t("datasources.dialog.create")
+          }
+          schema={
+            isTypedDataSource(type)
+              ? dataSourceSchema(t, type as TypedDataSourceType, secrets)
+              : runnerCatalogInput
+                ? runnerDataSourceSchema(t, runnerCatalogInput).schema
+                : {
+                    type: "object",
+                    required: ["name"],
+                    properties: {
+                      name: { type: "string", title: t("datasources.field.name") },
+                    },
+                  }
+          }
+          uiSchema={
+            isTypedDataSource(type)
+              ? editing
+                ? { ...dataSourceUiSchema, name: { "ui:readonly": true } }
+                : dataSourceUiSchema
+              : runnerCatalogInput
+                ? editing
+                  ? { ...runnerDataSourceSchema(t, runnerCatalogInput).uiSchema, name: { "ui:readonly": true } }
+                  : runnerDataSourceSchema(t, runnerCatalogInput).uiSchema
+                : editing
+                  ? { name: { "ui:readonly": true } }
+                  : {}
+          }
+          formData={draft}
+          submitLabel={t("datasources.propose")}
+          disabled={propose.isPending}
+          error={formError}
+          onChange={(data) => {
+            setDraft(data);
+            setPlan(null);
+            setProbe(null);
+            setVerdict(null);
+          }}
+          onSubmit={(data, draftRef) => {
+            setFormError(null);
+            if (!validateForm(data)) {
+              return;
+            }
+            propose.mutate({
+              form: { ...data, secrets: Object.values(collectedSecrets) },
+              draft: draftRef,
+            });
+          }}
+        >
+          <div className="space-y-2">
+            <p className="text-sm text-surface-fg/70">{t("datasources.secretHint")}</p>
+            <button
+              type="button"
+              disabled={!draft?.name || check.isPending}
+              onClick={() => {
+                if (draft) {
+                  setFormError(null);
+                  if (!validateForm(draft)) {
+                    return;
+                  }
+                  check.mutate({
+                    ...draft,
+                    secrets: Object.values(collectedSecrets),
+                  });
+                }
+              }}
             className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("datasources.check")}
@@ -473,6 +707,7 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
           ) : null}
         </div>
       </ResourceFormDialog>
+      </SecretRefContext.Provider>
     </div>
   );
 }

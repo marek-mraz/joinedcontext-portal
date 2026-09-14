@@ -1,3 +1,4 @@
+import { parse as parseYaml } from "yaml";
 import type { JsonSchema, UiSchema } from "../components/forms/types";
 
 /**
@@ -206,10 +207,18 @@ export function generateSlug(): string {
 /** The four feeds a `DataSource` connects to, in the order the wizard offers them (MF-35). */
 export const DATA_SOURCE_TYPES = ["mqtt", "http", "websocket", "gtfs-rt"] as const;
 
-export type DataSourceType = (typeof DATA_SOURCE_TYPES)[number];
+export const TYPED_SOURCE_TYPES = DATA_SOURCE_TYPES;
+
+export type TypedDataSourceType = (typeof DATA_SOURCE_TYPES)[number];
+
+export type DataSourceType = TypedDataSourceType | string;
+
+export function isTypedDataSource(type: string): type is TypedDataSourceType {
+  return (DATA_SOURCE_TYPES as readonly string[]).includes(type);
+}
 
 /** The connection block each type carries, keyed the way the manifest keys it. */
-export const CONNECTION_BLOCK: Record<DataSourceType, string> = {
+export const CONNECTION_BLOCK: Record<TypedDataSourceType, string> = {
   mqtt: "mqtt",
   http: "http",
   websocket: "webSocket",
@@ -246,7 +255,7 @@ function secretRef(t: (key: string) => string, title: string, secrets: string[])
  */
 export function dataSourceSchema(
   t: (key: string) => string,
-  type: DataSourceType,
+  type: TypedDataSourceType,
   secrets: string[] = [],
 ): JsonSchema {
   const name: JsonSchema = {
@@ -350,6 +359,328 @@ export function dataSourceSchema(
 export const dataSourceUiSchema: UiSchema = {
   webSocket: { openMessage: { "ui:widget": "textarea" } },
 };
+
+/** Field entry in the trimmed Bento inputs catalog (PL-50). */
+export interface CatalogField {
+  path: string;
+  type: string;
+  kind: string;
+  secret: boolean;
+  advanced: boolean;
+  default: unknown;
+  description: string;
+}
+
+/** Bento runner input catalog item (PL-50). */
+export interface CatalogInput {
+  name: string;
+  group: string;
+  summary: string;
+  fields: CatalogField[];
+}
+
+/**
+ * Generates JSON Schema and UiSchema from a runner input's field tree (PL-50).
+ *
+ * Nested dot paths become nested objects; arrays of objects and free-form objects edit as YAML;
+ * secret fields use the `secretRef` widget; advanced fields are ordered last in `ui:order`.
+ */
+export function runnerInputSchema(input: CatalogInput): { schema: JsonSchema; uiSchema: UiSchema } {
+  // ponytail: advanced: true fields are ordered last in ui:order and tagged with ui:options: { advanced: true }. A collapsible fold widget in SchemaForm is a follow-up.
+  const schema: JsonSchema = {
+    type: "object",
+    properties: {},
+    required: [],
+  };
+  const uiSchema: UiSchema = {};
+
+  const containerPaths = new Set<string>();
+  for (const f of input.fields) {
+    const parts = f.path.split(".");
+    for (let i = 1; i < parts.length; i++) {
+      containerPaths.add(parts.slice(0, i).join("."));
+    }
+  }
+
+  function getContainer(pathSegments: string[]): {
+    objSchema: JsonSchema;
+    objUi: Record<string, unknown>;
+  } {
+    let currSchema = schema;
+    let currUi = uiSchema as Record<string, unknown>;
+
+    for (const seg of pathSegments) {
+      if (!currSchema.properties) {
+        currSchema.properties = {};
+      }
+      if (!currSchema.properties[seg]) {
+        currSchema.properties[seg] = {
+          type: "object",
+          properties: {},
+          required: [],
+        };
+      }
+      if (!currUi[seg]) {
+        currUi[seg] = {};
+      }
+      currSchema = currSchema.properties[seg] as JsonSchema;
+      currUi = currUi[seg] as Record<string, unknown>;
+    }
+    return { objSchema: currSchema, objUi: currUi };
+  }
+
+  for (const f of input.fields) {
+    if (containerPaths.has(f.path)) {
+      const parts = f.path.split(".");
+      const { objSchema, objUi } = getContainer(parts);
+      if (f.description) {
+        objSchema.description = f.description;
+      }
+      if (f.advanced) {
+        objUi["ui:options"] = {
+          ...((objUi["ui:options"] as Record<string, unknown>) || {}),
+          advanced: true,
+        };
+      }
+      continue;
+    }
+
+    const parts = f.path.split(".");
+    const leafKey = parts[parts.length - 1];
+    const parentParts = parts.slice(0, -1);
+    const { objSchema, objUi } = getContainer(parentParts);
+
+    const propSchema: JsonSchema = {};
+    const propUi: Record<string, unknown> = {};
+
+    if (f.secret) {
+      propSchema.type = "string";
+      propUi["ui:widget"] = "secretRef";
+    } else if (f.kind === "array") {
+      if (f.type === "string") {
+        propSchema.type = "array";
+        propSchema.items = { type: "string" };
+      } else if (f.type === "int") {
+        propSchema.type = "array";
+        propSchema.items = { type: "integer" };
+      } else if (f.type === "float") {
+        propSchema.type = "array";
+        propSchema.items = { type: "number" };
+      } else if (f.type === "bool") {
+        propSchema.type = "array";
+        propSchema.items = { type: "boolean" };
+      } else {
+        propSchema.type = "string";
+        propUi["ui:widget"] = "textarea";
+      }
+    } else if (f.kind === "scalar") {
+      if (f.type === "string") {
+        propSchema.type = "string";
+      } else if (f.type === "int") {
+        propSchema.type = "integer";
+      } else if (f.type === "float") {
+        propSchema.type = "number";
+      } else if (f.type === "bool") {
+        propSchema.type = "boolean";
+      } else {
+        propSchema.type = "string";
+        propUi["ui:widget"] = "textarea";
+      }
+    } else {
+      propSchema.type = "string";
+      propUi["ui:widget"] = "textarea";
+    }
+
+    if (f.default !== null && f.default !== undefined) {
+      propSchema.default = f.default as JsonSchema["default"];
+    }
+    if (f.description) {
+      propSchema.description = f.description;
+    }
+
+    if (f.advanced) {
+      propUi["ui:options"] = {
+        ...((propUi["ui:options"] as Record<string, unknown>) || {}),
+        advanced: true,
+      };
+    }
+
+    if (!objSchema.properties) {
+      objSchema.properties = {};
+    }
+    objSchema.properties[leafKey] = propSchema;
+
+    if (Object.keys(propUi).length > 0) {
+      objUi[leafKey] = propUi;
+    }
+
+    if ((f.default === null || f.default === undefined) && !f.advanced) {
+      if (!objSchema.required) {
+        objSchema.required = [];
+      }
+      objSchema.required.push(leafKey);
+    }
+  }
+
+  function applyOrder(
+    props: Record<string, JsonSchema> | undefined,
+    targetUi: Record<string, unknown>,
+    prefix: string
+  ) {
+    if (!props) return;
+    const keys = Object.keys(props);
+    if (keys.length === 0) return;
+
+    const nonAdvanced: string[] = [];
+    const advanced: string[] = [];
+
+    for (const k of keys) {
+      const fieldPath = prefix ? `${prefix}.${k}` : k;
+      const f = input.fields.find((field) => field.path === fieldPath);
+      const isAdv =
+        f?.advanced ||
+        Boolean(
+          (targetUi[k] as Record<string, unknown> | undefined)?.["ui:options"] &&
+            ((targetUi[k] as Record<string, unknown>)["ui:options"] as Record<string, unknown>)
+              .advanced
+        );
+      if (isAdv) {
+        advanced.push(k);
+      } else {
+        nonAdvanced.push(k);
+      }
+
+      const childSchema = props[k];
+      if (
+        childSchema &&
+        typeof childSchema === "object" &&
+        childSchema.type === "object" &&
+        childSchema.properties
+      ) {
+        targetUi[k] = targetUi[k] || {};
+        applyOrder(
+          childSchema.properties as Record<string, JsonSchema>,
+          targetUi[k] as Record<string, unknown>,
+          fieldPath
+        );
+      }
+    }
+
+    targetUi["ui:order"] = [...nonAdvanced, ...advanced, "*"];
+  }
+
+  applyOrder(schema.properties as Record<string, JsonSchema>, uiSchema as Record<string, unknown>, "");
+
+  return { schema, uiSchema };
+}
+
+/** Prepares envelope-level schema for a runner input by prepending `name` and `title`. */
+export function runnerDataSourceSchema(
+  t: (key: string) => string,
+  input: CatalogInput
+): { schema: JsonSchema; uiSchema: UiSchema } {
+  const { schema: inputSchema, uiSchema: inputUiSchema } = runnerInputSchema(input);
+
+  const name: JsonSchema = {
+    type: "string",
+    title: t("datasources.field.name"),
+    pattern: DNS1123,
+    maxLength: 63,
+  };
+  const title = titleProperty(t("datasources.field.title"));
+
+  const schema: JsonSchema = {
+    type: "object",
+    required: ["name", ...(inputSchema.required ?? [])],
+    properties: {
+      name,
+      title,
+      ...(inputSchema.properties ?? {}),
+    },
+  };
+
+  const inputOrder = (inputUiSchema["ui:order"] as string[]) ?? [];
+  const uiOrder = ["name", "title", ...inputOrder.filter((k) => k !== "*"), "*"];
+
+  const uiSchema: UiSchema = {
+    ...inputUiSchema,
+    "ui:order": uiOrder,
+  };
+
+  return { schema, uiSchema };
+}
+
+/** The field paths a runner input documents as YAML documents (objects, maps, lists of objects). */
+export function yamlPathsOf(inputDef?: CatalogInput): Set<string> {
+  const paths = new Set<string>();
+  for (const f of inputDef?.fields ?? []) {
+    const yamlType = f.type === "object" || f.type === "unknown";
+    if (f.kind === "map" || ((f.kind === "scalar" || f.kind === "array") && yamlType)) {
+      paths.add(f.path);
+    }
+  }
+  return paths;
+}
+
+/** A YAML-edited field the form cannot serialise; `field` is the path the runner documents. */
+export class YamlFieldError extends Error {
+  constructor(
+    public readonly field: string,
+    public readonly detail: string
+  ) {
+    super(`${field}: not valid YAML: ${detail}`);
+  }
+}
+
+/**
+ * Turns the YAML text a textarea holds back into the object or list the manifest carries.
+ * A field the catalog marks as YAML is always parsed; any other string is parsed only when it
+ * looks like a document (a newline, or a leading `-`, `{`, `[` or `:`). A parse error throws
+ * `YamlFieldError`, so a broken value never reaches the API as a string.
+ */
+export function parseYamlStrings(val: unknown, yamlPaths: Set<string> = new Set(), path = ""): unknown {
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (yamlPaths.has(path) || /^[-{[:]/.test(trimmed) || trimmed.includes("\n")) {
+      try {
+        const parsed = parseYaml(val);
+        return typeof parsed === "object" && parsed !== null ? parsed : val;
+      } catch (err) {
+        throw new YamlFieldError(path, err instanceof Error ? err.message : String(err));
+      }
+    }
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val.map((v) => parseYamlStrings(v, yamlPaths, path));
+  }
+  if (val && typeof val === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      out[k] = parseYamlStrings(v, yamlPaths, path ? `${path}.${k}` : k);
+    }
+    return out;
+  }
+  return val;
+}
+
+/** Finds all `${VAR}` interpolation names across an object. */
+export function findEnvVars(obj: unknown, found: Set<string>): void {
+  if (typeof obj === "string") {
+    const matches = obj.matchAll(/\$\{([A-Z0-9_]+)\}/g);
+    for (const m of matches) {
+      found.add(m[1]);
+    }
+  } else if (Array.isArray(obj)) {
+    for (const item of obj) {
+      findEnvVars(item, found);
+    }
+  } else if (obj && typeof obj === "object") {
+    for (const val of Object.values(obj)) {
+      findEnvVars(val, found);
+    }
+  }
+}
 
 /** How a registration's answer relates to the broker's own data (CIM 009 clause 5.2.9). */
 export const REGISTRATION_MODES = ["inclusive", "exclusive", "auxiliary", "redirect"] as const;

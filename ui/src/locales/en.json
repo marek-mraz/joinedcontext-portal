@@ -310,6 +310,25 @@
       "websocket": "WebSocket stream",
       "gtfs-rt": "GTFS-realtime feed"
     },
+    "group": {
+      "typed": "Common connections",
+      "brokers": "Message brokers",
+      "files": "Files and object stores",
+      "databases": "Databases",
+      "http": "HTTP, sockets and streams",
+      "streams": "Streaming platforms",
+      "queues": "Cloud queues",
+      "utility": "Utility"
+    },
+    "runner": {
+      "summary": "What the runner says about this input",
+      "yamlError": "{field}: not valid YAML: {error}"
+    },
+    "secretRef": {
+      "name": "Secret name",
+      "key": "Key",
+      "known": "Known secrets"
+    },
     "dialog": {
       "create": "New data source",
       "edit": "Edit data source",
@@ -341,7 +360,8 @@
       "tls": "TLS",
       "caCert": "Certificate authority reference",
       "secretName": "Secret name",
-      "secretKey": "Key in the secret"
+      "secretKey": "Key in the secret",
+      "input": "Input configuration"
     },
     "probe": {
       "title": "One fetch of the feed",
