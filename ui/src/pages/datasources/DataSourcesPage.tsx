@@ -10,6 +10,8 @@ import { asManifests, isChange, localized, plainTitle, prune } from "../../api/m
 import type { Change, Manifest } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
 import { ChangeNotice } from "../../components/ChangeNotice";
+import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
+import { Button } from "../../components/ui";
 import { PlanDiffViewer } from "../../components/diff/PlanDiffViewer";
 import type { FieldChange } from "../../components/diff/PlanDiffViewer";
 import { ResourceFormDialog } from "../../components/ResourceFormDialog";
@@ -561,13 +563,16 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
                       {used.length > 0 ? used.join(", ") : t("datasources.noSecret")}
                     </td>
                     <td className="px-4 py-2 text-right">
-                      {mayPropose ? <button
-                        type="button"
-                        onClick={() => openEdit(source)}
-                        className="rounded border border-border px-3 py-1 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-                      >
-                        {t("datasources.edit")}
-                      </button> : null}
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        {mayPropose ? (
+                          <Button size="sm" onClick={() => openEdit(source)}>
+                            {t("datasources.edit")}
+                          </Button>
+                        ) : null}
+                        <DeleteResourceAction
+                          target={{ project, kind: "DataSource", plural: "datasources", name: source.metadata.name }}
+                        />
+                      </div>
                     </td>
                   </tr>
                 );

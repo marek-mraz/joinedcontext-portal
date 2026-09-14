@@ -149,6 +149,29 @@
     "accepted": "Navrženo jako změna:",
     "review": "Otevřít ve Schvalování"
   },
+  "resourceDelete": {
+    "title": "Odstranit {name}",
+    "lead": "Odstranění navrhne změnu; schvalovatel ji potvrdí jménem dřív, než se cokoli odstraní.",
+    "typeName": "Pro potvrzení napište {name}",
+    "propose": "Navrhnout odstranění",
+    "referenced": "Stále se používá",
+    "button": "Odstranit",
+    "action": "Odstranit {name}",
+    "close": "Zavřít"
+  },
+  "resourceEdit": {
+    "title": "Upravit {name}",
+    "lead": "Úprava se navrhne jako změna; schvalovatel ji posoudí dřív, než se cokoli změní.",
+    "propose": "Navrhnout změnu",
+    "renamed": "Ponechte název {name}; jiný název by byl nový zdroj.",
+    "button": "Upravit",
+    "action": "Upravit {name}"
+  },
+  "resourceList": {
+    "name": "Název",
+    "phase": "Stav",
+    "empty": "Zatím tu nic není."
+  },
   "spaces": {
     "lead": "Pojmenované kolekce kontextových dat tohoto projektu; každá entita patří právě do jedné.",
     "title": "Kontextové prostory",

@@ -1,6 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../api/client";
+import { asManifests, localized } from "../api/manifest";
+import { DeleteResourceAction } from "../components/DeleteResourceDialog";
+import { EditResourceAction } from "../components/EditResourceDialog";
+import { LifecycleBadge } from "../components/status/LifecycleBadge";
+import {
+  Alert,
+  Button,
+  EmptyState,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  TableSkeleton,
+} from "../components/ui";
 import { SpacesPage } from "./SpacesPage";
 import { EndpointsPage } from "./EndpointsPage";
 import { DashboardsPage } from "./DashboardsPage";
@@ -11,7 +28,7 @@ import { FlowGallery } from "../pages/flows/Gallery";
 import { AppsCatalog } from "../pages/apps/AppsCatalog";
 import { SyncSourcesPage } from "../pages/sync/SyncSourcesPage";
 
-/** `/api/v1/projects/{project}/{plural}` rendered as a plain table; MF-11…MF-15. */
+/** `/api/v1/projects/{project}/{plural}`: a kind's own page, or its resources in a table (MF-11…MF-15). */
 export function ResourceListPage({
   project,
   plural,
@@ -64,7 +81,8 @@ function GenericListPage({
   project: string;
   plural: string;
 }): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? i18n.language ?? "en";
   const list = useQuery({
     queryKey: queryKeys.list(project, plural),
     queryFn: async () =>
@@ -75,48 +93,63 @@ function GenericListPage({
       ),
   });
 
-  if (list.isPending) {
-    return <p role="status">{t("app.loading")}</p>;
-  }
   if (list.isError) {
     return (
-      <div role="alert">
-        <p>{t("app.error.generic")}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void list.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("app.error.retry")}
-        </button>
-      </div>
+      <Alert
+        role="alert"
+        tone="danger"
+        actions={
+          <Button size="sm" onClick={() => void list.refetch()}>
+            {t("app.error.retry")}
+          </Button>
+        }
+      >
+        {t("app.error.generic")}
+      </Alert>
     );
   }
 
-  const items = list.data.items ?? [];
+  const items = asManifests(list.data?.items ?? []);
   return (
-    <table className="w-full border-collapse text-sm">
-      <caption className="sr-only">{plural}</caption>
-      <thead>
-        <tr className="border-b border-border text-left">
-          <th scope="col" className="py-2 pr-4">
-            name
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            kind
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.map((item) => (
-          <tr key={`${item.kind}/${item.metadata.name}`} className="border-b border-border">
-            <td className="py-2 pr-4 font-mono">{item.metadata.name}</td>
-            <td className="py-2 pr-4">{item.kind}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <Table caption={plural} status={list.isPending ? t("app.loading") : undefined}>
+      <TableHead>
+        <TableHeaderCell>{t("resourceList.name")}</TableHeaderCell>
+        <TableHeaderCell>{t("resourceList.phase")}</TableHeaderCell>
+        <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
+      </TableHead>
+      <TableBody>
+        {list.isPending ? (
+          <TableSkeleton columns={3} />
+        ) : items.length === 0 ? (
+          <TableEmpty columns={3}>
+            <EmptyState bare title={t("resourceList.empty")} />
+          </TableEmpty>
+        ) : (
+          items.map((item) => {
+            const title = localized(item.metadata.title, locale, item.metadata.name);
+            const target = { project, kind: item.kind, plural, name: item.metadata.name, label: title };
+            return (
+              <TableRow key={item.metadata.name}>
+                <TableCell primary>
+                  <div>{title}</div>
+                  {item.metadata.title ? (
+                    <div className="mt-0.5 font-mono text-caption text-fg-subtle">{item.metadata.name}</div>
+                  ) : null}
+                </TableCell>
+                <TableCell>
+                  <LifecycleBadge kind="phase" value={item.status?.phase} />
+                </TableCell>
+                <TableCell align="right">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <EditResourceAction target={target} />
+                    <DeleteResourceAction target={target} />
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })
+        )}
+      </TableBody>
+    </Table>
   );
 }

@@ -149,6 +149,29 @@
     "accepted": "Als Änderung vorgeschlagen:",
     "review": "In Freigaben öffnen"
   },
+  "resourceDelete": {
+    "title": "{name} entfernen",
+    "lead": "Entfernen schlägt eine Änderung vor; eine genehmigende Person bestätigt sie mit dem Namen, bevor etwas entfernt wird.",
+    "typeName": "Zur Bestätigung {name} eingeben",
+    "propose": "Entfernen vorschlagen",
+    "referenced": "Noch in Verwendung",
+    "button": "Löschen",
+    "action": "{name} löschen",
+    "close": "Schließen"
+  },
+  "resourceEdit": {
+    "title": "{name} bearbeiten",
+    "lead": "Ihre Bearbeitung wird als Änderung vorgeschlagen; eine genehmigende Person prüft sie, bevor sich etwas ändert.",
+    "propose": "Änderung vorschlagen",
+    "renamed": "Behalten Sie den Namen {name}; ein anderer Name wäre eine neue Ressource.",
+    "button": "Bearbeiten",
+    "action": "{name} bearbeiten"
+  },
+  "resourceList": {
+    "name": "Name",
+    "phase": "Zustand",
+    "empty": "Hier ist noch nichts."
+  },
   "spaces": {
     "lead": "Die benannten Sammlungen von Kontextdaten dieses Projekts; jede Entität liegt in genau einer.",
     "title": "Kontexträume",

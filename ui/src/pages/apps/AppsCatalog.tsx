@@ -7,6 +7,8 @@ import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, refName } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
+import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
+import { EditResourceAction } from "../../components/EditResourceDialog";
 import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import { Icon } from "../../components/ui/icons";
@@ -374,6 +376,12 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
                     {t("apps.history")}
                   </a>
                 ) : null}
+                <EditResourceAction
+                  target={{ project, kind: "App", plural: "apps", name: app.metadata.name, label: title }}
+                />
+                <DeleteResourceAction
+                  target={{ project, kind: "App", plural: "apps", name: app.metadata.name, label: title }}
+                />
               </div>
             </li>
           );

@@ -69,22 +69,19 @@ export async function approve(page: Page, project: string, change: string, confi
 }
 
 /**
- * Proposes the deletion of one resource through the Portal's own delete (a Red Change, CC-19)
- * and returns the change's id. The Portal has no delete button for these kinds yet, so the call
- * goes through the signed-in page's session with its CSRF token, as the page itself would.
+ * Proposes the deletion of one resource the way a person does (a Red Change, CC-19): its row's
+ * Delete on the kind's list, the name typed back, Propose removal; returns the change's id.
  */
 export async function proposeDelete(page: Page, project: string, plural: string, name: string): Promise<string> {
-  const csrf = (await page.context().cookies()).find((cookie) => cookie.name === "jc_csrf")?.value ?? "";
-  const answer = await page.request.delete(`/api/v1/projects/${project}/${plural}/${name}`, {
-    headers: { "x-csrf-token": csrf },
-  });
-  expect(answer.status(), `delete ${plural}/${name}: ${await answer.text()}`).toBe(202);
-  const change = (await answer.json()) as { metadata?: { name?: string } };
-  const id = change.metadata?.name;
-  if (!id) {
-    throw new Error(`the delete of ${plural}/${name} answered no change id`);
-  }
-  return id;
+  await page.goto(`/projects/${project}/${plural}`);
+  const row = page.locator("tr, li").filter({ hasText: name }).first();
+  await row.getByRole("button", { name: /^Delete / }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(`Type ${name} to confirm`).fill(name);
+  await dialog.getByRole("button", { name: "Propose removal" }).click();
+  const id = dialog.getByText(/^chg-[0-9a-f]{8}$/);
+  await expect(id, `delete ${plural}/${name}`).toBeVisible({ timeout: 30_000 });
+  return (await id.textContent()) ?? "";
 }
 
 /** The names of a project's resources of one kind, as the list route answers them. */

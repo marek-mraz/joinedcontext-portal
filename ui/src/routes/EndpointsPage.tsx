@@ -14,6 +14,7 @@ import { PermissionGuard } from "../components/ui/PermissionGuard";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
+import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { ExportButton } from "../components/export/ExportButton";
 import { SchemaProjectionPanel } from "../pages/endpoints/SchemaProjectionPanel";
 import {
@@ -815,6 +816,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                           {t("endpoints.edit")}
                         </Button>
                       ) : null}
+                      <DeleteResourceAction
+                        target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
+                      />
                       {endpoint.status?.sourceUrl ? (
                         <SourceLink href={endpoint.status.sourceUrl} label={t("spaces.field.source")} />
                       ) : null}

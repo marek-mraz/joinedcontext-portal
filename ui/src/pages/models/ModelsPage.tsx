@@ -7,6 +7,8 @@ import type { ProblemDetails } from "../../api/client";
 import { asManifests, refName } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
+import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
+import { Button } from "../../components/ui";
 import { takePrefill } from "../../assistant/state";
 import { LinkmlEditor } from "./LinkmlEditor";
 import { MappingsEditor } from "./MappingsEditor";
@@ -256,22 +258,17 @@ export function ModelsPage({
         <div className="flex items-center gap-3">
           {activeModelName ? (
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCheck}
-                disabled={checking || saving}
-                className="rounded border border-border px-3 py-1 text-sm font-medium hover:bg-surface-subtle"
-              >
+              <Button size="sm" onClick={handleCheck} disabled={checking || saving}>
                 {t("models.source.saveCheck")}
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving || checking}
-                className="rounded bg-primary px-3 py-1 text-sm font-medium text-primary-fg hover:opacity-90"
-              >
+              </Button>
+              <Button size="sm" variant="primary" onClick={handleSave} disabled={saving || checking}>
                 {t("models.source.save")}
-              </button>
+              </Button>
+              {published ? (
+                <DeleteResourceAction
+                  target={{ project, kind: "DataModel", plural: "datamodels", name: published.name }}
+                />
+              ) : null}
             </div>
           ) : null}
           <p className="text-sm text-surface-fg/70">

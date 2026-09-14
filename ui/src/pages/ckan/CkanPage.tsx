@@ -6,6 +6,8 @@ import { api, ApiError, unwrap } from "../../api/client";
 import { isChange } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
+import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
+import { EditResourceAction } from "../../components/EditResourceDialog";
 import type { components } from "../../api/schema";
 
 type CkanStatus = components["schemas"]["CkanStatus"];
@@ -83,6 +85,7 @@ export function CkanPage({ project }: { project: string }): JSX.Element {
       ) : null}
 
       <Instances
+        project={project}
         instances={status.data?.instances ?? []}
         loading={status.isLoading}
         onSubmit={(draft) => create.mutate(draft)}
@@ -113,11 +116,13 @@ const EMPTY_DRAFT: InstanceDraft = {
 };
 
 function Instances({
+  project,
   instances,
   loading,
   onSubmit,
   submitting,
 }: {
+  project: string;
   instances: CkanStatus["instances"];
   loading: boolean;
   onSubmit: (draft: InstanceDraft) => void;
@@ -141,6 +146,9 @@ function Instances({
               <th scope="col" className="py-1">{t("ckan.instances.url")}</th>
               <th scope="col" className="py-1">{t("ckan.instances.organization")}</th>
               <th scope="col" className="py-1">{t("ckan.instances.tokenRef")}</th>
+              <th scope="col" className="py-1 text-right">
+                <span className="sr-only">{t("approvals.actions")}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -159,6 +167,16 @@ function Instances({
                 </td>
                 <td className="py-1">{instance.organizationDefault ?? "—"}</td>
                 <td className="py-1 font-mono">{instance.apiTokenRef}</td>
+                <td className="py-1 text-right">
+                  <span className="inline-flex items-center gap-1.5">
+                    <EditResourceAction
+                      target={{ project, kind: "CkanInstance", plural: "ckaninstances", name: instance.name }}
+                    />
+                    <DeleteResourceAction
+                      target={{ project, kind: "CkanInstance", plural: "ckaninstances", name: instance.name }}
+                    />
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>

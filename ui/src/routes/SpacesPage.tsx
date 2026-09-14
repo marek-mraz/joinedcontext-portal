@@ -10,6 +10,8 @@ import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
+import { DeleteResourceAction } from "../components/DeleteResourceDialog";
+import { EditResourceAction } from "../components/EditResourceDialog";
 import { contextSpaceSchema } from "../schemas/kinds";
 import {
   Alert,
@@ -279,6 +281,13 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                 ttlDays?: number;
               };
               const model = refName(spec.dataModelRef);
+              const target = {
+                project,
+                kind: "ContextSpace",
+                plural: "spaces",
+                name: space.metadata.name,
+                label: localized(space.metadata.title, locale, space.metadata.name),
+              };
               return (
                 <TableRow key={space.metadata.name}>
                   <TableCell primary>
@@ -301,13 +310,17 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                     <LifecycleBadge kind="phase" value={space.status?.phase} />
                   </TableCell>
                   <TableCell align="right">
-                    <Link
-                      to="/projects/$project/spaces/$name"
-                      params={{ project, name: space.metadata.name }}
-                      className={buttonClass("secondary", "sm")}
-                    >
-                      {t("spaces.inside.open")}
-                    </Link>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <Link
+                        to="/projects/$project/spaces/$name"
+                        params={{ project, name: space.metadata.name }}
+                        className={buttonClass("secondary", "sm")}
+                      >
+                        {t("spaces.inside.open")}
+                      </Link>
+                      <EditResourceAction target={target} />
+                      <DeleteResourceAction target={target} />
+                    </div>
                   </TableCell>
                   <TableCell align="right">
                     {space.status?.sourceUrl ? (

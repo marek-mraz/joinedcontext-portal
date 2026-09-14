@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
+import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
+import { EditResourceAction } from "../../components/EditResourceDialog";
 import type { components } from "../../api/schema";
 
 export function syncStatusKey(project: string, name: string) {
@@ -150,6 +152,10 @@ function SyncSourceCard({
         <h3 className="font-mono text-sm font-bold">{name}</h3>
         <LifecycleBadge kind="phase" value={status.data?.phase} />
         <span className="text-xs">{scheduleOf(spec, t)}</span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <EditResourceAction target={{ project, kind: "SyncSource", plural: "syncsources", name }} />
+          <DeleteResourceAction target={{ project, kind: "SyncSource", plural: "syncsources", name }} />
+        </span>
       </header>
 
       <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">

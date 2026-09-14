@@ -8,6 +8,7 @@ import { asManifests, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { usePermissions } from "../api/permissions";
 import { ChangeNotice } from "../components/ChangeNotice";
+import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { rendersWithDeckGl } from "../components/dashboards/rendering";
 import { RAMP } from "../components/dashboards/MapLibreView";
 import type { Bbox, MapLayer } from "../components/dashboards/MapLibreView";
@@ -413,6 +414,9 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
                 {t("dashboards.edit")}
               </Button>
             ) : null}
+            <DeleteResourceAction
+              target={{ project, kind: "Dashboard", plural: "dashboards", name: dashboard.metadata.name }}
+            />
             {newButtons}
           </div>
         }

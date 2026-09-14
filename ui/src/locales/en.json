@@ -149,6 +149,29 @@
     "accepted": "Proposed as a change:",
     "review": "Review it in Approvals"
   },
+  "resourceDelete": {
+    "title": "Remove {name}",
+    "lead": "Removing proposes a change; an approver confirms it with the name before anything is removed.",
+    "typeName": "Type {name} to confirm",
+    "propose": "Propose removal",
+    "referenced": "Still in use",
+    "button": "Delete",
+    "action": "Delete {name}",
+    "close": "Close"
+  },
+  "resourceEdit": {
+    "title": "Edit {name}",
+    "lead": "Your edit is proposed as a change; an approver reviews it before anything changes.",
+    "propose": "Propose change",
+    "renamed": "Keep the name {name}; a different name would be a new resource.",
+    "button": "Edit",
+    "action": "Edit {name}"
+  },
+  "resourceList": {
+    "name": "Name",
+    "phase": "State",
+    "empty": "Nothing here yet."
+  },
   "spaces": {
     "lead": "The named collections of context data this project holds; every entity lives in exactly one.",
     "title": "Context Spaces",

@@ -7,6 +7,8 @@ import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
 import { usePermissions } from "../../api/permissions";
 import { useIdentity } from "../../auth/AuthProvider";
+import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
+import { EditResourceAction } from "../../components/EditResourceDialog";
 import type { Identity } from "../../auth/AuthProvider";
 import type { Manifest } from "../../api/manifest";
 import type { components } from "../../api/schema";
@@ -411,6 +413,13 @@ export function ServiceAccounts({ project }: { project: string }): JSX.Element {
         <ul className="space-y-4">
           {accounts.map((account) => {
             const spec = account.spec as ServiceAccountSpec;
+            const accountTarget = {
+              project,
+              kind: "ServiceAccount",
+              plural: "serviceaccounts",
+              name: account.metadata.name,
+              label: localized(account.metadata.title, locale, account.metadata.name),
+            };
             return (
               <li
                 key={account.metadata.name}
@@ -425,6 +434,10 @@ export function ServiceAccounts({ project }: { project: string }): JSX.Element {
                       {account.metadata.name}
                     </span>
                   ) : null}
+                  <span className="flex items-center gap-1.5">
+                    <EditResourceAction target={accountTarget} />
+                    <DeleteResourceAction target={accountTarget} />
+                  </span>
                 </div>
                 <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                   <div className="flex gap-2">
