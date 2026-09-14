@@ -398,8 +398,9 @@ pub async fn get_catalog(
     Ok(Json(search(&state, &project, q, scope).await))
 }
 
-/// The organization's domain, from the `Organization` manifest of the repository; the project
-/// name stands in when the mirror holds none, so a draft still renders.
+/// The organization's domain, from the `Organization` manifest of the repository, else the
+/// installation's `JC_PORTAL_ORG_DOMAIN`; the project name stands in when neither is known,
+/// so a draft still renders (an entity URN needs a dotted domain, so that draft is red).
 pub fn org_domain(state: &AppState, fallback: &str) -> String {
     state
         .mirror
@@ -411,6 +412,13 @@ pub fn org_domain(state: &AppState, fallback: &str) -> String {
         .items
         .into_iter()
         .find_map(|env| env.spec["domain"].as_str().map(str::to_owned))
+        .or_else(|| {
+            state
+                .config
+                .app_settings
+                .as_ref()
+                .map(|settings| settings.org_domain.clone())
+        })
         .unwrap_or_else(|| fallback.to_owned())
 }
 
@@ -458,8 +466,29 @@ pub fn router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::{endpoint_access, score, words};
+    use super::{endpoint_access, org_domain, score, words};
     use serde_json::json;
+
+    #[test]
+    fn the_org_domain_is_the_installations_before_the_project_name() {
+        let mut config = crate::config::Config::for_tests();
+        assert_eq!(
+            org_domain(
+                &crate::state::AppState::new(config.clone(), None),
+                "helsinki"
+            ),
+            "helsinki"
+        );
+        config.app_settings = Some(crate::apps::reconciler::Settings {
+            host: "portal.example.org".into(),
+            namespace: "apps".into(),
+            org_domain: "hel.fi".into(),
+        });
+        assert_eq!(
+            org_domain(&crate::state::AppState::new(config, None), "helsinki"),
+            "hel.fi"
+        );
+    }
 
     #[test]
     fn words_are_short_lower_and_unique() {
