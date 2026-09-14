@@ -38,8 +38,8 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(480);
 pub const AGENT: &str = "agent";
 const EMPTY_ANSWER: &str = "the model's answer carried no text";
 
-/// Kit capabilities JSON loaded directly from kit/kit.json (AP-65).
-pub static KIT_CAPABILITIES: &str = include_str!("../../kit/kit.json");
+/// Kit capabilities JSON loaded directly from sdk/kit.json (AP-65).
+pub static KIT_CAPABILITIES: &str = include_str!("../../sdk/kit.json");
 
 /// The system prompt of a conversation turn: prose or one tool call, never a file (AG-67).
 const CONVERSATION_SYSTEM: &str =

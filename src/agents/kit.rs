@@ -1,9 +1,9 @@
 //! The kit: the dashboard the builder fills in (Architecture/19 §1.2, AP-56, AG-54).
 //!
-//! The bundle under `kit/` renders one `spec.json`; this module is the Portal's copy of what
+//! The bundle under `sdk/` renders one `spec.json`; this module is the Portal's copy of what
 //! that file may hold. The type is what the model is shown as a JSON Schema, what a model
 //! answer is parsed into before anything reaches a browser, and what the preview document is
-//! rendered from. `kit/src/spec.ts` says the same things in TypeScript so the bundle can name
+//! rendered from. `sdk/src/spec.ts` says the same things in TypeScript so the bundle can name
 //! what is wrong if it is ever handed a specification this module did not check.
 
 use std::sync::LazyLock;
@@ -33,10 +33,10 @@ pub const MAX_LIMIT: u32 = 5000;
 /// sends none.
 pub const TILES: &str = "https://tiles.openfreemap.org";
 
-/// `kit/dist`, built with the Portal. Empty in a plain `cargo test`, which is what the 503 of
+/// `sdk/dist`, built with the Portal. Empty in a plain `cargo test`, which is what the 503 of
 /// [`bundle`] is for.
 #[derive(RustEmbed)]
-#[folder = "kit/dist"]
+#[folder = "sdk/dist"]
 struct Dist;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -287,7 +287,7 @@ pub fn parse(text: &str) -> Result<Spec, Vec<String>> {
 }
 
 /// What the schema cannot say: source names are unique, every reference names a source, every
-/// attribute is one that source reads. Same rules and same wording as `kit/src/spec.ts`.
+/// attribute is one that source reads. Same rules and same wording as `sdk/src/spec.ts`.
 pub fn validate(spec: &Spec) -> Vec<String> {
     let mut errors = Vec::new();
     if spec.title.trim().is_empty() {
@@ -608,7 +608,7 @@ fn escape(text: &str) -> String {
 mod tests {
     use super::*;
 
-    const EXAMPLE: &str = include_str!("../../kit/spec.example.json");
+    const EXAMPLE: &str = include_str!("../../sdk/spec.example.json");
 
     #[test]
     fn the_example_the_bundle_ships_with_parses_clean() {

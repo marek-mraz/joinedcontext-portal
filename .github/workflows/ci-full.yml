@@ -16,14 +16,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # The kit bundle is embedded at build time (kit/dist, ignored in git); the integration
+      # The kit bundle is embedded at build time (sdk/dist, ignored in git); the integration
       # tests under tests/ take the preview branch only when it is there, so the slow lane
       # builds it first and tests the Portal as it ships (AP-56, AP-63).
       - uses: pnpm/action-setup@v4
         with: { version: 10 }
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm, cache-dependency-path: kit/pnpm-lock.yaml }
-      - run: cd kit && pnpm install --frozen-lockfile && pnpm build
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: sdk/pnpm-lock.yaml }
+      - run: cd sdk && pnpm install --frozen-lockfile && pnpm build
       - run: cargo test --workspace --all-targets --all-features
       - run: cargo doc --workspace --no-deps
         env: { RUSTDOCFLAGS: "-D warnings" }

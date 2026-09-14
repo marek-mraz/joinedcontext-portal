@@ -1,0 +1,67 @@
+import { describe, expect, it } from "vitest";
+import type { Row } from "../src/ngsi";
+import { fakeContext, stubClient, stubTransport } from "../src/sdk/testing";
+
+const SAMPLE_ROWS: Row[] = [
+  { id: "urn:1", type: "Station", name: "Kamppi", bikes: 5 },
+  { id: "urn:2", type: "Station", name: "Kallio", bikes: 2 },
+];
+
+describe("sdk testing fixtures", () => {
+  it("stubTransport create -> list decodes the Property body and rows() reflects writes", async () => {
+    const client = stubClient({ entities: SAMPLE_ROWS });
+
+    const initial = await client.entities.list("Station");
+    expect(initial).toHaveLength(2);
+
+    const newId = await client.entities.create(
+      "Station",
+      {
+        name: "Kaivopuisto",
+        bikes: 14,
+        location: { type: "Point", coordinates: [24.95, 60.15] },
+      },
+      "003",
+    );
+
+    expect(newId).toBe("urn:ngsi-ld:Station:example.org:demo:003");
+
+    const updatedList = await client.entities.list("Station");
+    expect(updatedList).toHaveLength(3);
+
+    const created = updatedList.find((r) => r.id === newId);
+    expect(created?.name).toBe("Kaivopuisto");
+    expect(created?.bikes).toBe(14);
+    expect(created?.location).toEqual({ type: "Point", coordinates: [24.95, 60.15] });
+
+    expect(client.transport.rows()).toHaveLength(3);
+  });
+
+  it("stubTransport returns 404 problem for unknown function", async () => {
+    const transport = stubTransport({
+      functions: {
+        known: () => ({ status: "ok" }),
+      },
+    });
+
+    const ok = await transport({ method: "POST", path: "/functions/known" });
+    expect(ok.status).toBe(200);
+
+    const missing = await transport({ method: "POST", path: "/functions/unknown" });
+    expect(missing.status).toBe(404);
+  });
+
+  it("fakeContext provides data client, reads rows, and collects log calls", async () => {
+    const ctx = fakeContext({
+      entities: SAMPLE_ROWS,
+      user: { id: "u-123", roles: ["admin"] },
+    });
+
+    ctx.log("Starting handler", 1, 2);
+    expect(ctx.logs).toEqual([["Starting handler", 1, 2]]);
+
+    expect(ctx.jc.me()?.id).toBe("u-123");
+    const rows = await ctx.jc.entities.list("Station");
+    expect(rows).toHaveLength(2);
+  });
+});

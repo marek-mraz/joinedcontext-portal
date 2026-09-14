@@ -47,7 +47,7 @@ export function entitiesUrl(slug: string, source: Source, offset: number): strin
  * The value a keyValues attribute stands for. The broker wraps a DateTime as `{@type, @value}`,
  * a LanguageProperty as `{lang: text}`, a GeoProperty as GeoJSON; a relationship is its URN.
  */
-export function cell(value: unknown): Cell {
+export function cell(value: unknown, language = "en"): Cell {
   if (value === null || value === undefined) {
     return null;
   }
@@ -55,26 +55,26 @@ export function cell(value: unknown): Cell {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => String(cell(item) ?? "")).join(", ");
+    return value.map((item) => String(cell(item, language) ?? "")).join(", ");
   }
   if (typeof value === "object") {
     const object = value as Record<string, unknown>;
     if ("@value" in object) {
-      return cell(object["@value"]);
+      return cell(object["@value"], language);
     }
-    // A LanguageProperty in keyValues form: the English text when there is one, else the first.
+    // A LanguageProperty in keyValues form: picks languageMap[language], then en, then the first value.
     if (typeof object.languageMap === "object" && object.languageMap !== null) {
       const map = object.languageMap as Record<string, unknown>;
-      return cell(map.en ?? Object.values(map)[0]);
+      return cell(map[language] ?? map.en ?? Object.values(map)[0], language);
     }
     if (typeof object.type === "string" && "coordinates" in object) {
       return { type: object.type, coordinates: object.coordinates };
     }
     if ("value" in object) {
-      return cell(object.value);
+      return cell(object.value, language);
     }
     if ("object" in object) {
-      return cell(object.object);
+      return cell(object.object, language);
     }
     const text = Object.values(object).find((item) => typeof item === "string");
     if (typeof text === "string") {
@@ -86,13 +86,13 @@ export function cell(value: unknown): Cell {
 }
 
 /** One entity as the table, the map and the charts read it. */
-export function toRow(entity: Record<string, unknown>): Row {
+export function toRow(entity: Record<string, unknown>, language = "en"): Row {
   const row: Record<string, Cell> = {};
   for (const [key, value] of Object.entries(entity)) {
     if (key === "@context") {
       continue;
     }
-    row[key] = cell(value);
+    row[key] = cell(value, language);
   }
   return { ...row, id: String(entity.id ?? ""), type: String(entity.type ?? "") };
 }

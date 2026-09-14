@@ -1393,7 +1393,7 @@ pub async fn preview(
         None => {
             let bundle = kit::bundle().ok_or_else(|| {
                 ApiError::Unavailable(
-                    "this Portal was built without the kit (kit/dist is empty)".into(),
+                    "this Portal was built without the kit (sdk/dist is empty)".into(),
                 )
             })?;
             (

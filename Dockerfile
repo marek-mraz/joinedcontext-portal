@@ -14,13 +14,13 @@ COPY ui/ ./
 # image build is where that is caught, not the demo.
 RUN pnpm build && test -s dist/index.html && ls dist/assets/*.js >/dev/null
 
-# The kit of AP-56: the dashboard bundle the kit pass fills in, embedded like the UI.
-FROM node:24-slim AS kit
+# The App SDK (SDK-01) with the kit renderer the spec pass still fills in, embedded like the UI.
+FROM node:24-slim AS sdk
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-WORKDIR /kit
-COPY kit/package.json kit/pnpm-lock.yaml ./
+WORKDIR /sdk
+COPY sdk/package.json sdk/pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
-COPY kit/ ./
+COPY sdk/ ./
 RUN pnpm build && test -s dist/kit.js && test -s dist/kit.css && test -s dist/kit-worker.js
 
 FROM rust:1.97-slim-bookworm AS build
@@ -41,10 +41,10 @@ COPY migrations ./migrations
 # a member's manifest is only valid if the targets it names exist.
 COPY apps ./apps
 COPY --from=ui /ui/dist ./ui/dist
-COPY --from=kit /kit/dist ./kit/dist
+COPY --from=sdk /sdk/dist ./sdk/dist
 # The kit's capabilities file is compiled into the binary (`include_str!` in
 # src/agents/oneshot.rs, AP-65), so it is a build input of the Rust stage too.
-COPY kit/kit.json ./kit/kit.json
+COPY sdk/kit.json ./sdk/kit.json
 # `-p joinedcontext-portal`: this image ships one binary and the reference apps have images of
 # their own, so building the whole workspace here would compile them for nothing.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

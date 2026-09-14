@@ -7,7 +7,7 @@ apps/*/ui/dist/
 apps/*/ui/test-results/
 apps/*/ui/*.tsbuildinfo
 # The kit of AP-56 is a third bundle; its dist is embedded at build time, never committed.
-kit/node_modules/
-kit/dist/
-kit/*.tsbuildinfo
+sdk/node_modules/
+sdk/dist/
+sdk/*.tsbuildinfo
 .secrets/

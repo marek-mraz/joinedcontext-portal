@@ -36,7 +36,7 @@ export function useSources(slug: string, spec: Spec, inline?: Inline): { data: L
     const load = async (source: Source): Promise<Row[]> => {
       const given = inline?.[source.name];
       if (Array.isArray(given)) {
-        return given.filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null).map(toRow);
+        return given.filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null).map((e) => toRow(e));
       }
       return loadSource(slug, source);
     };

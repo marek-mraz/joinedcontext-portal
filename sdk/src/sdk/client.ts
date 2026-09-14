@@ -1,0 +1,444 @@
+import type { Cell, Row } from "../ngsi";
+import { cell, toRow } from "../ngsi";
+import type { Schema } from "../write";
+import type { AccessDocument } from "./access";
+import { parseAccess } from "./access";
+import type { JcConfig, JcUser } from "./config";
+import { readConfig } from "./config";
+import type { Transport } from "./transport";
+import { transportFor } from "./transport";
+
+export class ProblemError extends Error {
+  readonly status: number;
+  readonly title: string;
+  readonly detail?: string;
+  readonly type?: string;
+  readonly file?: string;
+  readonly line?: number;
+
+  constructor(status: number, body: unknown) {
+    const b = (typeof body === "object" && body !== null ? body : {}) as {
+      title?: unknown;
+      detail?: unknown;
+      type?: unknown;
+      error?: { message?: unknown; file?: unknown; line?: unknown };
+    };
+
+    const runtimeMsg = typeof b.error?.message === "string" ? b.error.message : undefined;
+    const title = typeof b.title === "string" ? b.title : (runtimeMsg ?? (status ? `HTTP ${status}` : "Network Error"));
+    const detail = typeof b.detail === "string" ? b.detail : runtimeMsg;
+    const message = detail ?? title;
+
+    super(message);
+    this.name = "ProblemError";
+    this.status = status;
+    this.title = title;
+    this.detail = detail;
+    this.type = typeof b.type === "string" ? b.type : undefined;
+    this.file = typeof b.error?.file === "string" ? b.error.file : undefined;
+    this.line = typeof b.error?.line === "number" ? b.error.line : undefined;
+  }
+}
+
+export interface Query {
+  attrs?: string[];
+  q?: string;
+  georel?: string;
+  geometry?: string;
+  coordinates?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface TemporalQuery {
+  attrs?: string[];
+  q?: string;
+  timerel: "before" | "after" | "between";
+  timeAt: string;
+  endTimeAt?: string;
+  lastN?: number;
+  limit?: number;
+}
+
+export interface TemporalPoint {
+  value: Cell;
+  observedAt: string;
+}
+
+export interface TemporalRow {
+  id: string;
+  type: string;
+  series: Record<string, TemporalPoint[]>;
+}
+
+export interface DataClient {
+  readonly config: JcConfig;
+  entities: {
+    list<T extends Row = Row>(type: string, query?: Query): Promise<T[]>;
+    all<T extends Row = Row>(type: string, query?: Query): Promise<T[]>;
+    get<T extends Row = Row>(id: string, attrs?: string[]): Promise<T>;
+    create(type: string, attrs: Record<string, Cell>, localId?: string): Promise<string>;
+    update(id: string, patch: Record<string, Cell>): Promise<void>;
+    remove(id: string): Promise<void>;
+  };
+  temporal: { list(type: string, query: TemporalQuery): Promise<TemporalRow[]> };
+  schema(): Promise<Schema>;
+  access(): Promise<AccessDocument>;
+  me(): JcUser | null;
+  entityId(type: string, localId: string): string;
+}
+
+export interface Client extends DataClient {
+  functions: { call<T = unknown>(name: string, body?: unknown): Promise<T> };
+}
+
+export const FUNCTION_NAME = /^[a-z][a-z0-9-]{0,39}$/;
+const TYPE_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
+const LOCAL_ID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
+
+export function isEndpointPath(slug: string, path: string): boolean {
+  if (path.includes("..") || path.includes("//") || path.includes("\\") || path.includes("#")) {
+    return false;
+  }
+  const prefix = `/api/endpoint/${encodeURIComponent(slug)}/`;
+  if (!path.startsWith(prefix)) {
+    return false;
+  }
+  const rest = path.slice(prefix.length);
+  const [pathname, ...query] = rest.split("?");
+  if (query.length > 1) return false;
+
+  const valid =
+    /^(ngsi-ld\/v1\/entities(\/[^/]+(\/attrs)?)?|ngsi-ld\/v1\/temporal\/entities|schema\/index\.json|schema\/v\d+\/json-schema|access)$/;
+  return valid.test(pathname);
+}
+
+function checkEndpointPath(slug: string, path: string): void {
+  if (!isEndpointPath(slug, path)) {
+    throw new ProblemError(0, { title: `Refused unauthorized endpoint path: ${path}` });
+  }
+}
+
+function isGeoJsonGeometry(value: unknown): value is { type: string; coordinates: unknown } {
+  return typeof value === "object" && value !== null && "type" in value && "coordinates" in value;
+}
+
+function encodeAttrs(attrs: Record<string, Cell>): Record<string, { type: "Property" | "GeoProperty"; value: Cell }> {
+  const result: Record<string, { type: "Property" | "GeoProperty"; value: Cell }> = {};
+  for (const [key, val] of Object.entries(attrs)) {
+    if (val === null) continue;
+    if (isGeoJsonGeometry(val)) {
+      result[key] = { type: "GeoProperty", value: val };
+    } else {
+      result[key] = { type: "Property", value: val };
+    }
+  }
+  return result;
+}
+
+export function createClient(config: JcConfig, transport: Transport): Client {
+  let cachedSchema: Schema | null = null;
+  let cachedAccess: AccessDocument | null = null;
+
+  const entityId = (type: string, localId: string): string => {
+    return `urn:ngsi-ld:${type}:${config.orgDomain}:${config.space}:${localId}`;
+  };
+
+  const entities = {
+    async list<T extends Row = Row>(type: string, query?: Query): Promise<T[]> {
+      if (!TYPE_RE.test(type)) {
+        throw new ProblemError(0, { title: `Invalid entity type: '${type}'` });
+      }
+      const limit = query?.limit ?? 100;
+      if (typeof limit !== "number" || limit < 1 || limit > 1000) {
+        throw new ProblemError(0, { title: `limit must be between 1 and 1000, got ${limit}` });
+      }
+      if (query?.offset !== undefined && (typeof query.offset !== "number" || query.offset < 0)) {
+        throw new ProblemError(0, { title: `offset must be >= 0, got ${query.offset}` });
+      }
+
+      const geo = [query?.georel, query?.geometry, query?.coordinates];
+      const geoCount = geo.filter((g) => g !== undefined).length;
+      if (geoCount > 0 && geoCount < 3) {
+        throw new ProblemError(0, { title: "georel, geometry, coordinates must all be provided together" });
+      }
+
+      const params = new URLSearchParams({ type, options: "keyValues", limit: String(limit) });
+      if (query?.offset !== undefined && query.offset > 0) {
+        params.set("offset", String(query.offset));
+      }
+      if (query?.attrs) {
+        const filtered = query.attrs.filter((a) => a !== "id" && a !== "type" && a !== "@context");
+        if (filtered.length > 0) {
+          params.set("attrs", filtered.join(","));
+        }
+      }
+      if (query?.q) {
+        params.set("q", query.q);
+      }
+      if (query?.georel && query?.geometry && query?.coordinates) {
+        params.set("georel", query.georel);
+        params.set("geometry", query.geometry);
+        params.set("coordinates", query.coordinates);
+      }
+
+      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities?${params.toString()}`;
+      checkEndpointPath(config.slug, path);
+
+      const resp = await transport({ method: "GET", path });
+      if (resp.status < 200 || resp.status >= 300) {
+        throw new ProblemError(resp.status, resp.body);
+      }
+      if (!Array.isArray(resp.body)) {
+        throw new ProblemError(resp.status, { title: "The endpoint did not answer a list." });
+      }
+
+      return resp.body.map((item) => toRow(item as Record<string, unknown>, config.language)) as T[];
+    },
+
+    async all<T extends Row = Row>(type: string, query?: Query): Promise<T[]> {
+      const maxTotal = Math.min(query?.limit ?? 1000, 5000);
+      const rows: T[] = [];
+      let offset = query?.offset ?? 0;
+
+      while (rows.length < maxTotal) {
+        const pageLimit = Math.min(1000, maxTotal - rows.length);
+        const page = await entities.list<T>(type, { ...query, limit: pageLimit, offset });
+        rows.push(...page);
+        if (page.length < pageLimit) {
+          break;
+        }
+        offset += page.length;
+      }
+
+      return rows;
+    },
+
+    async get<T extends Row = Row>(id: string, attrs?: string[]): Promise<T> {
+      const params = new URLSearchParams({ options: "keyValues" });
+      if (attrs) {
+        const filtered = attrs.filter((a) => a !== "id" && a !== "type" && a !== "@context");
+        if (filtered.length > 0) params.set("attrs", filtered.join(","));
+      }
+      const qs = params.toString();
+      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`;
+      checkEndpointPath(config.slug, path);
+
+      const resp = await transport({ method: "GET", path });
+      if (resp.status < 200 || resp.status >= 300) {
+        throw new ProblemError(resp.status, resp.body);
+      }
+      if (typeof resp.body !== "object" || resp.body === null) {
+        throw new ProblemError(resp.status, { title: "The endpoint did not answer an entity." });
+      }
+      return toRow(resp.body as Record<string, unknown>, config.language) as T;
+    },
+
+    async create(type: string, attrs: Record<string, Cell>, localId?: string): Promise<string> {
+      if (!TYPE_RE.test(type)) {
+        throw new ProblemError(0, { title: `Invalid entity type: '${type}'` });
+      }
+      const lid = localId ?? crypto.randomUUID();
+      if (!LOCAL_ID_RE.test(lid)) {
+        throw new ProblemError(0, { title: `Invalid localId: '${lid}'` });
+      }
+      const id = entityId(type, lid);
+      const body = {
+        id,
+        type,
+        ...encodeAttrs(attrs),
+      };
+
+      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities`;
+      checkEndpointPath(config.slug, path);
+
+      const resp = await transport({ method: "POST", path, body });
+      if (resp.status < 200 || resp.status >= 300) {
+        throw new ProblemError(resp.status, resp.body);
+      }
+      return id;
+    },
+
+    async update(id: string, patch: Record<string, Cell>): Promise<void> {
+      const encoded = encodeAttrs(patch);
+      if (Object.keys(encoded).length === 0) {
+        return;
+      }
+      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}/attrs`;
+      checkEndpointPath(config.slug, path);
+
+      const resp = await transport({ method: "PATCH", path, body: encoded });
+      if (resp.status < 200 || resp.status >= 300) {
+        throw new ProblemError(resp.status, resp.body);
+      }
+    },
+
+    async remove(id: string): Promise<void> {
+      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}`;
+      checkEndpointPath(config.slug, path);
+
+      const resp = await transport({ method: "DELETE", path });
+      if (resp.status < 200 || resp.status >= 300) {
+        throw new ProblemError(resp.status, resp.body);
+      }
+    },
+  };
+
+  const temporal = {
+    async list(type: string, query: TemporalQuery): Promise<TemporalRow[]> {
+      if (!TYPE_RE.test(type)) {
+        throw new ProblemError(0, { title: `Invalid entity type: '${type}'` });
+      }
+      if (query.timerel === "between" && !query.endTimeAt) {
+        throw new ProblemError(0, { title: "endTimeAt is required for timerel 'between'" });
+      }
+
+      const params = new URLSearchParams({
+        type,
+        options: "temporalValues",
+        timerel: query.timerel,
+        timeAt: query.timeAt,
+      });
+      if (query.endTimeAt) params.set("endTimeAt", query.endTimeAt);
+      if (query.lastN !== undefined) params.set("lastN", String(query.lastN));
+      if (query.limit !== undefined) params.set("limit", String(query.limit));
+      if (query.q) params.set("q", query.q);
+      if (query.attrs) {
+        const filtered = query.attrs.filter((a) => a !== "id" && a !== "type" && a !== "@context");
+        if (filtered.length > 0) params.set("attrs", filtered.join(","));
+      }
+
+      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/temporal/entities?${params.toString()}`;
+      checkEndpointPath(config.slug, path);
+
+      const resp = await transport({ method: "GET", path });
+      if (resp.status < 200 || resp.status >= 300) {
+        throw new ProblemError(resp.status, resp.body);
+      }
+      if (!Array.isArray(resp.body)) {
+        throw new ProblemError(resp.status, { title: "The endpoint did not answer a list." });
+      }
+
+      return resp.body.map((item: unknown) => {
+        const obj = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
+        const series: Record<string, TemporalPoint[]> = {};
+
+        for (const [key, val] of Object.entries(obj)) {
+          if (key === "id" || key === "type" || key === "@context") continue;
+          if (typeof val === "object" && val !== null) {
+            const rawProp = val as { values?: unknown[] };
+            const values = Array.isArray(rawProp.values) ? rawProp.values : Array.isArray(val) ? val : [];
+            series[key] = values
+              .map((entry): TemporalPoint | null => {
+                if (Array.isArray(entry) && entry.length >= 2) {
+                  return { value: cell(entry[0], config.language), observedAt: String(entry[1]) };
+                }
+                if (typeof entry === "object" && entry !== null && "value" in entry && "observedAt" in entry) {
+                  const e = entry as { value: unknown; observedAt: unknown };
+                  return { value: cell(e.value, config.language), observedAt: String(e.observedAt) };
+                }
+                return null;
+              })
+              .filter((p): p is TemporalPoint => p !== null);
+          }
+        }
+
+        return {
+          id: String(obj.id ?? ""),
+          type: String(obj.type ?? ""),
+          series,
+        };
+      });
+    },
+  };
+
+  const schema = async (): Promise<Schema> => {
+    if (cachedSchema) return cachedSchema;
+
+    const indexPath = `/api/endpoint/${encodeURIComponent(config.slug)}/schema/index.json`;
+    checkEndpointPath(config.slug, indexPath);
+    const indexResp = await transport({ method: "GET", path: indexPath });
+    if (indexResp.status < 200 || indexResp.status >= 300) {
+      throw new ProblemError(indexResp.status, indexResp.body);
+    }
+    const indexBody = (typeof indexResp.body === "object" && indexResp.body !== null ? indexResp.body : {}) as {
+      models?: Array<{ version?: number }>;
+    };
+    // An endpoint may expose several models; their types never overlap, so the schemas merge.
+    const versions = [...new Set((indexBody.models ?? []).map((m) => m.version).filter((v): v is number => Number.isInteger(v)))];
+    const merged: Schema = {};
+    for (const version of versions.length > 0 ? versions : [1]) {
+      const schemaPath = `/api/endpoint/${encodeURIComponent(config.slug)}/schema/v${version}/json-schema`;
+      checkEndpointPath(config.slug, schemaPath);
+      const schemaResp = await transport({ method: "GET", path: schemaPath });
+      if (schemaResp.status < 200 || schemaResp.status >= 300) {
+        throw new ProblemError(schemaResp.status, schemaResp.body);
+      }
+      const schemaDoc = (typeof schemaResp.body === "object" && schemaResp.body !== null ? schemaResp.body : {}) as {
+        definitions?: Schema;
+        $defs?: Schema;
+      };
+      // Model Tools renders draft-07 (`definitions`); a derived schema may use 2019-09 (`$defs`).
+      Object.assign(merged, schemaDoc.$defs, schemaDoc.definitions);
+    }
+    cachedSchema = merged;
+    return cachedSchema;
+  };
+
+  const access = async (): Promise<AccessDocument> => {
+    if (cachedAccess) return cachedAccess;
+
+    const path = `/api/endpoint/${encodeURIComponent(config.slug)}/access`;
+    checkEndpointPath(config.slug, path);
+    const resp = await transport({ method: "GET", path });
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new ProblemError(resp.status, resp.body);
+    }
+    cachedAccess = parseAccess(resp.body);
+    return cachedAccess;
+  };
+
+  const functions = {
+    async call<T = unknown>(name: string, body?: unknown): Promise<T> {
+      if (!FUNCTION_NAME.test(name)) {
+        throw new ProblemError(0, { title: `Invalid function name: '${name}'` });
+      }
+
+      const path =
+        config.transport === "bridge"
+          ? `/functions/${name}`
+          : `/apps/${config.appName ?? ""}/api/functions/${name}`;
+
+      const resp = await transport({ method: "POST", path, body });
+      if (resp.status < 200 || resp.status >= 300) {
+        throw new ProblemError(resp.status, resp.body);
+      }
+      return resp.body as T;
+    },
+  };
+
+  return {
+    config,
+    entities,
+    temporal,
+    schema,
+    access,
+    me: () => config.user ?? null,
+    entityId,
+    functions,
+  };
+}
+
+let activeClient: Client | undefined;
+
+export function jc(): Client {
+  if (!activeClient) {
+    const config = readConfig();
+    activeClient = createClient(config, transportFor(config));
+  }
+  return activeClient;
+}
+
+export function setClient(client?: Client): void {
+  activeClient = client;
+}
