@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Cell, FilterState, Row } from "./ngsi";
-import { applyFilters, columnKind, distinct, extent, loadSource, toRow } from "./ngsi";
+import { applyFilters, columnKind, distinct, extent, format, loadSource, toRow } from "./ngsi";
 import type { Filter, Source, Spec, View } from "./spec";
 import { pagesOf, sourceOf } from "./spec";
+import { download, toCsv, toGeoJson, toPdf, toPng } from "./artifact";
 import { Chart } from "./views/Chart";
 import { Detail } from "./views/Detail";
 import { Form } from "./views/Form";
@@ -95,14 +96,101 @@ function FilterControl({ filter, index, rows, value, onChange }: { filter: Filte
 
 type Save = (source: Source, id: string | null, patch: Record<string, Cell>) => Promise<WriteResult>;
 
-function ViewCard({ view, spec, rows, accent, selected, onSelect, onSave, schema, creating, onCreate }: { view: View; spec: Spec; rows: Row[]; accent: string; selected: string | null; onSelect: (id: string | null) => void; onSave: Save; schema?: Schema; creating: boolean; onCreate: (on: boolean) => void }) {
+function summarizeFilters(filters: Filter[], state: FilterState): string {
+  const parts: string[] = [];
+  filters.forEach((filter, index) => {
+    const val = state[index];
+    if (val !== undefined && val !== "") {
+      const label = filter.label ?? ("attr" in filter ? filter.attr : filter.attrs.join(", "));
+      if (Array.isArray(val)) {
+        parts.push(`${label}: ${val[0]} – ${val[1]}`);
+      } else {
+        parts.push(`${label}: ${val}`);
+      }
+    }
+  });
+  return parts.join(", ");
+}
+
+async function svgToPng(svg: SVGSVGElement): Promise<Blob> {
+  const xml = new XMLSerializer().serializeToString(svg);
+  const svgBlob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+  const img = new Image();
+  return new Promise((resolve, reject) => {
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const bbox = svg.getBoundingClientRect();
+      canvas.width = bbox.width > 0 ? bbox.width : 640;
+      canvas.height = bbox.height > 0 ? bbox.height : 280;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error("no 2d context"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      toPng(canvas).then(resolve, reject);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("failed to load svg"));
+    };
+    img.src = url;
+  });
+}
+
+function ViewCard({
+  view,
+  spec,
+  rows,
+  accent,
+  selected,
+  onSelect,
+  onSave,
+  schema,
+  creating,
+  onCreate,
+  slug,
+  basemap,
+  filters,
+  filterState,
+}: {
+  view: View;
+  spec: Spec;
+  rows: Row[];
+  accent: string;
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  onSave: Save;
+  schema?: Schema;
+  creating: boolean;
+  onCreate: (on: boolean) => void;
+  slug: string;
+  basemap?: string;
+  filters: Filter[];
+  filterState: FilterState;
+}) {
+  const cardRef = useRef<HTMLElement>(null);
   const source = sourceOf(spec, view);
   const body = (() => {
     switch (view.kind) {
       case "stats":
         return <Stats rows={rows} items={view.items} />;
       case "map":
-        return <MapView rows={rows} location={view.location ?? "location"} label={view.label} color={view.color} accent={accent} selected={selected} onSelect={onSelect} />;
+        return (
+          <MapView
+            rows={rows}
+            location={view.location ?? "location"}
+            label={view.label}
+            color={view.color}
+            accent={accent}
+            selected={selected}
+            onSelect={onSelect}
+            basemap={basemap}
+          />
+        );
       case "table":
         return <Table rows={rows} columns={view.columns} sort={view.sort} selected={selected} onSelect={onSelect} />;
       case "chart":
@@ -120,15 +208,136 @@ function ViewCard({ view, spec, rows, accent, selected, onSelect, onSave, schema
         return null;
     }
   })();
+
+  const exportControls = (() => {
+    if (rows.length === 0) return null;
+    const filterDesc = summarizeFilters(filters, filterState);
+    if (view.kind === "table") {
+      return (
+        <div className="export-bar">
+          <span className="export-label">Export:</span>
+          <button
+            type="button"
+            className="export-btn"
+            onClick={() => {
+              const blob = toCsv(view.columns, rows);
+              download(blob, `${slug}-${view.title ?? "table"}.csv`);
+            }}
+          >
+            CSV
+          </button>
+          <button
+            type="button"
+            className="export-btn"
+            onClick={() => {
+              const lines = [
+                view.columns.join(" | "),
+                ...rows.map((r) => view.columns.map((c) => format(r[c])).join(" | ")),
+              ];
+              const blob = toPdf({
+                title: view.title ?? spec.title,
+                endpoint: slug,
+                filters: filterDesc,
+                takenAt: new Date().toISOString(),
+                attribution: basemap ? "Basemap: Platform Basemap" : undefined,
+                lines,
+              });
+              download(blob, `${slug}-${view.title ?? "table"}.pdf`);
+            }}
+          >
+            PDF
+          </button>
+        </div>
+      );
+    }
+    if (view.kind === "map") {
+      return (
+        <div className="export-bar">
+          <span className="export-label">Export:</span>
+          <button
+            type="button"
+            className="export-btn"
+            onClick={() => {
+              const geojson = toGeoJson(rows, view.location ?? "location");
+              const blob = new Blob([JSON.stringify(geojson, null, 2)], {
+                type: "application/geo+json",
+              });
+              download(blob, `${slug}-${view.title ?? "map"}.geojson`);
+            }}
+          >
+            GeoJSON
+          </button>
+          <button
+            type="button"
+            className="export-btn"
+            onClick={() => {
+              const canvas = cardRef.current?.querySelector("canvas");
+              if (canvas) {
+                void toPng(canvas)
+                  .then((blob) => {
+                    download(blob, `${slug}-${view.title ?? "map"}.png`);
+                  })
+                  .catch((err) => console.error("Export PNG failed", err));
+              }
+            }}
+          >
+            PNG
+          </button>
+        </div>
+      );
+    }
+    if (view.kind === "chart") {
+      return (
+        <div className="export-bar">
+          <span className="export-label">Export:</span>
+          <button
+            type="button"
+            className="export-btn"
+            onClick={() => {
+              const svg = cardRef.current?.querySelector("svg");
+              if (svg) {
+                void svgToPng(svg)
+                  .then((blob) => {
+                    download(blob, `${slug}-${view.title ?? "chart"}.png`);
+                  })
+                  .catch((err) => console.error("Export PNG failed", err));
+              }
+            }}
+          >
+            PNG
+          </button>
+        </div>
+      );
+    }
+    return null;
+  })();
+
   return (
-    <section className={`card card-${view.kind}`} aria-label={view.title ?? view.kind}>
-      {view.title && <h2>{view.title}</h2>}
+    <section ref={cardRef} className={`card card-${view.kind}`} aria-label={view.title ?? view.kind}>
+      <div className="card-header">
+        {view.title ? <h2>{view.title}</h2> : <div />}
+        {exportControls}
+      </div>
       {body}
     </section>
   );
 }
 
-export function App({ slug, spec, inline, schema, bridge = false }: { slug: string; spec: Spec; inline?: Inline; schema?: Schema; bridge?: boolean }) {
+export function App({
+  slug,
+  spec,
+  inline,
+  schema,
+  bridge = false,
+  basemap,
+}: {
+  slug: string;
+  spec: Spec;
+  inline?: Inline;
+  schema?: Schema;
+  bridge?: boolean;
+  basemap?: string;
+}) {
   const { data, loading, error } = useSources(slug, spec, inline);
   const [state, setState] = useState<FilterState>({});
   const [selected, setSelected] = useState<string | null>(null);
@@ -198,7 +407,23 @@ export function App({ slug, spec, inline, schema, bridge = false }: { slug: stri
       )}
       <main>
         {shown.map((view) => (
-          <ViewCard key={spec.views.indexOf(view)} view={view} spec={spec} rows={filtered[sourceOf(spec, view).name] ?? []} accent={accent} selected={selected} onSelect={setSelected} onSave={save} schema={schema} creating={creating} onCreate={setCreating} />
+          <ViewCard
+            key={spec.views.indexOf(view)}
+            view={view}
+            spec={spec}
+            rows={filtered[sourceOf(spec, view).name] ?? []}
+            accent={accent}
+            selected={selected}
+            onSelect={setSelected}
+            onSave={save}
+            schema={schema}
+            creating={creating}
+            onCreate={setCreating}
+            slug={slug}
+            basemap={basemap}
+            filters={filters}
+            filterState={state}
+          />
         ))}
       </main>
     </div>

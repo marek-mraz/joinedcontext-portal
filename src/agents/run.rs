@@ -127,6 +127,9 @@ pub struct AgentRun {
     /// Milliseconds from creation to the first preview, set once (AP-57).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_frame_ms: Option<i64>,
+    /// Milliseconds from creation to the first generated version, set once.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_version_ms: Option<i64>,
     /// The files a kit pass wrote, path to content; `{}` for a workspace run (AP-56).
     #[serde(skip_serializing, default = "empty_files")]
     pub files: serde_json::Value,

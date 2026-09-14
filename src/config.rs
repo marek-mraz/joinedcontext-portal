@@ -55,6 +55,9 @@ pub struct Config {
     /// (AG-33, AG-40). `None` leaves every agent-run route answering 503: without a namespace
     /// to schedule into and a proxy for the workspace to speak to, a run has nowhere to happen.
     pub agent_settings: Option<AgentSettings>,
+    /// Where basemap tiles and styles come from (AP-67). `None` disables the basemap route:
+    /// tile requests answer 404 and generated maps render on a plain canvas.
+    pub basemap: Option<BasemapConfig>,
 }
 
 impl std::fmt::Debug for Config {
@@ -81,6 +84,7 @@ impl std::fmt::Debug for Config {
             )
             .field("app_settings", &self.app_settings)
             .field("agent_settings", &self.agent_settings)
+            .field("basemap", &self.basemap)
             .finish()
     }
 }
@@ -213,6 +217,156 @@ fn agent_settings(
         proxy_token,
         internal_bind,
         run_ttl_secs,
+    }))
+}
+
+/// Configuration for the platform basemap proxy (AP-67).
+#[derive(Clone)]
+pub struct BasemapConfig {
+    pub url_template: String,
+    pub attribution: String,
+    pub max_zoom: u8,
+    pub key: Option<String>,
+    pub cache_dir: std::path::PathBuf,
+    pub cache_max_bytes: u64,
+    pub cache_ttl_secs: u64,
+    pub allow_http: bool,
+}
+
+impl BasemapConfig {
+    pub fn for_tests(
+        url_template: String,
+        attribution: String,
+        cache_dir: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            url_template,
+            attribution,
+            max_zoom: 19,
+            key: None,
+            cache_dir,
+            cache_max_bytes: 1024 * 1024,
+            cache_ttl_secs: 3600,
+            allow_http: true,
+        }
+    }
+}
+
+impl std::fmt::Debug for BasemapConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BasemapConfig")
+            .field("url_template", &self.url_template)
+            .field("attribution", &self.attribution)
+            .field("max_zoom", &self.max_zoom)
+            .field("key", &self.key.as_ref().map(|_| "<redacted>"))
+            .field("cache_dir", &self.cache_dir)
+            .field("cache_max_bytes", &self.cache_max_bytes)
+            .field("cache_ttl_secs", &self.cache_ttl_secs)
+            .field("allow_http", &self.allow_http)
+            .finish()
+    }
+}
+
+/// The basemap configuration block, or `None` when this Portal proxies no basemap (AP-67).
+fn basemap_config(
+    lookup: &impl Fn(&str) -> Option<String>,
+) -> Result<Option<BasemapConfig>, ConfigError> {
+    let url_template = match lookup("JC_BASEMAP_URL").filter(|v| !v.trim().is_empty()) {
+        Some(url) => url.trim().to_string(),
+        None => return Ok(None),
+    };
+
+    if !url_template.contains("{z}")
+        || !url_template.contains("{x}")
+        || !url_template.contains("{y}")
+    {
+        return Err(ConfigError::Invalid {
+            var: "JC_BASEMAP_URL",
+            reason: "template must contain {z}, {x}, and {y}".to_string(),
+        });
+    }
+
+    let dummy = url_template
+        .replace("{z}", "0")
+        .replace("{x}", "0")
+        .replace("{y}", "0")
+        .replace("{ext}", "png")
+        .replace("{key}", "key");
+    let probe: Url = dummy
+        .parse()
+        .map_err(|e: url::ParseError| ConfigError::Invalid {
+            var: "JC_BASEMAP_URL",
+            reason: e.to_string(),
+        })?;
+    if probe.scheme() != "https" {
+        return Err(ConfigError::Invalid {
+            var: "JC_BASEMAP_URL",
+            reason: format!("scheme '{}' is not https", probe.scheme()),
+        });
+    }
+
+    let attribution = match lookup("JC_BASEMAP_ATTRIBUTION").filter(|v| !v.trim().is_empty()) {
+        Some(attr) => attr.trim().to_string(),
+        None => {
+            return Err(ConfigError::Invalid {
+                var: "JC_BASEMAP_ATTRIBUTION",
+                reason: "JC_BASEMAP_ATTRIBUTION is required when JC_BASEMAP_URL is set".to_string(),
+            })
+        }
+    };
+
+    let max_zoom = match lookup("JC_BASEMAP_MAX_ZOOM").filter(|v| !v.trim().is_empty()) {
+        Some(val) => val.parse::<u8>().map_err(|e| ConfigError::Invalid {
+            var: "JC_BASEMAP_MAX_ZOOM",
+            reason: e.to_string(),
+        })?,
+        None => 19,
+    };
+
+    let key = match lookup("JC_BASEMAP_KEY_FILE").filter(|v| !v.trim().is_empty()) {
+        Some(path) => {
+            let content = std::fs::read_to_string(&path).map_err(|e| ConfigError::Invalid {
+                var: "JC_BASEMAP_KEY_FILE",
+                reason: format!("{path}: {e}"),
+            })?;
+            Some(content.trim().to_string())
+        }
+        None => None,
+    };
+
+    let cache_dir = std::path::PathBuf::from(
+        lookup("JC_BASEMAP_CACHE_DIR")
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| "/tmp/basemap-cache".to_string()),
+    );
+
+    let cache_max_bytes =
+        match lookup("JC_BASEMAP_CACHE_MAX_BYTES").filter(|v| !v.trim().is_empty()) {
+            Some(val) => val.parse::<u64>().map_err(|e| ConfigError::Invalid {
+                var: "JC_BASEMAP_CACHE_MAX_BYTES",
+                reason: e.to_string(),
+            })?,
+            None => 268_435_456,
+        };
+
+    let cache_ttl_secs = match lookup("JC_BASEMAP_CACHE_TTL_SECS").filter(|v| !v.trim().is_empty())
+    {
+        Some(val) => val.parse::<u64>().map_err(|e| ConfigError::Invalid {
+            var: "JC_BASEMAP_CACHE_TTL_SECS",
+            reason: e.to_string(),
+        })?,
+        None => 604_800,
+    };
+
+    Ok(Some(BasemapConfig {
+        url_template,
+        attribution,
+        max_zoom,
+        key,
+        cache_dir,
+        cache_max_bytes,
+        cache_ttl_secs,
+        allow_http: false,
     }))
 }
 
@@ -419,6 +573,7 @@ impl Config {
         let apps_dir = lookup("JC_PORTAL_APPS_DIR");
         let app_settings = app_settings(&lookup, &public_base_url);
         let agent_settings = agent_settings(&lookup)?;
+        let basemap = basemap_config(&lookup)?;
         let branding_file = lookup("JC_BRANDING_FILE").filter(|path| !path.trim().is_empty());
         let database_url = lookup("JC_PORTAL_DATABASE_URL").filter(|url| !url.trim().is_empty());
         let bootstrap_admins = lookup("JC_PORTAL_BOOTSTRAP_ADMINS")
@@ -443,6 +598,7 @@ impl Config {
             bootstrap_admins,
             app_settings,
             agent_settings,
+            basemap,
         })
     }
 
@@ -461,6 +617,7 @@ impl Config {
             model_tools_url: None,
             app_settings: None,
             agent_settings: None,
+            basemap: None,
             apps_dir: None,
             branding_file: None,
             database_url: None,
@@ -729,5 +886,48 @@ mod tests {
         })
         .unwrap();
         assert!(config.trust_edge_token);
+    }
+
+    #[test]
+    fn basemap_configuration_validation() {
+        let config = Config::from_vars(|k| match k {
+            "JC_BASEMAP_URL" => Some("https://tiles.example.com/{z}/{x}/{y}.png".to_string()),
+            "JC_BASEMAP_ATTRIBUTION" => Some("OpenStreetMap".to_string()),
+            _ => None,
+        })
+        .expect("valid basemap config");
+        let bm = config.basemap.expect("basemap present");
+        assert_eq!(bm.max_zoom, 19);
+        assert_eq!(bm.attribution, "OpenStreetMap");
+        assert!(!bm.allow_http);
+
+        // Missing attribution when url is present
+        let err = Config::from_vars(|k| match k {
+            "JC_BASEMAP_URL" => Some("https://tiles.example.com/{z}/{x}/{y}.png".to_string()),
+            _ => None,
+        })
+        .expect_err("attribution required");
+        assert!(matches!(
+            err,
+            ConfigError::Invalid {
+                var: "JC_BASEMAP_ATTRIBUTION",
+                ..
+            }
+        ));
+
+        // http url is rejected from environment
+        let err = Config::from_vars(|k| match k {
+            "JC_BASEMAP_URL" => Some("http://tiles.example.com/{z}/{x}/{y}.png".to_string()),
+            "JC_BASEMAP_ATTRIBUTION" => Some("OSM".to_string()),
+            _ => None,
+        })
+        .expect_err("http rejected");
+        assert!(matches!(
+            err,
+            ConfigError::Invalid {
+                var: "JC_BASEMAP_URL",
+                ..
+            }
+        ));
     }
 }

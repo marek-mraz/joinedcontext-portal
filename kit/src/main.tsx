@@ -15,13 +15,17 @@ import "./index.css";
  */
 const element = document.getElementById("kit-spec");
 const root = createRoot(document.getElementById("root")!);
-let payload: { slug?: unknown; spec?: unknown; data?: unknown; schema?: unknown; bridge?: unknown } = {};
+let payload: { slug?: unknown; spec?: unknown; data?: unknown; schema?: unknown; bridge?: unknown; basemap?: unknown } = {};
 try {
   payload = JSON.parse(element?.textContent ?? "{}") as typeof payload;
 } catch {
   payload = {};
 }
 const parsed = parseSpec(payload.spec);
+const basemap =
+  typeof payload.basemap === "string" && payload.basemap.trim() !== ""
+    ? payload.basemap.trim()
+    : undefined;
 if (parsed.spec && typeof payload.slug === "string" && payload.slug !== "") {
   root.render(
     <StrictMode>
@@ -31,6 +35,7 @@ if (parsed.spec && typeof payload.slug === "string" && payload.slug !== "") {
         inline={typeof payload.data === "object" && payload.data !== null ? (payload.data as Inline) : undefined}
         schema={typeof payload.schema === "object" && payload.schema !== null ? (payload.schema as Schema) : undefined}
         bridge={payload.bridge === true}
+        basemap={basemap}
       />
     </StrictMode>,
   );

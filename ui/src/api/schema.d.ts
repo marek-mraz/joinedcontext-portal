@@ -832,6 +832,11 @@ export interface components {
              * @description Milliseconds from creation to the first preview, set once (AP-57).
              */
             firstFrameMs?: number | null;
+            /**
+             * Format: int64
+             * @description Milliseconds from creation to the first generated version, set once.
+             */
+            firstVersionMs?: number | null;
             id: string;
             /** Format: int32 */
             mergeRequest?: number | null;
@@ -2099,8 +2104,8 @@ export interface operations {
     list_runs: {
         parameters: {
             query?: {
-                /** @description How many runs to return, at most 100 */
-                limit?: number;
+                limit?: number | null;
+                app?: string | null;
             };
             header?: never;
             path: {

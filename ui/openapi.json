@@ -340,11 +340,24 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "How many runs to return, at most 100",
             "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64"
+            }
+          },
+          {
+            "name": "app",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
@@ -4362,6 +4375,14 @@
             ],
             "format": "int64",
             "description": "Milliseconds from creation to the first preview, set once (AP-57)."
+          },
+          "firstVersionMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Milliseconds from creation to the first generated version, set once."
           },
           "id": {
             "type": "string"

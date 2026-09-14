@@ -368,6 +368,35 @@ describe("watching a run", () => {
     expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
   });
 
+  it("renders first frame and first version timings when present, and omits them when absent (T-0551)", async () => {
+    const timingFirstFrame = (en.agentRun as { timing?: { firstFrame?: string } })?.timing?.firstFrame ?? "First frame";
+    const timingFirstVersion = (en.agentRun as { timing?: { firstVersion?: string } })?.timing?.firstVersion ?? "First version";
+
+    // Absent case: default RUN has neither firstFrameMs nor firstVersionMs
+    const { view } = renderRun();
+    await screen.findByRole("heading", { name: RUN.appName });
+
+    expect(screen.queryByText(timingFirstFrame)).not.toBeInTheDocument();
+    expect(screen.queryByText(timingFirstVersion)).not.toBeInTheDocument();
+
+    view.unmount();
+
+    // Present case: 12400 ms -> 12.4 s, 45600 ms -> 45.6 s
+    renderRun({
+      run: {
+        ...RUN,
+        firstFrameMs: 12_400,
+        firstVersionMs: 45_600,
+      },
+    });
+    await screen.findByRole("heading", { name: RUN.appName });
+
+    expect(screen.getByText(timingFirstFrame)).toBeInTheDocument();
+    expect(screen.getByText(timingFirstVersion)).toBeInTheDocument();
+    expect(screen.getByText("12.4 s")).toBeInTheDocument();
+    expect(screen.getByText("45.6 s")).toBeInTheDocument();
+  });
+
   it("cannot be stopped twice: a run that is over offers nothing", async () => {
     renderRun({ run: { ...RUN, status: "cancelled" } });
     await screen.findByRole("heading", { name: RUN.appName });

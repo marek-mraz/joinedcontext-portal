@@ -1,5 +1,3 @@
-//! Autonomous Agent runner coordination, state, and event management.
-
 pub mod events;
 pub mod fields;
 pub mod kit;
@@ -9,6 +7,7 @@ pub mod needs;
 pub mod oneshot;
 pub mod patch;
 pub mod profile;
+pub mod reaper;
 pub mod run;
 pub mod share;
 pub mod store;

@@ -502,7 +502,7 @@ pub fn script_hash(js: &str) -> String {
 pub fn content_security_policy(origin: &str, hash: &str) -> String {
     format!(
         "default-src 'none'; base-uri 'none'; form-action 'none'; script-src {hash}; \
-         style-src 'unsafe-inline'; img-src data: blob: {TILES}; font-src data:; \
+         style-src 'unsafe-inline'; img-src data: blob: {origin} {TILES}; font-src data:; \
          connect-src {origin} {TILES}; worker-src blob: data:; child-src blob: data:; frame-ancestors 'self'"
     )
 }
@@ -517,8 +517,9 @@ pub fn page_document(
     spec: &Spec,
     data: Option<&serde_json::Value>,
     schema: Option<&serde_json::Value>,
+    basemap: Option<&str>,
 ) -> String {
-    let payload = payload(slug, spec, data, schema);
+    let payload = payload(slug, spec, data, schema, basemap);
     let script = format!("<script>window.kit = {payload};</script>");
     match html.find("<head>") {
         Some(at) => {
@@ -550,9 +551,10 @@ pub fn document(
     data: Option<&serde_json::Value>,
     schema: Option<&serde_json::Value>,
     bundle: &Bundle,
+    basemap: Option<&str>,
 ) -> String {
     let Bundle { js, css, worker } = bundle;
-    let payload = payload(slug, spec, data, schema);
+    let payload = payload(slug, spec, data, schema, basemap);
     let title = escape(title);
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
@@ -572,18 +574,28 @@ fn payload(
     spec: &Spec,
     data: Option<&serde_json::Value>,
     schema: Option<&serde_json::Value>,
+    basemap: Option<&str>,
 ) -> String {
-    serde_json::to_string(&serde_json::json!({
+    let mut val = serde_json::json!({
         "slug": slug,
         "spec": spec,
         "data": data,
         "schema": schema,
         "bridge": true,
-    }))
-    .unwrap_or_default()
-    // `</script>` inside the data would end the element; `\u003c` is the same character
-    // to a JSON parser and nothing to the HTML one.
-    .replace('<', "\\u003c")
+    });
+    if let Some(url) = basemap {
+        if let Some(map) = val.as_object_mut() {
+            map.insert(
+                "basemap".to_owned(),
+                serde_json::Value::String(url.to_owned()),
+            );
+        }
+    }
+    serde_json::to_string(&val)
+        .unwrap_or_default()
+        // `</script>` inside the data would end the element; `\u003c` is the same character
+        // to a JSON parser and nothing to the HTML one.
+        .replace('<', "\\u003c")
 }
 
 fn escape(text: &str) -> String {
@@ -617,6 +629,7 @@ mod tests {
             &spec,
             Some(&data),
             None,
+            None,
         );
         let at = page
             .find("<script>window.kit = ")
@@ -627,7 +640,7 @@ mod tests {
         );
         assert!(!page.contains("</script><b>"), "{page}");
         assert!(page.contains("\\u003c/script>\\u003cb>"));
-        let bare = page_document("<h1>no head</h1>", "slug", &spec, None, None);
+        let bare = page_document("<h1>no head</h1>", "slug", &spec, None, None, None);
         assert!(bare.starts_with("<script>window.kit = "));
         let csp = page_content_security_policy("https://portal.example");
         assert!(csp.contains("script-src 'unsafe-inline' https://cdn.jsdelivr.net"));
@@ -712,7 +725,7 @@ mod tests {
             css: "body{}".into(),
             worker: "c2VsZi5vbm1lc3NhZ2U9bnVsbA==".into(),
         };
-        let html = document("A & <B>", "s1ug", &spec, Some(&rows), None, &bundle);
+        let html = document("A & <B>", "s1ug", &spec, Some(&rows), None, &bundle, None);
         assert!(html.contains("<title>A &amp; &lt;B&gt;</title>"));
         assert!(html.contains("<style>body{}</style>"));
         assert!(html.contains("<script type=\"module\">console.log(1)</script>"));
@@ -731,5 +744,21 @@ mod tests {
         assert!(csp.contains("connect-src https://portal.example https://tiles.openfreemap.org"));
         assert!(!csp.contains("script-src 'unsafe-inline'"));
         assert!(csp.contains("style-src 'unsafe-inline'"));
+    }
+
+    #[test]
+    fn basemap_is_inlined_when_provided() {
+        let spec = parse(EXAMPLE).expect("valid");
+        let url = "https://portal.example/api/v1/projects/hki/basemap/default/style.json";
+        let bare = page_document("<h1>hi</h1>", "slug", &spec, None, None, Some(url));
+        assert!(bare.contains(&format!("\"basemap\":\"{url}\"")));
+
+        let bundle = Bundle {
+            js: "console.log(1)".into(),
+            css: "body{}".into(),
+            worker: "c2VsZi5vbm1lc3NhZ2U9bnVsbA==".into(),
+        };
+        let html = document("Title", "slug", &spec, None, None, &bundle, Some(url));
+        assert!(html.contains(&format!("\"basemap\":\"{url}\"")));
     }
 }

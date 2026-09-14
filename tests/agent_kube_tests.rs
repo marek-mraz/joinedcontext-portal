@@ -75,6 +75,7 @@ fn run() -> AgentRun {
         merge_request: None,
         preview_url: None,
         first_frame_ms: None,
+        first_version_ms: None,
         files: json!({}),
         steps: 0,
         tokens_used: 0,

@@ -939,6 +939,17 @@
       "title": "Builds",
       "line": "{state}, started {when}",
       "open": "Open"
+    },
+    "drafts": {
+      "title": "Being built",
+      "state": {
+        "building": "Building",
+        "needsYou": "Needs you",
+        "failed": "Failed",
+        "readyToPublish": "Ready to publish"
+      },
+      "open": "Open",
+      "conflict": "{name} is already being built. Open it instead."
     }
   },
   "appLifecycle": {
@@ -1268,6 +1279,11 @@
       "refused": "The indicator space refused the write (status {status}).",
       "noEndpoint": "The indicator space {space} has no endpoint yet; publish one to write indicators.",
       "openEndpoints": "Open endpoints"
+    },
+    "timing": {
+      "firstFrame": "First frame",
+      "firstVersion": "First version",
+      "seconds": "{seconds} s"
     }
   },
   "assistant": {

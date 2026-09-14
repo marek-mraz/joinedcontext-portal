@@ -1,5 +1,6 @@
 pub mod agent_runs;
 pub mod assistant;
+pub mod basemap;
 pub mod blueprints;
 pub mod branding;
 pub mod changes;
@@ -71,6 +72,7 @@ pub fn router() -> Router<AppState> {
         // server-to-server call with an HMAC signature and no session — the same exemption,
         // for the same reason (MF-28).
         .merge(sync_sources::webhook_router())
+        .merge(basemap::router())
         .merge(protected)
         .fallback(api_not_found)
 }

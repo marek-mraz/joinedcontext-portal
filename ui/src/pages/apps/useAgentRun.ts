@@ -50,6 +50,9 @@ export interface AgentRun {
   steps: number;
   tokensUsed: number;
   previewUrl?: string;
+  /** Milliseconds from admission to the first frame and to the first generated version (AG-66). */
+  firstFrameMs?: number | null;
+  firstVersionMs?: number | null;
   createdBy: string;
   createdAt: string;
   error?: string;

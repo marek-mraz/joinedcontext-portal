@@ -21,6 +21,7 @@ import { ExplorePage } from "./pages/explore/ExplorePage";
 import { CkanPage } from "./pages/ckan/CkanPage";
 import { FederationPage } from "./pages/federation/FederationPage";
 import { SpaceInside } from "./pages/spaces/SpaceInside";
+import { AppPage } from "./pages/apps/AppPage";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -242,6 +243,20 @@ const spaceInsideRoute = createRoute({
   },
 });
 
+/** An application and its runs (AP-68, AP-69, T-0559). */
+const appRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/apps/$name",
+  component: function AppRoute() {
+    const { project, name } = appRoute.useParams();
+    return (
+      <Shell project={project}>
+        <AppPage project={project} name={name} />
+      </Shell>
+    );
+  },
+});
+
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
@@ -269,6 +284,7 @@ export const routeTree = rootRoute.addChildren([
     federationRoute,
     spaceCompleteRoute,
     spaceInsideRoute,
+    appRoute,
     resourceListRoute,
   ]),
 ]);

@@ -19,7 +19,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 use crate::change::Lane;
 use crate::state::AppState;
@@ -33,6 +33,10 @@ const REQUESTS: &str = "jc_portal_requests_total";
 const REQUEST_SECONDS: &str = "jc_portal_request_duration_seconds";
 /// Changes proposed, by the lane they were classified into and the kind they touch (CC-63).
 const CHANGES: &str = "jc_portal_changes_total";
+/// Seconds from agent run creation to first frame preview.
+const FIRST_FRAME_SECONDS: &str = "jc_agent_run_first_frame_seconds";
+/// Seconds from agent run creation to first generated version.
+const FIRST_VERSION_SECONDS: &str = "jc_agent_run_first_version_seconds";
 
 /// The paths that describe the process rather than the traffic.
 const UNCOUNTED: &[&str] = &["/metrics", "/api/v1/health"];
@@ -46,17 +50,32 @@ const SECONDS: &[f64] = &[
     0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
 ];
 
+/// The bucket edges of a run's timings: a first version is promised inside a minute (AG-66).
+const RUN_SECONDS: &[f64] = &[
+    1.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0, 90.0, 120.0, 300.0,
+];
+
 fn handle() -> &'static PrometheusHandle {
     static HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
     HANDLE.get_or_init(|| {
         let handle = PrometheusBuilder::new()
             .set_buckets(SECONDS)
             .expect("the bucket list is not empty")
+            .set_buckets_for_metric(Matcher::Prefix("jc_agent_run_".to_owned()), RUN_SECONDS)
+            .expect("the bucket list is not empty")
             .install_recorder()
             .expect("this process installs the one recorder");
         metrics::describe_counter!(REQUESTS, "requests answered by the Portal");
         metrics::describe_histogram!(REQUEST_SECONDS, "seconds to answer one request");
         metrics::describe_counter!(CHANGES, "changes proposed, by lane and kind");
+        metrics::describe_histogram!(
+            FIRST_FRAME_SECONDS,
+            "seconds from agent run creation to first frame preview"
+        );
+        metrics::describe_histogram!(
+            FIRST_VERSION_SECONDS,
+            "seconds from agent run creation to first generated version"
+        );
         handle
     })
 }
@@ -86,6 +105,24 @@ pub fn proposed(lane: Lane, kind: &'static str) {
         "kind" => kind,
     )
     .increment(1);
+}
+
+/// Records agent run timings in seconds (`first_frame` or `first_version`), labelled by profile.
+pub fn record_run_timing(kind: &'static str, profile: &str, ms: i64) {
+    let seconds = (ms as f64) / 1000.0;
+    match kind {
+        "first_frame" => {
+            metrics::histogram!(FIRST_FRAME_SECONDS, "profile" => profile.to_owned())
+                .record(seconds);
+        }
+        "first_version" => {
+            metrics::histogram!(FIRST_VERSION_SECONDS, "profile" => profile.to_owned())
+                .record(seconds);
+        }
+        _ => {
+            tracing::warn!(kind, "unknown run timing kind");
+        }
+    }
 }
 
 /// Counts and times every request the Portal answers.

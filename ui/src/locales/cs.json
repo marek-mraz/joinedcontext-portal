@@ -939,6 +939,17 @@
       "title": "Builds",
       "line": "{state}, started {when}",
       "open": "Open"
+    },
+    "drafts": {
+      "title": "Rozpracované",
+      "state": {
+        "building": "Staví se",
+        "needsYou": "Čeká na vás",
+        "failed": "Selhalo",
+        "readyToPublish": "Připraveno k publikování"
+      },
+      "open": "Otevřít",
+      "conflict": "{name} se již staví. Otevřete ji místo toho."
     }
   },
   "appLifecycle": {
@@ -1268,6 +1279,11 @@
       "refused": "Prostor indikátorů zápis odmítl (stav {status}).",
       "noEndpoint": "Prostor indikátorů {space} zatím nemá endpoint; publikujte jej, aby šlo zapisovat indikátory.",
       "openEndpoints": "Otevřít endpointy"
+    },
+    "timing": {
+      "firstFrame": "První rámec",
+      "firstVersion": "První verze",
+      "seconds": "{seconds} s"
     }
   },
   "assistant": {

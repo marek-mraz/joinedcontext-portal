@@ -138,6 +138,27 @@ export function AgentRunPage({
 
           <RunTimeline status={record.status} steps={record.steps} tokensUsed={record.tokensUsed} />
 
+          {(record.firstFrameMs != null || record.firstVersionMs != null) && (
+            <div className="flex flex-wrap gap-4 text-xs text-fg-muted" data-testid="run-timings">
+              {record.firstFrameMs != null ? (
+                <span>
+                  <span className="font-medium text-fg">{t("agentRun.timing.firstFrame")}</span>{" "}
+                  {t("agentRun.timing.seconds", {
+                    seconds: (record.firstFrameMs / 1000).toFixed(1),
+                  })}
+                </span>
+              ) : null}
+              {record.firstVersionMs != null ? (
+                <span>
+                  <span className="font-medium text-fg">{t("agentRun.timing.firstVersion")}</span>{" "}
+                  {t("agentRun.timing.seconds", {
+                    seconds: (record.firstVersionMs / 1000).toFixed(1),
+                  })}
+                </span>
+              ) : null}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"

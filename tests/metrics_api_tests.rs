@@ -134,3 +134,39 @@ async fn a_duration_is_exported_as_buckets_a_dashboard_can_sum() {
         "a summary quantile is exported and cannot be aggregated:\n{body}"
     );
 }
+
+#[tokio::test]
+async fn run_timing_histograms_are_exported_with_profile_label() {
+    telemetry::install();
+    telemetry::record_run_timing("first_frame", "app-builder", 1200);
+    telemetry::record_run_timing("first_version", "app-builder", 45_000);
+
+    let (status, _, body) = call("/metrics").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("# TYPE jc_agent_run_first_frame_seconds histogram"),
+        "first_frame histogram description missing:\n{body}"
+    );
+    assert!(
+        body.contains("# TYPE jc_agent_run_first_version_seconds histogram"),
+        "first_version histogram description missing:\n{body}"
+    );
+    assert!(
+        body.contains("jc_agent_run_first_frame_seconds_bucket{")
+            && body.contains("profile=\"app-builder\""),
+        "first_frame histogram missing or missing profile label:\n{body}"
+    );
+    assert!(
+        body.contains("jc_agent_run_first_version_seconds_bucket{")
+            && body.contains("profile=\"app-builder\""),
+        "first_version histogram missing or missing profile label:\n{body}"
+    );
+    assert!(
+        body.lines().any(
+            |line| line.starts_with("jc_agent_run_first_version_seconds_bucket{")
+                && line.contains("le=\"60\"")
+                && line.ends_with(" 1")
+        ),
+        "a 45 s first version does not land under the one-minute edge:\n{body}"
+    );
+}

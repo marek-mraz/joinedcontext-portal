@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, refName } from "../../api/manifest";
@@ -31,6 +32,39 @@ export interface AppSpec {
 
 export function appSpec(app: Manifest): AppSpec {
   return app.spec as AppSpec;
+}
+
+export function draftState(status: string): "building" | "needsYou" | "failed" | "readyToPublish" | null {
+  switch (status) {
+    case "queued":
+    case "starting":
+    case "building":
+    case "testing":
+    case "previewing":
+      return "building";
+    case "interviewing":
+      return "needsYou";
+    case "awaiting_approval":
+    case "awaitingApproval":
+      return "readyToPublish";
+    case "failed":
+    case "cancelled":
+    case "expired":
+      return "failed";
+    case "published":
+      return null;
+    default:
+      return null;
+  }
+}
+
+interface CatalogRun {
+  id: string;
+  appName: string;
+  status: string;
+  prompt?: string;
+  error?: string;
+  createdAt: string;
 }
 
 /** The space a data need names, whichever of the two `Ref` spellings the manifest used. */
@@ -238,6 +272,20 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
   }
 
   const apps = asManifests(list.data?.items ?? []);
+  const publishedNames = new Set(apps.map((app) => app.metadata.name));
+
+  const runItems = (runs.data?.items ?? []) as unknown as CatalogRun[];
+  const draftRuns: CatalogRun[] = [];
+  const seenDraftApps = new Set<string>();
+  for (const r of runItems) {
+    if (r.appName && !publishedNames.has(r.appName) && !seenDraftApps.has(r.appName)) {
+      seenDraftApps.add(r.appName);
+      const state = draftState(r.status);
+      if (state !== null) {
+        draftRuns.push(r);
+      }
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -283,23 +331,20 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
                     })}
                   </span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRunInUrl(run.id);
-                    setRunId(run.id);
-                  }}
+                <Link
+                  to="/projects/$project/apps/$name"
+                  params={{ project, name: run.appName }}
                   className="rounded border border-border px-3 py-1 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
                 >
                   {t("apps.builds.open")}
-                </button>
+                </Link>
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      {apps.length === 0 && <p>{t("apps.empty")}</p>}
+      {apps.length === 0 && draftRuns.length === 0 && <p>{t("apps.empty")}</p>}
 
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {apps.map((app) => {
@@ -370,6 +415,36 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
                     {t("apps.history")}
                   </a>
                 ) : null}
+              </div>
+            </li>
+          );
+        })}
+        {draftRuns.map((draft) => {
+          const state = draftState(draft.status);
+          if (!state) return null;
+          return (
+            <li
+              key={draft.id}
+              className="flex flex-col gap-2 rounded border border-border p-4"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h2 className="font-semibold">{draft.appName}</h2>
+                <span className="rounded bg-surface-subtle px-2 py-0.5 text-xs font-medium text-fg-muted">
+                  {t(`apps.drafts.state.${state}`)}
+                </span>
+              </div>
+              {draft.prompt ? <p className="text-sm text-muted">{draft.prompt}</p> : null}
+              {state === "failed" && draft.error ? (
+                <p className="text-xs text-danger">{draft.error}</p>
+              ) : null}
+              <div className="mt-auto flex flex-wrap gap-2">
+                <Link
+                  to="/projects/$project/apps/$name"
+                  params={{ project, name: draft.appName }}
+                  className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+                >
+                  {t("apps.drafts.open")}
+                </Link>
               </div>
             </li>
           );

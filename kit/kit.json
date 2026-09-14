@@ -1,0 +1,55 @@
+{
+  "version": "0.1.0",
+  "capabilities": {
+    "views": {
+      "stats": {
+        "options": {
+          "items": "Array of StatItem { label, agg, attr?, unit? }"
+        },
+        "description": "A row of numbers over the rows the filters left."
+      },
+      "map": {
+        "options": {
+          "location": "GeoProperty attribute name, default location",
+          "label": "Point label attribute name",
+          "color": "Attribute name to color points by"
+        },
+        "description": "A map with one point per entity that has a location."
+      },
+      "table": {
+        "options": {
+          "columns": "Array of column attribute names",
+          "sort": "Optional { attr, dir: 'asc' | 'desc' }"
+        },
+        "description": "A sortable, paged table; a click on a row selects it for detail."
+      },
+      "chart": {
+        "options": {
+          "type": "bar | line | pie",
+          "x": "X-axis attribute name",
+          "y": "Y-axis numeric attribute name",
+          "agg": "count | sum | avg | min | max",
+          "top": "Number of top categories to keep"
+        },
+        "description": "An SVG chart: y aggregated per distinct x, the largest top kept."
+      },
+      "detail": {
+        "options": {},
+        "description": "Every attribute of the selected entity."
+      },
+      "form": {
+        "options": {
+          "fields": "Optional list of attributes the user may edit"
+        },
+        "description": "A window over the selected entity with one input per field; a save changes the rows on screen."
+      }
+    },
+    "exports": [
+      "csv",
+      "geojson",
+      "pdf",
+      "png"
+    ],
+    "basemap": "platform route, attribution shown"
+  }
+}

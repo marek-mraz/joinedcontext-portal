@@ -153,6 +153,8 @@ pub async fn serve(config: Config) -> std::io::Result<()> {
     // The internal listener runs beside the public one, on the same replica, and only when
     // there is an agent runner to serve: a Portal without one opens no second port.
     if let Some(settings) = state.config.agent_settings.as_ref() {
+        crate::agents::reaper::spawn_periodic(state.clone());
+
         let internal = tokio::net::TcpListener::bind(settings.internal_bind).await?;
         tracing::info!(bind = %settings.internal_bind, "portal internal listener listening");
         let internal_router = internal_app(state.clone());

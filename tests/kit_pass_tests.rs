@@ -495,6 +495,14 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
         .as_i64()
         .expect("firstFrameMs on a previewing run");
     assert!((0..60_000).contains(&first_frame), "{first_frame}");
+    // The first version is the first pass's applied specification: never before the frame (AG-66).
+    let first_version = run["firstVersionMs"]
+        .as_i64()
+        .expect("firstVersionMs once the first pass is served");
+    assert!(
+        (first_frame..60_000).contains(&first_version),
+        "{first_frame} {first_version}"
+    );
     let preview_url = run["previewUrl"]
         .as_str()
         .expect("a preview url")

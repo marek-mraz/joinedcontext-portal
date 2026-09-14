@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::agents::kube;
 use crate::agents::needs::validate_data_needs;
@@ -97,10 +97,12 @@ fn default_visibility() -> String {
     "project".to_owned()
 }
 
-#[derive(Debug, Deserialize)]
+/// Query parameters for listing runs.
+#[derive(Debug, Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
-pub struct ListQuery {
+pub struct ListRunsQuery {
     pub limit: Option<i64>,
+    pub app: Option<String>,
 }
 
 /// One page of runs, newest first.
@@ -285,6 +287,18 @@ pub async fn create_run(
 
     let endpoint_slug = endpoint_slug(&state, &project, &request.endpoint_name)?;
 
+    if let Some(live) = state
+        .agents
+        .live_run_for_app(&project, &request.app_name)
+        .await
+        .map_err(unavailable)?
+    {
+        return Err(ApiError::Conflict(format!(
+            "application '{}' already has a live run: {}",
+            request.app_name, live.id
+        )));
+    }
+
     let id = mint_run_id();
     let (ticket, ticket_hash) = mint_ticket();
     let created_at = now_rfc3339();
@@ -310,6 +324,7 @@ pub async fn create_run(
         merge_request: None,
         preview_url: None,
         first_frame_ms: None,
+        first_version_ms: None,
         files: serde_json::Value::Object(serde_json::Map::new()),
         steps: 0,
         tokens_used: 0,
@@ -416,7 +431,7 @@ pub async fn create_run(
     tag = "agents",
     params(
         ("project" = String, Path, description = "Project name"),
-        ("limit" = Option<i64>, Query, description = "How many runs to return, at most 100"),
+        ListRunsQuery,
     ),
     responses(
         (status = 200, description = "The project's runs, newest first", body = RunList),
@@ -428,18 +443,25 @@ pub async fn list_runs(
     _user: CurrentUser,
     State(state): State<AppState>,
     Path(project): Path<String>,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<ListRunsQuery>,
 ) -> Result<Json<RunList>, ApiError> {
     let limit = match query.limit {
         Some(n) if n <= 0 => return Err(ApiError::BadRequest("limit must be positive".into())),
         Some(n) => n.min(MAX_LIST_LIMIT),
         None => DEFAULT_LIST_LIMIT,
     };
-    let items = state
-        .agents
-        .list_runs(&project, limit)
-        .await
-        .map_err(unavailable)?;
+    let items = match query.app {
+        Some(app_name) => state
+            .agents
+            .list_runs_for_app(&project, &app_name, limit)
+            .await
+            .map_err(unavailable)?,
+        None => state
+            .agents
+            .list_runs(&project, limit)
+            .await
+            .map_err(unavailable)?,
+    };
     Ok(Json(RunList { items }))
 }
 
@@ -638,6 +660,33 @@ pub async fn post_message(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub(crate) async fn end_run(
+    state: &AppState,
+    run: &AgentRun,
+    status: AgentRunStatus,
+    reason: &str,
+) -> Result<AgentRun, ApiError> {
+    let ended = state
+        .agents
+        .set_status(&run.id, status, Some(reason))
+        .await
+        .map_err(status_error)?;
+
+    // The ticket first, the pod second: between the two calls the workspace is already
+    // refused by the proxy, where the other order would leave a live credential for a moment
+    // after the user asked for it to stop (AG-46).
+    state
+        .agents
+        .invalidate_ticket(&run.id)
+        .await
+        .map_err(unavailable)?;
+    if let Some(settings) = state.config.agent_settings.as_ref() {
+        kube::delete_workspace_job(state.kube.as_deref(), &settings.namespace, &run.id).await;
+    }
+    publish_event(state, &run.id, "status", status_payload(status)).await?;
+    Ok(ended)
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/projects/{project}/agent-runs/{id}/cancel",
@@ -665,34 +714,8 @@ pub async fn cancel_run(
         None,
     )?;
 
-    let cancelled = state
-        .agents
-        .set_status(
-            &id,
-            AgentRunStatus::Cancelled,
-            Some(&format!("cancelled by {}", user.0.identity.username)),
-        )
-        .await
-        .map_err(status_error)?;
-
-    // The ticket first, the pod second: between the two calls the workspace is already
-    // refused by the proxy, where the other order would leave a live credential for a moment
-    // after the user asked for it to stop (AG-46).
-    state
-        .agents
-        .invalidate_ticket(&id)
-        .await
-        .map_err(unavailable)?;
-    if let Some(settings) = state.config.agent_settings.as_ref() {
-        kube::delete_workspace_job(state.kube.as_deref(), &settings.namespace, &run.id).await;
-    }
-    publish_event(
-        &state,
-        &id,
-        "status",
-        status_payload(AgentRunStatus::Cancelled),
-    )
-    .await?;
+    let reason = format!("cancelled by {}", user.0.identity.username);
+    let cancelled = end_run(&state, &run, AgentRunStatus::Cancelled, &reason).await?;
     Ok(Json(cancelled))
 }
 
@@ -998,6 +1021,18 @@ pub async fn internal_post_event(
                     .set_preview_url(&run.id, url)
                     .await
                     .map_err(unavailable)?;
+                // The first frame is counted once: `set_preview_url` keeps the first value.
+                if run.first_frame_ms.is_none() {
+                    if let Ok(Some(updated)) = state.agents.get_run(&run.id).await {
+                        if let Some(ms) = updated.first_frame_ms {
+                            crate::telemetry::record_run_timing(
+                                "first_frame",
+                                &updated.profile,
+                                ms,
+                            );
+                        }
+                    }
+                }
             }
         }
         "status" => {
@@ -1268,6 +1303,7 @@ pub async fn preview(
     let types: Vec<String> = spec.sources.iter().map(|s| s.entity_type.clone()).collect();
     let schema =
         crate::agents::fields::for_endpoint(&state, &project, &run.endpoint_slug, &types).await;
+    let basemap_url = crate::api::basemap::style_url(&state.config, &project);
     let (html, csp) = match page {
         Some(page) => (
             kit::page_document(
@@ -1276,6 +1312,7 @@ pub async fn preview(
                 &spec,
                 data.as_ref(),
                 schema.as_ref(),
+                basemap_url.as_deref(),
             ),
             kit::page_content_security_policy(&origin),
         ),
@@ -1293,6 +1330,7 @@ pub async fn preview(
                     data.as_ref(),
                     schema.as_ref(),
                     &bundle,
+                    basemap_url.as_deref(),
                 ),
                 kit::content_security_policy(&origin, &kit::script_hash(&bundle.js)),
             )

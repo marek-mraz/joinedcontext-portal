@@ -939,6 +939,17 @@
       "title": "Builds",
       "line": "{state}, started {when}",
       "open": "Open"
+    },
+    "drafts": {
+      "title": "Im Bau",
+      "state": {
+        "building": "Wird gebaut",
+        "needsYou": "Wartet auf Sie",
+        "failed": "Fehlgeschlagen",
+        "readyToPublish": "Bereit zur Veröffentlichung"
+      },
+      "open": "Öffnen",
+      "conflict": "{name} wird bereits gebaut. Öffnen Sie es stattdessen."
     }
   },
   "appLifecycle": {
@@ -1268,6 +1279,11 @@
       "refused": "Der Indikator-Raum hat den Schreibvorgang abgelehnt (Status {status}).",
       "noEndpoint": "Der Indikator-Raum {space} hat noch keinen Endpoint; veröffentlichen Sie einen, um Indikatoren zu schreiben.",
       "openEndpoints": "Endpoints öffnen"
+    },
+    "timing": {
+      "firstFrame": "Erster Frame",
+      "firstVersion": "Erste Version",
+      "seconds": "{seconds} s"
     }
   },
   "assistant": {

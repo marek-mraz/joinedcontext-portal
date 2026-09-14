@@ -92,6 +92,79 @@ impl AgentStore {
         Ok(runs)
     }
 
+    /// Finds the currently active (non-terminal) run for an application in a project.
+    pub async fn live_run_for_app(
+        &self,
+        project: &str,
+        app_name: &str,
+    ) -> Result<Option<AgentRun>, StoreError> {
+        if let Some(pool) = &self.db {
+            return Ok(db::load_live_agent_run_for_app(pool, project, app_name).await?);
+        }
+        let memory = self.memory.read().await;
+        let mut matching: Vec<AgentRun> = memory
+            .runs
+            .values()
+            .filter(|r| {
+                r.project == project
+                    && r.app_name == app_name
+                    && AgentRunStatus::parse(&r.status).is_some_and(|s| !s.is_terminal())
+            })
+            .cloned()
+            .collect();
+        matching.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Ok(matching.into_iter().next())
+    }
+
+    /// Lists runs for a specific application in a project, newest first.
+    pub async fn list_runs_for_app(
+        &self,
+        project: &str,
+        app_name: &str,
+        limit: i64,
+    ) -> Result<Vec<AgentRun>, StoreError> {
+        if let Some(pool) = &self.db {
+            return Ok(db::list_agent_runs_for_app(pool, project, app_name, limit).await?);
+        }
+        let memory = self.memory.read().await;
+        let mut runs: Vec<AgentRun> = memory
+            .runs
+            .values()
+            .filter(|run| run.project == project && run.app_name == app_name)
+            .cloned()
+            .collect();
+        runs.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        runs.truncate(limit.max(0) as usize);
+        Ok(runs)
+    }
+
+    /// Lists non-terminal runs whose expiration time is before `now_rfc3339`.
+    pub async fn list_expired(&self, now_rfc3339: &str) -> Result<Vec<AgentRun>, StoreError> {
+        if let Some(pool) = &self.db {
+            return Ok(db::list_expired_agent_runs(pool, now_rfc3339).await?);
+        }
+        let memory = self.memory.read().await;
+        let mut expired: Vec<AgentRun> = memory
+            .runs
+            .values()
+            .filter(|r| {
+                AgentRunStatus::parse(&r.status).is_some_and(|s| !s.is_terminal())
+                    && r.expires_at.as_str() < now_rfc3339
+            })
+            .cloned()
+            .collect();
+        expired.sort_by(|a, b| a.expires_at.cmp(&b.expires_at));
+        Ok(expired)
+    }
+
     /// Moves a run to `next`, refusing a transition the lifecycle does not have (AG-43).
     ///
     /// The refusal is the answer, not a log line: a cancel of a published run and a second
@@ -240,6 +313,25 @@ impl AgentStore {
         Ok(())
     }
 
+    /// Records when the first generated version of an application was served.
+    pub async fn record_first_version(&self, run_id: &str) -> Result<(), StoreError> {
+        if let Some(pool) = &self.db {
+            db::record_agent_run_first_version(pool, run_id).await?;
+            return Ok(());
+        }
+        let mut memory = self.memory.write().await;
+        let elapsed = memory
+            .started
+            .get(run_id)
+            .map(|since| i64::try_from(since.elapsed().as_millis()).unwrap_or(i64::MAX));
+        if let Some(run) = memory.runs.get_mut(run_id) {
+            if run.first_version_ms.is_none() {
+                run.first_version_ms = elapsed;
+            }
+        }
+        Ok(())
+    }
+
     /// The files a kit pass wrote; the preview is rendered from them (AP-56).
     pub async fn set_files(
         &self,
@@ -314,6 +406,7 @@ mod tests {
             merge_request: None,
             preview_url: None,
             first_frame_ms: None,
+            first_version_ms: None,
             files: serde_json::json!({}),
             steps: 0,
             tokens_used: 0,
@@ -458,5 +551,48 @@ mod tests {
         store.record_usage("run-1", 1_880, 1).await.expect("usage");
         let after = store.get_run("run-1").await.expect("get").expect("run");
         assert_eq!((after.tokens_used, after.steps), (6_000, 2));
+    }
+
+    #[tokio::test]
+    async fn live_and_expired_runs_are_correctly_queried() {
+        let store = AgentStore::new(None);
+        let mut r1 = run("run-1", "helsinki", "2026-09-12T10:15:30Z");
+        r1.expires_at = "2026-09-12T10:20:00Z".to_owned();
+        let mut r2 = run("run-2", "helsinki", "2026-09-12T10:16:30Z");
+        r2.expires_at = "2026-09-12T10:50:00Z".to_owned();
+        store.create_run(&r1).await.expect("create r1");
+        store.create_run(&r2).await.expect("create r2");
+
+        // live_run_for_app picks newest non-terminal run
+        let live = store
+            .live_run_for_app("helsinki", "city-bikes-overview")
+            .await
+            .expect("live_run")
+            .expect("found");
+        assert_eq!(live.id, "run-2");
+
+        let app_runs = store
+            .list_runs_for_app("helsinki", "city-bikes-overview", 10)
+            .await
+            .expect("list_runs_for_app");
+        assert_eq!(app_runs.len(), 2);
+        assert_eq!(app_runs[0].id, "run-2");
+        assert_eq!(app_runs[1].id, "run-1");
+
+        // list_expired with cutoff
+        let expired = store
+            .list_expired("2026-09-12T10:30:00Z")
+            .await
+            .expect("list_expired");
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].id, "run-1");
+
+        // record_first_version sets first_version_ms once
+        store
+            .record_first_version("run-1")
+            .await
+            .expect("record_first_version");
+        let after_v1 = store.get_run("run-1").await.expect("get").expect("exists");
+        assert!(after_v1.first_version_ms.is_some());
     }
 }

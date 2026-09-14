@@ -13,6 +13,8 @@ use axum::body::Body;
 use axum::http::{header, Method, Request, StatusCode};
 use axum_extra::extract::cookie::PrivateCookieJar;
 use http_body_util::BodyExt;
+use joinedcontext_portal::agents::reaper;
+use joinedcontext_portal::agents::run::{digest_prompt, mint_run_id, mint_ticket, AgentRun};
 use joinedcontext_portal::auth::session::{self, Identity, Session};
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
@@ -139,11 +141,20 @@ fn internal_router(mirror: Arc<Mirror>, config: &Config) -> axum::Router {
     server::internal_app(AppState::new(config.clone(), None).with_mirror(mirror))
 }
 
+fn with_state(mirror: Arc<Mirror>, config: &Config) -> (AppState, axum::Router, axum::Router) {
+    let state = AppState::new(config.clone(), None).with_mirror(mirror);
+    (
+        state.clone(),
+        server::app(state.clone()),
+        server::internal_app(state),
+    )
+}
+
 /// A Portal, its router and its internal router over one shared state, so a run created through
 /// the public API is the run the proxy reads.
 fn both(mirror: Arc<Mirror>, config: &Config) -> (axum::Router, axum::Router) {
-    let state = AppState::new(config.clone(), None).with_mirror(mirror);
-    (server::app(state.clone()), server::internal_app(state))
+    let (_, app, internal) = with_state(mirror, config);
+    (app, internal)
 }
 
 fn create_body() -> Value {
@@ -1177,4 +1188,297 @@ async fn the_diagnostics_door_answers_the_proxy_for_the_runs_own_project_only() 
     )
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{problem}");
+}
+
+#[tokio::test]
+async fn a_second_create_for_the_same_app_while_live_is_conflict_and_succeeds_after_cancel() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let created = create_run(&app, &cookie).await;
+    let id1 = created["id"].as_str().expect("id").to_owned();
+
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(create_body()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{problem}");
+    assert!(
+        problem["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains(&id1)),
+        "the 409 detail names the live run id: {problem}"
+    );
+
+    let (status, list) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list["items"].as_array().map(Vec::len), Some(1));
+
+    let (status, cancelled) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id1}/cancel"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(cancelled["status"], json!("cancelled"));
+
+    let (status, created2) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(create_body()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created2}");
+    let id2 = created2["id"].as_str().expect("id2");
+    assert_ne!(id1, id2);
+
+    let (status, list2) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list2["items"].as_array().map(Vec::len), Some(2));
+}
+
+#[tokio::test]
+async fn list_runs_filters_by_app_query_parameter() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let created1 = create_run(&app, &cookie).await;
+    let id1 = created1["id"].as_str().expect("id").to_owned();
+
+    let mut body2 = create_body();
+    body2["appName"] = json!("other-app");
+    let (status, created2) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(body2),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let id2 = created2["id"].as_str().expect("id").to_owned();
+
+    let (status, list1) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs?app=city-bikes-overview"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items1 = list1["items"].as_array().expect("items");
+    assert_eq!(items1.len(), 1);
+    assert_eq!(items1[0]["id"], id1);
+    assert_eq!(items1[0]["appName"], "city-bikes-overview");
+
+    let (status, list2) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs?app=other-app"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items2 = list2["items"].as_array().expect("items");
+    assert_eq!(items2.len(), 1);
+    assert_eq!(items2[0]["id"], id2);
+    assert_eq!(items2[0]["appName"], "other-app");
+
+    let (status, list_none) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs?app=nonexistent"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items_none = list_none["items"].as_array().expect("items");
+    assert_eq!(items_none.len(), 0);
+}
+
+#[tokio::test]
+async fn expired_runs_are_reaped_and_ticket_invalidated_while_live_runs_remain() {
+    let config = config();
+    let (state, app, internal) = with_state(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let live_created = create_run(&app, &cookie).await;
+    let live_id = live_created["id"].as_str().expect("id").to_owned();
+
+    let (_ticket, ticket_hash) = mint_ticket();
+    let expired_id = mint_run_id();
+    let expired_run = AgentRun {
+        id: expired_id.clone(),
+        project: PROJECT.to_owned(),
+        app_name: "expired-app".to_owned(),
+        endpoint_name: "helsinki-bikes".to_owned(),
+        endpoint_slug: SLUG.to_owned(),
+        profile: "app-builder".to_owned(),
+        app_class: "fullstack".to_owned(),
+        visibility: "project".to_owned(),
+        prompt: "Expired prompt".to_owned(),
+        prompt_digest: digest_prompt("Expired prompt"),
+        data_needs: json!([]),
+        allows_write: false,
+        branch: format!("agent/app-expired-app/{expired_id}"),
+        path_prefix: format!("projects/{PROJECT}/apps/expired-app/"),
+        status: "building".to_owned(),
+        ticket_hash,
+        workspace: None,
+        merge_request: None,
+        preview_url: None,
+        first_frame_ms: None,
+        first_version_ms: None,
+        files: json!({}),
+        steps: 5,
+        tokens_used: 1000,
+        created_by: STEWARD.to_owned(),
+        created_at: "2020-01-01T00:00:00Z".to_owned(),
+        started_at: Some("2020-01-01T00:01:00Z".to_owned()),
+        finished_at: None,
+        expires_at: "2020-01-01T00:20:00Z".to_owned(),
+        error: None,
+    };
+    state
+        .agents
+        .create_run(&expired_run)
+        .await
+        .expect("create expired run");
+
+    let (status, context) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        &format!("/internal/agent-runs/{expired_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!context["ticketHash"].as_str().unwrap_or("").is_empty());
+
+    let reaped = reaper::reap_expired(&state).await;
+    assert_eq!(reaped, 1);
+
+    let (status, run) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{expired_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(run["status"], json!("expired"));
+    assert_eq!(run["error"], json!("lease expired unattended"));
+    assert!(run["finishedAt"].as_str().is_some());
+
+    let (_, context) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        &format!("/internal/agent-runs/{expired_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        context["ticketHash"],
+        json!(""),
+        "the ticket hash is cleared after reaping"
+    );
+
+    let (status, problem) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::POST,
+        "/internal/agent-runs/events",
+        Some(
+            json!({ "runId": expired_id, "kind": "thought", "payload": { "text": "still here" } }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "an expired run takes no more events: {problem}"
+    );
+
+    let (status, live_run) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{live_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(live_run["status"], json!("queued"));
+    assert!(live_run.get("error").is_none() || live_run["error"].is_null());
+
+    let reaped_again = reaper::reap_expired(&state).await;
+    assert_eq!(reaped_again, 0);
+}
+
+#[tokio::test]
+async fn a_run_that_never_renders_records_neither_first_frame_nor_first_version() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let created = create_run(&app, &cookie).await;
+    let id = created["id"].as_str().expect("an id");
+
+    assert!(
+        created.get("firstFrameMs").is_none(),
+        "firstFrameMs must be omitted when None: {created}"
+    );
+    assert!(
+        created.get("firstVersionMs").is_none(),
+        "firstVersionMs must be omitted when None: {created}"
+    );
+
+    let (status, run) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        run.get("firstFrameMs").is_none(),
+        "firstFrameMs must be omitted when None: {run}"
+    );
+    assert!(
+        run.get("firstVersionMs").is_none(),
+        "firstVersionMs must be omitted when None: {run}"
+    );
 }

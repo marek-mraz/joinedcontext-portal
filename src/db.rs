@@ -247,7 +247,7 @@ pub async fn save_sync_state(pool: &PgPool, row: &SyncStateRow) -> Result<(), sq
 /// the three optional timestamps stay optional.
 const AGENT_RUN_COLUMNS: &str = "id, project, app_name, endpoint_name, endpoint_slug, profile, \
      app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, path_prefix, \
-     status, ticket_hash, workspace, merge_request, preview_url, first_frame_ms, files, steps, tokens_used, created_by, \
+     status, ticket_hash, workspace, merge_request, preview_url, first_frame_ms, first_version_ms, files, steps, tokens_used, created_by, \
      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, \
      to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, \
      to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS finished_at, \
@@ -322,6 +322,59 @@ pub async fn list_agent_runs(
     .await
 }
 
+/// Loads the active (non-terminal) run for an application in a project, if any.
+pub async fn load_live_agent_run_for_app(
+    pool: &PgPool,
+    project: &str,
+    app_name: &str,
+) -> Result<Option<AgentRun>, sqlx::Error> {
+    sqlx::query_as::<_, AgentRun>(AssertSqlSafe(format!(
+        "SELECT {AGENT_RUN_COLUMNS} FROM agent_runs \
+         WHERE project = $1 AND app_name = $2 \
+         AND status NOT IN ('published', 'failed', 'cancelled', 'expired') \
+         ORDER BY created_at DESC LIMIT 1"
+    )))
+    .bind(project)
+    .bind(app_name)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Lists runs for a specific application in a project, newest first.
+pub async fn list_agent_runs_for_app(
+    pool: &PgPool,
+    project: &str,
+    app_name: &str,
+    limit: i64,
+) -> Result<Vec<AgentRun>, sqlx::Error> {
+    sqlx::query_as::<_, AgentRun>(AssertSqlSafe(format!(
+        "SELECT {AGENT_RUN_COLUMNS} FROM agent_runs \
+         WHERE project = $1 AND app_name = $2 \
+         ORDER BY created_at DESC LIMIT $3"
+    )))
+    .bind(project)
+    .bind(app_name)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Lists non-terminal runs whose expiration time is before the given timestamp.
+pub async fn list_expired_agent_runs(
+    pool: &PgPool,
+    now_rfc3339: &str,
+) -> Result<Vec<AgentRun>, sqlx::Error> {
+    sqlx::query_as::<_, AgentRun>(AssertSqlSafe(format!(
+        "SELECT {AGENT_RUN_COLUMNS} FROM agent_runs \
+         WHERE status NOT IN ('published', 'failed', 'cancelled', 'expired') \
+         AND expires_at < $1::text::timestamptz \
+         ORDER BY expires_at ASC"
+    )))
+    .bind(now_rfc3339)
+    .fetch_all(pool)
+    .await
+}
+
 /// Moves a run to another state. `started_at` is stamped by the first state after `queued` and
 /// `finished_at` by the state the run stops in, so neither is ever moved twice.
 pub async fn update_agent_run_status(
@@ -387,6 +440,18 @@ pub async fn set_agent_run_preview_url(
     )
     .bind(id)
     .bind(url)
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
+/// Records when the first generated version of an application was served.
+pub async fn record_agent_run_first_version(pool: &PgPool, id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE agent_runs SET first_version_ms = COALESCE(first_version_ms, \
+         (EXTRACT(EPOCH FROM (now() - created_at)) * 1000)::bigint) WHERE id = $1",
+    )
+    .bind(id)
     .execute(pool)
     .await
     .map(|_| ())

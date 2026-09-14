@@ -36,6 +36,9 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(480);
 pub const AGENT: &str = "agent";
 const EMPTY_ANSWER: &str = "the model's answer carried no text";
 
+/// Kit capabilities JSON loaded directly from kit/kit.json (AP-65).
+pub static KIT_CAPABILITIES: &str = include_str!("../../kit/kit.json");
+
 static SYSTEM: LazyLock<String> = LazyLock::new(|| {
     format!(
         r#"# SYSTEM INSTRUCTION: ONE-SHOT DASHBOARD SPECIFICATION — SEARCH/REPLACE FORMAT
@@ -439,6 +442,19 @@ impl Driver {
             .set_preview_url(&self.run_id, &url)
             .await
             .map_err(|err| err.to_string())?;
+        if pass == 1 {
+            if let Err(err) = self.state.agents.record_first_version(&self.run_id).await {
+                tracing::warn!(run = %self.run_id, error = %err, "first version not recorded");
+            }
+            if let Ok(Some(r)) = self.state.agents.get_run(&self.run_id).await {
+                if let Some(ms) = r.first_frame_ms {
+                    crate::telemetry::record_run_timing("first_frame", &r.profile, ms);
+                }
+                if let Some(ms) = r.first_version_ms {
+                    crate::telemetry::record_run_timing("first_version", &r.profile, ms);
+                }
+            }
+        }
         self.event("preview", json!({ "previewUrl": url })).await?;
         Ok(Some(prose))
     }
@@ -548,6 +564,10 @@ impl Driver {
                  access in the data needs.",
             );
         }
+        pack.push_str("\n\n## KIT CAPABILITIES\n\nThe views, options and export formats supported by the kit (name only what is here):\n```json\n");
+        pack.push_str(KIT_CAPABILITIES.trim());
+        pack.push_str("\n```\n");
+
         pack.push_str("\n\n## THE CURRENT FILES\n\n");
         // Only what the model may write. The rows of the preview live beside the specification
         // in the same map, and a hundred kilobytes of them in the prompt is a minute of reading.
@@ -1434,5 +1454,44 @@ mod tests {
             ..event("x")
         };
         assert!(is_terminal(&status));
+    }
+
+    #[tokio::test]
+    async fn pack_contains_every_view_kind_from_capabilities() {
+        let caps: Value = serde_json::from_str(KIT_CAPABILITIES).expect("kit.json is valid JSON");
+        let views = caps["capabilities"]["views"]
+            .as_object()
+            .expect("views is an object");
+        assert!(!views.is_empty(), "views must not be empty");
+
+        let state = AppState::new(crate::config::Config::for_tests(), None);
+        let driver = Driver {
+            state,
+            http: reqwest::Client::new(),
+            run_id: "test-run".into(),
+            project: "test-proj".into(),
+            prompt: "Test prompt".into(),
+            data_needs: json!([]),
+            endpoint_slug: "test-slug".into(),
+            allows_write: false,
+            bearer: "test-bearer".into(),
+            proxy_base: "http://localhost:8080".into(),
+            model: "test-model".into(),
+            provider: "anthropic".into(),
+            ttl: Duration::from_secs(60),
+            passes: AtomicU32::new(0),
+            branch: "agent/test".into(),
+            path_prefix: "apps/test/".into(),
+            created_by: "test-user".into(),
+        };
+        let pack = driver
+            .pack(&json!({}), &BTreeMap::new(), &[], "instruction", None, None)
+            .await;
+        for kind in views.keys() {
+            assert!(
+                pack.contains(kind),
+                "pack missing view kind '{kind}' from kit.json"
+            );
+        }
     }
 }

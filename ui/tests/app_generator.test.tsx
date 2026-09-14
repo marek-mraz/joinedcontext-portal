@@ -163,6 +163,9 @@ function renderGenerator(options: Options = {}) {
     if (url.pathname.endsWith("/publish")) {
       return json(CHANGE, 202);
     }
+    if (url.pathname.endsWith("/agent-runs") && request.method === "GET") {
+      return json({ items: [{ ...CREATED_RUN, status: runStatus }] });
+    }
     if (url.pathname.includes("/agent-runs/") && request.method === "GET") {
       return json({ ...CREATED_RUN, status: runStatus });
     }
@@ -324,7 +327,7 @@ describe("the app generator", () => {
     expect(screen.queryByRole("checkbox", { name: /updateAttrs/ })).toBeNull();
   });
 
-  it("opens the run it started rather than a saved record (AG-43)", async () => {
+  it("navigates to the app page after creating the run (AG-43, AP-68)", async () => {
     const user = userEvent.setup();
     renderGenerator();
     await openGenerator(user);
@@ -333,10 +336,43 @@ describe("the app generator", () => {
 
     await user.click(screen.getByRole("button", { name: en.apps.generate.submit }));
 
-    // The submit is not the end: the run is watched, and the review comes at publish time.
+    await waitFor(() => {
+      expect(window.location.pathname).toBe(`/projects/${PROJECT}/apps/ovzdusie-dnes`);
+    });
     expect(await screen.findByRole("heading", { name: "ovzdusie-dnes" })).toBeInTheDocument();
     expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
     expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
+  });
+
+  it("shows 409 conflict with a link to the live application when app is already being built (AP-68)", async () => {
+    const user = userEvent.setup();
+    renderGenerator({
+      write: {
+        status: 409,
+        body: {
+          type: "https://joinedcontext.com/errors/conflict",
+          title: "Conflict",
+          status: 409,
+          detail: "a run for app 'ovzdusie-dnes' is already live (run id 01J8ZQ4T7K9M2N3P4Q5R6S7T8V)",
+        },
+      },
+    });
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+    await fill(user);
+
+    await user.click(screen.getByRole("button", { name: en.apps.generate.submit }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toBeInTheDocument();
+    expect(alert.textContent).toMatch(/already live|already being built/i);
+    const draftOpenLabel = (en.apps as { drafts?: { open?: string } })?.drafts?.open ?? "Open";
+    const link =
+      within(alert).queryByRole("link") ??
+      screen.getByRole("link", {
+        name: new RegExp(`ovzdusie-dnes|${draftOpenLabel}|open|instead`, "i"),
+      });
+    expect(link).toHaveAttribute("href", `/projects/${PROJECT}/apps/ovzdusie-dnes`);
   });
 
   it("says a generated app is reachable only to a signed-in user (ADR-N-019)", async () => {

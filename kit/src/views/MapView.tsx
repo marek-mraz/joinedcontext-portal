@@ -1,17 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Map as MapLibreMap, setWorkerUrl } from "maplibre-gl";
-import type { GeoJSONSource } from "maplibre-gl";
+import type { GeoJSONSource, StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Row } from "../ngsi";
 import { columnKind, extent, format, pointOf } from "../ngsi";
 
 const SOURCE = "rows";
 
+export const NO_BASEMAP = "No basemap is configured";
+
 /**
- * A keyless vector basemap. OpenFreeMap needs no account and no Referer, which the sandboxed
- * preview frame cannot send; OpenStreetMap's raster tiles refuse a request without one.
+ * Resolves the basemap style: the provided URL if non-empty, or a plain background layer.
  */
-export const STYLE = "https://tiles.openfreemap.org/styles/liberty";
+export function styleFor(basemap?: string): string | StyleSpecification {
+  if (basemap && basemap.trim() !== "") {
+    return basemap.trim();
+  }
+  return {
+    version: 8 as const,
+    sources: {},
+    layers: [
+      {
+        id: "background",
+        type: "background",
+        paint: { "background-color": "#cbd5e1" },
+      },
+    ],
+  };
+}
 
 /**
  * The worker the Portal inlined as base64 in `#kit-worker`, handed to the library by URL.
@@ -108,20 +124,45 @@ export function featureCollection(rows: Row[], location: string, label: string |
 }
 
 /** The map is built once; every later set of rows reaches it through `setData`. */
-export function MapView({ rows, location, label, color, accent, selected, onSelect }: { rows: Row[]; location: string; label?: string; color?: string; accent: string; selected: string | null; onSelect: (id: string) => void }) {
+export function MapView({
+  rows,
+  location,
+  label,
+  color,
+  accent,
+  selected,
+  onSelect,
+  basemap,
+}: {
+  rows: Row[];
+  location: string;
+  label?: string;
+  color?: string;
+  accent: string;
+  selected: string | null;
+  onSelect: (id: string) => void;
+  basemap?: string;
+}) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
   const select = useRef(onSelect);
   select.current = onSelect;
   const collection = useMemo(() => featureCollection(rows, location, label, color, accent), [rows, location, label, color, accent]);
+  const style = useMemo(() => styleFor(basemap), [basemap]);
 
   useEffect(() => {
     let gone = false;
     let instance: MapLibreMap | null = null;
     void workerReady.then(() => {
       if (gone || !container.current || map.current) return;
-      instance = new MapLibreMap({ container: container.current, style: STYLE, center: [0, 0], zoom: 1 });
+      instance = new MapLibreMap({
+        container: container.current,
+        style,
+        center: [0, 0],
+        zoom: 1,
+        canvasContextAttributes: { preserveDrawingBuffer: true },
+      });
       map.current = instance;
       // For a person debugging a screenshot: the map instance, reachable from the console.
       (window as unknown as { kitMap?: MapLibreMap }).kitMap = instance;
@@ -172,6 +213,7 @@ export function MapView({ rows, location, label, color, accent, selected, onSele
   return (
     <div className="map-wrap">
       <div className="map" ref={container} data-testid="map" role="application" aria-label="Map" />
+      {!basemap && <span className="map-notice">{NO_BASEMAP}</span>}
       <span className="map-count">{collection.features.length} on the map{chosen ? ` · ${chosen.properties.label}` : ""}</span>
     </div>
   );

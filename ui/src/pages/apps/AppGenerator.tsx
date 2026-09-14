@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { JSX } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, refName } from "../../api/manifest";
@@ -8,8 +9,6 @@ import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { fetchJson, publishedTypes } from "../endpoints/SchemaProjectionPanel";
 import type { PublishedType } from "../endpoints/SchemaProjectionPanel";
-import { AgentRunPage } from "./AgentRunPage";
-import { setRunInUrl } from "./useAgentRun";
 import { EndpointPreview, accessWords } from "./EndpointPreview";
 import { useAccess } from "../../components/entities/AccessPanel";
 
@@ -106,15 +105,17 @@ export function dataNeeds(
  * A deployment without the Agent Runner has no `app-from-prompt` blueprint to offer, which is
  * what the banner below says rather than a button that leads nowhere (ADR-N-014).
  */
-export function AppGenerator({ project }: { project: string }): JSX.Element {
+export function AppGenerator({ project, initialName }: { project: string; initialName?: string }): JSX.Element {
   const { t, i18n } = useTranslation();
-  const [name, setName] = useState("");
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(initialName ?? "");
   const [kind, setKind] = useState<AppKind>("static");
   const [prompt, setPrompt] = useState("");
   const [endpointName, setEndpointName] = useState("");
   const [dropped, setDropped] = useState<string[]>([]);
   const [write, setWrite] = useState(false);
-  const [runId, setRunId] = useState<string | null>(null);
+  const [conflictApp, setConflictApp] = useState<string | null>(null);
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** One entry per rule the parameters broke, so every bad field is named at once (CC-24). */
@@ -169,6 +170,7 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
     mutationFn: async () => {
       setError(null);
       setViolations([]);
+      setConflictApp(null);
       return unwrap(
         await api.POST("/api/v1/projects/{project}/agent-runs", {
           params: { path: { project } },
@@ -185,10 +187,14 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
       );
     },
     onSuccess: (result) => {
-      const created = result as unknown as { id?: string };
+      const created = result as unknown as { id?: string; appName?: string };
+      const targetName = created.appName || chosen;
+      void queryClient.invalidateQueries({ queryKey: ["projects", project, "agent-runs"] });
       if (typeof created.id === "string") {
-        setRunInUrl(created.id);
-        setRunId(created.id);
+        void navigate({
+          to: "/projects/$project/apps/$name",
+          params: { project, name: targetName },
+        });
         return;
       }
       if (isChange(result)) {
@@ -197,6 +203,9 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
     },
     onError: (err) => {
       if (err instanceof ApiError) {
+        if (err.status === 409) {
+          setConflictApp(chosen);
+        }
         setViolations(err.problem?.errors ?? []);
         setError(err.problem?.detail ?? err.message);
         return;
@@ -204,19 +213,6 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
       setError(t("app.error.generic"));
     },
   });
-
-  if (runId !== null) {
-    return (
-      <AgentRunPage
-        project={project}
-        runId={runId}
-        onClose={() => {
-          setRunInUrl(null);
-          setRunId(null);
-        }}
-      />
-    );
-  }
 
   if (blueprints.isPending) {
     return <p role="status">{t("app.loading")}</p>;
@@ -246,9 +242,20 @@ export function AppGenerator({ project }: { project: string }): JSX.Element {
 
       {change && <ChangeNotice change={change} project={project} />}
       {error && (
-        <p role="alert" className="text-danger">
-          {error}
-        </p>
+        <div role="alert" className="text-danger">
+          <p>{error}</p>
+          {conflictApp && (
+            <p className="mt-1 text-sm">
+              <Link
+                to="/projects/$project/apps/$name"
+                params={{ project, name: conflictApp }}
+                className="underline hover:no-underline"
+              >
+                {t("apps.drafts.conflict", { name: conflictApp })}
+              </Link>
+            </p>
+          )}
+        </div>
       )}
       {violations.length > 0 && (
         <ul role="alert" className="list-disc pl-5 text-sm text-danger">

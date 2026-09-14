@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
+import { draftState } from "../src/pages/apps/AppsCatalog";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -58,6 +59,7 @@ const CHANGE = {
 function renderCatalog(
   apps: unknown[],
   writeResponse: { body: unknown; status: number } = { body: CHANGE, status: 202 },
+  runs: unknown[] = [],
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
@@ -77,6 +79,9 @@ function renderCatalog(
     }
     if (path.endsWith("/apps") && request.method === "GET") {
       return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: apps });
+    }
+    if (path.endsWith("/agent-runs") && request.method === "GET") {
+      return json({ items: runs });
     }
     if (request.method !== "GET") {
       return json(writeResponse.body, writeResponse.status);
@@ -245,5 +250,43 @@ describe("apps catalog", () => {
   it("an empty catalogue says so instead of showing an empty grid", async () => {
     renderCatalog([]);
     expect(await screen.findByText(en.apps.empty)).toBeInTheDocument();
+  });
+
+  it("draftState maps lifecycle statuses to draft categories (AP-70)", () => {
+    expect(draftState("queued")).toBe("building");
+    expect(draftState("starting")).toBe("building");
+    expect(draftState("building")).toBe("building");
+    expect(draftState("testing")).toBe("building");
+    expect(draftState("previewing")).toBe("building");
+    expect(draftState("interviewing")).toBe("needsYou");
+    expect(draftState("awaiting_approval")).toBe("readyToPublish");
+    expect(draftState("awaitingApproval")).toBe("readyToPublish");
+    expect(draftState("failed")).toBe("failed");
+    expect(draftState("cancelled")).toBe("failed");
+    expect(draftState("expired")).toBe("failed");
+    expect(draftState("published")).toBeNull();
+  });
+
+  it("lists draft applications with their status label and no embed or preview link (AP-65, AP-70)", async () => {
+    const draftRun = {
+      id: "run-draft-1",
+      project: "banskabystrica",
+      appName: "mapa-vystavby",
+      status: "building",
+      createdAt: "2026-09-12T08:00:00Z",
+    };
+    renderCatalog([], undefined, [draftRun]);
+
+    // The run also appears in the builds history; the draft card is the one with a heading.
+    const heading = await screen.findByRole("heading", { name: "mapa-vystavby" });
+    const card = heading.closest("li");
+    if (!card) throw new Error("the draft is not a card");
+    expect(within(card).getByText(en.apps.drafts.state.building)).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: en.apps.drafts.open })).toHaveAttribute(
+      "href",
+      "/projects/banskabystrica/apps/mapa-vystavby",
+    );
+    expect(within(card).getAllByRole("link")).toHaveLength(1);
+    expect(within(card).queryByRole("button")).toBeNull();
   });
 });
