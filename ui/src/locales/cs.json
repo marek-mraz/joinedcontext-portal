@@ -1034,13 +1034,15 @@
       "ContextSourceRegistration": "Registrace",
       "Pipeline": "Pipeline",
       "App": "Aplikace",
-      "ExternalSource": "Zdroj jinde"
+      "ExternalSource": "Zdroj jinde",
+      "CkanInstance": "Katalog otevřených dat"
     },
     "edge": {
       "registers": "registruje",
       "serves": "obsluhuje",
       "feeds": "naplňuje",
-      "consumes": "čte"
+      "consumes": "čte",
+      "publishes": "publikuje do"
     },
     "health": {
       "ok": "Běží",
@@ -1049,12 +1051,18 @@
     },
     "graph": {
       "title": "Graf federace",
-      "empty": "Zatím není co kreslit."
+      "empty": "Zatím není co kreslit.",
+      "filter": "Zobrazené druhy",
+      "zoomIn": "Přiblížit",
+      "zoomOut": "Oddálit",
+      "reset": "Původní pohled"
     },
     "card": {
       "title": "Vybraný objekt",
       "health": "Stav",
-      "noCredential": "Karta ukazuje, že se registrace autentizuje a jak. Účet, pod kterým se dotaz posílá, se vyhodnocuje až při dotazu a na tuto stránku se žádný přihlašovací údaj nikdy neposílá."
+      "noCredential": "Karta ukazuje, že se registrace autentizuje a jak. Účet, pod kterým se dotaz posílá, se vyhodnocuje až při dotazu a na tuto stránku se žádný přihlašovací údaj nikdy neposílá.",
+      "phase": "Stav",
+      "breadcrumb": "Kde se tento objekt spravuje"
     }
   },
   "mappings": {

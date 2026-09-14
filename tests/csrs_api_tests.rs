@@ -664,3 +664,76 @@ async fn neither_route_answers_without_a_session() {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri}");
     }
 }
+
+/// UI-28, EP-62: an endpoint published to CKAN draws the catalogue and a `publishes` edge; a
+/// catalogue nobody publishes to stays off the picture, a card never carries its URL, and every
+/// node that reported carries its phase for the status chip.
+#[tokio::test]
+async fn a_published_endpoint_draws_its_catalogue_and_every_node_its_phase() {
+    let mirror = seeded();
+    mirror.upsert(envelope(
+        "Endpoint",
+        "mesto-open",
+        PROJECT,
+        json!({
+            "contextSpaceRef": "hub",
+            "audience": "public",
+            "publish": { "ckan": {
+                "instanceRef": { "kind": "CkanInstance", "name": "open-data" },
+                "organization": "mesto"
+            }},
+        }),
+        Some(Phase::Deploying),
+    ));
+    for name in ["open-data", "unused-catalogue"] {
+        mirror.upsert(envelope(
+            "CkanInstance",
+            name,
+            PROJECT,
+            json!({
+                "url": "https://data.example.sk",
+                "apiTokenRef": { "name": "ckan-token", "key": "token" }
+            }),
+            Some(Phase::Live),
+        ));
+    }
+
+    let (status, graph) = get("/api/v1/projects/ovzdusie/federation-graph", mirror).await;
+    assert_eq!(status, StatusCode::OK);
+
+    assert!(edges(&graph).contains(&(
+        "Endpoint/mesto-open".into(),
+        "CkanInstance/open-data".into(),
+        "publishes".into()
+    )));
+    assert_eq!(
+        node(&graph, "CkanInstance/open-data")["health"],
+        json!("ok")
+    );
+    assert!(
+        !graph["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .any(|node| node["id"] == json!("CkanInstance/unused-catalogue")),
+        "a catalogue nobody publishes to is not part of the federation"
+    );
+    let text = graph.to_string();
+    assert!(
+        !text.contains("data.example.sk"),
+        "no catalogue URL on a card"
+    );
+    assert!(!text.contains("ckan-token"), "no token reference on a card");
+
+    assert_eq!(
+        node(&graph, "Endpoint/mesto-open")["phase"],
+        json!("Deploying")
+    );
+    assert_eq!(node(&graph, "ContextSpace/hub")["phase"], json!("Live"));
+    assert!(
+        node(&graph, "ExternalSource/zvolen-ovzdusie")
+            .get("phase")
+            .is_none(),
+        "a source outside this platform reports no phase"
+    );
+}

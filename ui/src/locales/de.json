@@ -1034,13 +1034,15 @@
       "ContextSourceRegistration": "Registrierung",
       "Pipeline": "Pipeline",
       "App": "Anwendung",
-      "ExternalSource": "Quelle anderswo"
+      "ExternalSource": "Quelle anderswo",
+      "CkanInstance": "Open-Data-Katalog"
     },
     "edge": {
       "registers": "registriert",
       "serves": "bedient",
       "feeds": "speist",
-      "consumes": "liest"
+      "consumes": "liest",
+      "publishes": "veröffentlicht in"
     },
     "health": {
       "ok": "Läuft",
@@ -1049,12 +1051,18 @@
     },
     "graph": {
       "title": "Föderationsgraph",
-      "empty": "Noch nichts zu zeichnen."
+      "empty": "Noch nichts zu zeichnen.",
+      "filter": "Angezeigte Arten",
+      "zoomIn": "Vergrößern",
+      "zoomOut": "Verkleinern",
+      "reset": "Ansicht zurücksetzen"
     },
     "card": {
       "title": "Ausgewähltes Objekt",
       "health": "Zustand",
-      "noCredential": "Eine Karte zeigt, dass sich eine Registrierung authentifiziert und wie. Das Konto, unter dem weitergereicht wird, wird erst bei der Abfrage aufgelöst, und an diese Seite geht nie ein Geheimnis."
+      "noCredential": "Eine Karte zeigt, dass sich eine Registrierung authentifiziert und wie. Das Konto, unter dem weitergereicht wird, wird erst bei der Abfrage aufgelöst, und an diese Seite geht nie ein Geheimnis.",
+      "phase": "Status",
+      "breadcrumb": "Wo dieses Objekt verwaltet wird"
     }
   },
   "mappings": {

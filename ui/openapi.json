@@ -5762,7 +5762,7 @@
           },
           "kind": {
             "$ref": "#/components/schemas/EdgeKind",
-            "description": "`registers`, `serves`, `feeds` or `consumes`."
+            "description": "`registers`, `serves`, `feeds`, `consumes` or `publishes`."
           },
           "manifest": {
             "type": "string",
@@ -5781,7 +5781,8 @@
           "registers",
           "serves",
           "feeds",
-          "consumes"
+          "consumes",
+          "publishes"
         ]
       },
       "Effective": {
@@ -6367,6 +6368,13 @@
           "name": {
             "type": "string",
             "description": "Manifest name. For an external source, the name of the registration that reaches it."
+          },
+          "phase": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The lifecycle phase the object last reported, for the card's status chip (UI-25, UI-28).\nAbsent for an external source and for an object that has reported nothing."
           },
           "registration": {
             "oneOf": [

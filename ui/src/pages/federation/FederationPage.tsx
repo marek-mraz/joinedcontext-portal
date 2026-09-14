@@ -12,8 +12,7 @@ import {
   contextSourceRegistrationSchema,
   contextSourceRegistrationUiSchema,
 } from "../../schemas/kinds";
-import { FederationGraph } from "./FederationGraph";
-import type { Graph, GraphNode } from "./FederationGraph";
+import { Topology, federationGraphKey } from "./Topology";
 
 const PLURAL = "csrs";
 
@@ -95,7 +94,6 @@ export function FederationPage({ project }: { project: string }): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | undefined>(undefined);
 
   const list = useQuery({
     queryKey: queryKeys.list(project, PLURAL),
@@ -107,19 +105,7 @@ export function FederationPage({ project }: { project: string }): JSX.Element {
       ),
   });
 
-  const graph = useQuery({
-    queryKey: ["projects", project, "federation-graph"],
-    queryFn: async () =>
-      unwrap(
-        await api.GET("/api/v1/projects/{project}/federation-graph", {
-          params: { path: { project } },
-        }),
-      ),
-  });
-
   const registrations = useMemo(() => asManifests(list.data?.items ?? []), [list.data]);
-  const nodes = useMemo(() => (graph.data as Graph | undefined)?.nodes ?? [], [graph.data]);
-  const card: GraphNode | undefined = nodes.find((node) => node.id === selected);
 
   const propose = useMutation({
     mutationFn: async (form: RegistrationForm) => {
@@ -137,7 +123,7 @@ export function FederationPage({ project }: { project: string }): JSX.Element {
       }
       setDialogOpen(false);
       void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, PLURAL) });
-      void queryClient.invalidateQueries({ queryKey: ["projects", project, "federation-graph"] });
+      void queryClient.invalidateQueries({ queryKey: federationGraphKey(project) });
     },
     onError: (err: unknown) => {
       setFormError(
@@ -262,36 +248,7 @@ export function FederationPage({ project }: { project: string }): JSX.Element {
         </div>
       )}
 
-      {graph.data ? (
-        <FederationGraph graph={graph.data as Graph} selected={selected} onSelect={setSelected} />
-      ) : null}
-
-      {card ? (
-        <aside aria-label={t("federation.card.title")} className="rounded border border-border p-4">
-          <h2 className="text-sm font-semibold">
-            {t(`federation.kind.${card.kind}`)}: <span className="font-mono">{card.name}</span>
-          </h2>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-            <dt className="text-surface-fg/70">{t("federation.card.health")}</dt>
-            <dd>{t(`federation.health.${card.health}`)}</dd>
-            {card.registration ? (
-              <>
-                <dt className="text-surface-fg/70">{t("federation.field.mode")}</dt>
-                <dd>{t(`federation.mode.${card.registration.mode}`)}</dd>
-                <dt className="text-surface-fg/70">{t("federation.field.identity")}</dt>
-                <dd>{t(`federation.identity.${card.registration.identity}`)}</dd>
-                <dt className="text-surface-fg/70">{t("federation.field.entities")}</dt>
-                <dd>{card.registration.types.join(", ")}</dd>
-              </>
-            ) : null}
-          </dl>
-          {/* The card says that a registration authenticates and how, never with what: the
-              account is resolved when a query is forwarded, not drawn here (PF-48, UI-27). */}
-          {card.registration ? (
-            <p className="mt-2 text-xs text-surface-fg/70">{t("federation.card.noCredential")}</p>
-          ) : null}
-        </aside>
-      ) : null}
+      <Topology project={project} />
 
       <ResourceFormDialog<RegistrationForm>
         kind="ContextSourceRegistration"

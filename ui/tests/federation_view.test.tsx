@@ -7,7 +7,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { claimedTypes, targetOf, toEnvelope } from "../src/pages/federation/FederationPage";
-import { positionsOf } from "../src/pages/federation/FederationGraph";
+import { positionsOf, withoutKinds } from "../src/pages/federation/FederationGraph";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -97,6 +97,26 @@ const GRAPH = {
   ],
 };
 
+/** UI-28: an endpoint published to a catalogue, with the phases the status chip shows. */
+const PUBLISHED_GRAPH = {
+  nodes: [
+    { id: "ContextSpace/hub", kind: "ContextSpace", name: "hub", health: "ok", phase: "Live" },
+    { id: "Endpoint/hub-open", kind: "Endpoint", name: "hub-open", health: "unknown", phase: "Deploying" },
+    {
+      id: "CkanInstance/open-data",
+      kind: "CkanInstance",
+      name: "open-data",
+      title: { en: "City open data" },
+      health: "ok",
+      phase: "Live",
+    },
+  ],
+  edges: [
+    { from: "Endpoint/hub-open", to: "ContextSpace/hub", kind: "serves", manifest: "Endpoint/hub-open" },
+    { from: "Endpoint/hub-open", to: "CkanInstance/open-data", kind: "publishes", manifest: "Endpoint/hub-open" },
+  ],
+};
+
 const CHANGE = {
   apiVersion: "joinedcontext.com/v1alpha1",
   kind: "Change",
@@ -104,7 +124,7 @@ const CHANGE = {
   status: { lane: "red", phase: "PendingApproval", plan: { create: 1 } },
 };
 
-function renderFederation() {
+function renderFederation(graph: unknown = GRAPH) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -123,7 +143,7 @@ function renderFederation() {
       return json(CHANGE, 202);
     }
     if (url.pathname.endsWith("/federation-graph")) {
-      return json(GRAPH);
+      return json(graph);
     }
     if (url.pathname.endsWith("/csrs")) {
       return json(REGISTRATIONS);
@@ -262,6 +282,89 @@ describe("federation view", () => {
     });
 
     expect(await screen.findByText("chg-9a2b")).toBeInTheDocument();
+  });
+});
+
+describe("the topology (UI-28)", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    window.history.pushState({}, "", "/projects/banskabystrica/federation");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("draws the catalogue an endpoint publishes to, and its card has a status chip and a way back", async () => {
+    renderFederation(PUBLISHED_GRAPH);
+
+    const graph = await screen.findByRole("group", { name: en.federation.graph.title });
+    expect(graph.querySelector(`path[aria-label="${en.federation.edge.publishes}"]`)).not.toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: `${en.federation.kind.CkanInstance}: open-data` }),
+    );
+    const card = await screen.findByRole("complementary", { name: en.federation.card.title });
+    expect(within(card).getByText("City open data")).toBeInTheDocument();
+    expect(within(card).getByText(en.phase.live)).toBeInTheDocument();
+    const trail = within(card).getByRole("navigation", { name: en.federation.card.breadcrumb });
+    expect(within(trail).getByRole("link", { name: en.nav.ckan })).toHaveAttribute(
+      "href",
+      "/projects/banskabystrica/ckan",
+    );
+  });
+
+  it("hides a kind and its edges when the reader switches it off, and closes its card", async () => {
+    renderFederation(PUBLISHED_GRAPH);
+
+    const node = await screen.findByRole("button", { name: `${en.federation.kind.CkanInstance}: open-data` });
+    await userEvent.click(node);
+    await screen.findByRole("complementary", { name: en.federation.card.title });
+
+    await userEvent.click(screen.getByRole("checkbox", { name: en.federation.kind.CkanInstance }));
+    expect(
+      screen.queryByRole("button", { name: `${en.federation.kind.CkanInstance}: open-data` }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: en.federation.card.title })).not.toBeInTheDocument();
+    const graph = screen.getByRole("group", { name: en.federation.graph.title });
+    expect(graph.querySelectorAll("path[aria-label]")).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("checkbox", { name: en.federation.kind.CkanInstance }));
+    expect(screen.getByRole("button", { name: `${en.federation.kind.CkanInstance}: open-data` })).toBeInTheDocument();
+  });
+
+  it("zooms in and out about the middle and resets", async () => {
+    renderFederation(PUBLISHED_GRAPH);
+
+    const graph = await screen.findByRole("group", { name: en.federation.graph.title });
+    expect(graph).toHaveAttribute("viewBox", "0 0 100 100");
+    const zoomOut = screen.getByRole("button", { name: en.federation.graph.zoomOut });
+    expect(zoomOut).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: en.federation.graph.zoomIn }));
+    const [x, y, width, height] = (graph.getAttribute("viewBox") ?? "").split(" ").map(Number);
+    expect(width).toBeCloseTo(100 / 1.5);
+    expect(height).toBeCloseTo(100 / 1.5);
+    // About the middle: the centre of the window is still the centre of the drawing.
+    expect(x + width / 2).toBeCloseTo(50);
+    expect(y + height / 2).toBeCloseTo(50);
+    expect(zoomOut).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: en.federation.graph.reset }));
+    expect(graph).toHaveAttribute("viewBox", "0 0 100 100");
+  });
+
+  it("is on the project's landing page too", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/spaces");
+    renderFederation(PUBLISHED_GRAPH);
+
+    expect(await screen.findByRole("group", { name: en.federation.graph.title })).toBeInTheDocument();
+  });
+
+  it("drops the edges of a hidden kind and keeps the rest of the answer", () => {
+    const shown = withoutKinds(PUBLISHED_GRAPH as never, new Set(["Endpoint"]));
+    expect(shown.nodes.map((node) => node.id)).toEqual(["ContextSpace/hub", "CkanInstance/open-data"]);
+    expect(shown.edges).toEqual([]);
   });
 });
 

@@ -1337,7 +1337,7 @@ export interface components {
         Edge: {
             /** @description Node id the edge leaves. */
             from: string;
-            /** @description `registers`, `serves`, `feeds` or `consumes`. */
+            /** @description `registers`, `serves`, `feeds`, `consumes` or `publishes`. */
             kind: components["schemas"]["EdgeKind"];
             /** @description The manifest this edge was read from, as `kind/name`, so a reader can open it. */
             manifest: string;
@@ -1348,7 +1348,7 @@ export interface components {
          * @description What one edge means (UI-27).
          * @enum {string}
          */
-        EdgeKind: "registers" | "serves" | "feeds" | "consumes";
+        EdgeKind: "registers" | "serves" | "feeds" | "consumes" | "publishes";
         /** @description What one caller may do in one project: `GET /api/v1/projects/{project}/permissions/me`. */
         Effective: {
             /**
@@ -1587,6 +1587,11 @@ export interface components {
             kind: string;
             /** @description Manifest name. For an external source, the name of the registration that reaches it. */
             name: string;
+            /**
+             * @description The lifecycle phase the object last reported, for the card's status chip (UI-25, UI-28).
+             *     Absent for an external source and for an object that has reported nothing.
+             */
+            phase?: string | null;
             registration?: null | components["schemas"]["RegistrationCard"];
             /**
              * @description The object's title as the manifest carries it, one entry per language. Absent when the

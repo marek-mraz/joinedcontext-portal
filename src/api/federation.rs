@@ -22,7 +22,7 @@ use axum::Json;
 use jc_core::Urn;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use utoipa::ToSchema;
 
@@ -58,6 +58,10 @@ pub struct Node {
     pub title: BTreeMap<String, String>,
     /// `ok`, `degraded` or `unknown` (UI-27).
     pub health: NodeHealth,
+    /// The lifecycle phase the object last reported, for the card's status chip (UI-25, UI-28).
+    /// Absent for an external source and for an object that has reported nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     /// For a `ContextSourceRegistration`, what the card may say about it. Never a credential.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registration: Option<RegistrationCard>,
@@ -97,7 +101,7 @@ pub struct Edge {
     pub from: String,
     /// Node id the edge enters.
     pub to: String,
-    /// `registers`, `serves`, `feeds` or `consumes`.
+    /// `registers`, `serves`, `feeds`, `consumes` or `publishes`.
     pub kind: EdgeKind,
     /// The manifest this edge was read from, as `kind/name`, so a reader can open it.
     pub manifest: String,
@@ -115,6 +119,8 @@ pub enum EdgeKind {
     Feeds,
     /// An app reads a space.
     Consumes,
+    /// An endpoint is published as a dataset of a CKAN instance (UI-28, EP-62).
+    Publishes,
 }
 
 #[utoipa::path(
@@ -140,6 +146,7 @@ pub async fn get_graph(
         graph.node(space, "ContextSpace", None);
     }
 
+    let mut catalogues = BTreeSet::new();
     for endpoint in of("Endpoint") {
         if let Some(space) = reference_name(endpoint.spec.get("contextSpaceRef")) {
             graph.edge(
@@ -149,7 +156,24 @@ pub async fn get_graph(
                 id("Endpoint", &endpoint.metadata.name),
             );
         }
+        if let Some(instance) = reference_name(endpoint.spec.pointer("/publish/ckan/instanceRef")) {
+            graph.edge(
+                id("Endpoint", &endpoint.metadata.name),
+                id("CkanInstance", instance),
+                EdgeKind::Publishes,
+                id("Endpoint", &endpoint.metadata.name),
+            );
+            catalogues.insert(instance.to_owned());
+        }
         graph.node(endpoint, "Endpoint", None);
+    }
+
+    // A catalogue is part of the federation only through what is published to it; one nobody
+    // publishes to is configuration, not a link, and stays off the picture.
+    for instance in of("CkanInstance") {
+        if catalogues.contains(&instance.metadata.name) {
+            graph.node(instance, "CkanInstance", None);
+        }
     }
 
     for csr in of("ContextSourceRegistration") {
@@ -307,6 +331,7 @@ impl Builder {
                     None => BTreeMap::new(),
                 },
                 health: health(&env.status),
+                phase: env.status.as_ref().map(|s| phase_str(s.phase).to_owned()),
                 registration,
             },
         );
@@ -320,6 +345,7 @@ impl Builder {
             name,
             title: BTreeMap::new(),
             health: NodeHealth::Unknown,
+            phase: None,
             registration: None,
         });
     }

@@ -1034,13 +1034,15 @@
       "ContextSourceRegistration": "Registration",
       "Pipeline": "Pipeline",
       "App": "Application",
-      "ExternalSource": "Source elsewhere"
+      "ExternalSource": "Source elsewhere",
+      "CkanInstance": "Open data catalogue"
     },
     "edge": {
       "registers": "registers",
       "serves": "serves",
       "feeds": "feeds",
-      "consumes": "reads"
+      "consumes": "reads",
+      "publishes": "publishes to"
     },
     "health": {
       "ok": "Live",
@@ -1049,12 +1051,18 @@
     },
     "graph": {
       "title": "Federation graph",
-      "empty": "Nothing to draw yet."
+      "empty": "Nothing to draw yet.",
+      "filter": "Kinds shown",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "reset": "Reset view"
     },
     "card": {
       "title": "Selected object",
       "health": "Health",
-      "noCredential": "A card shows that a registration authenticates and how. The account it forwards as is resolved when a query is made, and no credential is ever sent to this page."
+      "noCredential": "A card shows that a registration authenticates and how. The account it forwards as is resolved when a query is made, and no credential is ever sent to this page.",
+      "phase": "Status",
+      "breadcrumb": "Where this object is managed"
     }
   },
   "mappings": {
