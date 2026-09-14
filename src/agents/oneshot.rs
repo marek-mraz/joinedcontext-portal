@@ -1006,6 +1006,9 @@ impl Driver {
         if let Some(call) = share::tool_call(&answer) {
             return self.share(call, &answer).await;
         }
+        if let Some(call) = share::edit_call(&answer) {
+            return self.edit_endpoint(call, &answer).await;
+        }
         if let Some(call) = kpi::tool_call(&answer) {
             return self.kpi(call, &answer).await;
         }
@@ -1130,6 +1133,45 @@ To build an application or a dashboard, explain in one or two plain sentences th
 "#,
             project = self.project
         ));
+        let endpoints = self.project_endpoints();
+        if !endpoints.is_empty() {
+            pack.push_str(&format!(
+                r#"
+## WHEN THE PERSON ASKS TO CHANGE AN ENDPOINT
+
+A request to change an endpoint that exists: make it public, add or remove a format, hide or show
+an attribute, let another project read it, change its title or its rate limit. Name only an
+endpoint from this list, the project's endpoints as they are now:
+
+```json
+{summaries}
+```
+
+Answer with one or two plain sentences and then ONE fenced JSON block, nothing else, carrying
+only the fields that change:
+
+```json
+{{
+  "tool": "edit_endpoint",
+  "name": "<an endpoint name from the list>",
+  "title": "<the new title>",
+  "audience": "public | organization | project-list",
+  "allowedProjects": ["<every project that may read it, when the audience is project-list>"],
+  "addRepresentations": ["<formats to add: {representations}>"],
+  "removeRepresentations": ["<formats to remove>"],
+  "hiddenAttributes": ["<every attribute hidden after the change>"],
+  "requestsPerMinute": 600
+}}
+```
+
+The platform opens the endpoint's form with the change filled in; the person reviews it and
+proposes it.
+"#,
+                summaries = serde_json::to_string_pretty(&share::endpoint_summaries(&endpoints))
+                    .unwrap_or_default(),
+                representations = share::REPRESENTATIONS.join(", "),
+            ));
+        }
 
         if !conversation.is_empty() {
             pack.push_str("\n## THE CONVERSATION SO FAR\n\n");
@@ -2129,6 +2171,120 @@ To build an application or a dashboard, explain in one or two plain sentences th
         }
     }
 
+    /// The project's endpoints as manifests, from the Portal's mirror of the repository.
+    fn project_endpoints(&self) -> Vec<Value> {
+        self.state
+            .mirror
+            .list(
+                &self.project,
+                "Endpoint",
+                &crate::store::ListOptions::default(),
+            )
+            .items
+            .iter()
+            .filter_map(|envelope| serde_json::to_value(envelope).ok())
+            .collect()
+    }
+
+    /// A change to an endpoint that exists (EP-72, AG-56): the edited manifest is kept as the
+    /// person's draft and the endpoint form opens on it with the change filled in. Nothing is
+    /// proposed here; the person reviews the form and proposes it.
+    async fn edit_endpoint(
+        &self,
+        call: Result<share::EditEndpoint, String>,
+        answer: &str,
+    ) -> Result<String, String> {
+        let started = std::time::Instant::now();
+        let millis = |started: std::time::Instant| {
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+        };
+        let params = match call {
+            Ok(params) => params,
+            Err(reason) => {
+                self.event(
+                    "tool",
+                    json!({
+                        "tool": "edit_endpoint",
+                        "status": "failed",
+                        "durationMs": millis(started),
+                        "error": reason,
+                    }),
+                )
+                .await?;
+                let prose = format!("The change could not be read: {reason}");
+                self.thought(&prose).await?;
+                return Ok(prose);
+            }
+        };
+        let input = serde_json::to_value(&params).unwrap_or(Value::Null);
+        if let Err(reason) = self.granted("jc_endpoint_propose") {
+            return self.refused("edit_endpoint", started, input, reason).await;
+        }
+        let edit = match share::edit(&self.project_endpoints(), &params) {
+            Ok(edit) => edit,
+            Err(reason) => {
+                self.event(
+                    "tool",
+                    json!({
+                        "tool": "edit_endpoint",
+                        "status": "failed",
+                        "durationMs": millis(started),
+                        "input": input,
+                        "error": reason,
+                    }),
+                )
+                .await?;
+                let prose = format!("The endpoint could not be changed: {reason}");
+                self.thought(&prose).await?;
+                return Ok(prose);
+            }
+        };
+        let name = params.name.trim().to_owned();
+        self.event(
+            "tool",
+            json!({
+                "tool": "edit_endpoint",
+                "status": "ok",
+                "durationMs": millis(started),
+                "input": input,
+                "output": { "name": name, "changes": edit.changes },
+            }),
+        )
+        .await?;
+        let mut prose = share::prose_of(answer);
+        if prose.is_empty() {
+            let fields: Vec<&str> = edit.changes.iter().map(|c| c.field.as_str()).collect();
+            prose = format!(
+                "Opened '{name}' with the new {}; review it in the form and propose it.",
+                fields.join(", ")
+            );
+        }
+        self.thought(&prose).await?;
+        let _ = self
+            .state
+            .drafts
+            .put(
+                &self.project,
+                "Endpoint",
+                &name,
+                edit.endpoint,
+                None,
+                &self.created_by,
+                "assistant",
+            )
+            .await;
+        self.event(
+            "navigate",
+            json!({
+                "route": format!("/projects/{}/endpoints", self.project),
+                "prefill": edit.prefill,
+                "draft": { "kind": "Endpoint", "name": name },
+            }),
+        )
+        .await?;
+        Ok(prose)
+    }
+
     /// The catalog search over the person's words, published as the `search_catalog` tool
     /// step (AG-58, UI-46); `None` when nothing matched, so the prompt stays as it was.
     async fn find(&self, question: &str) -> Result<Option<Value>, String> {
@@ -2289,9 +2445,13 @@ fn is_terminal(event: &AgentRunEvent) -> bool {
 }
 
 /// The prompt section that teaches each tool, by heading, and the operation behind the tool.
-const TOOL_SECTIONS: [(&str, &str); 3] = [
+const TOOL_SECTIONS: [(&str, &str); 4] = [
     (
         "## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA",
+        "jc_endpoint_propose",
+    ),
+    (
+        "## WHEN THE PERSON ASKS TO CHANGE AN ENDPOINT",
         "jc_endpoint_propose",
     ),
     ("## WHEN THE PERSON ASKS FOR AN INDICATOR", "jc_kpi_compute"),

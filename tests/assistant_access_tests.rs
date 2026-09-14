@@ -143,18 +143,57 @@ const SHARE_ANSWER: &str = "I will draft that endpoint.\n\n```json\n{\"tool\":\"
 /// Starts a conversation as `who` under a profile with `access`, and returns the state, the
 /// run's `propose_endpoint` tool event once it is published, and every prompt the model was sent.
 async fn converse(access: Option<Value>, who: Identity) -> (AppState, Value, String) {
+    let (state, events, prompts) = converse_with(
+        access,
+        who,
+        Conversation {
+            answer: SHARE_ANSWER,
+            message: "Share the city bikes with the regional transport team",
+            tool: "propose_endpoint",
+            seeded: Vec::new(),
+        },
+    )
+    .await;
+    let tool = events
+        .iter()
+        .find(|e| e.kind == "tool")
+        .map(|e| e.payload.clone())
+        .expect("a tool event");
+    (state, tool, prompts)
+}
+
+/// What one conversation is made of: the model's one answer, the person's message, the tool
+/// the run is waited on for, and the manifests the mirror holds beyond the organization's.
+struct Conversation {
+    answer: &'static str,
+    message: &'static str,
+    tool: &'static str,
+    seeded: Vec<ResourceEnvelope>,
+}
+
+/// The run's events from the first `tool` event named `conversation.tool` on, once the run has
+/// published it and everything after it the driver publishes in the same turn.
+async fn converse_with(
+    access: Option<Value>,
+    who: Identity,
+    conversation: Conversation,
+) -> (AppState, Vec<AgentRunEvent>, String) {
     let proxy = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/llm/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": "chatcmpl-1", "object": "chat.completion",
-            "choices": [{ "index": 0, "message": { "role": "assistant", "content": SHARE_ANSWER }, "finish_reason": "stop" }],
+            "choices": [{ "index": 0, "message": { "role": "assistant", "content": conversation.answer }, "finish_reason": "stop" }],
             "usage": { "total_tokens": 900 }
         })))
         .mount(&proxy)
         .await;
     let config = config(&proxy.uri());
-    let state = AppState::new(config.clone(), None).with_mirror(mirror(access));
+    let mirror = mirror(access);
+    for envelope in conversation.seeded {
+        mirror.upsert(envelope);
+    }
+    let state = AppState::new(config.clone(), None).with_mirror(mirror);
     let response = server::app(state.clone())
         .oneshot(
             Request::builder()
@@ -164,8 +203,7 @@ async fn converse(access: Option<Value>, who: Identity) -> (AppState, Value, Str
                 .header(CSRF_HEADER, CSRF)
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
-                    json!({ "message": "Share the city bikes with the regional transport team" })
-                        .to_string(),
+                    json!({ "message": conversation.message }).to_string(),
                 ))
                 .expect("request"),
         )
@@ -177,19 +215,28 @@ async fn converse(access: Option<Value>, who: Identity) -> (AppState, Value, Str
     assert_eq!(status, StatusCode::ACCEPTED, "{created}");
     let id = created["id"].as_str().expect("run id").to_owned();
 
-    let mut tool = None;
+    let mut turn = None;
     for _ in 0..200 {
         let events: Vec<AgentRunEvent> = state.agents.events_since(&id, 0).await.expect("events");
-        if let Some(event) = events
+        if let Some(at) = events
             .iter()
-            .find(|e| e.kind == "tool" && e.payload["tool"] == "propose_endpoint")
+            .position(|e| e.kind == "tool" && e.payload["tool"] == conversation.tool)
         {
-            tool = Some(event.payload.clone());
-            break;
+            // The turn is over once the run is back to waiting for the person: a navigate or a
+            // thought after the tool step is its last event.
+            let after = &events[at..];
+            if after.iter().any(|e| e.kind == "thought")
+                && (after[0].payload["status"] == "failed"
+                    || after.iter().any(|e| e.kind == "navigate"))
+            {
+                turn = Some(after.to_vec());
+                break;
+            }
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let tool = tool.expect("the run published the propose_endpoint tool event");
+    let events =
+        turn.unwrap_or_else(|| panic!("the run published the {} tool event", conversation.tool));
     let prompts = proxy
         .received_requests()
         .await
@@ -198,7 +245,7 @@ async fn converse(access: Option<Value>, who: Identity) -> (AppState, Value, Str
         .map(|request| String::from_utf8_lossy(&request.body).into_owned())
         .collect::<Vec<_>>()
         .join("\n");
-    (state, tool, prompts)
+    (state, events, prompts)
 }
 
 #[tokio::test]
@@ -211,6 +258,10 @@ async fn a_tool_outside_the_profile_is_absent_from_the_prompt_and_refused_when_c
     assert!(
         !prompts.contains(SHARE_SECTION),
         "the share tool is not offered"
+    );
+    assert!(
+        !prompts.contains("## WHEN THE PERSON ASKS TO CHANGE AN ENDPOINT"),
+        "nor the edit tool, which is the same operation"
     );
     assert!(
         !prompts.contains(KPI_SECTION),
@@ -285,6 +336,118 @@ async fn a_profile_without_an_access_block_offers_only_read_only_tools() {
     assert!(prompts.contains(SHARE_SECTION));
     assert!(!prompts.contains("## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE"));
     assert_eq!(tool["status"], "ok", "{tool}");
+}
+
+#[tokio::test]
+async fn a_change_to_an_existing_endpoint_opens_its_form_with_the_change_and_keeps_its_slug() {
+    let mut endpoint = envelope(
+        "Endpoint",
+        "helsinki-news",
+        "helsinki",
+        json!({
+            "contextSpaceRef": "helsinki",
+            "slug": "newsnewsnewsnewsnewsnewsne",
+            "audience": "public",
+            "enabledRepresentations": ["ngsi-ld", "geojson"]
+        }),
+    );
+    endpoint
+        .metadata
+        .labels
+        .insert("joinedcontext.com/space".into(), "helsinki".into());
+    let (state, events, prompts) = converse_with(
+        None,
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: "I will add CSV to the news endpoint.\n\n```json\n{\"tool\":\"edit_endpoint\",\"name\":\"helsinki-news\",\"addRepresentations\":[\"csv\"]}\n```\n",
+            message: "Add csv to helsinki-news",
+            tool: "edit_endpoint",
+            seeded: vec![endpoint],
+        },
+    )
+    .await;
+
+    assert!(prompts.contains("## WHEN THE PERSON ASKS TO CHANGE AN ENDPOINT"));
+    assert!(
+        prompts.contains("helsinki-news"),
+        "the model is shown the endpoint"
+    );
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "ok", "{tool}");
+    assert_eq!(
+        tool["output"]["changes"],
+        json!([{ "field": "enabledRepresentations", "before": ["ngsi-ld", "geojson"], "after": ["ngsi-ld", "geojson", "csv"] }])
+    );
+    let draft = state
+        .drafts
+        .get("helsinki", "Endpoint", "helsinki-news")
+        .await
+        .expect("drafts")
+        .expect("the edit is the person's draft");
+    assert_eq!(draft.manifest["spec"]["slug"], "newsnewsnewsnewsnewsnewsne");
+    assert_eq!(
+        draft.manifest["spec"]["enabledRepresentations"],
+        json!(["ngsi-ld", "geojson", "csv"])
+    );
+    assert_eq!(
+        draft.manifest["metadata"]["labels"]["joinedcontext.com/space"],
+        "helsinki"
+    );
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the form opens");
+    assert_eq!(navigate.payload["route"], "/projects/helsinki/endpoints");
+    assert_eq!(
+        navigate.payload["draft"],
+        json!({ "kind": "Endpoint", "name": "helsinki-news" })
+    );
+    assert_eq!(navigate.payload["prefill"]["existing"], true);
+    assert_eq!(
+        navigate.payload["prefill"]["slug"],
+        "newsnewsnewsnewsnewsnewsne"
+    );
+    assert_eq!(
+        navigate.payload["prefill"]["enabledRepresentations"],
+        json!(["ngsi-ld", "geojson", "csv"])
+    );
+}
+
+#[tokio::test]
+async fn a_change_to_an_endpoint_that_does_not_exist_names_the_real_ones_and_opens_nothing() {
+    let endpoint = envelope(
+        "Endpoint",
+        "helsinki-news",
+        "helsinki",
+        json!({ "contextSpaceRef": "helsinki", "slug": "newsnewsnewsnewsnewsnewsne", "audience": "public", "enabledRepresentations": ["ngsi-ld"] }),
+    );
+    let (state, events, _) = converse_with(
+        None,
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: "```json\n{\"tool\":\"edit_endpoint\",\"name\":\"helsinki-parking\",\"audience\":\"public\"}\n```",
+            message: "Make helsinki-parking public",
+            tool: "edit_endpoint",
+            seeded: vec![endpoint],
+        },
+    )
+    .await;
+
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "failed", "{tool}");
+    assert!(
+        tool["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("helsinki-news")),
+        "{tool}"
+    );
+    assert!(events.iter().all(|e| e.kind != "navigate"));
+    assert!(state
+        .drafts
+        .get("helsinki", "Endpoint", "helsinki-parking")
+        .await
+        .expect("drafts")
+        .is_none());
 }
 
 #[tokio::test]
