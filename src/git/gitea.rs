@@ -427,6 +427,27 @@ impl GiteaClient {
         )
     }
 
+    /// Browser URL of a pull request. Gitea's own `html_url` carries its ROOT_URL, which on a
+    /// cluster is the internal service name no browser resolves.
+    pub fn pull_url(&self, number: u64) -> String {
+        format!(
+            "{}/{}/{}/pulls/{number}",
+            self.public_base.as_str().trim_end_matches('/'),
+            self.owner,
+            self.repo,
+        )
+    }
+
+    /// A pull request as the Portal hands it on: with a public forge configured, its link is
+    /// the public one; without, Gitea's own `html_url` is the best there is.
+    fn pull(&self, raw: GiteaPullResponse) -> PullRequest {
+        let mut pull = PullRequest::from(raw);
+        if self.public_base != self.base {
+            pull.url = self.pull_url(pull.number);
+        }
+        pull
+    }
+
     fn repo_url(&self, path: &str) -> Result<Url, GitError> {
         let clean_base = self.base.as_str().trim_end_matches('/');
         let path = path.trim_start_matches('/');
@@ -726,7 +747,7 @@ impl GiteaClient {
             .json()
             .await
             .map_err(|e| GitError::Transport(format!("failed to parse pull requests list: {e}")))?;
-        Ok(raw_list.into_iter().map(Into::into).collect())
+        Ok(raw_list.into_iter().map(|raw| self.pull(raw)).collect())
     }
 
     /// `POST /pulls` — creates a new pull request.
@@ -750,7 +771,7 @@ impl GiteaClient {
             .json()
             .await
             .map_err(|e| GitError::Transport(format!("failed to parse pull request: {e}")))?;
-        Ok(raw.into())
+        Ok(self.pull(raw))
     }
 
     /// `GET /pulls/{number}` — retrieves an existing pull request.
@@ -762,7 +783,7 @@ impl GiteaClient {
             .json()
             .await
             .map_err(|e| GitError::Transport(format!("failed to parse pull request: {e}")))?;
-        Ok(raw.into())
+        Ok(self.pull(raw))
     }
 
     /// `POST /pulls/{number}/reviews` — submits a review on the pull request.
@@ -848,6 +869,18 @@ mod browse_url_tests {
         assert!(client
             .browse_url("a.yaml", "main")
             .starts_with("http://gitea-http.dev.svc.cluster.local:3000/joinedcontext/configuration/src/branch/main/"));
+    }
+
+    /// The merge request a change links is opened in a browser too (AP-71).
+    #[test]
+    fn the_merge_request_link_uses_the_public_forge_url() {
+        let client = GiteaClient::from_env(env(Some("https://city.example/git/")))
+            .expect("config")
+            .expect("configured");
+        assert_eq!(
+            client.pull_url(110),
+            "https://city.example/git/joinedcontext/configuration/pulls/110"
+        );
     }
 
     #[test]

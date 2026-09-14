@@ -308,6 +308,14 @@ async fn create_and_get_pull_request() {
     assert_eq!(fetched.state, "closed");
     assert_eq!(fetched.mergeable, None);
     assert!(fetched.merged);
+
+    // With a public forge the link a person opens is the public one, never Gitea's ROOT_URL (AP-71).
+    let mut public = client.clone();
+    public.public_base = "https://city.example/git".parse().unwrap();
+    assert_eq!(
+        public.pull_request(17).await.unwrap().url,
+        "https://city.example/git/test-owner/test-repo/pulls/17"
+    );
 }
 
 #[tokio::test]
