@@ -26,6 +26,9 @@ use tower::ServiceExt;
 use wiremock::matchers::{header_regex, method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// The LinkML source of the `bikes` model, served by the forge (DM-56).
+const BIKES_LINKML: &str = "id: https://hel.fi/models/bikes\nname: bikes\nenums:\n  StationStatus:\n    permissible_values:\n      working: {}\n      closed: {}\nclasses:\n  BikeHireDockingStation:\n    slots: [id, name, location, availableBikeNumber, status, stewardNote]\nslots:\n  id: {}\n  name: { range: string, required: true }\n  location: { range: string }\n  availableBikeNumber: { range: integer, minimum_value: 0 }\n  status: { range: StationStatus }\n  stewardNote: { range: string }\n";
+
 const CSRF: &str = "csrf-token-value";
 const PROJECT: &str = "helsinki";
 const STEWARD: &str = "demo.steward";
@@ -168,7 +171,9 @@ fn mirror(provider: &str) -> Arc<Mirror> {
         PROJECT,
         json!({
             "version": "1.0.0",
-            "linkml": "id: https://hel.fi/models/bikes\nname: bikes\nenums:\n  StationStatus:\n    permissible_values:\n      working: {}\n      closed: {}\nclasses:\n  BikeHireDockingStation:\n    slots: [id, name, location, availableBikeNumber, status, stewardNote]\nslots:\n  id: {}\n  name: { range: string, required: true }\n  location: { range: string }\n  availableBikeNumber: { range: integer, minimum_value: 0 }\n  status: { range: StationStatus }\n  stewardNote: { range: string }\n"
+            "contextSpaceRef": "helsinki",
+            "linkml": "./bikes.linkml.yaml",
+            "classes": ["BikeHireDockingStation"]
         }),
     ));
     mirror.upsert(envelope(
@@ -197,9 +202,21 @@ async fn portal(provider: &str, answers: &[String]) -> (axum::Router, String, Mo
     portal_with(provider, answers, None).await
 }
 
-/// A forge that has no branch and no file for this run yet, and takes the commit.
+/// A forge that has no branch and no file for this run yet, and takes the commit; it serves
+/// the `bikes` model's LinkML source, the file the field schema is read from (DM-56).
 async fn forge() -> MockServer {
     let forge = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/org/manifests/contents/projects/helsinki/spaces/helsinki/datamodels/bikes.linkml.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-bikes-linkml",
+            "content": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, BIKES_LINKML)
+        })))
+        .with_priority(1)
+        .mount(&forge)
+        .await;
     Mock::given(method("GET"))
         .and(path("/api/v1/repos/org/manifests"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
@@ -1108,12 +1125,14 @@ const EDIT_SPEC: &str = r#"{
 /// the bridge flag; an application that may not write is told to drop the form.
 #[tokio::test]
 async fn an_edit_prompt_gets_a_form_grounded_in_the_field_schema_when_the_app_may_write() {
-    let (app, cookie, proxy) = portal(
+    let forge = forge().await;
+    let (app, cookie, proxy) = portal_with(
         "openai-compatible",
         &[answer(
             "A table of the stations and a form to update a station's free bikes.",
             &[("spec.json", "", EDIT_SPEC)],
         )],
+        Some(&forge),
     )
     .await;
     let id = create_run_with(

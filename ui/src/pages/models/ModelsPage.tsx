@@ -284,7 +284,7 @@ export function ModelsPage({
         </p>
       ) : null}
 
-      {changeNotice ? <ChangeNotice change={changeNotice} /> : null}
+      {changeNotice ? <ChangeNotice change={changeNotice} project={project} /> : null}
 
       {saveError || loadError ? (
         <div role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm text-danger-fg">
