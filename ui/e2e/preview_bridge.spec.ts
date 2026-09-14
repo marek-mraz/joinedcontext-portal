@@ -111,7 +111,7 @@ test("the preview writes through the run page, only what the data needs grant", 
   await context.addCookies([{ name: "jc_csrf", value: "csrf-e2e", url: baseURL ?? "http://127.0.0.1:4173" }]);
 
   await page.goto("/projects/helsinki/apps/bikes?lang=en");
-  const frame = page.frameLocator('iframe[title="Preview of bikes"]');
+  const frame = page.frameLocator('iframe[title="Preview of Bikes"]');
 
   await frame.getByRole("button", { name: "Save" }).click();
   await expect(frame.getByLabel("answer")).toHaveText("204");
