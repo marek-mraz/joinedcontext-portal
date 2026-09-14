@@ -231,6 +231,39 @@ describe("the assistant dock", () => {
     expect(main.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("never replays a navigate it followed once the person has moved on to another page", async () => {
+    renderPortal();
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
+    await waitFor(() => {
+      expect(StubEventSource.opened.length).toBeGreaterThan(0);
+    });
+    const frame = { seq: 7, route: `/projects/${PROJECT}/endpoints`, prefill: { name: "air-quality-public" } };
+    await emitToEveryStream("navigate", frame);
+    await waitFor(() => {
+      expect(window.location.pathname).toBe(`/projects/${PROJECT}/endpoints`);
+    });
+
+    // The person opens the change for review; the dock on that page replays the run's events.
+    await act(async () => {
+      window.history.pushState({}, "", `/projects/${PROJECT}/approvals`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => {
+      expect(window.location.pathname).toBe(`/projects/${PROJECT}/approvals`);
+    });
+    await emitToEveryStream("navigate", frame);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(window.location.pathname).toBe(`/projects/${PROJECT}/approvals`);
+
+    // A navigate the run sends later still leads the way.
+    await emitToEveryStream("navigate", { seq: 9, route: `/projects/${PROJECT}/spaces` });
+    await waitFor(() => {
+      expect(window.location.pathname).toBe(`/projects/${PROJECT}/spaces`);
+    });
+  });
+
   it("hides to a bubble at the bottom right, opens full screen, stops the run and closes", async () => {
     const user = userEvent.setup();
     renderPortal();

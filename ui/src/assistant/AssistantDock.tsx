@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { JSX } from "react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
@@ -24,10 +24,12 @@ import type { IconName } from "../components/ui/icons";
 import {
   dismissNotice,
   isPortalRoute,
+  navigatedSeq,
   noticeSnapshot,
   onAssistantChange,
   onOpenRequest,
   parseRun,
+  rememberNavigated,
   rememberPrefill,
   rememberRun,
   runSnapshot,
@@ -74,7 +76,6 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
       setOpen(true);
     }
   }
-  const handled = useRef(0);
 
   const [composerMessage, setComposerMessage] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
@@ -119,11 +120,15 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   }, [full]);
 
   useEffect(() => {
-    const next = events.find((event) => event.kind === "navigate" && event.seq > handled.current);
+    if (runId === null) {
+      return;
+    }
+    const followed = navigatedSeq(runId);
+    const next = events.filter((event) => event.kind === "navigate" && event.seq > followed).at(-1);
     if (!next) {
       return;
     }
-    handled.current = next.seq;
+    rememberNavigated(runId, next.seq);
     const route = routeOf(next);
     if (route === null) {
       return;
@@ -135,7 +140,7 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
         : route;
     rememberPrefill(route, prefillOf(next));
     void navigate({ to: targetRoute as "/" });
-  }, [events, navigate]);
+  }, [events, navigate, runId]);
 
   const recentQuery = useQuery({
     queryKey: ["agent-runs", activeProject, "conversation", "mine"],

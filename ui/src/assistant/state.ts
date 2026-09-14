@@ -10,6 +10,7 @@
 const RUN_KEY = "jc.assistant.run";
 const PREFILL_KEY = "jc.assistant.prefill";
 const NOTICE_KEY = "jc.assistant.notice";
+const NAVIGATED_KEY = "jc.assistant.navigated";
 const CHANGED = "jc:assistant";
 const OPEN_REQUEST = "jc:assistant-open";
 
@@ -99,6 +100,20 @@ export function rememberPrefill(route: string, prefill: Record<string, unknown>)
   write(PREFILL_KEY, { route: route.split("?")[0], prefill });
   write(NOTICE_KEY, route);
   window.dispatchEvent(new Event(CHANGED));
+}
+
+/**
+ * The `seq` of the last `navigate` event of `runId` the dock followed. The route change remounts
+ * the dock and its stream replays the run from the start, so the mark lives in the tab: an event
+ * already followed never takes the person back from a page they went to since.
+ */
+export function navigatedSeq(runId: string): number {
+  const value = read(NAVIGATED_KEY) as { runId?: unknown; seq?: unknown } | null;
+  return value?.runId === runId && typeof value.seq === "number" ? value.seq : 0;
+}
+
+export function rememberNavigated(runId: string, seq: number): void {
+  write(NAVIGATED_KEY, { runId, seq });
 }
 
 /** The route the assistant last opened, until dismissed; a stable snapshot. */
