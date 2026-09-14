@@ -22,7 +22,7 @@ COPY sdk/package.json sdk/pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY sdk/ ./
 RUN pnpm build && test -s dist/kit.js && test -s dist/kit.css && test -s dist/kit-worker.js \
-    && test -s dist/runtime/runtime.json
+    && test -s dist/runtime/runtime.json && test -s dist/functions-server.js
 
 FROM rust:1.97-slim-bookworm AS build
 WORKDIR /src

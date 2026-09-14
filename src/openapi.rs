@@ -73,6 +73,7 @@ use crate::tools::model_tools::{
         crate::api::agent_runs::answer_question,
         crate::api::agent_runs::post_message,
         crate::api::agent_runs::post_preview_error,
+        crate::api::agent_runs::call_function,
         crate::api::agent_runs::cancel_run,
         crate::api::agent_runs::publish_run,
         crate::api::agent_runs::preview,

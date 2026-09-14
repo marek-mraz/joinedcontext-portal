@@ -1076,6 +1076,251 @@ async fn a_code_run_previews_its_files_as_one_document() {
     );
 }
 
+/// A run's function through the Portal (SDK-18, SDK-23, T-0687): the run's transpiled functions,
+/// the request and the caller's token go to `jc-functions` with the Portal's own token, fetched
+/// once; the answer, a thrown error and a full runtime come back as the route documents them.
+#[tokio::test]
+async fn a_function_of_the_run_answers_through_jc_functions() {
+    use joinedcontext_portal::agents::kit;
+    use joinedcontext_portal::auth::oidc::OidcClient;
+    use wiremock::matchers::{body_partial_json, header as has_header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let realm = MockServer::start().await;
+    let issuer = format!("{}/realms/helsinki", realm.uri());
+    Mock::given(method("GET"))
+        .and(path("/realms/helsinki/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "issuer": issuer,
+            "authorization_endpoint": format!("{issuer}/protocol/openid-connect/auth"),
+            "token_endpoint": format!("{issuer}/protocol/openid-connect/token"),
+            "jwks_uri": format!("{issuer}/protocol/openid-connect/certs"),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["ES256"]
+        })))
+        .mount(&realm)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/realms/helsinki/protocol/openid-connect/certs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "keys": [] })))
+        .mount(&realm)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/realms/helsinki/protocol/openid-connect/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "the-portals-own-token", "token_type": "Bearer", "expires_in": 300
+        })))
+        .mount(&realm)
+        .await;
+
+    let runtime = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/invoke"))
+        .and(has_header("authorization", "Bearer the-portals-own-token"))
+        .and(body_partial_json(json!({
+            "entry": "@app/functions/summary.ts",
+            "request": {
+                "method": "POST",
+                "query": { "types": "Station" },
+                "body": { "types": ["Station"] },
+                "user": { "id": format!("f:1:{STEWARD}"), "email": format!("{STEWARD}@hel.fi") }
+            },
+            "config": { "slug": SLUG, "space": "helsinki" },
+            "token": null
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": 201, "body": { "types": [] }, "logs": ["summary 1 types"]
+        })))
+        .up_to_n_times(1)
+        .mount(&runtime)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/invoke"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": 500,
+            "error": { "message": "boom", "file": "@app/functions/summary.ts", "line": 3 },
+            "logs": []
+        })))
+        .up_to_n_times(1)
+        .mount(&runtime)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/invoke"))
+        .respond_with(ResponseTemplate::new(429))
+        .mount(&runtime)
+        .await;
+
+    let runtime_uri = runtime.uri();
+    let config = Config::from_vars(|key| {
+        match key {
+            "JC_AGENTS_NAMESPACE" => Some("agents"),
+            "JC_AGENT_PROXY_BASE" => Some("http://jc-agent-proxy.agents.svc.cluster.local:8080"),
+            "JC_AGENT_PROXY_TOKEN" => Some(PROXY_TOKEN),
+            "JC_PORTAL_BOOTSTRAP_ADMINS" => Some("portal-approver"),
+            "JC_OIDC_ISSUER" => Some(issuer.as_str()),
+            "JC_OIDC_CLIENT_ID" => Some("joinedcontext-portal"),
+            "JC_OIDC_CLIENT_SECRET" => Some("test-secret"),
+            "JC_FUNCTIONS_URL" => Some(runtime_uri.as_str()),
+            _ => None,
+        }
+        .map(str::to_owned)
+    })
+    .expect("config");
+    let oidc = OidcClient::discover(
+        config.oidc.as_ref().expect("a realm"),
+        "https://portal.test/api/v1/auth/callback",
+    )
+    .await
+    .expect("discovery");
+    let state =
+        AppState::new(config.clone(), Some(oidc)).with_mirror(mirror(Some(builder_profile_spec())));
+    let app = server::app(state.clone());
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let uri = |name: &str| format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/functions/{name}");
+    let body = Some(json!({ "types": ["Station"] }));
+
+    let (status, _) = call(&app, &cookie, Method::POST, &uri("summary"), body.clone()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "no files yet");
+
+    let mut files = preview::template_files();
+    files.retain(|path, _| path.starts_with("functions/") || path.starts_with("src/"));
+    assert!(files.contains_key("functions/summary.ts"));
+    state.agents.set_files(&id, json!(files)).await.unwrap();
+    for name in ["Summary", "missing", "summary.test"] {
+        let (status, _) = call(&app, &cookie, Method::POST, &uri(name), body.clone()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{name}");
+    }
+
+    let summary = format!("{}?types=Station", uri("summary"));
+    let (status, answer) = call(&app, &cookie, Method::POST, &summary, body.clone()).await;
+    if kit::functions_server().is_none() {
+        // A Portal built without sdk/dist says so rather than invoking without the SDK.
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{answer}");
+        return;
+    }
+    assert_eq!(status, StatusCode::CREATED, "{answer}");
+    assert_eq!(answer, json!({ "types": [] }));
+
+    let invoked = runtime.received_requests().await.expect("recording");
+    let sent: Value = serde_json::from_slice(&invoked[0].body).unwrap();
+    let modules: Vec<&str> = sent["files"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert!(
+        modules.contains(&"@app/functions/summary.ts"),
+        "{modules:?}"
+    );
+    assert!(
+        modules.contains(&"@joinedcontext/sdk/server"),
+        "{modules:?}"
+    );
+    assert!(
+        !modules
+            .iter()
+            .any(|m| m.contains(".test.") || m.contains("/src/")),
+        "neither tests nor interface files go to the runtime: {modules:?}"
+    );
+
+    let (status, answer) = call(&app, &cookie, Method::POST, &summary, body.clone()).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{answer}");
+    assert_eq!(
+        answer,
+        json!({ "error": { "message": "boom", "file": "functions/summary.ts", "line": 3 } })
+    );
+    let (status, _) = call(&app, &cookie, Method::POST, &summary, body.clone()).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+    let tokens = realm
+        .received_requests()
+        .await
+        .expect("recording")
+        .into_iter()
+        .filter(|r| r.method == wiremock::http::Method::POST)
+        .count();
+    assert_eq!(tokens, 1, "the Portal's token is fetched once and kept");
+
+    let stream = read_stream(
+        &app,
+        &cookie,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/events"),
+        Some(1),
+        3,
+    )
+    .await;
+    assert!(
+        stream.contains(r#""tool":"function:summary""#)
+            && stream.contains(r#""logs":["summary 1 types"]"#)
+            && stream.contains(r#""status":201"#)
+            && stream.contains(r#""file":"functions/summary.ts""#)
+            && stream.contains(r#""error":"jc-functions is full""#),
+        "{stream}"
+    );
+
+    files.insert(
+        "functions/broken.ts".to_owned(),
+        "export default (".to_owned(),
+    );
+    state.agents.set_files(&id, json!(files)).await.unwrap();
+    let (status, problem) = call(&app, &cookie, Method::POST, &summary, body.clone()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+    assert!(
+        problem["errors"][0]
+            .as_str()
+            .is_some_and(|e| e.starts_with("functions/broken.ts:")),
+        "{problem}"
+    );
+
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/cancel"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(&app, &cookie, Method::POST, &summary, body).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+}
+
+/// Without a runtime address a function call is 503, not a call that goes nowhere.
+#[tokio::test]
+async fn a_portal_without_jc_functions_answers_503() {
+    let config = config();
+    let (state, app, _) = with_state(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let mut files = preview::template_files();
+    files.retain(|path, _| path.starts_with("functions/"));
+    state.agents.set_files(&id, json!(files)).await.unwrap();
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/functions/summary"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{problem}");
+    assert!(
+        problem["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("JC_FUNCTIONS_URL")),
+        "{problem}"
+    );
+}
+
 #[tokio::test]
 async fn the_lifecycle_is_driven_by_the_workspace_through_the_proxy() {
     let config = config();

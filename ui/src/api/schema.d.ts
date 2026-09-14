@@ -230,6 +230,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/agent-runs/{id}/functions/{fn}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * One call of a run's function in `jc-functions`: the run's current functions, the request and
+         *     the caller's own token, sent with the Portal's audience-bound token (SDK-18, SDK-23).
+         */
+        post: operations["call_function"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/agent-runs/{id}/messages": {
         parameters: {
             query?: never;
@@ -2521,6 +2541,101 @@ export interface operations {
             };
             /** @description No such run in this project */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    call_function: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Run id */
+                id: string;
+                /** @description The function: `functions/{fn}.ts` of the run */
+                fn: string;
+            };
+            cookie?: never;
+        };
+        /** @description The function's JSON body; an empty body is null */
+        requestBody: {
+            content: {
+                "application/json": unknown;
+            };
+        };
+        responses: {
+            /** @description The function's own status and JSON body, whatever status it returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description A body that is not JSON, or function files that do not build: every problem with file and line */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such run in this project, or no `functions/{fn}.ts` among its files */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The run is over */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The functions runtime is running all the calls it takes */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The function threw, ran out of memory or time, or returned more than 1 MiB: `{error: {message, file, line}}` */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description No `JC_FUNCTIONS_URL`, no Keycloak client, a Portal built without the SDK server module, or a runtime that did not answer */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

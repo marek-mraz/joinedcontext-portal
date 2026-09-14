@@ -32,7 +32,8 @@ use crate::agents::run::{
     digest_prompt, mint_run_id, mint_ticket, AgentRun, AgentRunEvent, AgentRunStatus,
 };
 use crate::agents::store::{now_rfc3339, StatusChangeError, StoreError};
-use crate::agents::{kit, oneshot, preview};
+use crate::agents::{kit, oneshot, preview, transpile};
+use crate::auth::session::{Front, EDGE_TOKEN_HEADER};
 use crate::auth::CurrentUser;
 use crate::config::AgentSettings;
 use crate::error::{ApiError, ProblemDetails};
@@ -801,6 +802,290 @@ pub async fn post_preview_error(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// How long the Portal waits for `jc-functions`, whose own limit is 5 s of script.
+const FUNCTION_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// `[a-z][a-z0-9-]{0,39}`: the name of a function file (Architecture/20 §3).
+fn is_function_name(name: &str) -> bool {
+    name.len() <= 40
+        && name.starts_with(|c: char| c.is_ascii_lowercase())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// The access token the request was authenticated with: a bearer or the edge's. A Portal cookie
+/// session keeps none, so its function calls reach the endpoint anonymously (API/04 §5).
+fn caller_token(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    let token = match Front::of(headers, state.config.trust_edge_token) {
+        Front::Bearer => headers
+            .get(header::AUTHORIZATION)?
+            .to_str()
+            .ok()?
+            .strip_prefix("Bearer ")?,
+        Front::Edge => headers.get(&EDGE_TOKEN_HEADER)?.to_str().ok()?,
+        Front::Portal => return None,
+    };
+    Some(token.to_owned())
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/projects/{project}/agent-runs/{id}/functions/{fn}",
+    tag = "agents",
+    params(
+        ("project" = String, Path, description = "Project name"),
+        ("id" = String, Path, description = "Run id"),
+        ("fn" = String, Path, description = "The function: `functions/{fn}.ts` of the run"),
+    ),
+    request_body(content = serde_json::Value, description = "The function's JSON body; an empty body is null", content_type = "application/json"),
+    responses(
+        (status = 200, description = "The function's own status and JSON body, whatever status it returned", body = serde_json::Value),
+        (status = 400, description = "A body that is not JSON, or function files that do not build: every problem with file and line", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "No such run in this project, or no `functions/{fn}.ts` among its files", body = ProblemDetails),
+        (status = 409, description = "The run is over", body = ProblemDetails),
+        (status = 429, description = "The functions runtime is running all the calls it takes", body = ProblemDetails),
+        (status = 500, description = "The function threw, ran out of memory or time, or returned more than 1 MiB: `{error: {message, file, line}}`", body = serde_json::Value),
+        (status = 503, description = "No `JC_FUNCTIONS_URL`, no Keycloak client, a Portal built without the SDK server module, or a runtime that did not answer", body = ProblemDetails)
+    )
+)]
+/// One call of a run's function in `jc-functions`: the run's current functions, the request and
+/// the caller's own token, sent with the Portal's audience-bound token (SDK-18, SDK-23).
+pub async fn call_function(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path((project, id, name)): Path<(String, String, String)>,
+    Query(query): Query<BTreeMap<String, String>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Response, ApiError> {
+    let run = run_of(&state, &project, &id).await?;
+    if terminal(&run) {
+        return Err(ApiError::Conflict(format!(
+            "run '{id}' is '{}' and runs no function",
+            run.status
+        )));
+    }
+    let files: BTreeMap<String, String> = run
+        .files
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(path, _)| path.starts_with("functions/"))
+        .filter_map(|(path, text)| Some((path.clone(), text.as_str()?.to_owned())))
+        .collect();
+    let entry = format!("functions/{name}.ts");
+    if !is_function_name(&name) || !files.contains_key(&entry) {
+        return Err(ApiError::NotFound(format!(
+            "run '{id}' has no function '{name}'"
+        )));
+    }
+    let input: serde_json::Value = if body.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|err| ApiError::BadRequest(format!("the body is not JSON: {err}")))?
+    };
+    let built = transpile::transpile(&files);
+    let problems: Vec<String> = built
+        .problems
+        .iter()
+        .filter(|problem| !problem.file.contains(".test."))
+        .map(ToString::to_string)
+        .collect();
+    if !problems.is_empty() {
+        return Err(ApiError::Invalid {
+            detail: format!(
+                "the run's functions do not build: {} problem(s)",
+                problems.len()
+            ),
+            errors: problems,
+        });
+    }
+    let runtime = state.config.functions_url.as_deref().ok_or_else(|| {
+        ApiError::Unavailable("this Portal has no jc-functions address (JC_FUNCTIONS_URL)".into())
+    })?;
+    let oidc = state.oidc.as_ref().ok_or_else(|| {
+        ApiError::Unavailable(
+            "this Portal has no Keycloak client to authenticate to jc-functions with".into(),
+        )
+    })?;
+    let server = kit::functions_server().ok_or_else(|| {
+        ApiError::Unavailable(
+            "this Portal was built without the SDK server module (sdk/dist/functions-server.js)"
+                .into(),
+        )
+    })?;
+    let service = oidc.service_token().await?;
+
+    let identity = &user.0.identity;
+    let space = state
+        .mirror
+        .get(&run.project, "Endpoint", &run.endpoint_name)
+        .and_then(|env| crate::api::assistant::ref_name(&env.spec["contextSpaceRef"]))
+        .unwrap_or_else(|| run.project.clone());
+    let mut modules = built.functions;
+    modules.insert("@joinedcontext/sdk/server".to_owned(), server);
+    let invocation = serde_json::json!({
+        "files": modules,
+        "entry": format!("{}{entry}", transpile::APP),
+        "request": {
+            "method": "POST",
+            "query": query,
+            "body": input,
+            "user": {
+                "id": identity.subject,
+                "name": identity.name.clone().unwrap_or_else(|| identity.username.clone()),
+                "email": identity.email,
+                "roles": identity.roles,
+            },
+        },
+        "config": {
+            "slug": run.endpoint_slug,
+            "orgDomain": crate::api::assistant::org_domain(&state, &run.project),
+            "space": space,
+        },
+        "token": caller_token(&state, &headers),
+    });
+
+    let started = std::time::Instant::now();
+    let answer = functions_http()
+        .post(format!("{runtime}/invoke"))
+        .bearer_auth(service)
+        .json(&invocation)
+        .send()
+        .await;
+    let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let tool = format!("function:{name}");
+    let refused = |error: String| {
+        serde_json::json!({
+            "tool": tool,
+            "status": "failed",
+            "durationMs": duration_ms,
+            "input": input,
+            "error": error,
+        })
+    };
+    let response = match answer {
+        Ok(response) => response,
+        Err(err) => {
+            tracing::warn!(error = %err, "jc-functions did not answer");
+            publish_event(
+                &state,
+                &id,
+                "tool",
+                refused("jc-functions did not answer".into()),
+            )
+            .await?;
+            return Err(ApiError::Unavailable("jc-functions did not answer".into()));
+        }
+    };
+    match response.status() {
+        StatusCode::OK => {}
+        StatusCode::TOO_MANY_REQUESTS => {
+            publish_event(&state, &id, "tool", refused("jc-functions is full".into())).await?;
+            return Err(ApiError::TooManyRequests(
+                "jc-functions is running all the calls it takes; try again".into(),
+            ));
+        }
+        StatusCode::PAYLOAD_TOO_LARGE => {
+            publish_event(
+                &state,
+                &id,
+                "tool",
+                refused("the request is too large".into()),
+            )
+            .await?;
+            return Err(ApiError::BadRequest(
+                "the function's body is larger than jc-functions takes (256 KiB)".into(),
+            ));
+        }
+        status => {
+            tracing::warn!(%status, "jc-functions refused an invocation");
+            publish_event(
+                &state,
+                &id,
+                "tool",
+                refused(format!("jc-functions answered {status}")),
+            )
+            .await?;
+            return Err(ApiError::Unavailable(format!(
+                "jc-functions answered {status}"
+            )));
+        }
+    }
+    let outcome: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|err| ApiError::Unavailable(format!("jc-functions answered no outcome: {err}")))?;
+    let status = outcome["status"]
+        .as_u64()
+        .and_then(|status| u16::try_from(status).ok())
+        .and_then(|status| StatusCode::from_u16(status).ok())
+        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let logs = outcome
+        .get("logs")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    if let Some(error) = outcome.get("error").filter(|error| !error.is_null()) {
+        // The runtime names files by their import name; the run knows them by path.
+        let mut error = error.clone();
+        if let Some(file) = error["file"].as_str() {
+            error["file"] = serde_json::json!(file.strip_prefix(transpile::APP).unwrap_or(file));
+        }
+        publish_event(
+            &state,
+            &id,
+            "tool",
+            serde_json::json!({
+                "tool": tool,
+                "status": "failed",
+                "durationMs": duration_ms,
+                "input": input,
+                "output": { "status": 500, "logs": logs },
+                "error": error,
+            }),
+        )
+        .await?;
+        return Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response());
+    }
+    publish_event(
+        &state,
+        &id,
+        "tool",
+        serde_json::json!({
+            "tool": tool,
+            "status": "ok",
+            "durationMs": duration_ms,
+            "input": input,
+            "output": { "status": status.as_u16(), "logs": logs },
+        }),
+    )
+    .await?;
+    let body = outcome
+        .get("body")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    Ok((status, Json(body)).into_response())
+}
+
+/// One client for every invocation, without redirects: the runtime's address is configuration.
+fn functions_http() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(FUNCTION_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_default()
+    })
+}
+
 pub(crate) async fn end_run(
     state: &AppState,
     run: &AgentRun,
@@ -1384,6 +1669,10 @@ pub fn router() -> Router<AppState> {
             post(post_preview_error),
         )
         .route(
+            "/projects/{project}/agent-runs/{id}/functions/{fn}",
+            post(call_function),
+        )
+        .route(
             "/projects/{project}/agent-runs/{id}/cancel",
             post(cancel_run),
         )
@@ -1594,8 +1883,66 @@ pub fn internal_router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::navigate_route;
+    use super::{caller_token, is_function_name, navigate_route};
+    use axum::http::{header, HeaderMap, HeaderValue};
     use serde_json::json;
+
+    #[test]
+    fn a_function_name_is_lowercase_letters_digits_and_dashes() {
+        for name in ["summary", "a", "count-by-type-2", &"a".repeat(40)] {
+            assert!(is_function_name(name), "{name}");
+        }
+        for name in [
+            "",
+            "Summary",
+            "2x",
+            "-x",
+            "a_b",
+            "a.b",
+            "..",
+            &"a".repeat(41),
+        ] {
+            assert!(!is_function_name(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_callers_token_is_the_bearer_or_the_trusted_edge_header_never_a_cookie() {
+        let mut config = crate::config::Config::for_tests();
+        let edge = |headers: &[(&str, &str)]| {
+            let mut map = HeaderMap::new();
+            for (name, value) in headers {
+                map.insert(
+                    header::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                    HeaderValue::from_str(value).unwrap(),
+                );
+            }
+            map
+        };
+        let state = crate::state::AppState::new(config.clone(), None);
+        assert_eq!(
+            caller_token(&state, &edge(&[("authorization", "Bearer abc")])).as_deref(),
+            Some("abc")
+        );
+        assert_eq!(
+            caller_token(&state, &edge(&[("x-access-token", "edge")])),
+            None
+        );
+        assert_eq!(
+            caller_token(&state, &edge(&[("cookie", "jc_session=x")])),
+            None
+        );
+        assert_eq!(
+            caller_token(&state, &edge(&[("authorization", "Basic abc")])),
+            None
+        );
+        config.trust_edge_token = true;
+        let state = crate::state::AppState::new(config, None);
+        assert_eq!(
+            caller_token(&state, &edge(&[("x-access-token", "edge")])).as_deref(),
+            Some("edge")
+        );
+    }
 
     #[test]
     fn a_portal_path_with_a_prefill_passes() {

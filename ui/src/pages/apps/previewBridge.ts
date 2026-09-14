@@ -7,7 +7,8 @@ import { api, readCsrfToken } from "../../api/client";
  * and no session: every request of the SDK leaves it as a `jc-request`, this page performs it
  * with the reviewer's own session against the run's sandbox endpoint and posts a `jc-response`
  * back. Only the frame this page created is heard; reads under the endpoint pass always, writes
- * only for an operation the run's confirmed data needs name. Everything else is counted and never
+ * only for an operation the run's confirmed data needs name, `POST /functions/{fn}` to the run's
+ * function route, which knows the run's files. Everything else is counted and never
  * forwarded; a refused request that carries an id is answered 403 at once, so the application
  * shows the refusal instead of waiting out its timeout. The frame's `jc-error` reports go to the
  * run for its repair.
@@ -35,6 +36,7 @@ const WRITES: [string, RegExp, string][] = [
   ["PATCH", new RegExp(`^ngsi-ld/v1/entities/${SEGMENT}/attrs$`), "updateAttrs"],
   ["DELETE", new RegExp(`^ngsi-ld/v1/entities/${SEGMENT}$`), "deleteEntity"],
 ];
+const FUNCTION = /^\/functions\/([a-z][a-z0-9-]{0,39})$/;
 const BASE = "http://portal.invalid";
 /** The server's own bounds on a reported error (API/04 §5), and how many one frame load relays. */
 const MAX_MESSAGE = 2000;
@@ -87,6 +89,27 @@ export function operationOf(method: unknown, path: unknown, slug: string): strin
   return WRITES.find(([verb, pattern]) => verb === method && pattern.test(rest))?.[2] ?? null;
 }
 
+/**
+ * Where a `POST /functions/{fn}` of the frame goes: the run's function route under `route`, with
+ * the request's query string; null for anything else.
+ */
+export function functionPathOf(method: unknown, path: unknown, route: string): string | null {
+  if (method !== "POST" || typeof path !== "string") {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(path, BASE);
+  } catch {
+    return null;
+  }
+  const name = FUNCTION.exec(url.pathname)?.[1];
+  if (url.origin !== BASE || `${url.pathname}${url.search}` !== path || !name) {
+    return null;
+  }
+  return `${route}${name}${url.search}`;
+}
+
 /** The operations the run's confirmed data needs name (AP-22): the grant, not the prompt. */
 export function grantedOperations(dataNeeds: unknown): Set<string> {
   const needs: unknown[] = Array.isArray(dataNeeds) ? dataNeeds : [];
@@ -117,6 +140,8 @@ export function previewErrorOf(data: unknown): PreviewError | null {
 export interface Preview {
   slug: string | undefined;
   operations: ReadonlySet<string>;
+  /** The run's function route, ending in `/functions/`. */
+  functions?: string;
   /** The frame this page created. */
   source: Window | null | undefined;
 }
@@ -185,11 +210,16 @@ export async function handleBridgeMessage(
   if (m.kind !== "jc-request" || typeof m.id !== "number") {
     return "refused";
   }
+  const fn = preview.functions ? functionPathOf(m.method, m.path, preview.functions) : null;
+  if (fn !== null) {
+    source.postMessage({ kind: "jc-response", id: m.id, ...(await perform("POST", fn, m.body, fetchImpl)) }, "*");
+    return "forwarded";
+  }
   const operation = operationOf(m.method, m.path, slug);
   const writesBody = m.method === "POST" || m.method === "PATCH";
   let refusal: string | null = null;
   if (operation === null) {
-    refusal = "The preview may only read and write under its own endpoint.";
+    refusal = "The preview may only read and write under its own endpoint and call its own functions.";
   } else if (operation !== "read" && !preview.operations.has(operation)) {
     refusal = `The run's data needs do not name ${operation}.`;
   } else if (writesBody && (typeof m.body !== "object" || m.body === null)) {
@@ -225,6 +255,7 @@ export function usePreviewBridge(
       return undefined;
     }
     const operations = grantedOperations(JSON.parse(needs));
+    const functions = `/api/v1/projects/${encodeURIComponent(project)}/agent-runs/${encodeURIComponent(id)}/functions/`;
     const seen = new Set<string>();
     let refused = 0;
     const report = (error: PreviewError) => {
@@ -241,7 +272,7 @@ export function usePreviewBridge(
         .catch(() => undefined);
     };
     const listener = (event: MessageEvent) => {
-      const preview = { slug, operations, source: frame.current?.contentWindow };
+      const preview = { slug, operations, functions, source: frame.current?.contentWindow };
       void handleBridgeMessage(event, preview, report).then((outcome) => {
         if (outcome === "refused") {
           refused += 1;

@@ -43,6 +43,8 @@ pub enum ApiError {
     Conflict(String),
     #[error("unsupported media type: {0}")]
     UnsupportedMediaType(String),
+    #[error("too many requests: {0}")]
+    TooManyRequests(String),
     #[error("service unavailable: {0}")]
     Unavailable(String),
     #[error("not implemented: {0}")]
@@ -98,6 +100,12 @@ impl IntoResponse for ApiError {
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "unsupported-media-type",
                 "Unsupported Media Type",
+                Some(msg),
+            ),
+            Self::TooManyRequests(msg) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too-many-requests",
+                "Too Many Requests",
                 Some(msg),
             ),
             Self::Unavailable(msg) => (
@@ -158,6 +166,10 @@ mod tests {
             (ApiError::Forbidden, StatusCode::FORBIDDEN),
             (ApiError::SelfApproval("test".into()), StatusCode::FORBIDDEN),
             (ApiError::Conflict("test".into()), StatusCode::CONFLICT),
+            (
+                ApiError::TooManyRequests("test".into()),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
             (
                 ApiError::UnsupportedMediaType("test".into()),
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,

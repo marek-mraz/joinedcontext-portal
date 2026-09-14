@@ -72,11 +72,13 @@ impl fmt::Display for Problem {
     }
 }
 
-/// The interface of a code run, ready for the document.
+/// A code run, transpiled: its interface for the document and its functions for the runtime.
 #[derive(Debug, Default)]
 pub struct Project {
     /// Import-map name → module code, for every interface file and JSON file under `src/`.
     pub modules: BTreeMap<String, String>,
+    /// Import name → module code, for every function file under `functions/` but its tests.
+    pub functions: BTreeMap<String, String>,
     /// The stylesheets under `src/`, in path order.
     pub styles: Vec<String>,
     /// Everything that keeps the preview from being built, every file checked.
@@ -119,8 +121,14 @@ pub fn transpile(files: &BTreeMap<String, String>) -> Project {
         } else if (path.ends_with(".ts") || path.ends_with(".tsx")) && !path.ends_with(".d.ts") {
             let test = path.contains(".test.");
             let code = module(path, source, files, folder, test, &mut project.problems);
-            if let Some(code) = code.filter(|_| folder == Folder::Src && !test) {
-                project.modules.insert(format!("{APP}{path}"), code);
+            match code {
+                Some(code) if !test && folder == Folder::Src => {
+                    project.modules.insert(format!("{APP}{path}"), code);
+                }
+                Some(code) if !test => {
+                    project.functions.insert(format!("{APP}{path}"), code);
+                }
+                _ => {}
             }
         }
     }

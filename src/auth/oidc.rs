@@ -86,6 +86,8 @@ pub struct OidcClient {
     client: PortalClient,
     http: reqwest::Client,
     end_session_endpoint: Option<Url>,
+    /// The Portal's own client-credentials token and when to stop using it.
+    service: tokio::sync::Mutex<Option<(String, std::time::Instant)>>,
 }
 
 /// `Display` of a `DiscoveryError` is "Request failed" and the reason lives in its source, so a
@@ -154,7 +156,38 @@ impl OidcClient {
             client,
             http,
             end_session_endpoint,
+            service: tokio::sync::Mutex::new(None),
         })
+    }
+
+    /// A token of the Portal's own client (client credentials), for a service that answers the
+    /// Portal and nobody else, such as `jc-functions` (SDK-23). Kept until 30 s before it expires;
+    /// the audience is the realm's mapper on the client, not something the Portal asks for.
+    pub async fn service_token(&self) -> Result<String, ApiError> {
+        let mut cached = self.service.lock().await;
+        let now = std::time::Instant::now();
+        if let Some((token, _)) = cached.as_ref().filter(|(_, until)| *until > now) {
+            return Ok(token.clone());
+        }
+        let response = self
+            .client
+            .exchange_client_credentials()
+            .map_err(|e| ApiError::Internal(format!("token endpoint is not configured: {e}")))?
+            .request_async(&self.http)
+            .await
+            .map_err(|e| {
+                tracing::warn!(error = %source_chain(&e), "the realm refused the Portal's client credentials");
+                ApiError::Unavailable("the Portal could not get a token of its own".into())
+            })?;
+        let token = response.access_token().secret().clone();
+        let lifetime = response
+            .expires_in()
+            .unwrap_or(Duration::from_secs(DEFAULT_ACCESS_TTL_SECS as u64));
+        *cached = Some((
+            token.clone(),
+            now + lifetime.saturating_sub(Duration::from_secs(30)),
+        ));
+        Ok(token)
     }
 
     /// Trades the session's refresh token for a fresh access token at the realm's token

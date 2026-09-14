@@ -32,6 +32,10 @@ pub struct Config {
     /// `http://model-tools.tools.svc.cluster.local:8080`. `None` leaves the LinkML preview
     /// routes answering 503 instead of guessing a service name (DM-18).
     pub model_tools_url: Option<String>,
+    /// Base URL of the `jc-functions` runtime (`JC_FUNCTIONS_URL`), e.g.
+    /// `http://jc-functions.jc-system.svc.cluster.local:8080`. `None` leaves the function routes
+    /// answering 503 (SDK-23).
+    pub functions_url: Option<String>,
     /// Root of the built app bundles, one directory per app. `None` leaves every
     /// `/apps/{name}/` path answering 404 rather than reading a guessed directory (AP-14).
     pub apps_dir: Option<String>,
@@ -76,6 +80,7 @@ impl std::fmt::Debug for Config {
             .field("pipeline_runner_url", &self.pipeline_runner_url)
             .field("pipeline_test_capture_url", &self.pipeline_test_capture_url)
             .field("model_tools_url", &self.model_tools_url)
+            .field("functions_url", &self.functions_url)
             .field("apps_dir", &self.apps_dir)
             .field("branding_file", &self.branding_file)
             .field(
@@ -548,6 +553,25 @@ impl Config {
             None => None,
         };
 
+        let functions_url = match lookup("JC_FUNCTIONS_URL") {
+            Some(raw) => {
+                let url: Url = raw
+                    .parse()
+                    .map_err(|e: url::ParseError| ConfigError::Invalid {
+                        var: "JC_FUNCTIONS_URL",
+                        reason: e.to_string(),
+                    })?;
+                if url.scheme() != "http" && url.scheme() != "https" {
+                    return Err(ConfigError::Invalid {
+                        var: "JC_FUNCTIONS_URL",
+                        reason: format!("scheme '{}' is not http or https", url.scheme()),
+                    });
+                }
+                Some(raw.trim_end_matches('/').to_owned())
+            }
+            None => None,
+        };
+
         let model_tools_url = match lookup("JC_PORTAL_MODEL_TOOLS_URL") {
             Some(raw) => {
                 let url: Url = raw
@@ -592,6 +616,7 @@ impl Config {
             pipeline_runner_url,
             pipeline_test_capture_url,
             model_tools_url,
+            functions_url,
             apps_dir,
             branding_file,
             database_url,
@@ -615,6 +640,7 @@ impl Config {
             pipeline_runner_url: None,
             pipeline_test_capture_url: None,
             model_tools_url: None,
+            functions_url: None,
             app_settings: None,
             agent_settings: None,
             basemap: None,

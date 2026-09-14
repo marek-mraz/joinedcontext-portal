@@ -5,13 +5,14 @@
  * frame's error reports go to the run.
  */
 import { describe, expect, it, vi } from "vitest";
-import { grantedOperations, handleBridgeMessage, operationOf, previewErrorOf } from "../src/pages/apps/previewBridge";
+import { functionPathOf, grantedOperations, handleBridgeMessage, operationOf, previewErrorOf } from "../src/pages/apps/previewBridge";
 import type { PreviewError } from "../src/pages/apps/previewBridge";
 
 const SLUG = "k7m2qz4tv6xh3n5jb2ryd3wcfa";
 const BASE = `/api/endpoint/${SLUG}/ngsi-ld/v1/entities`;
 const ID = encodeURIComponent("urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:002");
 const GRANTED = new Set(["queryEntity", "retrieveEntity", "updateAttrs"]);
+const FUNCTIONS = "/api/v1/projects/helsinki/agent-runs/r1/functions/";
 
 function request(overrides: Record<string, unknown> = {}) {
   return { kind: "jc-request", id: 7, method: "PATCH", path: `${BASE}/${ID}/attrs`, body: { status: { type: "Property", value: "closed" } }, ...overrides };
@@ -26,7 +27,7 @@ async function send(data: unknown, options: { source?: Window; from?: unknown; s
   const fetchImpl = (options.fetchImpl ?? vi.fn()) as typeof fetch;
   const outcome = await handleBridgeMessage(
     { source: "from" in options ? options.from : source, data },
-    { slug: "slug" in options ? options.slug : SLUG, operations: GRANTED, source },
+    { slug: "slug" in options ? options.slug : SLUG, operations: GRANTED, functions: FUNCTIONS, source },
     options.report ?? (() => undefined),
     fetchImpl,
   );
@@ -74,6 +75,27 @@ describe("operationOf", () => {
   });
 });
 
+describe("functionPathOf", () => {
+  it("sends a POST of a function name to the run's route with its query and nothing else", () => {
+    expect(functionPathOf("POST", "/functions/summary", FUNCTIONS)).toBe(`${FUNCTIONS}summary`);
+    expect(functionPathOf("POST", "/functions/count-2?types=A", FUNCTIONS)).toBe(`${FUNCTIONS}count-2?types=A`);
+    for (const path of [
+      "/functions/Summary",
+      "/functions/../agent-runs",
+      "/functions/%2e%2e",
+      "/functions/a/b",
+      "/functions/",
+      `/functions/${"a".repeat(41)}`,
+      "/functions/summary#x",
+      "//evil.example/functions/summary",
+      "/api/functions/summary",
+    ]) {
+      expect(functionPathOf("POST", path, FUNCTIONS), path).toBeNull();
+    }
+    expect(functionPathOf("GET", "/functions/summary", FUNCTIONS)).toBeNull();
+  });
+});
+
 describe("grantedOperations", () => {
   it("reads the operations of every data need and nothing else", () => {
     expect(grantedOperations([{ operations: ["queryEntity", "updateAttrs"] }, { operations: ["createEntity", 3] }])).toEqual(
@@ -117,6 +139,23 @@ describe("handleBridgeMessage", () => {
 
     await send(request({ id: 8 }), { source, fetchImpl });
     expect(source.postMessage).toHaveBeenLastCalledWith({ kind: "jc-response", id: 8, status: 403, body: problem }, "*");
+  });
+
+  it("calls the run's function with the session and hands back its answer", async () => {
+    document.cookie = "jc_csrf=csrf-fn";
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ types: [] }), { status: 201, headers: { "content-type": "application/json" } }));
+    const { outcome, source } = await send(request({ method: "POST", path: "/functions/summary", body: { types: ["A"] } }), { fetchImpl });
+    expect(outcome).toBe("forwarded");
+    const [path, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe(`${FUNCTIONS}summary`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["x-csrf-token"]).toBe("csrf-fn");
+    expect(JSON.parse(init.body as string)).toEqual({ types: ["A"] });
+    expect(source.postMessage).toHaveBeenCalledWith({ kind: "jc-response", id: 7, status: 201, body: { types: [] } }, "*");
+
+    const refused = await send(request({ method: "POST", path: "/functions/../../cancel", body: {} }));
+    expect(refused.outcome).toBe("refused");
+    expect(refused.fetchImpl).not.toHaveBeenCalled();
   });
 
   it("answers a write the data needs do not name with 403 and sends no request", async () => {
