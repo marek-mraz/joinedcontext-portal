@@ -373,6 +373,27 @@ describe("the manifest a data source form describes", () => {
     ).toBe("generate");
   });
 
+  /** A secret field of a runner input is a reference picker, not a crash (PL-50, MF-35). */
+  it("renders a runner input whose fields include a secret as a reference picker", async () => {
+    renderDataSources();
+
+    await userEvent.selectOptions(await screen.findByLabelText(en.datasources.field.type), "nats");
+    await userEvent.click(screen.getByRole("button", { name: en.datasources.add }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect((await within(dialog).findAllByPlaceholderText(/Secret name/)).length).toBeGreaterThan(0);
+  });
+
+  it("describes a list field once, under its own heading", async () => {
+    renderDataSources();
+
+    await userEvent.selectOptions(await screen.findByLabelText(en.datasources.field.type), "csv");
+    await userEvent.click(screen.getByRole("button", { name: en.datasources.add }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(await within(dialog).findAllByText(/^A list of file paths to read from/)).toHaveLength(1);
+  });
+
   it("renders grouped select with an optgroup 'Message brokers' containing 'kafka'", async () => {
     renderDataSources();
 

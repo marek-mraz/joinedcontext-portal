@@ -69,7 +69,7 @@ export function BaseInputTemplate(props: WidgetProps): React.JSX.Element {
 }
 
 export function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
-  const { id, label, children, rawErrors, rawDescription, description, rawHelp, displayLabel, required, hidden } =
+  const { id, label, children, rawErrors, rawDescription, description, rawHelp, displayLabel, required, hidden, schema } =
     props;
 
   if (hidden) {
@@ -77,7 +77,9 @@ export function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
   }
 
   const showLabel = displayLabel !== false && Boolean(label);
-  const descText = description || rawDescription;
+  // An array or an object template writes its own heading and description; once is enough.
+  const ownHeading = schema.type === "array" || schema.type === "object";
+  const descText = ownHeading ? undefined : description || rawDescription;
 
   return (
     <Field

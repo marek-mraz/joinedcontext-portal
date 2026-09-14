@@ -6,6 +6,10 @@ import type { RJSFValidationError } from "@rjsf/utils";
 import { useTranslation } from "react-i18next";
 import type { JsonSchema, UiSchema } from "./types";
 import { FormActionsContext, portalTemplates, portalThemeWidgets } from "./theme";
+import { portalWidgets } from "./widgets";
+
+/** The theme's widgets and the Portal's own (`secretRef`, `entityPicker`), which a uiSchema names. */
+const widgets = { ...portalThemeWidgets, ...portalWidgets };
 
 export interface SchemaFormProps<T> {
   schema: JsonSchema;
@@ -80,7 +84,7 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
         noHtml5Validate
         transformErrors={transformErrors}
         templates={portalTemplates}
-        widgets={portalThemeWidgets}
+        widgets={widgets}
         onSubmit={(data) => {
           onSubmit(data.formData as T);
         }}
