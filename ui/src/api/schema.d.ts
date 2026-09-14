@@ -267,6 +267,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/agent-runs/{id}/preview-errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A runtime error of the preview, for the first run's repair and the editing agent's
+         *     `preview_errors` tool (SDK-14, SDK-20). The frame wrote every field: it is stored as text.
+         */
+        post: operations["post_preview_error"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/agent-runs/{id}/publish": {
         parameters: {
             query?: never;
@@ -1647,6 +1667,13 @@ export interface components {
             /** @description `light`, `dark` or `system`. */
             theme?: string | null;
         };
+        /** @description A runtime error the preview frame posted as `jc-error`, relayed by the page that frames it. */
+        PreviewErrorRequest: {
+            file?: string | null;
+            /** Format: int32 */
+            line?: number | null;
+            message: string;
+        };
         /** @description One fetch of a DataSource on the project's runner, or why there was none (MF-39). */
         Probe: {
             bytes?: number | null;
@@ -2618,6 +2645,69 @@ export interface operations {
             };
             /** @description This Portal was built without the kit or the SDK runtime */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    post_preview_error: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Run id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewErrorRequest"];
+            };
+        };
+        responses: {
+            /** @description The error is on the run's log as a preview_error event */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A blank or over-long message, an over-long file, or line 0 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such run in this project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The run is over */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

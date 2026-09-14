@@ -12,7 +12,7 @@ vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 import { App } from "../src/App";
 import { parseSpec } from "../src/spec";
 import { attrsOf, fieldOf, requestOf } from "../src/write";
-import type { BridgeRequest, Schema } from "../src/write";
+import type { Schema } from "../src/write";
 
 const spec = parseSpec({
   title: "Stations",
@@ -156,12 +156,14 @@ describe("a save", () => {
 
   it("in a preview leaves as a message to the host page and takes its answer", async () => {
     stubFetch();
-    const seen: BridgeRequest[] = [];
+    const seen: { kind: string; id: number; method: string; path: string }[] = [];
     const host = (event: MessageEvent) => {
-      const data = event.data as BridgeRequest;
-      if (data?.kind !== "kit-write") return;
+      const data = event.data as (typeof seen)[number];
+      if (data?.kind !== "jc-request") return;
       seen.push(data);
-      window.postMessage({ kind: "kit-write-result", id: data.id, status: 403, body: { detail: "the sandbox policy says no" } }, "*");
+      // The answer comes from the framing page, which in jsdom is the window itself.
+      const answer = { kind: "jc-response", id: data.id, status: 403, body: { detail: "the sandbox policy says no" } };
+      window.dispatchEvent(new MessageEvent("message", { data: answer, source: window }));
     };
     window.addEventListener("message", host);
     try {
@@ -171,7 +173,6 @@ describe("a save", () => {
       expect(await screen.findByRole("alert")).toHaveTextContent("the sandbox policy says no");
       expect(calls).toHaveLength(0);
       expect(seen).toHaveLength(1);
-      expect(seen[0].slug).toBe("demo");
       expect(seen[0].method).toBe("PATCH");
       expect(seen[0].path).toBe(`/api/endpoint/demo/ngsi-ld/v1/entities/${encodeURIComponent(ID)}/attrs`);
     } finally {

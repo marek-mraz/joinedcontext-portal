@@ -48,6 +48,9 @@ pub(crate) const MAX_PROMPT_CHARS: usize = 4_000;
 /// Longest instruction a person may send into a live run. Same ceiling as the prompt: it is a
 /// sentence of steering, and a workspace reads it with the same budget as everything else.
 const MAX_MESSAGE_CHARS: usize = 4_000;
+/// Longest runtime error a preview frame may report, and the longest file name it may name.
+const MAX_PREVIEW_ERROR_CHARS: usize = 2_000;
+const MAX_PREVIEW_FILE_CHARS: usize = 256;
 /// How long the workspace's inbox call waits for something new before answering empty. Short
 /// enough to sit inside every proxy's read timeout, long enough that an idle agent is not a
 /// request per second.
@@ -147,6 +150,17 @@ pub struct RelayedEvent {
 #[serde(deny_unknown_fields)]
 pub struct MessageRequest {
     pub text: String,
+}
+
+/// A runtime error the preview frame posted as `jc-error`, relayed by the page that frames it.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PreviewErrorRequest {
+    pub message: String,
+    #[serde(default)]
+    pub file: Option<String>,
+    #[serde(default)]
+    pub line: Option<u32>,
 }
 
 /// Where the workspace reads from, how far it has read, and how long it will wait.
@@ -716,6 +730,71 @@ pub async fn post_message(
         serde_json::json!({
             "text": text,
             "sentBy": user.0.identity.username,
+        }),
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/projects/{project}/agent-runs/{id}/preview-errors",
+    tag = "agents",
+    params(
+        ("project" = String, Path, description = "Project name"),
+        ("id" = String, Path, description = "Run id"),
+    ),
+    request_body = PreviewErrorRequest,
+    responses(
+        (status = 204, description = "The error is on the run's log as a preview_error event"),
+        (status = 400, description = "A blank or over-long message, an over-long file, or line 0", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "No such run in this project", body = ProblemDetails),
+        (status = 409, description = "The run is over", body = ProblemDetails)
+    )
+)]
+/// A runtime error of the preview, for the first run's repair and the editing agent's
+/// `preview_errors` tool (SDK-14, SDK-20). The frame wrote every field: it is stored as text.
+pub async fn post_preview_error(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path((project, id)): Path<(String, String)>,
+    Json(request): Json<PreviewErrorRequest>,
+) -> Result<StatusCode, ApiError> {
+    let run = run_of(&state, &project, &id).await?;
+    if terminal(&run) {
+        return Err(ApiError::Conflict(format!(
+            "run '{id}' is '{}' and repairs nothing",
+            run.status
+        )));
+    }
+    let message = request.message.trim();
+    if message.is_empty() || message.chars().count() > MAX_PREVIEW_ERROR_CHARS {
+        return Err(ApiError::BadRequest(format!(
+            "message must be 1 to {MAX_PREVIEW_ERROR_CHARS} characters"
+        )));
+    }
+    if request
+        .file
+        .as_ref()
+        .is_some_and(|file| file.chars().count() > MAX_PREVIEW_FILE_CHARS)
+    {
+        return Err(ApiError::BadRequest(format!(
+            "file is longer than {MAX_PREVIEW_FILE_CHARS} characters"
+        )));
+    }
+    if request.line == Some(0) {
+        return Err(ApiError::BadRequest("line starts at 1".into()));
+    }
+    publish_event(
+        &state,
+        &id,
+        "preview_error",
+        serde_json::json!({
+            "message": message,
+            "file": request.file,
+            "line": request.line,
+            "reportedBy": user.0.identity.username,
         }),
     )
     .await?;
@@ -1299,6 +1378,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/projects/{project}/agent-runs/{id}/messages",
             post(post_message),
+        )
+        .route(
+            "/projects/{project}/agent-runs/{id}/preview-errors",
+            post(post_preview_error),
         )
         .route(
             "/projects/{project}/agent-runs/{id}/cancel",

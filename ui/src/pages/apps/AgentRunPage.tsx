@@ -5,7 +5,7 @@ import { ApiError } from "../../api/client";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { isChange } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
-import { useKitWriteBridge } from "./kitBridge";
+import { usePreviewBridge } from "./previewBridge";
 import { RunTimeline } from "./RunTimeline";
 import { TERMINAL_STATES, useAgentRun } from "./useAgentRun";
 import { rememberRun } from "../../assistant/state";
@@ -33,9 +33,9 @@ export function AgentRunPage({
   useEffect(() => {
     rememberRun({ project, runId });
   }, [project, runId]);
-  // The preview's writes reach the endpoint through this page, never from the frame (AP-63).
+  // The preview's reads and writes reach the endpoint through this page, never from the frame (AP-63).
   const frame = useRef<HTMLIFrameElement>(null);
-  useKitWriteBridge(frame, run.data?.endpointSlug);
+  usePreviewBridge(frame, run.data);
 
   if (run.isPending) {
     return <p role="status">{t("agentRun.loading")}</p>;

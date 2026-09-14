@@ -41,8 +41,10 @@ export interface AgentRun {
   project: string;
   appName: string;
   endpointName: string;
-  /** The endpoint the preview's writes go through (AP-63). */
+  /** The endpoint the preview's reads and writes go through (AP-63). */
   endpointSlug?: string;
+  /** The confirmed data needs: which write operations the preview bridge lets through (SDK-18). */
+  dataNeeds?: unknown;
   appClass: string;
   visibility: string;
   prompt: string;

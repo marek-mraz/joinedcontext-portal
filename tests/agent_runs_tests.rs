@@ -890,6 +890,86 @@ async fn an_empty_instruction_is_refused_and_a_finished_run_reads_nothing() {
 }
 
 #[tokio::test]
+async fn a_preview_error_lands_on_the_runs_log_and_nothing_malformed_does() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let uri = format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview-errors");
+
+    for refused in [
+        json!({ "message": "   " }),
+        json!({ "message": "x".repeat(2001) }),
+        json!({ "message": "boom", "file": "f".repeat(257) }),
+        json!({ "message": "boom", "line": 0 }),
+    ] {
+        let (status, problem) = call(&app, &cookie, Method::POST, &uri, Some(refused)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+    }
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &uri,
+        Some(json!({ "message": "boom", "token": "Bearer abc" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &uri,
+        Some(json!({
+            "message": " Cannot read properties of undefined (reading 'value') ",
+            "file": "src/pages/Overview.tsx",
+            "line": 42
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let stream = read_stream(
+        &app,
+        &cookie,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/events"),
+        Some(1),
+        1,
+    )
+    .await;
+    assert!(stream.contains("event: preview_error"), "{stream}");
+    assert!(
+        stream.contains(r#""message":"Cannot read properties of undefined (reading 'value')""#)
+            && stream.contains(r#""file":"src/pages/Overview.tsx""#)
+            && stream.contains(r#""line":42"#)
+            && stream.contains(STEWARD),
+        "{stream}"
+    );
+
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/cancel"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &uri,
+        Some(json!({ "message": "late" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{problem}");
+}
+
+#[tokio::test]
 async fn a_run_with_no_preview_publishes_nothing() {
     let config = config();
     let app = router(mirror(Some(builder_profile_spec())), &config);

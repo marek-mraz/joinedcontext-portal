@@ -946,6 +946,90 @@
         }
       }
     },
+    "/api/v1/projects/{project}/agent-runs/{id}/preview-errors": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "A runtime error of the preview, for the first run's repair and the editing agent's\n`preview_errors` tool (SDK-14, SDK-20). The frame wrote every field: it is stored as text.",
+        "operationId": "post_preview_error",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewErrorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The error is on the run's log as a preview_error event"
+          },
+          "400": {
+            "description": "A blank or over-long message, an over-long file, or line 0",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The run is over",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/agent-runs/{id}/publish": {
       "post": {
         "tags": [
@@ -6514,6 +6598,33 @@
               "null"
             ],
             "description": "`light`, `dark` or `system`."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreviewErrorRequest": {
+        "type": "object",
+        "description": "A runtime error the preview frame posted as `jc-error`, relayed by the page that frames it.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "file": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string"
           }
         },
         "additionalProperties": false

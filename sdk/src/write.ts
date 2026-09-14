@@ -6,6 +6,7 @@
  * comes back as its answer; a published app on the platform origin sends it itself.
  */
 import type { Cell, Column } from "./ngsi";
+import { bridgeTransport } from "./sdk/transport";
 
 /** One attribute as the endpoint's schema describes it: a JSON Schema property, trimmed. */
 export interface FieldSchema {
@@ -89,29 +90,10 @@ export interface Write {
   patch?: Record<string, Cell>;
 }
 
-/** The message a sandboxed frame sends to its host page; the host performs the write. */
-export interface BridgeRequest {
-  kind: "kit-write";
-  id: number;
-  slug: string;
-  method: "PATCH" | "POST";
-  path: string;
-  body: unknown;
-}
-
-export interface BridgeResult {
-  kind: "kit-write-result";
-  id: number;
-  status: number;
-  body?: unknown;
-}
-
 export const CSRF_COOKIE = "jc_csrf";
 export const CSRF_HEADER = "x-csrf-token";
 /** How long a preview waits for its host page to answer a write. */
 export const BRIDGE_TIMEOUT_MS = 15000;
-
-let sequence = 0;
 
 /** The request a write is: method, path under the endpoint, body. */
 export function requestOf(slug: string, write: Write): { method: "PATCH" | "POST"; path: string; body: unknown } {
@@ -145,28 +127,17 @@ async function direct(request: ReturnType<typeof requestOf>): Promise<WriteResul
   return { ok: response.ok, status: response.status, detail: response.ok ? undefined : detailOf(body, response.status) };
 }
 
-function viaBridge(slug: string, request: ReturnType<typeof requestOf>): Promise<WriteResult> {
-  const id = ++sequence;
-  return new Promise((resolve) => {
-    const done = (result: WriteResult) => {
-      window.removeEventListener("message", onMessage);
-      clearTimeout(timer);
-      resolve(result);
-    };
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data as Partial<BridgeResult> | null;
-      if (!data || data.kind !== "kit-write-result" || data.id !== id || typeof data.status !== "number") return;
-      done({ ok: data.status >= 200 && data.status < 300, status: data.status, detail: data.status < 300 ? undefined : detailOf(data.body, data.status) });
-    };
-    const timer = setTimeout(() => done({ ok: false, status: 0, detail: "The Portal did not answer the write." }), BRIDGE_TIMEOUT_MS);
-    window.addEventListener("message", onMessage);
-    const message: BridgeRequest = { kind: "kit-write", id, slug, ...request };
-    window.parent.postMessage(message, "*");
-  });
+/** The SDK's bridge: a `jc-request` to the page that framed the preview (SDK-18). */
+const host = bridgeTransport({ timeoutMs: BRIDGE_TIMEOUT_MS });
+
+async function viaBridge(request: ReturnType<typeof requestOf>): Promise<WriteResult> {
+  const answer = await host(request);
+  const ok = answer.status >= 200 && answer.status < 300;
+  return { ok, status: answer.status, detail: ok ? undefined : detailOf(answer.body, answer.status) };
 }
 
 /** One write through the endpoint: by the host page in a preview, by this document otherwise. */
 export function writeEntity(slug: string, write: Write, bridge: boolean): Promise<WriteResult> {
   const request = requestOf(slug, write);
-  return bridge ? viaBridge(slug, request) : direct(request).catch((err: unknown) => ({ ok: false, status: 0, detail: err instanceof Error ? err.message : String(err) }));
+  return bridge ? viaBridge(request) : direct(request).catch((err: unknown) => ({ ok: false, status: 0, detail: err instanceof Error ? err.message : String(err) }));
 }
