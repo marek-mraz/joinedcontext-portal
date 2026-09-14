@@ -59,6 +59,18 @@ pub struct StreamDeployer {
     runner_url: String,
     http: reqwest::Client,
     deployed: Mutex<HashSet<(String, String)>>,
+    /// The hash of the config each live stream was last PUT with: an unchanged render is not
+    /// sent again, because the runner restarts a stream on every PUT and a periodic pipeline
+    /// then emits on every pass instead of every period (PL-45, T-0659).
+    rendered: Mutex<HashMap<(String, String), u64>>,
+}
+
+/// The rendered config as one number, so two passes can tell an unchanged stream apart.
+fn config_hash(config: &Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    config.to_string().hash(&mut hasher);
+    hasher.finish()
 }
 
 impl StreamDeployer {
@@ -72,6 +84,7 @@ impl StreamDeployer {
             runner_url: runner_url.into(),
             http,
             deployed: Mutex::new(HashSet::new()),
+            rendered: Mutex::new(HashMap::new()),
         }
     }
 
@@ -257,9 +270,23 @@ impl StreamDeployer {
                     unreachable!();
                 };
 
-                let outcome = self.deploy_stream(&ns, &name, &stream_json).await;
+                let key = (ns.clone(), name.clone());
+                let hash = config_hash(&stream_json);
+                let unchanged = self
+                    .rendered
+                    .lock()
+                    .map(|rendered| rendered.get(&key) == Some(&hash))
+                    .unwrap_or(false);
+                let outcome = if unchanged {
+                    StreamOutcome::Live
+                } else {
+                    self.deploy_stream(&ns, &name, &stream_json).await
+                };
                 if outcome == StreamOutcome::Live {
-                    current_live.insert((ns.clone(), name.clone()));
+                    current_live.insert(key.clone());
+                    if let Ok(mut rendered) = self.rendered.lock() {
+                        rendered.insert(key, hash);
+                    }
                 }
                 outcomes.push((ns.clone(), name, outcome));
             }
@@ -319,6 +346,9 @@ impl StreamDeployer {
             }
             if let Ok(mut deployed) = self.deployed.lock() {
                 deployed.remove(&(project.to_string(), name.clone()));
+            }
+            if let Ok(mut rendered) = self.rendered.lock() {
+                rendered.remove(&(project.to_string(), name.clone()));
             }
         }
     }
@@ -1199,6 +1229,33 @@ output:
         let mirror = helsinki_test_mirror();
         let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
         assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].2, StreamOutcome::Live);
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_render_is_not_put_again_and_a_change_is() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("PUT"))
+            .and(wiremock::matchers::path("/streams/citybikes-free"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let deployer = StreamDeployer::new(server.uri());
+        let mirror = helsinki_test_mirror();
+        // Two passes over the same manifests: one PUT.
+        for _ in 0..2 {
+            let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+            assert_eq!(outcomes[0].2, StreamOutcome::Live);
+        }
+        // A changed period renders differently: the second PUT.
+        let mut changed = mirror
+            .get("helsinki", "Pipeline", "citybikes-free")
+            .expect("the test pipeline");
+        changed.spec["period"] = serde_json::json!("120s");
+        mirror.upsert(changed);
+        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
     }
 
