@@ -113,15 +113,12 @@ test.describe("topology graph", () => {
     await expect(graph.locator("path[aria-label]")).toHaveCount(3);
   });
 
-  test("is on the project's landing page", async ({ page }) => {
+  test("is not on the project's landing page: the Federation page holds it (UI-28)", async ({ page }) => {
     await stubApi(page);
     await page.goto("/?lang=en");
 
     await expect(page).toHaveURL(/\/projects\/helsinki\/spaces$/);
-    await expect(page.getByRole("group", { name: "Federation graph" })).toBeVisible();
-    await page.getByRole("button", { name: "Pipeline: bikes" }).click();
-    const card = page.getByRole("complementary", { name: "Selected object" });
-    await expect(card.getByText("Error", { exact: true })).toBeVisible();
-    await expect(card.getByRole("link", { name: "Pipelines" })).toHaveAttribute("href", "/projects/helsinki/pipelines");
+    await expect(page.getByRole("heading", { level: 1, name: "Context Spaces" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Federation graph" })).toHaveCount(0);
   });
 });

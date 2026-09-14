@@ -10,7 +10,6 @@ import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
-import { Topology } from "../pages/federation/Topology";
 import { contextSpaceSchema } from "../schemas/kinds";
 import {
   Alert,
@@ -323,9 +322,6 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
           )}
         </TableBody>
       </Table>
-
-      {/* UI-28: the landing page shows how the project's spaces are federated and published. */}
-      <Topology project={project} />
 
       <ResourceFormDialog<SpaceForm>
         kind="ContextSpace"
