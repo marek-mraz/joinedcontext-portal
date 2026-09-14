@@ -95,9 +95,16 @@ impl Mirror {
         *lock = new_resources;
     }
 
-    pub fn count_matching(&self, mut predicate: impl FnMut(&ResourceEnvelope) -> bool) -> usize {
+    /// Every resource matching a predicate, in no particular order.
+    pub fn matching(
+        &self,
+        mut predicate: impl FnMut(&ResourceEnvelope) -> bool,
+    ) -> Vec<ResourceEnvelope> {
         let lock = self.resources.read().unwrap_or_else(|p| p.into_inner());
-        lock.values().filter(|env| predicate(env)).count()
+        lock.values()
+            .filter(|env| predicate(env))
+            .cloned()
+            .collect()
     }
 
     /// The first resource matching a predicate. Used where a name identifies a resource on its

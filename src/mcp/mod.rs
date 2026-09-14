@@ -409,6 +409,11 @@ const UNITS: &[(&str, &str, &str)] = &[
         "Infer a LinkML data model from samples and propose it.",
         "1. jc_model_infer over the samples.\n2. jc_draft_put the DataModel, jc_manifest_dry_run it.\n3. jc_model_propose.",
     ),
+    (
+        "change",
+        "Change or remove anything in the project: find it, change its manifest or propose its removal; a person approves.",
+        "1. jc_resource_list the kind, jc_resource_get the one to change.\n2. jc_draft_put the changed manifest, jc_manifest_dry_run it until the verdict is ok.\n3. jc_resource_propose the draft, or jc_resource_delete with its name typed back.\n4. jc_change_list shows the change; a person approves or rejects it.",
+    ),
 ];
 
 fn capitalise(name: &str) -> String {

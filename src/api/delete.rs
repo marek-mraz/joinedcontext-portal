@@ -8,6 +8,7 @@ use crate::api::dry_run::{self, DryRunQuery, DryRunResult};
 use crate::api::mutate::{
     author_credentials, branch_name, create_or_reuse_branch, resolve_repo_path,
 };
+use crate::auth::session::Identity;
 use crate::auth::CurrentUser;
 use crate::change::{self, Change, ChangeMeta, ChangePhase, ChangeStatus, Operation};
 use crate::error::{ApiError, ProblemDetails};
@@ -47,6 +48,50 @@ pub fn has_typed_ref(
     }
 }
 
+/// A resource that still references the one being deleted (MF-07).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Reference {
+    pub kind: String,
+    pub name: String,
+}
+
+/// What a deletion comes to: its plan on a dry run, the Change it opened, or the resources that
+/// block it.
+#[derive(Debug)]
+pub enum DeleteOutcome {
+    DryRun(DryRunResult),
+    Proposed(Change),
+    /// The references of the caller's project by name, and how many other projects hold one.
+    Referenced {
+        here: Vec<Reference>,
+        elsewhere: usize,
+    },
+}
+
+impl DeleteOutcome {
+    /// The refusal a blocked deletion answers on REST: the references of this project named, the
+    /// others only counted, since another project's resources are not the caller's to see.
+    pub fn conflict_message(here: &[Reference], elsewhere: usize) -> String {
+        let count = here.len() + elsewhere;
+        let mut msg = if count == 1 {
+            "1 dependent resource blocks deletion".to_string()
+        } else {
+            format!("{count} dependent resources block deletion")
+        };
+        if !here.is_empty() {
+            let names: Vec<String> = here
+                .iter()
+                .map(|r| format!("{} {}", r.kind, r.name))
+                .collect();
+            msg.push_str(&format!(": {}", names.join(", ")));
+        }
+        if elsewhere > 0 && !here.is_empty() {
+            msg.push_str(&format!(" and {elsewhere} in other projects"));
+        }
+        msg
+    }
+}
+
 #[utoipa::path(
     delete,
     path = "/api/v1/projects/{project}/{plural}/{name}",
@@ -74,7 +119,26 @@ pub async fn delete_resource(
     Query(dry_run_q): Query<DryRunQuery>,
 ) -> Result<Response, ApiError> {
     let is_dry = dry_run::is_dry_run(&dry_run_q)?;
+    match delete_with_identity(&user.0.identity, &state, &project, &plural, &name, is_dry).await? {
+        DeleteOutcome::DryRun(result) => Ok((StatusCode::OK, Json(result)).into_response()),
+        DeleteOutcome::Proposed(change) => Ok((StatusCode::ACCEPTED, Json(change)).into_response()),
+        DeleteOutcome::Referenced { here, elsewhere } => Err(ApiError::Conflict(
+            DeleteOutcome::conflict_message(&here, elsewhere),
+        )),
+    }
+}
 
+/// Proposes the deletion of one resource as `identity`: the one path behind the REST route and
+/// `jc_resource_delete` (AG-77, ADR-N-021). Needs `delete` on the kind (PF-50), refuses while
+/// another resource references the target (MF-07) and opens a Red-lane Change (CC-19).
+pub async fn delete_with_identity(
+    identity: &Identity,
+    state: &AppState,
+    project: &str,
+    plural: &str,
+    name: &str,
+    dry_run: bool,
+) -> Result<DeleteOutcome, ApiError> {
     let not_found = || {
         ApiError::NotFound(format!(
             "resource '{name}' not found in project '{project}'"
@@ -82,45 +146,44 @@ pub async fn delete_resource(
     };
 
     // 1. Resolve plural catalogue entry and resource from mirror
-    let kind_info = resource::by_plural(&plural).ok_or_else(not_found)?;
+    let kind_info = resource::by_plural(plural).ok_or_else(not_found)?;
     let envelope = state
         .mirror
-        .get(&project, kind_info.kind, &name)
+        .get(project, kind_info.kind, name)
         .ok_or_else(not_found)?;
 
     // 1b. Deletion needs `delete` in a binding that covers the project (T-0526, PF-50).
     let target = serde_json::to_value(&envelope).map_err(|e| ApiError::Internal(e.to_string()))?;
-    crate::permissions::for_request(&state, &user.0.identity, &project).check(
+    crate::permissions::for_request(state, identity, project).check(
         kind_info.kind,
         jc_core::kinds::Verb::Delete,
         Some(&target),
     )?;
 
-    // 2. Scan every resource in the mirror for blocking dependents (MF-07, R20)
-    let blocking_count = state.mirror.count_matching(|candidate| {
+    // 2. Every resource in the mirror that still references the target (MF-07, R20)
+    let dependents = state.mirror.matching(|candidate| {
         let candidate_ns = candidate.metadata.namespace.as_deref().unwrap_or_default();
         let is_victim = candidate.kind == kind_info.kind
             && candidate.metadata.name == name
             && candidate_ns == project;
-        if is_victim {
-            return false;
-        }
-        has_typed_ref(
-            &candidate.spec,
-            candidate_ns,
-            &project,
-            kind_info.kind,
-            &name,
-        )
+        !is_victim && has_typed_ref(&candidate.spec, candidate_ns, project, kind_info.kind, name)
     });
-
-    if blocking_count > 0 {
-        let msg = if blocking_count == 1 {
-            "1 dependent resource blocks deletion".to_string()
-        } else {
-            format!("{blocking_count} dependent resources block deletion")
-        };
-        return Err(ApiError::Conflict(msg));
+    if !dependents.is_empty() {
+        let (local, foreign): (Vec<_>, Vec<_>) = dependents
+            .into_iter()
+            .partition(|candidate| candidate.metadata.namespace.as_deref() == Some(project));
+        let mut here: Vec<Reference> = local
+            .into_iter()
+            .map(|candidate| Reference {
+                kind: candidate.kind,
+                name: candidate.metadata.name,
+            })
+            .collect();
+        here.sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
+        return Ok(DeleteOutcome::Referenced {
+            here,
+            elsewhere: foreign.len(),
+        });
     }
 
     // 3. Risk-classified approval lane: Red (CC-19, CC-39, CC-63)
@@ -129,17 +192,13 @@ pub async fn delete_resource(
     // 4. Compute diff against None (deletion plan)
     let plan = plan::diff(Some(&envelope), None);
 
-    if is_dry {
-        return Ok((
-            StatusCode::OK,
-            Json(DryRunResult {
-                valid: true,
-                lane,
-                plan,
-                probe: None,
-            }),
-        )
-            .into_response());
+    if dry_run {
+        return Ok(DeleteOutcome::DryRun(DryRunResult {
+            valid: true,
+            lane,
+            plan,
+            probe: None,
+        }));
     }
 
     // 5. Commit deletion to Git merge request via Gitea client
@@ -149,21 +208,17 @@ pub async fn delete_resource(
         .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
 
     let default_branch = gitea.default_branch().await?;
-    let repo_path = resolve_repo_path(&envelope, kind_info, &project)?;
+    let repo_path = resolve_repo_path(&envelope, kind_info, project)?;
 
     let existing = gitea
         .get_file(&repo_path, &default_branch)
         .await?
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "resource '{name}' not found in project '{project}'"
-            ))
-        })?;
+        .ok_or_else(not_found)?;
 
-    let branch = branch_name(&project, kind_info.kind, &name, Operation::Delete);
+    let branch = branch_name(project, kind_info.kind, name, Operation::Delete);
     create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
-    let (author_name, author_email) = author_credentials(&user.0.identity, &project);
+    let (author_name, author_email) = author_credentials(identity, project);
     let commit_msg = format!("delete {} {name}", kind_info.kind);
 
     let file_del = FileDelete {
@@ -189,12 +244,13 @@ pub async fn delete_resource(
         .create_pull_request(&branch, &default_branch, &pr_title, &pr_body)
         .await?;
 
-    let change_meta = ChangeMeta::from_merge_request(pr.number, &project);
+    let change_meta = ChangeMeta::from_merge_request(pr.number, project);
     let change_status = ChangeStatus::new(lane, ChangePhase::PendingApproval, plan.summary)
         .with_merge_request(pr.url);
-    let change = Change::new(change_meta, change_status);
-
-    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+    Ok(DeleteOutcome::Proposed(Change::new(
+        change_meta,
+        change_status,
+    )))
 }
 
 #[cfg(test)]
@@ -452,8 +508,10 @@ mod tests {
 
         match err1 {
             ApiError::Conflict(msg) => {
-                assert_eq!(msg, "1 dependent resource blocks deletion");
-                assert!(!msg.contains("live-traffic"));
+                assert_eq!(
+                    msg,
+                    "1 dependent resource blocks deletion: Endpoint live-traffic"
+                );
             }
             other => panic!("expected Conflict, got {other:?}"),
         }
@@ -486,9 +544,10 @@ mod tests {
 
         match err2 {
             ApiError::Conflict(msg) => {
-                assert_eq!(msg, "2 dependent resources block deletion");
-                assert!(!msg.contains("live-traffic"));
-                assert!(!msg.contains("traffic-stream"));
+                assert_eq!(
+                    msg,
+                    "2 dependent resources block deletion: Endpoint live-traffic, Pipeline traffic-stream"
+                );
             }
             other => panic!("expected Conflict, got {other:?}"),
         }

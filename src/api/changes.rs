@@ -84,6 +84,9 @@ impl ChangeList {
 pub struct ApproveBody {
     #[serde(default)]
     pub confirm: Option<String>,
+    /// Why a change is rejected; written on the merge request beside who rejected it.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Replaces sensitive field values with `"[REDACTED]"` (CC-06).
@@ -816,43 +819,60 @@ pub async fn reject_change(
     Path((project, id)): Path<(String, String)>,
     body: Bytes,
 ) -> Result<Response, ApiError> {
-    if !body.is_empty() {
-        let _: ApproveBody = serde_json::from_slice(&body)
-            .map_err(|e| ApiError::BadRequest(format!("invalid json body: {e}")))?;
-    }
+    let body: ApproveBody = if body.is_empty() {
+        ApproveBody::default()
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|e| ApiError::BadRequest(format!("invalid json body: {e}")))?
+    };
+    let change = reject_change_for(
+        &state,
+        &user.0.identity,
+        &project,
+        &id,
+        body.reason.as_deref(),
+    )
+    .await?;
+    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+}
 
-    may_approve_anything(&state, &user.0.identity, &project)?;
-    let pr_number = parse_change_id(&id)?;
+/// Rejects a change proposal as `identity`: the one path behind the REST route and
+/// `jc_change_reject` (AG-77). Needs `approve` on the change's kind (PF-50); the merge request is
+/// closed with a comment naming who rejected it and why.
+pub async fn reject_change_for(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    id: &str,
+    reason: Option<&str>,
+) -> Result<Change, ApiError> {
+    may_approve_anything(state, identity, project)?;
+    let pr_number = parse_change_id(id)?;
     let gitea = state
         .gitea
         .as_deref()
         .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
 
     let pr = gitea.pull_request(pr_number).await?;
-    let data = load_manifest_data(gitea, &pr, &project)
+    let data = load_manifest_data(gitea, &pr, project)
         .await?
         .ok_or_else(|| {
             ApiError::NotFound(format!(
                 "change proposal '{id}' not found in project '{project}'"
             ))
         })?;
-    may_approve(&state, &user.0.identity, &project, &data)?;
+    may_approve(state, identity, project, &data)?;
 
     // A comment, not a "request changes" review: the forge token is the pull request's author
     // and Gitea refuses the author's verdict on their own pull; the Portal's role check above is
-    // the gate (PF-50), the comment says who rejected.
-    let rejecter = user
-        .0
-        .identity
-        .email
-        .as_deref()
-        .unwrap_or(&user.0.identity.username);
+    // the gate (PF-50), the comment says who rejected and why.
+    let rejecter = identity.email.as_deref().unwrap_or(&identity.username);
+    let comment = match reason.map(str::trim).filter(|reason| !reason.is_empty()) {
+        Some(reason) => format!("Change proposal rejected in the Portal by {rejecter}: {reason}"),
+        None => format!("Change proposal rejected in the Portal by {rejecter}"),
+    };
     gitea
-        .review(
-            pr_number,
-            ReviewEvent::Comment,
-            &format!("Change proposal rejected in the Portal by {rejecter}"),
-        )
+        .review(pr_number, ReviewEvent::Comment, &comment)
         .await?;
     // Closed, not merged, is what the list reads back as Rejected; a comment alone would leave
     // the proposal pending.
@@ -867,12 +887,10 @@ pub async fn reject_change(
         Lane::Yellow
     };
 
-    let change_meta = ChangeMeta::from_merge_request(pr_number, &project);
+    let change_meta = ChangeMeta::from_merge_request(pr_number, project);
     let change_status =
         ChangeStatus::new(lane, ChangePhase::Rejected, plan.summary).with_merge_request(pr.url);
-    let change = Change::new(change_meta, change_status);
-
-    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+    Ok(Change::new(change_meta, change_status))
 }
 
 pub fn router() -> Router<AppState> {

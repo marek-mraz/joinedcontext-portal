@@ -317,8 +317,10 @@ async fn delete_unknown_plural_returns_404() {
     );
 }
 
+/// AG-77, R20: a blocked deletion names the references of the caller's own project, which the
+/// caller reads anyway, and would only count those of other projects.
 #[tokio::test]
-async fn delete_blocked_by_dependents_returns_409_naming_only_count() {
+async fn delete_blocked_by_dependents_returns_409_naming_this_projects_references() {
     let server = MockServer::start().await;
     let base_url = server.uri().parse().expect("valid mock server url");
     let client =
@@ -388,13 +390,8 @@ async fn delete_blocked_by_dependents_returns_409_naming_only_count() {
     assert_eq!(problem1.r#type, "https://joinedcontext.com/errors/conflict");
     assert_eq!(
         problem1.detail.as_deref(),
-        Some("1 dependent resource blocks deletion")
+        Some("1 dependent resource blocks deletion: Endpoint live-traffic")
     );
-    assert!(!problem1
-        .detail
-        .as_deref()
-        .unwrap_or_default()
-        .contains("live-traffic"));
 
     state.mirror.upsert(ResourceEnvelope {
         api_version: API_VERSION.to_string(),
@@ -437,18 +434,10 @@ async fn delete_blocked_by_dependents_returns_409_naming_only_count() {
     assert_eq!(problem2.status, 409);
     assert_eq!(
         problem2.detail.as_deref(),
-        Some("2 dependent resources block deletion")
+        Some(
+            "2 dependent resources block deletion: Endpoint live-traffic, Pipeline traffic-stream"
+        )
     );
-    assert!(!problem2
-        .detail
-        .as_deref()
-        .unwrap_or_default()
-        .contains("live-traffic"));
-    assert!(!problem2
-        .detail
-        .as_deref()
-        .unwrap_or_default()
-        .contains("traffic-stream"));
 
     let requests = server.received_requests().await.expect("received requests");
     assert!(requests.is_empty());

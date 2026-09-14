@@ -2606,7 +2606,7 @@ proposes it.
         }
         let caller = crate::ops::Caller {
             identity: self.identity.clone(),
-            via: crate::ops::Via::Session,
+            via: crate::ops::Via::Agent,
         };
         // The operation reads its own fields only: the call's `tool` key goes, and the
         // assistant never proposes, the person does on the page it opens (AG-73).
@@ -3017,7 +3017,7 @@ proposes it.
             Some(op) => {
                 let caller = crate::ops::Caller {
                     identity: self.identity.clone(),
-                    via: crate::ops::Via::Session,
+                    via: crate::ops::Via::Agent,
                 };
                 let test = json!({
                     "pipeline": plan.pipeline,

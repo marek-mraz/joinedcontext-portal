@@ -643,7 +643,7 @@ async fn mcp_prompts_name_the_units_and_their_operations() {
         .iter()
         .filter_map(|p| p["name"].as_str())
         .collect();
-    assert_eq!(names, ["load", "share", "analyse", "model"]);
+    assert_eq!(names, ["load", "share", "analyse", "model", "change"]);
 
     let got = rpc(
         app.clone(),

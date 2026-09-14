@@ -13,6 +13,7 @@ use std::pin::Pin;
 use std::sync::OnceLock;
 
 pub mod drafts;
+pub mod resources;
 pub mod space_complete;
 pub mod verdict;
 
@@ -50,6 +51,8 @@ pub enum Via {
     Session,
     Bearer,
     Mcp,
+    /// An assistant or application run acting for the person who started it (AG-70).
+    Agent,
 }
 
 impl Via {
@@ -59,6 +62,7 @@ impl Via {
             Via::Session => "person",
             Via::Bearer => "api-key",
             Via::Mcp => "mcp",
+            Via::Agent => "run",
         }
     }
 }
@@ -886,6 +890,12 @@ async fn propose_with_optional_draft(
 }
 
 fn init_registry() -> Vec<Operation> {
+    let mut operations = core_operations();
+    operations.extend(resources::operations());
+    operations
+}
+
+fn core_operations() -> Vec<Operation> {
     vec![
         Operation {
             name: "jc_catalog_search",
@@ -1292,6 +1302,7 @@ fn init_registry() -> Vec<Operation> {
             },
             run: |caller, state, project, val| {
                 Box::pin(async move {
+                    resources::refuse_agent(caller)?;
                     let input: ChangeApproveInput =
                         serde_json::from_value(val).map_err(|e| {
                             let (path, message) = serde_error_path_and_message(&e);
@@ -1640,7 +1651,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 18);
+        assert_eq!(ops.len(), 23);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -1660,6 +1671,11 @@ mod tests {
             "jc_draft_get",
             "jc_draft_list",
             "jc_draft_drop",
+            "jc_resource_list",
+            "jc_resource_get",
+            "jc_resource_propose",
+            "jc_resource_delete",
+            "jc_change_reject",
         ] {
             assert!(find(name).is_some(), "missing operation {name}");
         }

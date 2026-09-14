@@ -5090,6 +5090,13 @@
               "string",
               "null"
             ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why a change is rejected; written on the merge request beside who rejected it."
           }
         }
       },

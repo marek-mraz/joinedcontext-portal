@@ -1024,6 +1024,8 @@ export interface components {
         /** @description Request body for approving or rejecting a change proposal. */
         ApproveBody: {
             confirm?: string | null;
+            /** @description Why a change is rejected; written on the merge request beside who rejected it. */
+            reason?: string | null;
         };
         /**
          * @description What one Model Tools run rendered. Every artifact is optional: a version that does not
