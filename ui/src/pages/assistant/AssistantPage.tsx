@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "../../components/ui/Table";
 import { TERMINAL_STATES } from "../apps/useAgentRun";
+import { AgentAccess } from "./AgentAccess";
 
 interface RunRecord {
   id: string;
@@ -462,6 +463,8 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
           </Button>
         </form>
       </section>
+
+      <AgentAccess project={project} />
     </div>
   );
 }

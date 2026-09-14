@@ -1366,6 +1366,29 @@
       "unattended": "Beží bez otázok a na konci čaká na vaše schválenie."
     },
     "started": "Začiatok",
-    "actions": "Akcie"
+    "actions": "Akcie",
+    "access": {
+      "title": "Prístup agentov",
+      "lead": "Čo smie urobiť agent, ktorého spustíte: povolenie profilu a vaše vlastné oprávnenie pre každú operáciu. Beh dostane len to, čo povolia obe.",
+      "none": "Nie je nastavený žiadny profil agenta.",
+      "available": "Dostupné pre vás: {{count}} z {{total}} operácií",
+      "declared": "Profil deklaruje svoj prístup.",
+      "readOnlyDefault": "Profil nedeklaruje prístup, jeho agenti smú používať len operácie na čítanie.",
+      "egress": "Internetové hostiteľské servery",
+      "noEgress": "žiadne",
+      "caption": "Operácie profilu {{name}}",
+      "operation": "Operácia",
+      "profile": "Profil",
+      "you": "Vy",
+      "reason": "Prečo nie",
+      "yes": "áno",
+      "no": "nie",
+      "edit": "Upraviť prístup",
+      "block": "Blok prístupu (YAML)",
+      "blockHint": "operations, kinds s read alebo propose, endpoints s read alebo write. Prázdny blok odstráni. Úprava je zmena, ktorú posúdi schvaľovateľ.",
+      "propose": "Navrhnúť zmenu",
+      "cancel": "Zrušiť",
+      "yamlError": "Neplatný YAML: {{message}}"
+    }
   }
 }

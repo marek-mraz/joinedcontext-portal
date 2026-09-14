@@ -1906,3 +1906,31 @@ async fn dashboard_run_is_unattended_and_publish_answers_409() {
         "{problem}"
     );
 }
+
+#[tokio::test]
+async fn a_profile_that_lists_endpoints_refuses_a_run_on_one_it_does_not_grant() {
+    let config = config();
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let with_endpoints = |endpoints: Value| {
+        let mut spec = builder_profile_spec();
+        spec["access"] = json!({ "operations": ["jc_catalog_search"], "endpoints": endpoints });
+        router(mirror(Some(spec)), &config)
+    };
+
+    let app = with_endpoints(json!([{ "name": "helsinki-air", "verbs": ["read"] }]));
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(create_body()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    assert!(problem["detail"]
+        .as_str()
+        .is_some_and(|d| d.contains("helsinki-bikes") && d.contains("AG-70")));
+
+    let app = with_endpoints(json!([{ "name": "helsinki-bikes", "verbs": ["read"] }]));
+    create_run(&app, &cookie).await;
+}

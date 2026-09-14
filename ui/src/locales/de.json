@@ -1366,6 +1366,29 @@
       "unattended": "Es läuft ohne Rückfragen und wartet am Ende auf Ihre Freigabe."
     },
     "started": "Gestartet",
-    "actions": "Aktionen"
+    "actions": "Aktionen",
+    "access": {
+      "title": "Agentenzugriff",
+      "lead": "Was ein von Ihnen gestarteter Agent tun darf: die Freigabe des Profils und Ihre eigene Berechtigung, je Operation. Ein Lauf erhält nur, was beide erlauben.",
+      "none": "Kein Agentenprofil ist konfiguriert.",
+      "available": "Für Sie verfügbar: {{count}} von {{total}} Operationen",
+      "declared": "Das Profil deklariert seinen Zugriff.",
+      "readOnlyDefault": "Das Profil deklariert keinen Zugriff, seine Agenten dürfen nur lesende Operationen nutzen.",
+      "egress": "Internet-Hosts",
+      "noEgress": "keine",
+      "caption": "Operationen von {{name}}",
+      "operation": "Operation",
+      "profile": "Profil",
+      "you": "Sie",
+      "reason": "Warum nicht",
+      "yes": "ja",
+      "no": "nein",
+      "edit": "Zugriff bearbeiten",
+      "block": "Zugriffsblock (YAML)",
+      "blockHint": "operations, kinds mit read oder propose, endpoints mit read oder write. Leer entfernt den Block. Die Änderung prüft eine freigebende Person.",
+      "propose": "Änderung vorschlagen",
+      "cancel": "Abbrechen",
+      "yamlError": "Kein gültiges YAML: {{message}}"
+    }
   }
 }

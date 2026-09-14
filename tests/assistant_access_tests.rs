@@ -322,3 +322,60 @@ async fn a_profile_naming_an_operation_the_portal_does_not_register_is_refused_o
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn the_access_view_names_both_halves_and_the_one_that_refuses() {
+    let config = config("http://proxy.invalid");
+    let access = json!({
+        "operations": ["jc_catalog_search", "jc_endpoint_propose"],
+        "kinds": [{ "kind": "Endpoint", "verbs": ["read", "propose"] }]
+    });
+    let app = server::app(AppState::new(config.clone(), None).with_mirror(mirror(Some(access))));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/helsinki/assistant/access")
+                .header(
+                    header::COOKIE,
+                    cookie(&config, person("reader@hel.fi", &[])),
+                )
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).expect("json");
+    let profile = &body["items"][0];
+    assert_eq!(profile["name"], "app-builder");
+    assert_eq!(profile["egressHosts"], json!(["registry.npmjs.org"]));
+    assert_eq!(profile["access"]["operations"][1], "jc_endpoint_propose");
+    let op = |name: &str| {
+        profile["operations"]
+            .as_array()
+            .and_then(|ops| ops.iter().find(|op| op["name"] == name))
+            .cloned()
+            .expect("listed")
+    };
+    let search = op("jc_catalog_search");
+    assert_eq!(
+        (search["profile"].clone(), search["person"].clone()),
+        (json!(true), json!(true))
+    );
+    assert!(search["reason"].is_null());
+    let share = op("jc_endpoint_propose");
+    assert_eq!(
+        (share["profile"].clone(), share["person"].clone()),
+        (json!(true), json!(false))
+    );
+    assert!(
+        share["reason"].as_str().is_some_and(|r| !r.is_empty()),
+        "{share}"
+    );
+    let complete = op("jc_space_complete");
+    assert_eq!(complete["profile"], false);
+    assert!(complete["reason"]
+        .as_str()
+        .is_some_and(|r| r.contains("does not grant")));
+}

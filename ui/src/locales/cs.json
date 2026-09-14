@@ -1366,6 +1366,29 @@
       "unattended": "Běží bez dotazů a na konci čeká na vaše schválení."
     },
     "started": "Začátek",
-    "actions": "Akce"
+    "actions": "Akce",
+    "access": {
+      "title": "Přístup agentů",
+      "lead": "Co smí udělat agent, kterého spustíte: oprávnění profilu a vaše vlastní oprávnění pro každou operaci. Běh dostane jen to, co povolí obojí.",
+      "none": "Není nastaven žádný profil agenta.",
+      "available": "Dostupné pro vás: {{count}} z {{total}} operací",
+      "declared": "Profil deklaruje svůj přístup.",
+      "readOnlyDefault": "Profil nedeklaruje přístup, jeho agenti smí používat jen operace pro čtení.",
+      "egress": "Internetové servery",
+      "noEgress": "žádné",
+      "caption": "Operace profilu {{name}}",
+      "operation": "Operace",
+      "profile": "Profil",
+      "you": "Vy",
+      "reason": "Proč ne",
+      "yes": "ano",
+      "no": "ne",
+      "edit": "Upravit přístup",
+      "block": "Blok přístupu (YAML)",
+      "blockHint": "operations, kinds s read nebo propose, endpoints s read nebo write. Prázdný blok odstraní. Úprava je změna, kterou posoudí schvalovatel.",
+      "propose": "Navrhnout změnu",
+      "cancel": "Zrušit",
+      "yamlError": "Neplatný YAML: {{message}}"
+    }
   }
 }

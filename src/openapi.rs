@@ -10,7 +10,7 @@ use crate::api::agent_runs::{
     AnswerRequest, CreateRunRequest, CreatedRun, EventReceipt, MessageRequest, RelayedEvent,
     RunContext, RunList,
 };
-use crate::api::assistant::StartConversation;
+use crate::api::assistant::{AgentAccessList, OperationAccess, ProfileAccess, StartConversation};
 use crate::api::blueprints::FlowRequest;
 use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummary};
 use crate::api::ckan::{
@@ -76,6 +76,7 @@ use crate::tools::model_tools::{
         crate::api::agent_runs::publish_run,
         crate::api::agent_runs::preview,
         crate::api::assistant::start_conversation,
+        crate::api::assistant::get_access,
         crate::api::service_accounts::list_keys,
         crate::api::service_accounts::create_key,
         crate::api::service_accounts::rotate_key,
@@ -117,6 +118,9 @@ use crate::tools::model_tools::{
         CreateRunRequest,
         CreatedRun,
         StartConversation,
+        AgentAccessList,
+        ProfileAccess,
+        OperationAccess,
         RunList,
         RunContext,
         RelayedEvent,

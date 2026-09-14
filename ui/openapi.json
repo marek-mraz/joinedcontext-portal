@@ -1016,6 +1016,57 @@
         }
       }
     },
+    "/api/v1/projects/{project}/assistant/access": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "get_access",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every agent profile with the caller's effective access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAccessList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a project name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/assistant/conversations": {
       "post": {
         "tags": [
@@ -4447,6 +4498,20 @@
   },
   "components": {
     "schemas": {
+      "AgentAccessList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileAccess"
+            }
+          }
+        }
+      },
       "AgentRun": {
         "type": "object",
         "required": [
@@ -6178,6 +6243,39 @@
         },
         "additionalProperties": false
       },
+      "OperationAccess": {
+        "type": "object",
+        "description": "One operation of the registry as a run the caller starts would meet it (AG-70, UI-56).",
+        "required": [
+          "name",
+          "readOnly",
+          "profile",
+          "person"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "person": {
+            "type": "boolean",
+            "description": "The caller's own permission in the project (PF-50)."
+          },
+          "profile": {
+            "type": "boolean",
+            "description": "The profile's half: its access block, or the read-only default without one."
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The half that refuses; `null` when neither does."
+          }
+        }
+      },
       "OperationAnnotations": {
         "type": "object",
         "required": [
@@ -6482,6 +6580,49 @@
           },
           "type": {
             "type": "string"
+          }
+        }
+      },
+      "ProfileAccess": {
+        "type": "object",
+        "description": "An `AgentProfile` and what it lets a run of the caller do.",
+        "required": [
+          "name",
+          "role",
+          "egressHosts",
+          "operations"
+        ],
+        "properties": {
+          "access": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "`spec.access` as written; `null` when the profile has none."
+          },
+          "egressHosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperationAccess"
+            }
+          },
+          "role": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

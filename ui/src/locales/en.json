@@ -1366,6 +1366,29 @@
       "unattended": "It runs without asking you and waits for your approval at the end."
     },
     "started": "Started",
-    "actions": "Actions"
+    "actions": "Actions",
+    "access": {
+      "title": "Agent access",
+      "lead": "What an agent run you start may do: the profile's grant and your own permission, per operation. A run gets only what both allow.",
+      "none": "No agent profile is configured.",
+      "available": "Available to you: {{count}} of {{total}} operations",
+      "declared": "The profile declares its access.",
+      "readOnlyDefault": "The profile declares no access, so its agents may use read-only operations only.",
+      "egress": "Internet hosts",
+      "noEgress": "none",
+      "caption": "Operations of {{name}}",
+      "operation": "Operation",
+      "profile": "Profile",
+      "you": "You",
+      "reason": "Why not",
+      "yes": "yes",
+      "no": "no",
+      "edit": "Edit access",
+      "block": "Access block (YAML)",
+      "blockHint": "operations, kinds with read or propose, endpoints with read or write. Empty removes the block. The edit is a change an approver reviews.",
+      "propose": "Propose change",
+      "cancel": "Cancel",
+      "yamlError": "Not valid YAML: {{message}}"
+    }
   }
 }

@@ -282,6 +282,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/assistant/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_access"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/assistant/conversations": {
         parameters: {
             query?: never;
@@ -846,6 +862,9 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AgentAccessList: {
+            items: components["schemas"]["ProfileAccess"][];
+        };
         AgentRun: {
             allowsWrite: boolean;
             appClass: string;
@@ -1551,6 +1570,17 @@ export interface components {
                 [key: string]: string;
             }) | null;
         };
+        /** @description One operation of the registry as a run the caller starts would meet it (AG-70, UI-56). */
+        OperationAccess: {
+            name: string;
+            /** @description The caller's own permission in the project (PF-50). */
+            person: boolean;
+            /** @description The profile's half: its access block, or the read-only default without one. */
+            profile: boolean;
+            readOnly: boolean;
+            /** @description The half that refuses; `null` when neither does. */
+            reason?: string | null;
+        };
         OperationAnnotations: {
             destructiveHint: boolean;
             idempotentHint: boolean;
@@ -1639,6 +1669,16 @@ export interface components {
             status: number;
             title: string;
             type: string;
+        };
+        /** @description An `AgentProfile` and what it lets a run of the caller do. */
+        ProfileAccess: {
+            /** @description `spec.access` as written; `null` when the profile has none. */
+            access?: Record<string, never> | null;
+            egressHosts: string[];
+            name: string;
+            operations: components["schemas"]["OperationAccess"][];
+            role: string;
+            title?: string | null;
         };
         /**
          * @description The projects the configuration repository holds (PF-05): one per `projects/<slug>/`
@@ -2629,6 +2669,47 @@ export interface operations {
             };
             /** @description Git forge unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_access: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every agent profile with the caller's effective access */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAccessList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not a project name */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

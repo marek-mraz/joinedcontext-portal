@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+use crate::agents::access::{self, refusal};
 use crate::agents::oneshot;
 use crate::agents::profile::Profile;
 use crate::agents::run::{digest_prompt, mint_run_id, mint_ticket, AgentRun, AgentRunStatus};
@@ -212,6 +213,7 @@ fn title_of(env: &ResourceEnvelope) -> Option<String> {
     let title = &meta["title"];
     title["en"]
         .as_str()
+        .or_else(|| title.as_str())
         .or_else(|| {
             title
                 .as_object()
@@ -615,9 +617,115 @@ pub async fn start_conversation(
     Ok((StatusCode::ACCEPTED, Json(CreatedRun { run, ticket: None })))
 }
 
+/// One operation of the registry as a run the caller starts would meet it (AG-70, UI-56).
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationAccess {
+    pub name: String,
+    pub read_only: bool,
+    /// The profile's half: its access block, or the read-only default without one.
+    pub profile: bool,
+    /// The caller's own permission in the project (PF-50).
+    pub person: bool,
+    /// The half that refuses; `null` when neither does.
+    pub reason: Option<String>,
+}
+
+/// An `AgentProfile` and what it lets a run of the caller do.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileAccess {
+    pub name: String,
+    pub title: Option<String>,
+    pub role: String,
+    /// `spec.access` as written; `null` when the profile has none.
+    #[schema(value_type = Option<Object>)]
+    pub access: Option<Value>,
+    pub egress_hosts: Vec<String>,
+    pub operations: Vec<OperationAccess>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentAccessList {
+    pub items: Vec<ProfileAccess>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/projects/{project}/assistant/access",
+    tag = "agents",
+    params(("project" = String, Path, description = "Project name")),
+    responses(
+        (status = 200, description = "Every agent profile with the caller's effective access", body = AgentAccessList),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "Not a project name", body = ProblemDetails)
+    )
+)]
+pub async fn get_access(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(project): Path<String>,
+) -> Result<Json<AgentAccessList>, ApiError> {
+    if !is_dns1123(&project) {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
+    let identity = &user.0.identity;
+    let mut items: Vec<ProfileAccess> = state
+        .mirror
+        .list(
+            crate::api::blueprints::ORG_NAMESPACE,
+            "AgentProfile",
+            &ListOptions::default(),
+        )
+        .items
+        .iter()
+        .map(|env| {
+            let access = access::Access::from_spec(&env.spec);
+            let operations = crate::ops::registry()
+                .iter()
+                .map(|op| {
+                    let profile = access.names(op);
+                    let person = crate::ops::permitted(op, identity, &state, &project);
+                    let reason = if profile {
+                        person.as_ref().err().map(ToString::to_string)
+                    } else {
+                        Some(refusal(op.name))
+                    };
+                    OperationAccess {
+                        name: op.name.to_owned(),
+                        read_only: op.annotations.read_only_hint,
+                        profile,
+                        person: person.is_ok(),
+                        reason,
+                    }
+                })
+                .collect();
+            ProfileAccess {
+                name: env.metadata.name.clone(),
+                title: title_of(env),
+                role: env.spec["role"].as_str().unwrap_or_default().to_owned(),
+                access: env.spec.get("access").filter(|a| a.is_object()).cloned(),
+                egress_hosts: env
+                    .spec
+                    .pointer("/egress/allowedHosts")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
+                operations,
+            }
+        })
+        .collect();
+    items.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(Json(AgentAccessList { items }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/projects/{project}/assistant/catalog", get(get_catalog))
+        .route("/projects/{project}/assistant/access", get(get_access))
         .route(
             "/projects/{project}/assistant/propose-endpoint",
             post(propose_endpoint),

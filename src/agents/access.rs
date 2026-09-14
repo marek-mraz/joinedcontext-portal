@@ -22,6 +22,9 @@ struct Declared {
     operations: BTreeSet<String>,
     /// Kind → the verbs granted on it (`read`, `propose`).
     kinds: BTreeMap<String, BTreeSet<String>>,
+    /// Endpoint name → the verbs granted on it (`read`, `write`); empty grants every endpoint
+    /// the person may use.
+    endpoints: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Access {
@@ -41,23 +44,26 @@ impl Access {
                 })
                 .unwrap_or_default()
         };
-        let kinds = access
-            .get("kinds")
-            .and_then(Value::as_array)
-            .map(|grants| {
-                grants
-                    .iter()
-                    .filter_map(|grant| {
-                        let kind = grant.get("kind")?.as_str()?.to_owned();
-                        Some((kind, strings(grant.get("verbs"))))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let grants = |list: &str, key: &str| -> BTreeMap<String, BTreeSet<String>> {
+            access
+                .get(list)
+                .and_then(Value::as_array)
+                .map(|grants| {
+                    grants
+                        .iter()
+                        .filter_map(|grant| {
+                            let name = grant.get(key)?.as_str()?.to_owned();
+                            Some((name, strings(grant.get("verbs"))))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
         Self {
             declared: Some(Declared {
                 operations: strings(access.get("operations")),
-                kinds,
+                kinds: grants("kinds", "kind"),
+                endpoints: grants("endpoints", "name"),
             }),
         }
     }
@@ -86,6 +92,18 @@ impl Access {
             .is_some_and(|verbs| verbs.contains(verb))
     }
 
+    /// Whether a run may build on this endpoint: `read`, and `write` when the run writes. A
+    /// profile that lists no endpoints leaves them to the person and the Endpoint's Policy.
+    pub fn grants_endpoint(&self, name: &str, write: bool) -> bool {
+        let Some(declared) = self.declared.as_ref().filter(|d| !d.endpoints.is_empty()) else {
+            return true;
+        };
+        declared
+            .endpoints
+            .get(name)
+            .is_some_and(|verbs| verbs.contains("read") && (!write || verbs.contains("write")))
+    }
+
     /// Both halves at the moment of the call: the profile names the operation and the person who
     /// started the run may call it. The error is the reason the refused `tool` event carries.
     pub fn check(
@@ -97,10 +115,15 @@ impl Access {
     ) -> Result<(), String> {
         let op = ops::find(name).ok_or_else(|| format!("operation '{name}' is not registered"))?;
         if !self.names(op) {
-            return Err(format!("the agent profile does not grant {name} (AG-70)"));
+            return Err(refusal(name));
         }
         ops::permitted(op, identity, state, project).map_err(|err| err.to_string())
     }
+}
+
+/// Why the profile's half refuses an operation.
+pub fn refusal(operation: &str) -> String {
+    format!("the agent profile does not grant {operation} (AG-70)")
 }
 
 #[cfg(test)]
@@ -142,5 +165,20 @@ mod tests {
             !access.names(op("jc_manifest_dry_run")),
             "read-only but not named"
         );
+    }
+
+    #[test]
+    fn listed_endpoints_grant_read_and_write_separately() {
+        let access = Access::from_spec(&json!({ "access": { "operations": [], "endpoints": [
+            { "name": "helsinki-bikes", "verbs": ["read"] },
+            { "name": "helsinki-kpi", "verbs": ["read", "write"] },
+        ]}}));
+        assert!(access.grants_endpoint("helsinki-bikes", false));
+        assert!(!access.grants_endpoint("helsinki-bikes", true));
+        assert!(access.grants_endpoint("helsinki-kpi", true));
+        assert!(!access.grants_endpoint("helsinki-air", false));
+        let unlisted = Access::from_spec(&json!({ "access": { "operations": [] } }));
+        assert!(unlisted.grants_endpoint("helsinki-air", true));
+        assert!(Access::default().grants_endpoint("helsinki-air", true));
     }
 }

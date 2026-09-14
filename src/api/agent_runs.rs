@@ -316,6 +316,24 @@ pub async fn create_run(
         &user,
     )?;
 
+    // AG-70: a profile that lists endpoints builds only on the ones it grants, with write for a
+    // run that writes.
+    if !profile
+        .access
+        .grants_endpoint(&request.endpoint_name, allows_write)
+    {
+        return Err(ApiError::Denied(format!(
+            "agent profile '{}' does not grant {} on endpoint '{}' (AG-70)",
+            profile.name,
+            if allows_write {
+                "read and write"
+            } else {
+                "read"
+            },
+            request.endpoint_name
+        )));
+    }
+
     let endpoint_slug = endpoint_slug(&state, &project, &request.endpoint_name)?;
 
     if request.kind != "conversation" {
