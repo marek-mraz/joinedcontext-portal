@@ -64,7 +64,7 @@ function TokenDialog({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(40rem,92vw)] -translate-x-1/2 -translate-y-1/2 rounded border border-border bg-surface p-6 text-surface-fg shadow-lg">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(56rem,94vw)] -translate-x-1/2 -translate-y-1/2 rounded border border-border bg-surface p-6 text-surface-fg shadow-lg">
           <Dialog.Title className="text-lg font-bold">{t("access.keys.newTitle")}</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-surface-fg/70">
             {t("access.keys.newHint")}

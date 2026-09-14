@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { JSX } from "react";
+import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
@@ -210,8 +211,15 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
         full
           ? "fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col gap-2 bg-surface p-3"
           : layout === "float"
-            ? "fixed bottom-4 right-4 z-40 flex h-[min(40rem,calc(100vh-5rem))] w-[calc(100vw-2rem)] max-w-[26rem] flex-col gap-2 rounded-lg border border-border bg-surface p-3 shadow-xl"
-            : "flex w-full shrink-0 flex-col gap-2 border-l border-border bg-surface p-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)] md:w-[24rem]"
+            ? clsx(
+                "fixed bottom-4 right-4 z-40 flex h-[min(40rem,calc(100vh-5rem))] w-[calc(100vw-2rem)] flex-col gap-2 rounded-lg border border-border bg-surface p-3 shadow-xl",
+                // The app builder is a form: it gets the room a form needs.
+                building ? "max-w-[44rem]" : "max-w-[26rem]",
+              )
+            : clsx(
+                "flex w-full shrink-0 flex-col gap-2 border-l border-border bg-surface p-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)]",
+                building ? "md:w-[40rem]" : "md:w-[24rem]",
+              )
       }
     >
       <div className="flex items-center justify-between gap-2">

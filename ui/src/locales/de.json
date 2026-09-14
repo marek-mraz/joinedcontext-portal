@@ -227,7 +227,7 @@
       "title": "Titel",
       "space": "Kontextraum",
       "slug": "Slug",
-      "publicUrl": "Public URL",
+      "publicUrl": "Public address",
       "audience": "Zielgruppe",
       "representations": "Repräsentationen",
       "phase": "Zustand",
@@ -276,7 +276,7 @@
       "referenced": "Referenziert",
       "alias": "Alias"
     },
-    "slugHint": "Minted by the Portal, never typed: it encodes nothing about the space or the project (EP-03).",
+    "slugHint": "The address is created for you and never changes, even when the endpoint is renamed.",
     "picker": {
       "title": "Model projection",
       "hint": "Pick the classes and slots this endpoint exposes. The policy and projection are generated together.",
@@ -294,6 +294,27 @@
       "nothingTicked": "Tick at least one class to expose through the endpoint.",
       "projectionName": "Projection name",
       "preview": "Generated manifests"
+    },
+    "audienceOption": {
+      "project-list": "Selected projects: only the projects you tick",
+      "organization": "Organization: every project of the organization",
+      "public": "Public: anyone with the address"
+    },
+    "representationOption": {
+      "ngsi-ld": "NGSI-LD API",
+      "geojson": "GeoJSON",
+      "csv": "CSV",
+      "json": "JSON",
+      "xlsx": "Excel (xlsx)",
+      "zip": "ZIP download",
+      "ogc-features": "OGC API Features",
+      "sta": "SensorThings API",
+      "mcp": "MCP for AI assistants"
+    },
+    "section": {
+      "projection": "Which classes and attributes it shows",
+      "hidden": "Hide attributes",
+      "manifests": "Show the manifests this proposes"
     }
   },
   "datasources": {
@@ -916,23 +937,22 @@
       },
       "preview": {
         "title": "Was dieser Endpoint Ihnen gibt",
-        "hint": "Mit Ihrer eigenen Anmeldung gelesen, also genau das, was Sie sehen dürfen, und nicht mehr.",
         "loading": "Frage den Endpoint…",
-        "accessTitle": "Was Sie lesen dürfen",
-        "accessTypes": "Entitätstypen: {types}.",
-        "accessAttrs": "Attribute: {attrs}.",
-        "accessAll": "Jedes Attribut, das der Endpoint veröffentlicht.",
-        "accessUnavailable": "Der Endpoint hat nicht gesagt, was Sie lesen dürfen; die Anwendung lässt sich trotzdem aus seinem Modell bauen.",
-        "denied": "Von der Policy zurückgehalten: {attrs}.",
-        "readOnly": "Nur lesen. Eine erzeugte Anwendung schreibt nie zurück.",
-        "alsoWrite": "Ihre eigene Berechtigung erlaubt auch {actions}; unter den Details können Sie es der Anwendung freigeben.",
-        "samplesTitle": "Fünf Entitäten, so wie sie jetzt ausgeliefert werden",
-        "samplesEmpty": "Der Endpoint antwortet, hält aber noch keine Entitäten.",
-        "samplesUnavailable": "Der Endpoint hat keine Beispieldaten geliefert.",
-        "columnId": "Kennung",
+        "reads": "Liest diesen Endpoint",
+        "readsTypes": "Liest {types}",
+        "allAttributes": "alle Attribute",
+        "readOnly": "nur lesen",
+        "alsoWrite": "Ihre Berechtigung erlaubt auch {actions}",
+        "denied": "zurückgehalten: {attrs}",
+        "accessUnavailable": "Zugriff nicht angegeben; die App entsteht aus dem Modell.",
+        "samples": "Beispieldaten",
+        "samplesCount": "Beispieldaten ({count})",
+        "samplesEmpty": "Noch keine Entitäten.",
+        "samplesUnavailable": "Keine Beispieldaten.",
+        "columnId": "Id",
         "columnType": "Typ",
         "columnValues": "Erste Werte",
-        "linksTitle": "Die eigenen Dokumente des Endpoints"
+        "documents": "Dokumente des Endpoints"
       },
       "promptPlaceholder": "Eine Karte der Stationen, ein Filter für die mit Rädern und ein Diagramm der freien Plätze.",
       "details": "Details: Name, Art und was sie lesen darf ({name})"
@@ -1343,7 +1363,8 @@
     },
     "laxWarning": "Verhaltene Validierung: Prüfung wurde nicht ausgeführt oder ist fehlgeschlagen.",
     "findings": "Befunde",
-    "strict": "strikte Validierung"
+    "strict": "strikte Validierung",
+    "strictHelp": "Nichts wird vorgeschlagen, bevor die Prüfung grün ist."
   },
   "assistantPage": {
     "title": "Assistent",

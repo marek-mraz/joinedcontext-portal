@@ -217,7 +217,7 @@
     "generateSlug": "Vygenerovat slug",
     "copyUrl": "Kopírovat URL",
     "copied": "Zkopírováno",
-    "slugHint": "Minted by the Portal, never typed: it encodes nothing about the space or the project (EP-03).",
+    "slugHint": "The address is created for you and never changes, even when the endpoint is renamed.",
     "picker": {
       "title": "Model projection",
       "hint": "Pick the classes and slots this endpoint exposes. The policy and projection are generated together.",
@@ -255,7 +255,7 @@
       "burst": "Špička",
       "caching": "Vyrovnávací paměť",
       "maxAge": "Životnost ve vyrovnávací paměti (sekundy)",
-      "publicUrl": "Public URL"
+      "publicUrl": "Public address"
     },
     "rateClass": {
       "strict": "Přísná",
@@ -294,6 +294,27 @@
       "use": "Použít v tomto projektu",
       "referenced": "Odkazováno",
       "alias": "alias"
+    },
+    "audienceOption": {
+      "project-list": "Selected projects: only the projects you tick",
+      "organization": "Organization: every project of the organization",
+      "public": "Public: anyone with the address"
+    },
+    "representationOption": {
+      "ngsi-ld": "NGSI-LD API",
+      "geojson": "GeoJSON",
+      "csv": "CSV",
+      "json": "JSON",
+      "xlsx": "Excel (xlsx)",
+      "zip": "ZIP download",
+      "ogc-features": "OGC API Features",
+      "sta": "SensorThings API",
+      "mcp": "MCP for AI assistants"
+    },
+    "section": {
+      "projection": "Which classes and attributes it shows",
+      "hidden": "Hide attributes",
+      "manifests": "Show the manifests this proposes"
     }
   },
   "datasources": {
@@ -916,23 +937,22 @@
       },
       "preview": {
         "title": "Co vám tento endpoint dává",
-        "hint": "Čteno vaším přihlášením, takže je to přesně to, co smíte vidět, a nic víc.",
         "loading": "Ptám se endpointu…",
-        "accessTitle": "Co smíte číst",
-        "accessTypes": "Typy entit: {types}.",
-        "accessAttrs": "Atributy: {attrs}.",
-        "accessAll": "Všechny atributy, které endpoint publikuje.",
-        "accessUnavailable": "Endpoint neřekl, co smíte číst; aplikaci lze postavit i tak, z jeho modelu.",
-        "denied": "Politika zadržuje: {attrs}.",
-        "readOnly": "Jen čtení. Vygenerovaná aplikace nikdy nezapisuje.",
-        "alsoWrite": "Vaše vlastní oprávnění dovoluje i {actions}; v podrobnostech to můžete aplikaci povolit.",
-        "samplesTitle": "Pět entit, jak se právě podávají",
-        "samplesEmpty": "Endpoint odpovídá, ale zatím nemá žádné entity.",
-        "samplesUnavailable": "Endpoint nepodal žádná ukázková data.",
-        "columnId": "Identifikátor",
+        "reads": "Čte tento endpoint",
+        "readsTypes": "Čte {types}",
+        "allAttributes": "všechny atributy",
+        "readOnly": "jen čtení",
+        "alsoWrite": "vaše oprávnění dovoluje i {actions}",
+        "denied": "zadrženo: {attrs}",
+        "accessUnavailable": "Přístup neuveden; aplikace se postaví z modelu.",
+        "samples": "Ukázka dat",
+        "samplesCount": "Ukázka dat ({count})",
+        "samplesEmpty": "Zatím žádné entity.",
+        "samplesUnavailable": "Žádná ukázka dat.",
+        "columnId": "Id",
         "columnType": "Typ",
         "columnValues": "První hodnoty",
-        "linksTitle": "Vlastní dokumenty endpointu"
+        "documents": "Dokumenty endpointu"
       },
       "promptPlaceholder": "Mapa stanic, filtr na ty, kde ještě jsou kola, a graf volných míst.",
       "details": "Podrobnosti: název, druh a co smí číst ({name})"
@@ -1343,7 +1363,8 @@
     },
     "laxWarning": "Mírné ověření: kontrola neproběhla nebo neuspěla.",
     "findings": "Nálezy",
-    "strict": "přísné ověření"
+    "strict": "přísné ověření",
+    "strictHelp": "Nic se nenavrhne, dokud kontrola není zelená."
   },
   "assistantPage": {
     "title": "Asistent",

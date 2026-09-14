@@ -162,7 +162,9 @@ describe("endpoint editor toggles", () => {
     const fetchMock = renderEndpoints();
     const dialog = await openEditor();
 
-    await userEvent.click(within(dialog).getByRole("checkbox", { name: "csv" }));
+    await userEvent.click(
+      within(dialog).getByRole("checkbox", { name: en.endpoints.representationOption.csv }),
+    );
     // rjsf numbers the branches of a `oneOf`, so the option is picked by its label.
     await userEvent.selectOptions(
       within(dialog).getByLabelText(new RegExp(en.endpoints.field.requestsPerMinute)),

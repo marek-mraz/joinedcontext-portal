@@ -10,7 +10,7 @@ import { portalThemeWidgets } from "./forms/theme";
 import { arrange, index } from "./forms/uischema";
 import { portalWidgets } from "./forms/widgets";
 import { api, queryKeys, unwrap } from "../api/client";
-import { Alert, Button, Dialog, DialogClose } from "./ui";
+import { Alert, Badge, Button, Dialog, DialogClose } from "./ui";
 import type { DialogSize } from "./ui";
 import { useBranding } from "../branding";
 import { digestOf, getDraft, putDraft, subscribeDrafts } from "../api/drafts";
@@ -54,6 +54,8 @@ export interface ResourceFormDialogProps<T> {
   source?: ManifestSource<T>;
   /** Rendered above the form: the slug generator, a quota warning, whatever the kind needs. */
   children?: ReactNode;
+  /** Rendered under the last field, above the submit line: panels that follow the fields. */
+  afterFields?: ReactNode;
   project?: string;
   draftKind?: string;
   draftName?: string;
@@ -104,9 +106,10 @@ export function ResourceFormDialog<T>({
   disabled,
   submitDisabledReason,
   error,
-  size,
+  size = "xl",
   source,
   children,
+  afterFields,
   project,
   draftKind,
   draftName,
@@ -532,9 +535,7 @@ export function ResourceFormDialog<T>({
               </span>
             ) : null}
             {isStrict ? (
-              <span className="text-caption font-mono text-fg-muted">
-                ({t("drafts.strict")})
-              </span>
+              <Badge title={t("drafts.strictHelp")}>{t("drafts.strict")}</Badge>
             ) : null}
           </div>
         ) : null}
@@ -618,6 +619,7 @@ export function ResourceFormDialog<T>({
               submitDisabledReason={effectiveSubmitDisabledReason}
               onSubmit={handleSubmit}
               onChange={onChange}
+              afterFields={afterFields}
               actions={
                 <div className="flex flex-wrap items-center gap-2">
                   <DialogClose asChild>

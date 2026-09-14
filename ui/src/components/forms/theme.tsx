@@ -38,6 +38,8 @@ import { Button, CONTROL, Field, Icon, Select, Textarea } from "../ui";
 
 /** What the form renders beside its submit: a cancel, a secondary action. */
 export const FormActionsContext = createContext<ReactNode>(null);
+/** What a caller puts under the last field and above the submit line (a panel, a preview). */
+export const FormAfterFieldsContext = createContext<ReactNode>(null);
 
 const CHECKBOX =
   "focus-ring size-4 shrink-0 cursor-pointer rounded-sm border-border-strong accent-[var(--portal-primary)] disabled:cursor-not-allowed disabled:opacity-50";
@@ -109,6 +111,47 @@ function groupsOf(uiSchema: ObjectFieldTemplateProps["uiSchema"]): RenderedGroup
   return Array.isArray(options?.groups) ? options.groups : [];
 }
 
+/** The fields of one object laid out in cells: two columns on a wide screen, one on a phone. */
+function Cells({
+  properties,
+  schema,
+  uiSchema,
+}: {
+  properties: ObjectFieldTemplateProps["properties"];
+  schema: ObjectFieldTemplateProps["schema"];
+  uiSchema: ObjectFieldTemplateProps["uiSchema"];
+}): React.JSX.Element {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      {properties.map((prop) => (
+        <div
+          key={prop.name}
+          className={clsx("min-w-0", !scalar(schema, uiSchema, prop.name) && "md:col-span-2")}
+        >
+          {prop.content}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A one-line field (text, number, a switch, a select) shares its row; lists, objects and text areas do not. */
+function scalar(
+  schema: ObjectFieldTemplateProps["schema"],
+  uiSchema: ObjectFieldTemplateProps["uiSchema"],
+  name: string,
+): boolean {
+  const property = schema.properties?.[name];
+  if (typeof property !== "object" || property === null) return false;
+  const type = (property as { type?: unknown }).type;
+  const widget = (uiSchema?.[name] as { "ui:widget"?: unknown } | undefined)?.["ui:widget"];
+  return (
+    (type === "string" || type === "number" || type === "integer" || type === "boolean") &&
+    widget !== "textarea" &&
+    widget !== "checkboxes"
+  );
+}
+
 function Fieldset({
   title,
   description,
@@ -143,12 +186,18 @@ export function ObjectFieldTemplate(props: ObjectFieldTemplateProps): React.JSX.
         {description ? <p className="text-body text-fg-muted">{description}</p> : null}
         {groups.map((group, at) => (
           <Fieldset key={group.title ?? at} title={group.title} description={group.description}>
-            {properties
-              .filter((prop) => group.fields.includes(prop.name))
-              .map((prop) => prop.content)}
+            <Cells
+              properties={properties.filter((prop) => group.fields.includes(prop.name))}
+              schema={props.schema}
+              uiSchema={uiSchema}
+            />
           </Fieldset>
         ))}
-        {properties.filter((prop) => !grouped.has(prop.name)).map((prop) => prop.content)}
+        <Cells
+          properties={properties.filter((prop) => !grouped.has(prop.name))}
+          schema={props.schema}
+          uiSchema={uiSchema}
+        />
       </div>
     );
   }
@@ -158,7 +207,7 @@ export function ObjectFieldTemplate(props: ObjectFieldTemplateProps): React.JSX.
   if (!title) return <>{properties.map((prop) => prop.content)}</>;
   return (
     <Fieldset title={title} description={description}>
-      {properties.map((prop) => prop.content)}
+      <Cells properties={properties} schema={props.schema} uiSchema={uiSchema} />
     </Fieldset>
   );
 }
@@ -222,6 +271,7 @@ export function ArrayFieldItemTemplate(props: ArrayFieldItemTemplateProps): Reac
 
 export function SubmitButton(props: SubmitButtonProps): React.JSX.Element | null {
   const secondary = useContext(FormActionsContext);
+  const after = useContext(FormAfterFieldsContext);
   // rjsf hands the button its options under `ui:options`, never the raw key the caller wrote.
   const options = getSubmitButtonOptions(props.uiSchema);
   if (options.norender) {
@@ -231,17 +281,20 @@ export function SubmitButton(props: SubmitButtonProps): React.JSX.Element | null
   // beside it, never hidden.
   const gate = (options.props ?? {}) as { disabled?: boolean; title?: string };
   return (
-    <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-      {gate.disabled && gate.title ? (
-        <span role="status" className="text-caption text-fg-muted">
-          {gate.title}
-        </span>
-      ) : null}
-      {secondary}
-      <Button type="submit" variant="primary" disabled={gate.disabled} title={gate.title}>
-        {options.submitText}
-      </Button>
-    </div>
+    <>
+      {after ? <div className="mt-4 flex flex-col gap-3">{after}</div> : null}
+      <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+        {gate.disabled && gate.title ? (
+          <span role="status" className="text-caption text-fg-muted">
+            {gate.title}
+          </span>
+        ) : null}
+        {secondary}
+        <Button type="submit" variant="primary" disabled={gate.disabled} title={gate.title}>
+          {options.submitText}
+        </Button>
+      </div>
+    </>
   );
 }
 

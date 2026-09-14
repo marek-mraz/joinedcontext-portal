@@ -44,14 +44,20 @@ export function accessWords(document: GrantDocument | undefined): {
   };
 }
 
-/** One served entity as one line: the id, the type, and the first few values it carries. */
-function sampleLine(entity: Record<string, unknown>): { id: string; type: string; values: string } {
+/** One served entity as one line: its local id (the full URN kept for the tooltip), the type, and the first few values. */
+function sampleLine(entity: Record<string, unknown>): {
+  id: string;
+  localId: string;
+  type: string;
+  values: string;
+} {
   const values = Object.entries(entity)
     .filter(([key]) => key !== "id" && key !== "type" && key !== "@context")
     .slice(0, 3)
     .map(([key, value]) => `${key}=${text(value)}`)
     .join(", ");
-  return { id: String(entity.id ?? ""), type: String(entity.type ?? ""), values };
+  const id = String(entity.id ?? "");
+  return { id, localId: id.split(":").pop() || id, type: String(entity.type ?? ""), values };
 }
 
 /** A value from the gateway, short enough for a table cell. Objects arrive when `keyValues` is ignored. */
@@ -85,99 +91,101 @@ export function EndpointPreview({ slug }: { slug: string }): JSX.Element {
 
   const words = accessWords(access.data);
   const rows = (Array.isArray(samples.data) ? samples.data : []).slice(0, SAMPLE_LIMIT);
+  const summary = [
+    words.types.length > 0
+      ? t("apps.generate.preview.readsTypes", { types: words.types.join(", ") })
+      : t("apps.generate.preview.reads"),
+    words.attrs === "*" ? t("apps.generate.preview.allAttributes") : words.attrs.join(", "),
+    words.writes.length > 0
+      ? t("apps.generate.preview.alsoWrite", { actions: words.writes.join(", ") })
+      : t("apps.generate.preview.readOnly"),
+  ].join(" · ");
 
   return (
-    <section aria-labelledby="generator-preview" className="space-y-3 rounded border border-border p-4">
-      <div>
-        <h2 id="generator-preview" className="text-base font-semibold">
-          {t("apps.generate.preview.title")}
-        </h2>
-        <p className="mt-1 text-sm text-muted">{t("apps.generate.preview.hint")}</p>
-      </div>
+    <section
+      aria-label={t("apps.generate.preview.title")}
+      className="space-y-1.5 rounded border border-border px-3 py-2 text-sm"
+    >
+      {access.isPending && (
+        <p role="status" className="text-xs text-muted">
+          {t("apps.generate.preview.loading")}
+        </p>
+      )}
+      {access.isError && <p className="text-xs text-muted">{t("apps.generate.preview.accessUnavailable")}</p>}
+      {access.isSuccess && (
+        <p>
+          {summary}
+          {words.denied.length > 0 && (
+            <span className="text-muted">
+              {" · "}
+              {t("apps.generate.preview.denied", { attrs: words.denied.join(", ") })}
+            </span>
+          )}
+        </p>
+      )}
 
-      <div className="space-y-1 text-sm">
-        <h3 className="font-medium">{t("apps.generate.preview.accessTitle")}</h3>
-        {access.isPending && <p role="status">{t("apps.generate.preview.loading")}</p>}
-        {access.isError && <p className="text-muted">{t("apps.generate.preview.accessUnavailable")}</p>}
-        {access.isSuccess && (
-          <>
-            {words.types.length > 0 && (
-              <p>{t("apps.generate.preview.accessTypes", { types: words.types.join(", ") })}</p>
-            )}
-            <p>
-              {words.attrs === "*"
-                ? t("apps.generate.preview.accessAll")
-                : t("apps.generate.preview.accessAttrs", { attrs: words.attrs.join(", ") })}
+      <details>
+        <summary className="cursor-pointer text-xs text-muted">
+          {rows.length > 0
+            ? t("apps.generate.preview.samplesCount", { count: rows.length })
+            : t("apps.generate.preview.samples")}
+        </summary>
+        <div className="mt-1.5">
+          {samples.isPending && (
+            <p role="status" className="text-xs text-muted">
+              {t("apps.generate.preview.loading")}
             </p>
-            {words.denied.length > 0 && (
-              <p className="text-muted">
-                {t("apps.generate.preview.denied", { attrs: words.denied.join(", ") })}
-              </p>
-            )}
-            <p className="text-muted">
-              {words.writes.length > 0
-                ? t("apps.generate.preview.alsoWrite", { actions: words.writes.join(", ") })
-                : t("apps.generate.preview.readOnly")}
-            </p>
-          </>
-        )}
-      </div>
+          )}
+          {samples.isError && <p className="text-xs text-muted">{t("apps.generate.preview.samplesUnavailable")}</p>}
+          {samples.isSuccess && rows.length === 0 && (
+            <p className="text-xs text-muted">{t("apps.generate.preview.samplesEmpty")}</p>
+          )}
+          {rows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <caption className="sr-only">{t("apps.generate.preview.samples")}</caption>
+                <thead>
+                  <tr className="border-b border-border">
+                    <th scope="col" className="py-1 font-medium">
+                      {t("apps.generate.preview.columnId")}
+                    </th>
+                    <th scope="col" className="py-1 font-medium">
+                      {t("apps.generate.preview.columnType")}
+                    </th>
+                    <th scope="col" className="py-1 font-medium">
+                      {t("apps.generate.preview.columnValues")}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((entity, index) => {
+                    const line = sampleLine(entity);
+                    return (
+                      <tr key={line.id || index} className="border-b border-border/50">
+                        <th scope="row" title={line.id} className="py-1 pr-3 font-mono font-normal break-all">
+                          {line.localId}
+                        </th>
+                        <td className="py-1 pr-3">{line.type}</td>
+                        <td className="py-1 font-mono break-all">{line.values}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </details>
 
-      <div className="space-y-1 text-sm">
-        <h3 className="font-medium">{t("apps.generate.preview.samplesTitle")}</h3>
-        {samples.isPending && <p role="status">{t("apps.generate.preview.loading")}</p>}
-        {samples.isError && <p className="text-muted">{t("apps.generate.preview.samplesUnavailable")}</p>}
-        {samples.isSuccess && rows.length === 0 && (
-          <p className="text-muted">{t("apps.generate.preview.samplesEmpty")}</p>
-        )}
-        {rows.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
-              <caption className="sr-only">{t("apps.generate.preview.samplesTitle")}</caption>
-              <thead>
-                <tr className="border-b border-border">
-                  <th scope="col" className="py-1 font-medium">
-                    {t("apps.generate.preview.columnId")}
-                  </th>
-                  <th scope="col" className="py-1 font-medium">
-                    {t("apps.generate.preview.columnType")}
-                  </th>
-                  <th scope="col" className="py-1 font-medium">
-                    {t("apps.generate.preview.columnValues")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((entity, index) => {
-                  const line = sampleLine(entity);
-                  return (
-                    <tr key={line.id || index} className="border-b border-border/50">
-                      <th scope="row" className="py-1 pr-3 font-mono font-normal break-all">
-                        {line.id}
-                      </th>
-                      <td className="py-1 pr-3">{line.type}</td>
-                      <td className="py-1 font-mono break-all">{line.values}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-1 text-sm">
-        <h3 className="font-medium">{t("apps.generate.preview.linksTitle")}</h3>
-        <ul className="flex flex-wrap gap-1">
-          {ENDPOINT_LINKS.map((link) => (
-            <li key={link.key}>
-              <EndpointLink href={endpointUrl(slug, link.path)} muted>
-                {t(`endpoints.link.${link.key}`)}
-              </EndpointLink>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <ul className="flex flex-wrap gap-x-2 gap-y-1 text-xs" aria-label={t("apps.generate.preview.documents")}>
+        {ENDPOINT_LINKS.map((link) => (
+          <li key={link.key}>
+            <EndpointLink href={endpointUrl(slug, link.path)} muted>
+              {t(`endpoints.link.${link.key}`)}
+            </EndpointLink>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

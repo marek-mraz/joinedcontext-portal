@@ -3,12 +3,14 @@ import * as RadixDialog from "@radix-ui/react-dialog";
 import { clsx } from "clsx";
 import { Icon } from "./icons";
 
-export type DialogSize = "sm" | "md" | "lg";
+export type DialogSize = "sm" | "md" | "lg" | "xl";
 
 const SIZES: Record<DialogSize, string> = {
   sm: "w-[min(28rem,92vw)]",
   md: "w-[min(40rem,92vw)]",
   lg: "w-[min(56rem,94vw)]",
+  /** A manifest form: wide enough for two columns of fields and the panels beside them. */
+  xl: "w-[min(72rem,94vw)]",
 };
 
 export interface DialogProps {

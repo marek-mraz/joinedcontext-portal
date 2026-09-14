@@ -199,27 +199,23 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     classes: {},
   });
 
+  // What the assistant hands the page: the form values, the attributes to hide, and `existing`
+  // when it opened an endpoint that is already there rather than drafting a new one.
   const [prefill] = useState(
     () =>
       takePrefill(window.location.pathname) as
-        | (Partial<EndpointForm> & { hiddenAttributes?: string[] })
+        | (Partial<EndpointForm> & { hiddenAttributes?: string[]; existing?: boolean })
         | null,
   );
   const [editing, setEditing] = useState<EndpointForm | null>(() => {
-    if (urlDraftName) {
-      return {
-        name: urlDraftName,
-        contextSpaceRef: "",
-        audience: "project-list",
-        enabledRepresentations: ["ngsi-ld"],
-        allowedProjects: [],
-      };
-    }
-    if (!prefill) {
+    if (!urlDraftName && !prefill) {
       return null;
     }
-    const form: Partial<EndpointForm> & { hiddenAttributes?: string[] } = { ...prefill };
+    const form: Partial<EndpointForm> & { hiddenAttributes?: string[]; existing?: boolean } = {
+      ...prefill,
+    };
     delete form.hiddenAttributes;
+    delete form.existing;
     return {
       name: "",
       contextSpaceRef: "",
@@ -227,9 +223,14 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       enabledRepresentations: ["ngsi-ld"],
       allowedProjects: [],
       ...form,
+      ...(urlDraftName ? { name: urlDraftName } : {}),
     };
   });
-  const [isNew, setIsNew] = useState(prefill !== null || urlDraftName !== undefined);
+  const [isNew, setIsNew] = useState(
+    prefill?.existing !== true && (prefill !== null || urlDraftName !== undefined),
+  );
+  // The endpoint whose slug, hidden attributes and projection the page took over, once.
+  const [adopted, setAdopted] = useState<string | null>(null);
   const mayPropose = usePermissions(project).can("Endpoint", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -248,6 +249,47 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         }),
       ),
   });
+
+  // An endpoint the assistant opened by name edits that endpoint: a PUT to its name with its own
+  // slug, never a new endpoint with a fresh one. Only a draft or a prefill that says so is taken
+  // over; a name typed into a new endpoint's form is left for the API to refuse.
+  const openedName =
+    urlDraftName !== undefined && (prefill === null || prefill.existing === true)
+      ? urlDraftName
+      : prefill?.existing === true && typeof prefill.name === "string"
+        ? prefill.name
+        : undefined;
+  const opened = openedName
+    ? asManifests(list.data?.items ?? []).find((endpoint) => endpoint.metadata.name === openedName)
+    : undefined;
+  if (opened && adopted !== opened.metadata.name) {
+    setAdopted(opened.metadata.name);
+    setIsNew(false);
+    const own = toForm(opened);
+    const ownSlug = own.slug || (typeof prefill?.slug === "string" ? prefill.slug : "");
+    if (ownSlug) {
+      setActiveSlug(ownSlug);
+    }
+    if (!Array.isArray(prefill?.hiddenAttributes)) {
+      setHidden(hiddenOf(opened));
+    }
+    const projectionRef = (opened.spec as { projectionRef?: { name?: string } })?.projectionRef?.name;
+    setPickerState({
+      projectionName: projectionRef || opened.metadata.name,
+      selectedProjectionRef: projectionRef,
+      classes: {},
+    });
+    // A draft the dialog loads replaces these; without one the form starts from the endpoint
+    // as it is, with whatever the assistant changed on top.
+    if (editing && !editing.contextSpaceRef) {
+      const changed: Partial<EndpointForm> & { hiddenAttributes?: string[]; existing?: boolean } = {
+        ...(prefill?.existing === true ? prefill : {}),
+      };
+      delete changed.hiddenAttributes;
+      delete changed.existing;
+      setEditing({ ...own, ...changed, name: own.name, slug: own.slug });
+    }
+  }
 
   const orgsQuery = useQuery({
     queryKey: queryKeys.list(project, "organizations"),
@@ -955,68 +997,87 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             setEditing(form);
           }
         }}
+        afterFields={
+          <>
+            {editing?.audience === "public" ? (
+              <Alert role="note" tone="warning">
+                {t("endpoints.publicNotice")}
+              </Alert>
+            ) : null}
+
+            {editing?.contextSpaceRef ? (
+              <details className="rounded border border-border p-3">
+                <summary className="cursor-pointer text-body font-medium text-fg">
+                  {t("endpoints.section.projection")}
+                </summary>
+                <div className="mt-3">
+                  <ModelPicker
+                    project={project}
+                    spaceName={editing.contextSpaceRef}
+                    endpointName={editing.name}
+                    disabled={propose.isPending}
+                    value={pickerState}
+                    onChange={setPickerState}
+                  />
+                </div>
+              </details>
+            ) : null}
+
+            {/* A new endpoint publishes nothing yet, so there is no schema to hide attributes of. */}
+            {!isNew && activeSlug ? (
+              <details className="rounded border border-border p-3">
+                <summary className="cursor-pointer text-body font-medium text-fg">
+                  {t("endpoints.section.hidden")}
+                </summary>
+                <div className="mt-3">
+                  <SchemaProjectionPanel slug={activeSlug} hidden={hidden} onHiddenChange={setHidden} />
+                </div>
+              </details>
+            ) : null}
+
+            <div>
+              <Button
+                size="sm"
+                disabled={!editing?.name || check.isPending}
+                onClick={() => {
+                  if (editing) {
+                    check.mutate(editing);
+                  }
+                }}
+              >
+                {t("endpoints.check")}
+              </Button>
+            </div>
+
+            {previewManifests && editing?.name ? (
+              <details className="rounded border border-border p-3">
+                <summary className="cursor-pointer text-body font-medium text-fg">
+                  {t("endpoints.section.manifests")}
+                </summary>
+                <pre
+                  data-testid="endpoint-preview"
+                  className="mt-3 max-h-72 overflow-auto rounded border border-border bg-surface p-2.5 font-mono text-xs text-fg-muted"
+                >
+                  {JSON.stringify(previewManifests, null, 2)}
+                </pre>
+              </details>
+            ) : null}
+          </>
+        }
       >
-        <div className="flex flex-col gap-2 rounded border border-border bg-surface-subtle p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-caption font-medium text-fg">{t("endpoints.field.slug")}:</span>
-            <code data-testid="endpoint-slug" className="font-mono text-caption text-fg font-semibold">
-              {activeSlug}
+        <div className="flex flex-col gap-1 rounded border border-border bg-surface-subtle px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-caption font-medium text-fg">{t("endpoints.field.publicUrl")}</span>
+            <code data-testid="endpoint-url" className="min-w-0 break-all font-mono text-caption text-fg-muted">
+              {`${window.location.origin}/api/endpoint/`}
+              <span data-testid="endpoint-slug" className="font-semibold text-fg">
+                {activeSlug}
+              </span>
             </code>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-caption font-medium text-fg">{t("endpoints.field.publicUrl")}:</span>
-            <code data-testid="endpoint-url" className="font-mono text-caption text-fg-muted break-all">
-              {`${window.location.origin}/api/endpoint/${activeSlug}`}
-            </code>
+            <CopyUrlButton slug={activeSlug} />
           </div>
           <p className="text-xs text-fg-subtle">{t("endpoints.slugHint")}</p>
         </div>
-
-        {editing?.contextSpaceRef ? (
-          <ModelPicker
-            project={project}
-            spaceName={editing.contextSpaceRef}
-            endpointName={editing.name}
-            disabled={propose.isPending}
-            value={pickerState}
-            onChange={setPickerState}
-          />
-        ) : null}
-
-        {editing?.audience === "public" ? (
-          <Alert role="note" tone="warning">
-            {t("endpoints.publicNotice")}
-          </Alert>
-        ) : null}
-        <div>
-          <Button
-            size="sm"
-            disabled={!editing?.name || check.isPending}
-            onClick={() => {
-              if (editing) {
-                check.mutate(editing);
-              }
-            }}
-          >
-            {t("endpoints.check")}
-          </Button>
-        </div>
-
-        {previewManifests ? (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-caption font-medium text-fg">{t("endpoints.picker.preview")}:</span>
-            <pre
-              data-testid="endpoint-preview"
-              className="max-h-48 overflow-auto rounded border border-border bg-surface p-2.5 font-mono text-xs text-fg-muted"
-            >
-              {JSON.stringify(previewManifests, null, 2)}
-            </pre>
-          </div>
-        ) : null}
-
-        {activeSlug ? (
-          <SchemaProjectionPanel slug={activeSlug} hidden={hidden} onHiddenChange={setHidden} />
-        ) : null}
       </ResourceFormDialog>
     </div>
   );

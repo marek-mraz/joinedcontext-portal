@@ -115,13 +115,23 @@ export function endpointSchema(
       audience: {
         type: "string",
         title: t("endpoints.field.audience"),
-        enum: [...AUDIENCES],
+        // The stored value stays the contract's word; the person reads what it means.
+        oneOf: AUDIENCES.map((audience) => ({
+          const: audience,
+          title: t(`endpoints.audienceOption.${audience}`),
+        })),
         default: "project-list",
       },
       enabledRepresentations: {
         type: "array",
         title: t("endpoints.field.representations"),
-        items: { type: "string", enum: [...REPRESENTATIONS] },
+        items: {
+          type: "string",
+          oneOf: REPRESENTATIONS.map((representation) => ({
+            const: representation,
+            title: t(`endpoints.representationOption.${representation}`),
+          })),
+        },
         uniqueItems: true,
         minItems: 1,
       },

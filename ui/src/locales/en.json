@@ -217,7 +217,7 @@
     "generateSlug": "Generate slug",
     "copyUrl": "Copy URL",
     "copied": "Copied",
-    "slugHint": "Minted by the Portal, never typed: it encodes nothing about the space or the project (EP-03).",
+    "slugHint": "The address is created for you and never changes, even when the endpoint is renamed.",
     "picker": {
       "title": "Model projection",
       "hint": "Pick the classes and slots this endpoint exposes. The policy and projection are generated together.",
@@ -246,7 +246,7 @@
       "title": "Title",
       "space": "Context Space",
       "slug": "Slug",
-      "publicUrl": "Public URL",
+      "publicUrl": "Public address",
       "audience": "Audience",
       "representations": "Representations",
       "phase": "State",
@@ -294,6 +294,27 @@
       "use": "Use in this project",
       "referenced": "Referenced",
       "alias": "alias"
+    },
+    "audienceOption": {
+      "project-list": "Selected projects: only the projects you tick",
+      "organization": "Organization: every project of the organization",
+      "public": "Public: anyone with the address"
+    },
+    "representationOption": {
+      "ngsi-ld": "NGSI-LD API",
+      "geojson": "GeoJSON",
+      "csv": "CSV",
+      "json": "JSON",
+      "xlsx": "Excel (xlsx)",
+      "zip": "ZIP download",
+      "ogc-features": "OGC API Features",
+      "sta": "SensorThings API",
+      "mcp": "MCP for AI assistants"
+    },
+    "section": {
+      "projection": "Which classes and attributes it shows",
+      "hidden": "Hide attributes",
+      "manifests": "Show the manifests this proposes"
     }
   },
   "datasources": {
@@ -916,23 +937,22 @@
       },
       "preview": {
         "title": "What this endpoint gives you",
-        "hint": "Read with your own session, so this is what you may see and nothing more.",
         "loading": "Asking the endpoint…",
-        "accessTitle": "What you may read",
-        "accessTypes": "Entity types: {types}.",
-        "accessAttrs": "Attributes: {attrs}.",
-        "accessAll": "Every attribute the endpoint publishes.",
-        "accessUnavailable": "The endpoint did not say what you may read; the app can still be built from its model.",
-        "denied": "Held back by the policy: {attrs}.",
-        "readOnly": "Read only. A generated app never writes back.",
-        "alsoWrite": "Your own grant also allows {actions}; under the details you can let the app use it.",
-        "samplesTitle": "Five entities, as they are served now",
-        "samplesEmpty": "The endpoint answers, but holds no entities yet.",
-        "samplesUnavailable": "The endpoint served no sample data.",
-        "columnId": "Identifier",
+        "reads": "Reads this endpoint",
+        "readsTypes": "Reads {types}",
+        "allAttributes": "all attributes",
+        "readOnly": "read only",
+        "alsoWrite": "your grant also allows {actions}",
+        "denied": "held back: {attrs}",
+        "accessUnavailable": "Access not stated; the app is built from the model.",
+        "samples": "Sample data",
+        "samplesCount": "Sample data ({count})",
+        "samplesEmpty": "No entities yet.",
+        "samplesUnavailable": "No sample data.",
+        "columnId": "Id",
         "columnType": "Type",
         "columnValues": "First values",
-        "linksTitle": "The endpoint's own documents"
+        "documents": "The endpoint's documents"
       },
       "promptPlaceholder": "A map of the docking stations, with a filter for the ones that still have bikes, and a chart of free slots.",
       "details": "Details: name, kind, and what it may read ({name})"
@@ -1343,7 +1363,8 @@
     },
     "laxWarning": "Lax validation: check has not run or passed.",
     "findings": "Findings",
-    "strict": "strict validation"
+    "strict": "strict validation",
+    "strictHelp": "Nothing is proposed until the check is green."
   },
   "assistantPage": {
     "title": "Assistant",

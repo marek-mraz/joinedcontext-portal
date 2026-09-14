@@ -77,7 +77,7 @@ export function ExportModal({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[min(34rem,92vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded border border-border bg-surface p-6 text-surface-fg shadow-lg">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[min(48rem,94vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded border border-border bg-surface p-6 text-surface-fg shadow-lg">
           <Dialog.Title className="text-lg font-bold">{t("export.title")}</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-surface-fg/70">
             {target.name

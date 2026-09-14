@@ -398,24 +398,24 @@ describe("the app generator", () => {
     await user.selectOptions(screen.getByLabelText(en.apps.generate.endpoint), "ovzdusie-public");
 
     const preview = await screen.findByRole("region", { name: en.apps.generate.preview.title });
+    // One line: the types, the attributes and, for a read grant, nothing that promises a write.
     expect(
-      within(preview).getByText(
-        en.apps.generate.preview.accessTypes.replace("{types}", "AirQualityObserved"),
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(preview).getByText(
-        en.apps.generate.preview.accessAttrs.replace("{attrs}", "location, name, pm10"),
+      await within(preview).findByText(
+        [
+          en.apps.generate.preview.readsTypes.replace("{types}", "AirQualityObserved"),
+          "location, name, pm10",
+          en.apps.generate.preview.readOnly,
+        ].join(" · "),
+        { exact: false },
       ),
     ).toBeInTheDocument();
     // A prohibition is the one thing a person cannot infer from the checklist above.
     expect(
       within(preview).getByText(
         en.apps.generate.preview.denied.replace("{attrs}", "internalNote"),
+        { exact: false },
       ),
     ).toBeInTheDocument();
-    // A read grant is a read grant: nothing here promises the app could write.
-    expect(within(preview).getByText(en.apps.generate.preview.readOnly)).toBeInTheDocument();
   });
 
   it("shows five entities as they are served, so the data can be judged before the build", async () => {
@@ -426,11 +426,17 @@ describe("the app generator", () => {
 
     await user.selectOptions(screen.getByLabelText(en.apps.generate.endpoint), "ovzdusie-public");
 
-    const table = await screen.findByRole("table", {
-      name: en.apps.generate.preview.samplesTitle,
-    });
+    // The samples fold away under one summary that counts them.
+    expect(
+      await screen.findByText(
+        en.apps.generate.preview.samplesCount.replace("{count}", String(ENTITIES.length)),
+      ),
+    ).toBeInTheDocument();
+    const table = screen.getByRole("table", { name: en.apps.generate.preview.samples });
     expect(within(table).getAllByRole("row")).toHaveLength(ENTITIES.length + 1);
-    expect(within(table).getByText(ENTITIES[0].id)).toBeInTheDocument();
+    // The local id in the cell, the whole URN in its tooltip.
+    const first = within(table).getByText("st-1");
+    expect(first).toHaveAttribute("title", ENTITIES[0].id);
     expect(within(table).getByText("name=Station 1, pm10=13")).toBeInTheDocument();
   });
 

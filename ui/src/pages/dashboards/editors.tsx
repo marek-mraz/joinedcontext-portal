@@ -157,7 +157,6 @@ export function DashboardEditor({
       submitLabel={t("dashboards.propose")}
       disabled={proposal.mutation.isPending}
       error={proposal.error}
-      size="lg"
       source={{
         toManifest: (form) => dashboardToManifest(project, form),
         fromManifest: dashboardFromManifest,
@@ -214,7 +213,6 @@ export function LayerEditor({
       submitLabel={t("dashboards.propose")}
       disabled={proposal.mutation.isPending}
       error={proposal.error}
-      size="lg"
       source={{
         toManifest: (form) => layerToManifest(project, form),
         fromManifest: layerFromManifest,

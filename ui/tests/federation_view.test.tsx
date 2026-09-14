@@ -354,11 +354,12 @@ describe("the topology (UI-28)", () => {
     expect(graph).toHaveAttribute("viewBox", "0 0 100 100");
   });
 
-  it("is on the project's landing page too", async () => {
+  it("stays on the federation page: the spaces landing page no longer draws it (T-0710)", async () => {
     window.history.pushState({}, "", "/projects/banskabystrica/spaces");
     renderFederation(PUBLISHED_GRAPH);
 
-    expect(await screen.findByRole("group", { name: en.federation.graph.title })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: en.federation.graph.title })).toBeNull();
   });
 
   it("drops the edges of a hidden kind and keeps the rest of the answer", () => {

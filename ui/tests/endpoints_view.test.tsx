@@ -7,6 +7,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { generateSlug, SLUG_PATTERN } from "../src/schemas/kinds";
+import { rememberPrefill } from "../src/assistant/state";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -177,8 +178,11 @@ describe("endpoints view", () => {
     await userEvent.click(within(row).getByRole("button", { name: en.endpoints.edit }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("checkbox", { name: "ngsi-ld" })).toBeChecked();
-    const csv = within(dialog).getByRole("checkbox", { name: "csv" });
+    // The person reads what a representation is; the manifest keeps the contract's word.
+    expect(
+      within(dialog).getByRole("checkbox", { name: en.endpoints.representationOption["ngsi-ld"] }),
+    ).toBeChecked();
+    const csv = within(dialog).getByRole("checkbox", { name: en.endpoints.representationOption.csv });
     expect(csv).not.toBeChecked();
     await userEvent.click(csv);
 
@@ -199,6 +203,69 @@ describe("endpoints view", () => {
     expect(body.metadata.labels["joinedcontext.com/space"]).toBe("ovzdusie");
 
     expect(await screen.findByText("chg-77aa11bb")).toBeInTheDocument();
+  });
+
+  it("edits the endpoint the assistant opened: a PUT to its name that keeps its slug", async () => {
+    rememberPrefill("/projects/banskabystrica/endpoints", {
+      existing: true,
+      name: "public-air",
+      contextSpaceRef: "ovzdusie",
+      audience: "public",
+      enabledRepresentations: ["ngsi-ld", "geojson", "csv"],
+      slug: SLUG,
+    });
+    window.history.pushState({}, "", "/projects/banskabystrica/endpoints?draft=public-air");
+    const fetchMock = renderEndpoints();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: en.endpoints.edit })).toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByTestId("endpoint-slug").textContent).toBe(SLUG));
+    expect(
+      within(dialog).getByRole("checkbox", { name: en.endpoints.representationOption.csv }),
+    ).toBeChecked();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const request = writes(fetchMock)[0];
+    expect(request.method).toBe("PUT");
+    expect(new URL(request.url).pathname).toBe(
+      "/api/v1/projects/banskabystrica/endpoints/public-air",
+    );
+    const body = (await request.clone().json()) as {
+      spec: { slug: string; enabledRepresentations: string[] };
+    };
+    expect(body.spec.slug).toBe(SLUG);
+    expect(body.spec.enabledRepresentations).toEqual(["ngsi-ld", "geojson", "csv"]);
+  });
+
+  it("names the audiences in words and still saves the contract's value", async () => {
+    const fetchMock = renderEndpoints();
+    await screen.findByText("public-air");
+    await userEvent.click(screen.getByRole("button", { name: en.endpoints.add }));
+    const dialog = await screen.findByRole("dialog");
+
+    const audience = dialog.querySelector("#root_audience") as HTMLSelectElement;
+    const labels = [...audience.options].map((option) => option.textContent);
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        en.endpoints.audienceOption.public,
+        en.endpoints.audienceOption.organization,
+        en.endpoints.audienceOption["project-list"],
+      ]),
+    );
+    expect(labels).not.toContain("project-list");
+
+    await userEvent.type(dialog.querySelector("#root_name") as HTMLElement, "air-open");
+    await userEvent.selectOptions(audience, en.endpoints.audienceOption.public);
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const body = (await writes(fetchMock)[0].clone().json()) as {
+      spec: { audience: string; enabledRepresentations: string[] };
+    };
+    expect(body.spec.audience).toBe("public");
+    expect(body.spec.enabledRepresentations).toEqual(["ngsi-ld"]);
   });
 
   it("runs the check as a dry run of the envelope that names the held draft (PF-57, AG-61)", async () => {

@@ -279,7 +279,6 @@ export function PipelineEditorDialog({
     <ResourceFormDialog<PipelineForm>
       open
       onOpenChange={onOpenChange}
-      size="lg"
       title={editing ? t("pipelines.dialog.edit") : t("pipelines.dialog.create")}
       description={t("pipelines.dialog.lead")}
       schema={schema}

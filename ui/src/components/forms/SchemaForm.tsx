@@ -5,7 +5,7 @@ import validator from "./validator";
 import type { RJSFValidationError } from "@rjsf/utils";
 import { useTranslation } from "react-i18next";
 import type { JsonSchema, UiSchema } from "./types";
-import { FormActionsContext, portalTemplates, portalThemeWidgets } from "./theme";
+import { FormActionsContext, FormAfterFieldsContext, portalTemplates, portalThemeWidgets } from "./theme";
 import { portalWidgets } from "./widgets";
 
 /** The theme's widgets and the Portal's own (`secretRef`, `entityPicker`), which a uiSchema names. */
@@ -21,6 +21,8 @@ export interface SchemaFormProps<T> {
   submitDisabledReason?: string;
   /** Rendered beside the submit, on its left: a cancel, a secondary action. */
   actions?: ReactNode;
+  /** Rendered under the last field, above the submit line. */
+  afterFields?: ReactNode;
   onSubmit: (data: T) => void;
   onChange?: (data: T | undefined) => void;
 }
@@ -47,7 +49,7 @@ export function errorMessageKey(error: RJSFValidationError): string {
  * validation with translated messages, and no error list (each field carries its own).
  */
 export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
-  const { schema, uiSchema, formData, disabled, submitLabel, submitDisabledReason, actions, onSubmit, onChange } =
+  const { schema, uiSchema, formData, disabled, submitLabel, submitDisabledReason, actions, afterFields, onSubmit, onChange } =
     props;
   const { t } = useTranslation();
 
@@ -73,25 +75,27 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
 
   return (
     <FormActionsContext.Provider value={actions ?? null}>
-      <Form<T>
-        validator={validator}
-        schema={schema}
-        uiSchema={effectiveUiSchema}
-        formData={formData}
-        disabled={disabled}
-        liveValidate
-        showErrorList={false}
-        noHtml5Validate
-        transformErrors={transformErrors}
-        templates={portalTemplates}
-        widgets={widgets}
-        onSubmit={(data) => {
-          onSubmit(data.formData as T);
-        }}
-        onChange={(data) => {
-          onChange?.(data.formData as T | undefined);
-        }}
-      />
+      <FormAfterFieldsContext.Provider value={afterFields ?? null}>
+        <Form<T>
+          validator={validator}
+          schema={schema}
+          uiSchema={effectiveUiSchema}
+          formData={formData}
+          disabled={disabled}
+          liveValidate
+          showErrorList={false}
+          noHtml5Validate
+          transformErrors={transformErrors}
+          templates={portalTemplates}
+          widgets={widgets}
+          onSubmit={(data) => {
+            onSubmit(data.formData as T);
+          }}
+          onChange={(data) => {
+            onChange?.(data.formData as T | undefined);
+          }}
+        />
+      </FormAfterFieldsContext.Provider>
     </FormActionsContext.Provider>
   );
 }

@@ -166,7 +166,7 @@ function Instances({
       ) : null}
 
       <form
-        className="max-w-xl space-y-2"
+        className="max-w-4xl space-y-2"
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit(draft);
