@@ -7,8 +7,9 @@ use utoipa::{Modify, OpenApi};
 
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::api::agent_runs::{
-    AnswerRequest, CreateRunRequest, CreatedRun, EventReceipt, MessageRequest, PreviewErrorRequest,
-    RelayedEvent, RunContext, RunList,
+    AnswerRequest, CreateRunRequest, CreatedRun, EventReceipt, FailedRequest, MessageRequest,
+    ObservedPage, PreviewErrorRequest, PreviewObservationRequest, RelayedEvent, RunContext,
+    RunList,
 };
 use crate::api::assistant::{AgentAccessList, OperationAccess, ProfileAccess, StartConversation};
 use crate::api::blueprints::FlowRequest;
@@ -74,6 +75,7 @@ use crate::tools::model_tools::{
         crate::api::agent_runs::answer_question,
         crate::api::agent_runs::post_message,
         crate::api::agent_runs::post_preview_error,
+        crate::api::agent_runs::post_preview_observation,
         crate::api::agent_runs::call_function,
         crate::api::agent_runs::cancel_run,
         crate::api::agent_runs::publish_run,
@@ -131,6 +133,9 @@ use crate::tools::model_tools::{
         AnswerRequest,
         MessageRequest,
         PreviewErrorRequest,
+        PreviewObservationRequest,
+        ObservedPage,
+        FailedRequest,
         Health,
         Readiness,
         Effective,

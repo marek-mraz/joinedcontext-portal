@@ -104,15 +104,32 @@ describe("export modal", () => {
     await userEvent.click(await screen.findByRole("button", { name: en.export.project }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(en.export.formats.zip)).toBeInTheDocument();
-    expect(within(dialog).getByText(en.export.formats.yaml)).toBeInTheDocument();
-    expect(within(dialog).getByText(en.export.formats.json)).toBeInTheDocument();
+    // The first and default choice is the whole project, and it says what the file holds (MF-41).
+    const whole = within(dialog).getByRole("radio", {
+      name: (name) => name.startsWith(en.export.formats.whole),
+    });
+    expect(whole).toBeChecked();
+    expect(within(dialog).getByText(en.export.formats.wholeHelp)).toBeInTheDocument();
     // The project export defaults to the archive, which is what CC-49 promises in one click.
     expect(downloadLink()).toHaveAttribute(
       "href",
       "/api/v1/projects/banskabystrica/export?format=zip",
     );
     expect(downloadLink()).toHaveAttribute("download");
+  });
+
+  it("keeps the plain YAML and JSON forms under other formats", async () => {
+    renderEndpoints();
+
+    await userEvent.click(await screen.findByRole("button", { name: en.export.project }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByText(en.export.otherFormats));
+    expect(within(dialog).getByText(en.export.formats.json)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("radio", { name: /^YAML/ }));
+    expect(downloadLink()).toHaveAttribute(
+      "href",
+      "/api/v1/projects/banskabystrica/export?format=yaml",
+    );
   });
 
   it("downloads one manifest when the export starts from its row", async () => {

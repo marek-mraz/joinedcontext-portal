@@ -5,7 +5,7 @@
  * frame's error reports go to the run.
  */
 import { describe, expect, it, vi } from "vitest";
-import { functionPathOf, grantedOperations, handleBridgeMessage, operationOf, previewErrorOf } from "../src/pages/apps/previewBridge";
+import { functionPathOf, grantedOperations, handleBridgeMessage, observationRelay, operationOf, previewErrorOf, previewObservationOf, previewVersionOf } from "../src/pages/apps/previewBridge";
 import type { PreviewError } from "../src/pages/apps/previewBridge";
 
 const SLUG = "k7m2qz4tv6xh3n5jb2ryd3wcfa";
@@ -22,12 +22,12 @@ function frame() {
   return { postMessage: vi.fn() } as unknown as Window & { postMessage: ReturnType<typeof vi.fn> };
 }
 
-async function send(data: unknown, options: { source?: Window; from?: unknown; slug?: string; fetchImpl?: unknown; report?: (e: PreviewError) => void } = {}) {
+async function send(data: unknown, options: { source?: Window; from?: unknown; slug?: string; slugs?: string[]; fetchImpl?: unknown; report?: (e: PreviewError) => void } = {}) {
   const source = options.source ?? frame();
   const fetchImpl = (options.fetchImpl ?? vi.fn()) as typeof fetch;
   const outcome = await handleBridgeMessage(
     { source: "from" in options ? options.from : source, data },
-    { slug: "slug" in options ? options.slug : SLUG, operations: GRANTED, functions: FUNCTIONS, source },
+    { slug: "slug" in options ? options.slug : SLUG, slugs: options.slugs, operations: GRANTED, functions: FUNCTIONS, source },
     options.report ?? (() => undefined),
     fetchImpl,
   );
@@ -200,5 +200,110 @@ describe("handleBridgeMessage", () => {
     expect(report).toHaveBeenCalledTimes(1);
     expect(previewErrorOf({ kind: "jc-error", message: "boom", line: 0, file: 3 })).toEqual({ message: "boom" });
     expect(previewErrorOf({ kind: "jc-error", message: "  " })).toBeNull();
+  });
+});
+
+describe("preview observations (SDK-27)", () => {
+  const observation = {
+    kind: "jc-observation",
+    version: 2,
+    pages: [
+      { label: "Overview", text: "Stations 5", rows: [] },
+      { label: "Stations", text: "Kaivopuisto 7", rows: [5] },
+    ],
+    failedRequests: [{ path: "/functions/summary", status: 500 }],
+  };
+
+  async function observe(data: unknown, options: { from?: unknown; version?: number } = {}) {
+    const source = frame();
+    const seen = vi.fn();
+    const outcome = await handleBridgeMessage(
+      { source: "from" in options ? options.from : source, data },
+      { slug: SLUG, operations: GRANTED, functions: FUNCTIONS, source, observe: seen, version: options.version },
+      () => undefined,
+      vi.fn() as unknown as typeof fetch,
+    );
+    return { outcome, seen };
+  }
+
+  it("hands a valid observation of the created frame to the run, and a foreign window's not at all", async () => {
+    const { outcome, seen } = await observe(observation);
+    expect(outcome).toBe("relayed");
+    expect(seen).toHaveBeenCalledWith({ version: 2, pages: observation.pages, failedRequests: observation.failedRequests });
+
+    const foreign = await observe(observation, { from: frame() });
+    expect(foreign.outcome).toBe("ignored");
+    expect(foreign.seen).not.toHaveBeenCalled();
+  });
+
+  it("drops an observation that breaks a bound of the route, whole", async () => {
+    for (const bad of [
+      { ...observation, version: 0 },
+      { ...observation, pages: [] },
+      { ...observation, pages: Array.from({ length: 21 }, () => observation.pages[0]) },
+      { ...observation, pages: [{ label: "x".repeat(121), text: "", rows: [] }] },
+      { ...observation, pages: [{ label: "A", text: "x".repeat(20_001), rows: [] }] },
+      { ...observation, pages: [{ label: "A", text: "", rows: Array.from({ length: 51 }, () => 1) }] },
+      { ...observation, pages: [{ label: "A", text: "", rows: [-1] }] },
+      { ...observation, failedRequests: [{ path: "/functions/summary", status: 302 }] },
+      { ...observation, failedRequests: [{ path: "x".repeat(257), status: 500 }] },
+      { ...observation, failedRequests: Array.from({ length: 51 }, () => observation.failedRequests[0]) },
+    ]) {
+      const { outcome, seen } = await observe(bad);
+      expect(outcome, JSON.stringify(bad).slice(0, 80)).toBe("refused");
+      expect(seen).not.toHaveBeenCalled();
+    }
+  });
+
+  it("takes the framed URL's version when the frame does not know its own", async () => {
+    const withoutVersion: Record<string, unknown> = { ...observation };
+    delete withoutVersion.version;
+    expect((await observe(withoutVersion)).outcome).toBe("refused");
+    const { outcome, seen } = await observe(withoutVersion, { version: 4 });
+    expect(outcome).toBe("relayed");
+    expect(seen.mock.calls[0][0].version).toBe(4);
+    expect(previewVersionOf("/api/v1/projects/p/agent-runs/r/preview?v=7")).toBe(7);
+    expect(previewVersionOf("/api/v1/projects/p/agent-runs/r/preview")).toBeUndefined();
+  });
+
+  it("posts the first observation of each version to the run once", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 409 }));
+    const relay = observationRelay("helsinki", "r1", fetchImpl as unknown as typeof fetch);
+    const first = previewObservationOf(observation)!;
+    relay(first);
+    relay({ ...first, pages: [{ label: "Later", text: "", rows: [] }] });
+    relay({ ...first, version: 3 });
+    await Promise.resolve();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/v1/projects/helsinki/agent-runs/r1/preview-observations");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ version: 2, pages: observation.pages, failedRequests: observation.failedRequests });
+    expect((fetchImpl.mock.calls[1] as unknown as [string, RequestInit])[1].body).toContain('"version":3');
+  });
+});
+
+describe("a run of several endpoints (AP-44, SDK-18)", () => {
+  const KPIS = "q3mzkq2v7w5ayxcbn4ltdj6hof";
+  const ok = () => vi.fn(async () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+
+  it("forwards a read under any slug of the run", async () => {
+    const fetchImpl = ok();
+    const { outcome } = await send(
+      { kind: "jc-request", id: 1, method: "GET", path: `/api/endpoint/${KPIS}/ngsi-ld/v1/entities?type=KeyPerformanceIndicator` },
+      { slugs: [KPIS], fetchImpl },
+    );
+    expect(outcome).toBe("forwarded");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("still refuses a slug that is not the run's", async () => {
+    const fetchImpl = ok();
+    const { outcome } = await send(
+      { kind: "jc-request", id: 1, method: "GET", path: `/api/endpoint/${KPIS}/ngsi-ld/v1/entities?type=KeyPerformanceIndicator` },
+      { fetchImpl },
+    );
+    expect(outcome).toBe("refused");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

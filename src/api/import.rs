@@ -177,6 +177,13 @@ fn parse_archive(bytes: &[u8]) -> Result<Vec<Incoming>, ApiError> {
             .ok_or_else(|| ApiError::BadRequest("the archive holds an escaping path".into()))?
             .to_string_lossy()
             .into_owned();
+        // A complete export's README and schemas explain the bundle; they are not the project's
+        // files, so they are never written into one (MF-41).
+        if name == crate::api::export::README_PATH
+            || name.starts_with(crate::api::export::SCHEMAS_DIR)
+        {
+            continue;
+        }
         let mut content = String::new();
         if entry.read_to_string(&mut content).is_err() {
             // A binary blob committed beside the manifests. An export counts these as

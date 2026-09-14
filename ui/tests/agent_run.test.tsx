@@ -208,7 +208,9 @@ describe("watching a run", () => {
     await emit("thought", { seq: 1, text: "Reading the projected schema" });
     await emit("tool", { seq: 2, tool: "bash", command: "cargo test", exitCode: 0 });
 
-    expect(await screen.findByText("Reading the projected schema")).toBeInTheDocument();
+    // The building panel repeats the latest step; the conversation is where the line belongs.
+    const conversation = await screen.findByRole("region", { name: en.agentRun.conversation.title });
+    expect(await within(conversation).findByText("Reading the projected schema")).toBeInTheDocument();
     // A tool line is an inspectable step (AG-56): its name on the summary, its command inside.
     const step = screen.getByRole("group");
     expect(within(step).getByText("bash")).toBeInTheDocument();
@@ -225,7 +227,9 @@ describe("watching a run", () => {
     // What a resume from `Last-Event-ID` brings back: the same frame, the same seq.
     await emit("thought", { seq: 7, text: "Wiring the map" });
 
-    expect(await screen.findAllByText("Wiring the map")).toHaveLength(1);
+    const conversation = await screen.findByRole("region", { name: en.agentRun.conversation.title });
+    expect(await within(conversation).findAllByText("Wiring the map")).toHaveLength(1);
+    expect(within(screen.getByTestId("run-building")).getAllByText("Wiring the map")).toHaveLength(1);
   });
 
   it("drops a frame it cannot parse instead of rendering half of it", async () => {
@@ -328,6 +332,38 @@ describe("watching a run", () => {
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
   });
 
+  it("builds in the frame's place with the agent's step and the types it reads, never a template (SDK-14)", async () => {
+    renderRun({
+      run: {
+        ...RUN,
+        status: "building",
+        dataNeeds: [{ types: ["BikeHireDockingStation", "Entity"], operations: ["queryEntity"] }],
+      },
+    });
+    await screen.findByRole("heading", { name: RUN.appName });
+    await emit("thought", { seq: 3, text: "Reading 5 entities of BikeHireDockingStation through the endpoint." });
+
+    const building = await screen.findByTestId("run-building");
+    expect(within(building).getByText(en.agentRun.preview.building)).toBeInTheDocument();
+    expect(within(building).getByText("Reading BikeHireDockingStation")).toBeInTheDocument();
+    expect(within(building).getByTestId("run-building-thought")).toHaveTextContent(
+      "Reading 5 entities of BikeHireDockingStation through the endpoint.",
+    );
+    expect(screen.queryByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName))).toBeNull();
+  });
+
+  it("says a live run without a version could not build yet, with its errors and how to retry (SDK-14)", async () => {
+    renderRun({ run: { ...RUN, status: "previewing" } });
+    await screen.findByRole("heading", { name: RUN.appName });
+    await emit("thought", { seq: 4, text: "The application still does not build:\nsrc/App.tsx:3 Cannot find name 'Row'" });
+
+    const building = await screen.findByTestId("run-building");
+    expect(within(building).getByText(en.agentRun.preview.notBuilt)).toBeInTheDocument();
+    expect(within(building).getByText(en.agentRun.preview.retry)).toBeInTheDocument();
+    expect(within(building).getByTestId("run-building-thought")).toHaveTextContent("Cannot find name 'Row'");
+    expect(within(building).queryByText(en.agentRun.preview.building)).toBeNull();
+  });
+
   it("watches the first minute on the left, then shows each pass in a fresh frame (UI-41, UI-42)", async () => {
     const { setRun } = renderRun({
       run: { ...RUN, status: "building", createdAt: new Date(Date.now() - 12_000).toISOString() },
@@ -338,7 +374,7 @@ describe("watching a run", () => {
     // has been running, rather than standing empty.
     const preview = screen.getByRole("region", { name: en.agentRun.preview.title });
     expect(within(preview).getByText(en.agentRun.states.building)).toBeInTheDocument();
-    expect(within(preview).getByText(en.agentRun.preview.waiting)).toBeInTheDocument();
+    expect(within(preview).getByText(en.agentRun.preview.building)).toBeInTheDocument();
     expect(within(preview).getByText(/^1[0-9] s since the run started$/)).toBeInTheDocument();
     expect(screen.queryByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName))).toBeNull();
 

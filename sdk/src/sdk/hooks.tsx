@@ -229,7 +229,7 @@ export function useSchema(type?: string): {
   return { schema, typeSchema, error };
 }
 
-export function useAccess(): {
+export function useAccess(endpoint?: string): {
   access: AccessDocument | null;
   error: ProblemError | null;
   can(operation: string, type: string, attr?: string): Decision;
@@ -240,7 +240,7 @@ export function useAccess(): {
 
   useEffect(() => {
     void client
-      .access()
+      .access(endpoint)
       .then((a) => {
         setAccess(a);
         setError(null);
@@ -248,7 +248,7 @@ export function useAccess(): {
       .catch((err) => {
         setError(err instanceof ProblemError ? err : new ProblemError(0, { title: err instanceof Error ? err.message : String(err) }));
       });
-  }, [client]);
+  }, [client, endpoint]);
 
   const can = useCallback(
     (operation: string, type: string, attr?: string): Decision => {

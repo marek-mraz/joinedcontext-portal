@@ -1784,7 +1784,7 @@ async fn a_type_the_endpoint_does_not_serve_never_reaches_the_chat_the_samples_o
     // index serves only `BikeHireDockingStation`.
     let id =
         create_application_of(&app, &cookie, json!(["BikeHireDockingStation", "Entity"])).await;
-    wait_for_version(&app, &cookie, &id, 2).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
 
     let log = events(&app, &cookie, &id).await;
     let reading: Vec<&str> = log
@@ -1825,8 +1825,158 @@ async fn a_type_the_endpoint_does_not_serve_never_reaches_the_chat_the_samples_o
     assert!(!needs.contains("\"Entity\""), "{needs}");
 }
 
+/// The indicator space of the city: a second endpoint an application may read (AP-44).
+const KPI_SLUG: &str = "q3mzkq2v7w5ayxcbn4ltdj6hofkpis";
+const KPI_LINKML: &str = "id: https://hel.fi/models/kpis\nname: kpis\nclasses:\n  KeyPerformanceIndicator:\n    slots: [id, name, kpiValue]\nslots:\n  id: {}\n  name: { range: string }\n  kpiValue: { range: float }\n";
+const KPI_TYPES: &str = "export interface KeyPerformanceIndicator { id: string; type: \"KeyPerformanceIndicator\"; name?: string; kpiValue?: number }\n";
+
+/// AP-44, SDK-10, SDK-13: an application of the bikes and their indicators samples each type
+/// through the endpoint that serves it, renders the row types of both models into one file and
+/// tells the model which endpoint serves what.
 #[tokio::test]
-async fn an_application_starts_on_the_template_and_one_call_writes_it_with_its_tests() {
+async fn an_application_of_two_endpoints_reads_each_through_its_own_and_the_pack_names_both() {
+    let forge = code_forge().await;
+    let answer = code_answer(
+        "A page listing the stations, with its test.",
+        &stations_app(STATIONS),
+    );
+    let (state, app, cookie, proxy) =
+        portal_state_with("openai-compatible", &[answer], Some(&forge)).await;
+    mount_types(&proxy).await;
+    state.mirror.upsert(envelope(
+        "Endpoint",
+        "helsinki-kpi",
+        PROJECT,
+        json!({
+            "slug": KPI_SLUG,
+            "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki-kpi" },
+            "audience": "project"
+        }),
+    ));
+    let kpis = format!("/v1/data/endpoints/{KPI_SLUG}");
+    Mock::given(method("GET"))
+        .and(path(format!("{kpis}/schema/index.json")))
+        .and(header_regex("authorization", "^Bearer jcr_"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "endpoint": KPI_SLUG,
+            "models": [{ "name": "kpis", "version": 1, "types": ["KeyPerformanceIndicator"], "artifacts": {} }]
+        })))
+        .mount(&proxy)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("{kpis}/ngsi-ld/v1/entities")))
+        .and(query_param("type", "KeyPerformanceIndicator"))
+        .and(header_regex("authorization", "^Bearer jcr_"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": "urn:ngsi-ld:KeyPerformanceIndicator:hel.fi:helsinki-kpi:bikes-available-avg", "type": "KeyPerformanceIndicator", "name": "bikes-available-avg", "kpiValue": 4.2 }
+        ])))
+        .mount(&proxy)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("{kpis}/schema/v1/model.linkml.yaml")))
+        .respond_with(ResponseTemplate::new(200).set_body_string(KPI_LINKML))
+        .mount(&proxy)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/model-tools/generate"))
+        .and(wiremock::matchers::body_json(
+            json!({ "source": KPI_LINKML }),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "typescript": KPI_TYPES, "errors": [] })),
+        )
+        .mount(&proxy)
+        .await;
+
+    let (status, body) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(json!({
+            "appName": "city-bikes-overview",
+            "endpointNames": ["helsinki-bikes", "helsinki-kpi"],
+            "appClass": "static",
+            "visibility": "project",
+            "prompt": "The stations beside the availability indicator",
+            "dataNeeds": [
+                {
+                    "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
+                    "types": ["BikeHireDockingStation"],
+                    "attrs": ["name", "location", "availableBikeNumber"],
+                    "operations": ["queryEntity"]
+                },
+                {
+                    "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki-kpi" },
+                    "types": ["KeyPerformanceIndicator"],
+                    "attrs": ["name", "kpiValue"],
+                    "operations": ["queryEntity"]
+                }
+            ]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let id = body["id"].as_str().expect("a run id").to_owned();
+    wait_for_version(&app, &cookie, &id, 1).await;
+
+    let paths: Vec<String> = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|r| format!("{}?{}", r.url.path(), r.url.query().unwrap_or_default()))
+        .collect();
+    assert!(
+        paths
+            .iter()
+            .any(|p| p.starts_with("/v1/data/ngsi-ld/v1/entities?type=BikeHireDockingStation")),
+        "{paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| p.starts_with(&format!(
+            "{kpis}/ngsi-ld/v1/entities?type=KeyPerformanceIndicator"
+        ))),
+        "{paths:?}"
+    );
+    assert!(
+        !paths
+            .iter()
+            .any(|p| p.starts_with("/v1/data/ngsi-ld/v1/entities?type=KeyPerformanceIndicator")),
+        "the indicator is never read through the bikes endpoint: {paths:?}"
+    );
+
+    let requests = model_requests(&proxy).await;
+    let user = requests[0]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(user.contains("## THE ENDPOINTS"), "{user}");
+    assert!(
+        user.contains(
+            "`helsinki-kpi` — context space `helsinki-kpi`, types: KeyPerformanceIndicator"
+        ),
+        "the pack says which endpoint serves the indicator"
+    );
+    assert!(
+        user.contains("bikes-available-avg"),
+        "the indicator's sample is in the pack"
+    );
+
+    let files = files_of(&state, &id).await;
+    let types = files["src/jc-types.ts"].as_str().unwrap_or_default();
+    assert!(
+        types.contains("interface BikeHireDockingStation"),
+        "{types}"
+    );
+    assert!(
+        types.contains("interface KeyPerformanceIndicator"),
+        "{types}"
+    );
+}
+
+#[tokio::test]
+async fn an_application_is_written_in_one_call_and_the_template_never_reaches_the_frame() {
     let forge = code_forge().await;
     let answer = code_answer(
         "A page listing the stations, with its test.",
@@ -1836,23 +1986,38 @@ async fn an_application_starts_on_the_template_and_one_call_writes_it_with_its_t
         portal_state_with("openai-compatible", &[answer], Some(&forge)).await;
     mount_types(&proxy).await;
     let id = create_application(&app, &cookie).await;
-    let run = wait_for_version(&app, &cookie, &id, 2).await;
+    let run = wait_for_version(&app, &cookie, &id, 1).await;
     assert!(run["firstVersionMs"].is_i64(), "{run}");
+    // The first frame is the first generated version, so both mark the same moment.
+    assert!(
+        run["firstFrameMs"].as_i64() <= run["firstVersionMs"].as_i64()
+            && run["firstFrameMs"].is_i64(),
+        "{run}"
+    );
 
-    // The template was on screen before the model was asked (SDK-15).
+    // The template is the model's context, never the preview: the first preview is the
+    // generated version, after the building status (SDK-14, SDK-15).
     let log = events(&app, &cookie, &id).await;
-    let first_preview = log
+    let previews: Vec<usize> = log
         .iter()
-        .position(|(kind, _)| kind == "preview")
-        .expect("a preview event");
+        .enumerate()
+        .filter(|(_, (kind, _))| kind == "preview")
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(previews.len(), 1, "{log:?}");
     let building = log
         .iter()
         .position(|(kind, payload)| kind == "status" && payload["status"] == json!("building"))
         .expect("the building status");
-    assert!(first_preview < building, "{log:?}");
-    assert!(log[first_preview].1["previewUrl"]
+    assert!(previews[0] > building, "{log:?}");
+    assert!(log[previews[0]].1["previewUrl"]
         .as_str()
         .is_some_and(|url| url.ends_with("?v=1")));
+    assert!(log.iter().any(|(kind, payload)| kind == "thought"
+        && payload["text"] == json!("Writing the application for your request.")));
+    assert!(!log.iter().any(|(_, payload)| payload["text"]
+        .as_str()
+        .is_some_and(|t| t.contains("template"))));
 
     // One call, on the code prompt, with the SDK, every template file and the endpoint's types.
     let requests = model_requests(&proxy).await;
@@ -1968,7 +2133,7 @@ async fn a_block_outside_the_writable_paths_is_refused_and_the_rest_lands() {
     .await;
     mount_types(&proxy).await;
     let id = create_application(&app, &cookie).await;
-    wait_for_version(&app, &cookie, &id, 2).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
 
     let log = events(&app, &cookie, &id).await;
     let tool = log
@@ -2010,7 +2175,7 @@ async fn a_refused_import_goes_back_once_with_its_file_and_line_and_the_repair_l
     .await;
     mount_types(&proxy).await;
     let id = create_application(&app, &cookie).await;
-    wait_for_version(&app, &cookie, &id, 2).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
 
     let requests = model_requests(&proxy).await;
     assert_eq!(requests.len(), 2);
@@ -2038,7 +2203,7 @@ async fn a_refused_import_goes_back_once_with_its_file_and_line_and_the_repair_l
 }
 
 #[tokio::test]
-async fn a_second_failure_ends_the_first_run_and_the_frame_keeps_the_template() {
+async fn a_second_failure_ends_the_first_run_with_no_preview_and_the_errors_said() {
     let (state, app, cookie, proxy) = portal_state_with(
         "openai-compatible",
         &[
@@ -2052,12 +2217,8 @@ async fn a_second_failure_ends_the_first_run_and_the_frame_keeps_the_template() 
     let id = create_application(&app, &cookie).await;
     let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
     assert_eq!(run["status"], json!("previewing"), "{run}");
-    assert!(
-        run["previewUrl"]
-            .as_str()
-            .is_some_and(|url| url.ends_with("?v=1")),
-        "{run}"
-    );
+    // Neither the template nor the version that failed is put in the frame (SDK-14, AP-59).
+    assert!(run["previewUrl"].is_null(), "{run}");
     assert!(run.get("firstVersionMs").is_none(), "{run}");
 
     assert_eq!(model_requests(&proxy).await.len(), 2);
@@ -2067,13 +2228,78 @@ async fn a_second_failure_ends_the_first_run_and_the_frame_keeps_the_template() 
     assert_eq!(files["src/jc-types.ts"], json!(JC_TYPES));
     let log = events(&app, &cookie, &id).await;
     assert!(log.iter().any(|(kind, payload)| kind == "thought"
-        && payload["text"].as_str().is_some_and(|t| t
-            .starts_with("The application still does not build")
-            && t.contains("axios"))));
+        && payload["text"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("The application could not be built")
+                && t.contains("axios")
+                && t.ends_with("Send a message to try again."))));
+    assert!(!log.iter().any(|(kind, _)| kind == "preview"), "{log:?}");
+}
+
+/// Posts what the frame saw of version `v`, as the host page relays it (SDK-27).
+async fn observe(app: &axum::Router, cookie: &str, id: &str, v: u32, pages: Value) -> StatusCode {
+    let (status, _, _) = call(
+        app,
+        cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview-observations"),
+        Some(json!({ "version": v, "pages": pages })),
+    )
+    .await;
+    status
+}
+
+/// The run's first thought starting with `prefix`, or a panic after ten seconds.
+async fn wait_for_thought(app: &axum::Router, cookie: &str, id: &str, prefix: &str) -> String {
+    for _ in 0..200 {
+        if let Some(text) = events(app, cookie, id)
+            .await
+            .into_iter()
+            .filter(|(kind, _)| kind == "thought")
+            .filter_map(|(_, payload)| payload["text"].as_str().map(str::to_owned))
+            .find(|text| text.starts_with(prefix))
+        {
+            return text;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("no thought starting with {prefix:?}");
 }
 
 #[tokio::test]
-async fn the_first_runtime_error_goes_back_once_and_the_next_brings_the_template_back() {
+async fn a_version_whose_pages_show_the_sampled_entities_is_checked_without_a_model_call() {
+    let (_state, app, cookie, proxy) = portal_state_with(
+        "openai-compatible",
+        &[code_answer("Stations.", &stations_app(STATIONS))],
+        None,
+    )
+    .await;
+    mount_types(&proxy).await;
+    let id = create_application(&app, &cookie).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
+
+    let status = observe(
+        &app,
+        &cookie,
+        &id,
+        1,
+        json!([
+            { "label": "Overview", "text": "Stations 5 · Bikes available 24", "rows": [] },
+            { "label": "Stations", "text": "Kaivopuisto 7 Laivasillankatu 2 Viiskulma 11", "rows": [5] }
+        ]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let said = wait_for_thought(&app, &cookie, &id, "Checked").await;
+    assert_eq!(
+        said,
+        "Checked 2 pages: 3 of 5 sampled entities shown, no errors."
+    );
+    assert_eq!(model_requests(&proxy).await.len(), 1);
+}
+
+#[tokio::test]
+async fn what_the_preview_shows_wrong_goes_back_as_a_verification_pass_and_a_new_version() {
     let repaired = STATIONS.replace("{rows.map", "{(rows ?? []).map");
     let (state, app, cookie, proxy) = portal_state_with(
         "openai-compatible",
@@ -2089,48 +2315,84 @@ async fn the_first_runtime_error_goes_back_once_and_the_next_brings_the_template
     .await;
     mount_types(&proxy).await;
     let id = create_application(&app, &cookie).await;
-    wait_for_version(&app, &cookie, &id, 2).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
 
-    let report =
-        |message: &str| json!({ "message": message, "file": "src/pages/Stations.tsx", "line": 6 });
-    let uri = format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview-errors");
+    // The runtime error the frame reported is folded into the check of the same version.
     let (status, _, _) = call(
         &app,
         &cookie,
         Method::POST,
-        &uri,
-        Some(report("rows is undefined")),
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview-errors"),
+        Some(
+            json!({ "message": "rows is undefined", "file": "src/pages/Stations.tsx", "line": 6 }),
+        ),
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    wait_for_version(&app, &cookie, &id, 3).await;
+    let status = observe(
+        &app,
+        &cookie,
+        &id,
+        1,
+        json!([{ "label": "Overview", "text": "Stations NaN", "rows": [] }]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    wait_for_version(&app, &cookie, &id, 2).await;
+
     let requests = model_requests(&proxy).await;
     assert_eq!(requests.len(), 2);
-    let repair = requests[1]["messages"][1]["content"]
+    let pass = requests[1]["messages"][1]["content"]
         .as_str()
         .unwrap_or_default();
-    assert!(
-        repair.contains("- src/pages/Stations.tsx:6: rows is undefined"),
-        "{repair}"
-    );
+    for part in [
+        "Checking its preview against the data found the problems below",
+        "- the preview threw: rows is undefined (src/pages/Stations.tsx:6)",
+        "- the page \"Overview\" shows NaN where a value belongs",
+        "- no page shows any of the sampled BikeHireDockingStation entities (Kaivopuisto, Laivasillankatu, Kapteeninpuistikko)",
+        "What the preview rendered, page by page:\n### Overview\nStations NaN",
+    ] {
+        assert!(pass.contains(part), "the pass lacks {part}: {pass}");
+    }
     assert_eq!(
         files_of(&state, &id).await["src/pages/Stations.tsx"],
         json!(format!("{repaired}\n"))
     );
+    let found = wait_for_thought(&app, &cookie, &id, "Checking the preview found:").await;
+    assert!(found.contains("shows NaN"), "{found}");
+}
 
-    // The repair was the one; the next error ends the first run on the template (SDK-14).
-    let (status, _, _) = call(
-        &app,
-        &cookie,
-        Method::POST,
-        &uri,
-        Some(report("still broken")),
+#[tokio::test]
+async fn verification_stops_after_three_passes_and_says_what_is_left() {
+    let page = |n: u32| STATIONS.replace("<ul>", &format!("<ul data-pass=\"{n}\">"));
+    let (_state, app, cookie, proxy) = portal_state_with(
+        "openai-compatible",
+        &[
+            code_answer("Stations.", &stations_app(STATIONS)),
+            code_answer("One.", &[("src/pages/Stations.tsx", "", page(1))]),
+            code_answer("Two.", &[("src/pages/Stations.tsx", "", page(2))]),
+            code_answer("Three.", &[("src/pages/Stations.tsx", "", page(3))]),
+        ],
+        None,
     )
     .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    mount_types(&proxy).await;
+    let id = create_application(&app, &cookie).await;
+    let broken = json!([{ "label": "Stations", "text": "undefined", "rows": [0] }]);
+    for v in 1..=3 {
+        wait_for_version(&app, &cookie, &id, v).await;
+        assert_eq!(
+            observe(&app, &cookie, &id, v, broken.clone()).await,
+            StatusCode::NO_CONTENT
+        );
+    }
     wait_for_version(&app, &cookie, &id, 4).await;
-    assert_eq!(model_requests(&proxy).await.len(), 2);
-    let files = files_of(&state, &id).await;
-    assert!(files.get("src/pages/Stations.tsx").is_none());
-    assert_eq!(files["src/App.tsx"], json!(template_file("src/App.tsx")));
+    assert_eq!(
+        observe(&app, &cookie, &id, 4, broken).await,
+        StatusCode::NO_CONTENT
+    );
+    let left = wait_for_thought(&app, &cookie, &id, "The preview still shows problems").await;
+    assert!(left.contains("after 3 verification passes"), "{left}");
+    assert!(left.contains("shows undefined"), "{left}");
+    assert_eq!(model_requests(&proxy).await.len(), 4);
 }

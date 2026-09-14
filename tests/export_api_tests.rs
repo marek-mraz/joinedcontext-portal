@@ -58,6 +58,45 @@ spec:
 /// A native file beside a manifest: Bento's own configuration, ours only to carry.
 const BENTO: &str = "input:\n  mqtt:\n    urls: [ mqtts://mqtt.hsl.fi:8883 ]\n";
 
+/// A data model whose LinkML source and generated JSON Schema are committed beside it (DM-02).
+const AIR_MODEL: &str = r#"
+apiVersion: joinedcontext.com/v1alpha1
+kind: DataModel
+metadata:
+  name: air-quality
+  namespace: banskabystrica
+spec:
+  contextSpaceRef: ovzdusie
+  linkml: ./air-quality.linkml.yaml
+  version: 1.0.0
+  lifecycle: published
+  classes: [AirQualityObserved]
+  artifacts:
+    jsonSchema: ./json-schema/air-quality.v1.json
+"#;
+
+const AIR_LINKML: &str =
+    "id: https://example.org/air-quality\nclasses:\n  AirQualityObserved:\n    slots: [pm10]\n";
+
+const AIR_SCHEMA: &str = r#"{"$schema": "http://json-schema.org/draft-07/schema#", "title": "AirQualityObserved", "properties": {"pm10": {"type": "number"}}}"#;
+
+/// A model whose repository holds the source but no generated schema, on a Portal without Model
+/// Tools: the export names what it could not include.
+const NOISE_MODEL: &str = r#"
+apiVersion: joinedcontext.com/v1alpha1
+kind: DataModel
+metadata:
+  name: noise
+  namespace: banskabystrica
+spec:
+  contextSpaceRef: hluk
+  linkml: ./noise.linkml.yaml
+  version: 0.1.0
+  lifecycle: draft
+"#;
+
+const NOISE_LINKML: &str = "id: https://example.org/noise\n";
+
 const OTHER_PROJECT: &str = r#"
 apiVersion: joinedcontext.com/v1alpha1
 kind: Endpoint
@@ -81,6 +120,26 @@ fn files() -> Vec<(&'static str, &'static str)> {
         (
             "projects/banskabystrica/pipelines/aq-mqtt-ingest/bento.yaml",
             BENTO,
+        ),
+        (
+            "projects/banskabystrica/spaces/ovzdusie/datamodels/air-quality.yaml",
+            AIR_MODEL,
+        ),
+        (
+            "projects/banskabystrica/spaces/ovzdusie/datamodels/air-quality.linkml.yaml",
+            AIR_LINKML,
+        ),
+        (
+            "projects/banskabystrica/spaces/ovzdusie/datamodels/json-schema/air-quality.v1.json",
+            AIR_SCHEMA,
+        ),
+        (
+            "projects/banskabystrica/spaces/hluk/datamodels/noise.yaml",
+            NOISE_MODEL,
+        ),
+        (
+            "projects/banskabystrica/spaces/hluk/datamodels/noise.linkml.yaml",
+            NOISE_LINKML,
         ),
         (
             "projects/bb-doprava/endpoints/doprava-public.yaml",
@@ -376,6 +435,134 @@ async fn the_archive_is_a_zip_with_the_native_files_and_a_bundle_index() {
             "a secret value survived into {name}"
         );
     }
+}
+
+fn entry(archive: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>, name: &str) -> String {
+    use std::io::Read;
+    let mut text = String::new();
+    archive
+        .by_name(name)
+        .unwrap_or_else(|_| panic!("{name} is in the archive"))
+        .read_to_string(&mut text)
+        .expect("utf-8 entry");
+    text
+}
+
+#[tokio::test]
+async fn a_whole_project_archive_says_what_its_files_mean() {
+    let answer = get("/api/v1/projects/banskabystrica/export?format=zip", true).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(answer.body.clone())).expect("a readable zip");
+    let names: Vec<String> = archive.file_names().map(str::to_string).collect();
+    for expected in [
+        "README.md",
+        "schemas/kinds/Endpoint.schema.json",
+        "schemas/kinds/Pipeline.schema.json",
+        "schemas/kinds/DataModel.schema.json",
+        "schemas/models/air-quality/air-quality.linkml.yaml",
+        "schemas/models/air-quality/air-quality.schema.json",
+        "schemas/models/noise/noise.linkml.yaml",
+    ] {
+        assert!(
+            names.contains(&expected.to_string()),
+            "MF-41: {expected} in {names:?}"
+        );
+    }
+    assert!(
+        !names.contains(&"schemas/models/noise/noise.schema.json".to_string()),
+        "a schema nobody could generate is not invented"
+    );
+
+    // What the fields mean travels with the kind: the manifest model's descriptions.
+    let endpoint: Value =
+        serde_json::from_str(&entry(&mut archive, "schemas/kinds/Endpoint.schema.json"))
+            .expect("the kind schema is JSON");
+    assert!(
+        endpoint.to_string().contains("\"description\""),
+        "the kind schema carries its field descriptions"
+    );
+    let model: Value = serde_json::from_str(&entry(
+        &mut archive,
+        "schemas/models/air-quality/air-quality.schema.json",
+    ))
+    .expect("the model schema is JSON");
+    assert_eq!(model["title"], "AirQualityObserved");
+    assert_eq!(
+        entry(
+            &mut archive,
+            "schemas/models/air-quality/air-quality.linkml.yaml"
+        ),
+        AIR_LINKML
+    );
+
+    let readme = entry(&mut archive, "README.md");
+    assert!(readme.contains("# Project banskabystrica"), "{readme}");
+    assert!(readme.contains(REVISION), "{readme}");
+    assert!(
+        readme.contains("| Endpoint | 1 (`public-air`) | A published door onto a space"),
+        "{readme}"
+    );
+    assert!(
+        readme.contains("`schemas/kinds/DataModel.schema.json`"),
+        "{readme}"
+    );
+    assert!(
+        readme.contains("| air-quality | AirQualityObserved |"),
+        "{readme}"
+    );
+    assert!(readme.contains("## Missing"), "{readme}");
+    assert!(readme.contains("- noise: JSON Schema"), "{readme}");
+    assert!(!readme.contains("doprava-public"));
+}
+
+#[tokio::test]
+async fn the_yaml_and_json_exports_carry_the_schemas_in_their_index() {
+    let yaml = get("/api/v1/projects/banskabystrica/export", true)
+        .await
+        .text();
+    let documents: Vec<Value> = serde_yaml_ng::Deserializer::from_str(&yaml)
+        .map(|document| {
+            use serde::Deserialize;
+            Value::deserialize(document).expect("a YAML document")
+        })
+        .collect();
+    let index = documents.last().expect("documents");
+    assert_eq!(index["kind"], "Bundle", "the stream closes with its index");
+    assert!(index["spec"]["schemas"]["kinds"]["Endpoint"].is_object());
+    assert_eq!(
+        index["spec"]["schemas"]["models"]["air-quality"]["linkml"],
+        AIR_LINKML
+    );
+    assert!(index["spec"]["readme"]
+        .as_str()
+        .is_some_and(|readme| readme.contains("`schemas.kinds.Endpoint`")));
+    assert!(!yaml.contains("jc_dead_beef_secret"));
+
+    let json = get(
+        "/api/v1/projects/banskabystrica/export?format=json&kinds=endpoints",
+        true,
+    )
+    .await
+    .json();
+    let kinds = json["schemas"]["kinds"].as_object().expect("schemas.kinds");
+    assert_eq!(
+        kinds.keys().collect::<Vec<_>>(),
+        ["Endpoint"],
+        "a kinds filter keeps the schemas of the kinds it selects"
+    );
+    assert!(json["readme"].as_str().is_some());
+
+    let one = get(
+        "/api/v1/projects/banskabystrica/export?format=json&kinds=endpoints&names=public-air",
+        true,
+    )
+    .await
+    .json();
+    assert!(
+        one["schemas"].is_null() && one["readme"].is_null(),
+        "an export that names resources is those manifests alone"
+    );
 }
 
 #[tokio::test]

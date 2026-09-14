@@ -109,6 +109,10 @@ pub struct AgentRun {
     pub app_name: String,
     pub endpoint_name: String,
     pub endpoint_slug: String,
+    /// Every endpoint the run reads, `[{name, slug, space}]`, the primary (`endpoint_name`)
+    /// first; `[]` for a run of one endpoint recorded before several were possible (AP-44).
+    #[serde(default = "empty_endpoints")]
+    pub endpoints: serde_json::Value,
     pub profile: String,
     pub kind: String,
     pub unattended: bool,
@@ -161,6 +165,10 @@ pub struct AgentRunEvent {
     pub kind: String,
     pub payload: serde_json::Value,
     pub created_at: String,
+}
+
+fn empty_endpoints() -> serde_json::Value {
+    serde_json::Value::Array(Vec::new())
 }
 
 fn empty_files() -> serde_json::Value {

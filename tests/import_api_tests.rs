@@ -397,6 +397,36 @@ async fn a_dry_run_reports_what_it_would_do_and_writes_nothing() {
 }
 
 #[tokio::test]
+async fn the_readme_and_schemas_of_a_complete_export_are_never_written_into_the_project() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let complete = archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        ("projects/helsinki/endpoints/public-air.yaml", ENDPOINT),
+        ("projects/helsinki/pipelines/aq/bento.yaml", BENTO),
+        ("projects/helsinki/bundle.yaml", BUNDLE),
+        ("README.md", "# Project helsinki\n"),
+        (
+            "schemas/kinds/Endpoint.schema.json",
+            "{\"type\": \"object\"}",
+        ),
+        (
+            "schemas/models/air/air.linkml.yaml",
+            "id: https://example.org/air\n",
+        ),
+    ]);
+    let (content_type, body) = multipart(&complete, &[("dryRun", "true")]);
+    let (status, report) = post(state, &cookie, &content_type, body).await;
+
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert_eq!(report["created"], json!(["ovzdusie", "public-air"]));
+    assert_eq!(
+        report["nativeFiles"], 1,
+        "only bento.yaml is the project's own native file (MF-41): {report}"
+    );
+}
+
+#[tokio::test]
 async fn a_manifest_posted_as_json_is_imported_too() {
     let server = forge().await;
     let (state, cookie) = state(&server, vec![]);

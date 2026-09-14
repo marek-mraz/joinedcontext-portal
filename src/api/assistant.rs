@@ -589,6 +589,7 @@ pub async fn start_conversation(
         app_name: String::new(),
         endpoint_name: String::new(),
         endpoint_slug: String::new(),
+        endpoints: serde_json::json!([]),
         profile: profile.name.clone(),
         kind: "conversation".to_owned(),
         unattended: false,

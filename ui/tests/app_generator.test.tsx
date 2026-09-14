@@ -295,6 +295,42 @@ describe("the app generator", () => {
     });
   });
 
+  it("reads a second endpoint the person adds and sends endpointNames, the primary first (AP-44)", async () => {
+    const kpiSlug = "q3mzkq2v7w5ayxcbn4ltdj6hof";
+    const kpis = {
+      ...ENDPOINT,
+      metadata: { ...ENDPOINT.metadata, name: "ovzdusie-kpi", title: { en: "Air quality indicators" } },
+      spec: { ...ENDPOINT.spec, contextSpaceRef: "ovzdusie-kpi", slug: kpiSlug },
+    };
+    const user = userEvent.setup();
+    const fetchMock = renderGenerator({ endpoints: [ENDPOINT, kpis] });
+    await openGenerator(user);
+    await screen.findByLabelText(en.apps.generate.endpoint);
+    await fill(user);
+
+    await user.click(screen.getByRole("button", { name: en.apps.generate.addEndpoint }));
+    const group = screen.getByRole("group", { name: en.apps.generate.moreEndpoints });
+    expect(within(group).queryByLabelText("Air quality open data")).toBeNull();
+    await user.click(within(group).getByLabelText("Air quality indicators"));
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map((call) => {
+        const input = call[0] as Request | string;
+        return typeof input === "string" ? input : input.url;
+      });
+      expect(urls.some((url) => url.includes(`/api/endpoint/${kpiSlug}/schema/v2/json-schema`))).toBe(true);
+    });
+    await user.click(screen.getByRole("button", { name: en.apps.generate.submit }));
+
+    await waitFor(async () => {
+      const body = await runBody(fetchMock);
+      expect(body.endpointNames).toEqual(["ovzdusie-public", "ovzdusie-kpi"]);
+      expect(body).not.toHaveProperty("endpointName");
+      const needs = body.dataNeeds as { contextSpaceRef: { name: string }; operations: string[] }[];
+      expect(needs.map((need) => need.contextSpaceRef.name)).toEqual(["ovzdusie", "ovzdusie-kpi"]);
+      expect(needs[1].operations).toEqual(["queryEntity", "retrieveEntity"]);
+    });
+  });
+
   it("offers to update only where the person's own grant has a write, and then sends updateAttrs (AP-22, AP-62)", async () => {
     const user = userEvent.setup();
     const fetchMock = renderGenerator({

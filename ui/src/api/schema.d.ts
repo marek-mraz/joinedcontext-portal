@@ -323,6 +323,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/agent-runs/{id}/preview-observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What the preview frame saw of one version, for the run's verification (SDK-27, SDK-28). The
+         *     first observation of a version counts; a second one is refused, so a reload does not start a
+         *     second check of the same files.
+         */
+        post: operations["post_preview_observation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/agent-runs/{id}/publish": {
         parameters: {
             query?: never;
@@ -933,6 +954,11 @@ export interface components {
             dataNeeds: unknown;
             endpointName: string;
             endpointSlug: string;
+            /**
+             * @description Every endpoint the run reads, `[{name, slug, space}]`, the primary (`endpoint_name`)
+             *     first; `[]` for a run of one endpoint recorded before several were possible (AP-44).
+             */
+            endpoints?: unknown;
             error?: string | null;
             expiresAt: string;
             finishedAt?: string | null;
@@ -1267,8 +1293,13 @@ export interface components {
              *     endpoint publishes before anything is scheduled (AP-44).
              */
             dataNeeds: unknown[];
-            /** @description The `Endpoint` the application reads through. Nothing else is reachable. */
-            endpointName: string;
+            /**
+             * @description The one `Endpoint` the application reads through; `endpointNames` for several. Nothing
+             *     else is reachable.
+             */
+            endpointName?: string | null;
+            /** @description The `Endpoint`s the application reads, one to five, the first the primary (AP-44). */
+            endpointNames?: string[];
             /** @description What kind of run to execute: application, dashboard, analysis. */
             kind?: string;
             /** @description Which `AgentProfile` runs. Defaults to the builder profile the platform ships. */
@@ -1365,6 +1396,12 @@ export interface components {
         EventReceipt: {
             /** Format: int64 */
             seq: number;
+        };
+        /** @description A request of the frame the bridge answered with an error status. */
+        FailedRequest: {
+            path: string;
+            /** Format: int32 */
+            status: number;
         };
         /** @description The federation of one project (UI-27). */
         FederationGraph: {
@@ -1634,6 +1671,14 @@ export interface components {
                 [key: string]: string;
             }) | null;
         };
+        /** @description One page of the application as the frame rendered it. */
+        ObservedPage: {
+            label: string;
+            /** @description The row counts of its tables. */
+            rows?: number[];
+            /** @description The page's visible text. */
+            text: string;
+        };
         /** @description One operation of the registry as a run the caller starts would meet it (AG-70, UI-56). */
         OperationAccess: {
             name: string;
@@ -1723,6 +1768,19 @@ export interface components {
             /** Format: int32 */
             line?: number | null;
             message: string;
+        };
+        /**
+         * @description What the preview frame saw of one version, page by page, relayed by the page that frames it
+         *     (SDK-27). Every field is text the frame wrote.
+         */
+        PreviewObservationRequest: {
+            failedRequests?: components["schemas"]["FailedRequest"][];
+            pages: components["schemas"]["ObservedPage"][];
+            /**
+             * Format: int32
+             * @description The `v` of the preview URL the frame loaded.
+             */
+            version: number;
         };
         /** @description One fetch of a DataSource on the project's runner, or why there was none (MF-39). */
         Probe: {
@@ -1863,6 +1921,11 @@ export interface components {
             branch: string;
             createdBy: string;
             endpointSlug: string;
+            /**
+             * @description Every endpoint slug of the run, the primary first: what `/v1/data/endpoints/{slug}/…`
+             *     may address (Architecture/19 §4).
+             */
+            endpointSlugs: string[];
             id: string;
             /** Format: int64 */
             maxResponseBytes: number;
@@ -2883,6 +2946,69 @@ export interface operations {
                 };
             };
             /** @description The run is over */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    post_preview_observation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Run id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewObservationRequest"];
+            };
+        };
+        responses: {
+            /** @description The observation is on the run's log as a preview_observation event */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A value outside the bounds of API/04 §5 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such run in this project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The run is over, or this version was observed already */
             409: {
                 headers: {
                     [name: string]: unknown;

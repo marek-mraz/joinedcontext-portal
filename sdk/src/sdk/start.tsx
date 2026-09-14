@@ -9,6 +9,7 @@ import { JcProvider } from "./hooks";
 import { applyTokens } from "./tokens";
 import type { DesignTokens } from "./tokens";
 import { transportFor } from "./transport";
+import { startObserver } from "./observe";
 
 let errorListenersRegistered = false;
 
@@ -70,6 +71,11 @@ export function startApp(
       </JcProvider>
     </StrictMode>,
   );
+
+  // A preview reads itself page by page once it has settled, so the run can check what it shows (SDK-27).
+  if (config.transport === "bridge") {
+    startObserver({ doc });
+  }
 
   if (!errorListenersRegistered && typeof window !== "undefined") {
     errorListenersRegistered = true;

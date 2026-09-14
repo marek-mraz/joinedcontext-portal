@@ -17,6 +17,8 @@ use crate::state::AppState;
 use crate::tools::model_tools;
 
 const MAX_TOTAL_FILES_BYTES: usize = 10 * 1024 * 1024; // 10 MiB (DM-55)
+/// The longest description a completion carries onto its drafts (AG-73).
+const MAX_DESCRIPTION_CHARS: usize = 4000;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -34,6 +36,12 @@ pub struct SpaceCompleteInput {
     pub files: Option<Vec<InputFile>>,
     #[serde(default)]
     pub url: Option<String>,
+    /// The entity type the inferred model and the pipeline name, PascalCase (AG-73).
+    #[serde(default)]
+    pub type_name: Option<String>,
+    /// What the data is, carried onto the drafted model, space and source (AG-73).
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(default)]
     pub propose: bool,
 }
@@ -78,6 +86,16 @@ pub fn input_schema() -> Value {
                 "description": "Text files defining or describing the space"
             },
             "url": { "type": "string", "description": "HTTP endpoint (JSON, GeoJSON, GBFS or NGSI-LD)" },
+            "typeName": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z0-9]{0,62}$",
+                "description": "Entity type of the inferred model and the pipeline's output, PascalCase"
+            },
+            "description": {
+                "type": "string",
+                "maxLength": MAX_DESCRIPTION_CHARS,
+                "description": "What the data is, from the person's description and specification"
+            },
             "propose": { "type": "boolean", "description": "Propose all drafts as a single change if ready" }
         },
         "additionalProperties": false
@@ -115,6 +133,27 @@ pub fn validate_input(val: &Value) -> Result<(), OpError> {
         });
     }
 
+    if let Some(type_name) = &input.type_name {
+        if !is_type_name(type_name) {
+            return Err(OpError::InvalidInput {
+                path: "/typeName".into(),
+                message: format!(
+                    "'{type_name}' is not a PascalCase type name (a capital letter, then up to 62 letters or digits)"
+                ),
+            });
+        }
+    }
+    if input
+        .description
+        .as_ref()
+        .is_some_and(|d| d.chars().count() > MAX_DESCRIPTION_CHARS)
+    {
+        return Err(OpError::InvalidInput {
+            path: "/description".into(),
+            message: format!("description is longer than {MAX_DESCRIPTION_CHARS} characters"),
+        });
+    }
+
     if let Some(files) = &input.files {
         let total_bytes: usize = files.iter().map(|f| f.content.len()).sum();
         if total_bytes > MAX_TOTAL_FILES_BYTES {
@@ -145,6 +184,71 @@ fn sanitize_dns1123(raw: &str) -> String {
         "space".into()
     } else {
         trimmed.chars().take(63).collect()
+    }
+}
+
+/// A NGSI-LD type name the model and the pipeline can carry: PascalCase letters and digits.
+fn is_type_name(raw: &str) -> bool {
+    let mut chars = raw.chars();
+    chars.next().is_some_and(|c| c.is_ascii_uppercase())
+        && raw.len() <= 63
+        && chars.all(|c| c.is_ascii_alphanumeric())
+}
+
+/// The class a completion infers: the type the person named, else the sample file's name,
+/// else the space's own name made singular. Never `Entity`, the model's abstract base class.
+fn class_name_of(type_name: Option<&str>, sample_name: Option<&str>, space_name: &str) -> String {
+    if let Some(name) = type_name.filter(|name| is_type_name(name)) {
+        return name.to_owned();
+    }
+    let derived = to_pascal_case(sample_name.unwrap_or(space_name));
+    let derived = if derived == "Entity" {
+        to_pascal_case(space_name)
+    } else {
+        derived
+    };
+    if derived.starts_with(|c: char| c.is_ascii_uppercase()) && derived != "Entity" {
+        derived
+    } else {
+        format!("Feed{derived}")
+    }
+}
+
+/// The inferred LinkML source with `description` on `class`, when the source parses and the
+/// class carries none yet; the source unchanged otherwise.
+fn describe_class(source: &str, class: &str, description: &str) -> String {
+    let Ok(mut doc) = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(source) else {
+        return source.to_owned();
+    };
+    let Some(entry) = doc
+        .get_mut("classes")
+        .and_then(|classes| classes.get_mut(class))
+    else {
+        return source.to_owned();
+    };
+    if entry.is_null() {
+        *entry = serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new());
+    }
+    let Some(mapping) = entry.as_mapping_mut() else {
+        return source.to_owned();
+    };
+    if mapping.contains_key("description") {
+        return source.to_owned();
+    }
+    mapping.insert("description".into(), description.into());
+    serde_yaml_ng::to_string(&doc).unwrap_or_else(|_| source.to_owned())
+}
+
+/// `metadata.description` of a drafted manifest, in the same language map as its title, unless
+/// the manifest already says something (AG-73).
+fn describe(manifest: &mut Value, description: Option<&str>) {
+    let Some(description) = description.map(str::trim).filter(|d| !d.is_empty()) else {
+        return;
+    };
+    if let Some(metadata) = manifest.get_mut("metadata").and_then(Value::as_object_mut) {
+        metadata
+            .entry("description")
+            .or_insert_with(|| json!({ "en": description }));
     }
 }
 
@@ -272,6 +376,8 @@ pub async fn run(
                 }
             }
         });
+        let mut ds_manifest = ds_manifest;
+        describe(&mut ds_manifest, input.description.as_deref());
         manifests.insert("DataSource".into(), ds_manifest);
     }
 
@@ -412,12 +518,17 @@ pub async fn run(
         }
     }
 
-    // Determine target class name
-    let sample_name = sample_bytes
-        .as_ref()
-        .map(|(n, _)| n.as_str())
-        .unwrap_or("Entity");
-    let class_name = to_pascal_case(sample_name);
+    let class_name = class_name_of(
+        input.type_name.as_deref(),
+        sample_bytes.as_ref().map(|(n, _)| n.as_str()),
+        &space_name,
+    );
+    let description = input
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(str::to_owned);
 
     // 1. DataModel
     let has_datamodel = manifests.contains_key("DataModel");
@@ -520,6 +631,12 @@ pub async fn run(
             )
         };
 
+        let inferred_text = match &description {
+            Some(description) if !inferred_text.is_empty() => {
+                describe_class(&inferred_text, &class_name, description)
+            }
+            _ => inferred_text,
+        };
         model_linkml_text = Some(inferred_text.clone());
         let classes_array = json!([class_name]);
         let manifest = json!({
@@ -544,6 +661,8 @@ pub async fn run(
             && !inferred_text.is_empty()
             && inferred_text.contains("classes:");
         model_verdict = Some(Verdict::new(is_ok, infer_findings, None, &manifest));
+        let mut manifest = manifest;
+        describe(&mut manifest, description.as_deref());
         model_manifest = Some(manifest);
         inferred_model = true;
     }
@@ -570,6 +689,8 @@ pub async fn run(
                 }
             }
         });
+        let mut manifest = manifest;
+        describe(&mut manifest, description.as_deref());
         space_manifest = Some(manifest);
         inferred_space = true;
     }
@@ -594,6 +715,8 @@ pub async fn run(
                 },
                 "spec": ds_spec
             });
+            let mut manifest = manifest;
+            describe(&mut manifest, description.as_deref());
             datasource_manifest = Some(manifest);
             ds_findings = findings;
             inferred_datasource = true;
@@ -1203,6 +1326,62 @@ fn draft_error(err: ops::drafts::DraftError) -> OpError {
 
 #[cfg(test)]
 mod tests {
+    use super::{class_name_of, describe, describe_class, is_type_name};
+    use serde_json::json;
+
+    #[test]
+    fn the_class_is_the_named_type_else_the_sample_else_the_space_never_entity() {
+        assert_eq!(
+            class_name_of(Some("BikeStation"), None, "bikes"),
+            "BikeStation"
+        );
+        assert_eq!(
+            class_name_of(Some("bad name"), None, "helsinki-bikes"),
+            "HelsinkiBike"
+        );
+        assert_eq!(
+            class_name_of(None, Some("stations.csv"), "bikes"),
+            "Station"
+        );
+        assert_eq!(class_name_of(None, None, "helsinki-bikes"), "HelsinkiBike");
+        assert_eq!(class_name_of(None, None, "entity"), "FeedEntity");
+        assert_eq!(class_name_of(None, None, "7-feeds"), "Feed7Feed");
+        assert!(is_type_name("WeatherObserved"));
+        assert!(!is_type_name("weatherObserved"));
+        assert!(!is_type_name("Weather-Observed"));
+        assert!(!is_type_name(""));
+    }
+
+    #[test]
+    fn a_description_lands_on_the_inferred_class_unless_it_has_one() {
+        let source = "id: https://example.com/bikes\nclasses:\n  BikeStation:\n    slots: [name]\n";
+        let described = describe_class(source, "BikeStation", "Docking stations of city bikes");
+        let doc: serde_yaml_ng::Value = serde_yaml_ng::from_str(&described).unwrap();
+        assert_eq!(
+            doc["classes"]["BikeStation"]["description"].as_str(),
+            Some("Docking stations of city bikes")
+        );
+        assert_eq!(
+            describe_class(&described, "BikeStation", "other"),
+            described
+        );
+        assert_eq!(
+            describe_class("not: [yaml", "BikeStation", "x"),
+            "not: [yaml"
+        );
+        let mut manifest = json!({ "metadata": { "name": "bikes" } });
+        describe(&mut manifest, Some("  City bikes  "));
+        assert_eq!(
+            manifest["metadata"]["description"],
+            json!({ "en": "City bikes" })
+        );
+        describe(&mut manifest, Some("else"));
+        assert_eq!(
+            manifest["metadata"]["description"],
+            json!({ "en": "City bikes" })
+        );
+    }
+
     #[test]
     fn a_committed_datamodel_keeps_its_linkml_path_and_loses_the_inline_source() {
         let draft = serde_json::json!({

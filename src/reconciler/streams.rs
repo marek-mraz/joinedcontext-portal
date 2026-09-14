@@ -260,7 +260,12 @@ impl StreamDeployer {
                         }
                     };
 
-                    match render_endpoint_stream(&spec, source_slug, &target_slug) {
+                    match render_endpoint_stream(
+                        &spec,
+                        &format!("{ns}/{name}"),
+                        source_slug,
+                        &target_slug,
+                    ) {
                         Ok(val) => val,
                         Err(err) => {
                             outcomes.push((
@@ -616,26 +621,127 @@ pub fn endpoint_source_url(
     format!("${{JC_GATEWAY_URL}}/api/endpoint/{source_slug}/ngsi-ld/v1/entities?{query_str}")
 }
 
-/// Renders a native Bento stream configuration for an endpoint-sourced pipeline (PL-31, PL-45).
+/// The runner's shared cache in which an on-change stream keeps the hash of the last page it
+/// passed (PL-51); declared beside the runner's other shared resources.
+pub const CHANGE_CACHE: &str = "pipeline_changes";
+/// How often an on-change stream looks at its source when the pipeline names no period.
+const CHANGE_POLL: &str = "10s";
+/// The shortest look an on-change stream takes: a period under it is raised to it.
+const CHANGE_POLL_FLOOR: Duration = Duration::from_secs(5);
+
+/// `10s`, `2m`, `500ms`, `1h` as a duration; anything else is not one.
+fn duration_of(text: &str) -> Option<Duration> {
+    let text = text.trim();
+    let split = text.find(|c: char| !c.is_ascii_digit())?;
+    let (number, unit) = text.split_at(split);
+    let number: u64 = number.parse().ok()?;
+    match unit {
+        "ms" => Some(Duration::from_millis(number)),
+        "s" => Some(Duration::from_secs(number)),
+        "m" => Some(Duration::from_secs(number * 60)),
+        "h" => Some(Duration::from_secs(number * 3600)),
+        _ => None,
+    }
+}
+
+/// The processors that pass a source page on only when a watched value changed since the page
+/// the stream last passed (PL-51): the hash of every entity's id and watched values goes to the
+/// message's metadata, the last hash comes out of the shared cache (a first run misses it, and
+/// `catch` clears that miss), an equal hash drops the page, and a new one is stored before the
+/// compute sees the page. Unlike a `dedupe`, a value that returns to an earlier one passes.
+fn change_gate(stream_key: &str, watched: &[String]) -> Vec<Value> {
+    let values = if watched.is_empty() {
+        "e".to_owned()
+    } else {
+        watched
+            .iter()
+            .map(|attr| {
+                let path = Value::String(format!("{attr}.value")).to_string();
+                format!("e.get({path})")
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    vec![
+        serde_json::json!({
+            "mutation": format!(
+                "meta jc_change = (if this.type() == \"array\" {{ this }} else {{ [this] }}).map_each(e -> [e.id, {values}]).format_json().string().hash(\"xxhash64\").encode(\"hex\")"
+            )
+        }),
+        serde_json::json!({
+            "branch": {
+                "request_map": "root = \"\"",
+                "processors": [{
+                    "cache": { "resource": CHANGE_CACHE, "operator": "get", "key": stream_key }
+                }],
+                "result_map": "meta jc_last = this"
+            }
+        }),
+        serde_json::json!({ "catch": [] }),
+        serde_json::json!({ "mutation": "root = if @jc_last == @jc_change { deleted() }" }),
+        serde_json::json!({
+            "cache": {
+                "resource": CHANGE_CACHE,
+                "operator": "set",
+                "key": stream_key,
+                "value": "\"${! @jc_change }\""
+            }
+        }),
+    ]
+}
+
+/// Renders a native Bento stream configuration for an endpoint-sourced pipeline (PL-31, PL-45):
+/// on its clock, or, with `source.trigger.subscription`, on every change of a watched value
+/// (PL-51). `stream_key` names the stream in the runner's shared change cache.
 pub fn render_endpoint_stream(
     pipeline: &PipelineSpec,
+    stream_key: &str,
     source_slug: &str,
     target_slug: &str,
 ) -> Result<Value, RenderError> {
-    let query = pipeline
-        .source
-        .as_ref()
+    let source = pipeline.source.as_ref();
+    let query = source
         .and_then(|s| s.query.as_ref())
         .ok_or_else(|| RenderError::Custom("endpoint pipeline missing query".to_string()))?;
+    let trigger = source.and_then(|s| s.trigger.as_ref());
 
     fn non_empty(v: &Option<String>) -> Option<&str> {
         v.as_deref().filter(|s| !s.trim().is_empty())
     }
-    let interval = non_empty(&pipeline.period)
-        .or_else(|| non_empty(&pipeline.schedule))
-        .unwrap_or("60s");
+    let interval = match trigger {
+        Some(_) => match non_empty(&pipeline.period) {
+            Some(period) => match duration_of(period) {
+                Some(d) if d < CHANGE_POLL_FLOOR => {
+                    format!("{}s", CHANGE_POLL_FLOOR.as_secs())
+                }
+                Some(_) => period.to_owned(),
+                None => CHANGE_POLL.to_owned(),
+            },
+            None => CHANGE_POLL.to_owned(),
+        },
+        None => non_empty(&pipeline.period)
+            .or_else(|| non_empty(&pipeline.schedule))
+            .unwrap_or("60s")
+            .to_owned(),
+    };
 
-    let source_url = endpoint_source_url(source_slug, query);
+    // A page the change gate hashes carries the watched attributes, whatever the query names.
+    let mut query = query.clone();
+    let watched: Vec<String> = match trigger {
+        Some(trigger) if !trigger.subscription.watched_attributes.is_empty() => {
+            trigger.subscription.watched_attributes.clone()
+        }
+        Some(_) => query.attrs.clone(),
+        None => Vec::new(),
+    };
+    if !query.attrs.is_empty() {
+        for attr in &watched {
+            if !query.attrs.contains(attr) {
+                query.attrs.push(attr.clone());
+            }
+        }
+    }
+    let source_url = endpoint_source_url(source_slug, &query);
 
     let input = serde_json::json!({
         "generate": {
@@ -667,6 +773,9 @@ pub fn render_endpoint_stream(
     });
 
     let mut processors = vec![p1, p2];
+    if trigger.is_some() {
+        processors.extend(change_gate(stream_key, &watched));
+    }
 
     let bloblang = pipeline
         .compute
@@ -1033,8 +1142,9 @@ mod tests {
     fn endpoint_source_renders_get_url_with_type_and_attrs() {
         let spec =
             endpoint_pipeline_spec(Some("BikeHireDockingStation"), vec![], Some("15m"), None);
-        let rendered = render_endpoint_stream(&spec, "source_slug_123", "target_slug_456")
-            .expect("rendered endpoint stream");
+        let rendered =
+            render_endpoint_stream(&spec, "helsinki/kpi", "source_slug_123", "target_slug_456")
+                .expect("rendered endpoint stream");
 
         assert_eq!(rendered["input"]["generate"]["interval"], "15m");
         let http = &rendered["pipeline"]["processors"][0]["try"][0]["http"];
@@ -1052,13 +1162,96 @@ mod tests {
     }
 
     #[test]
+    fn a_schedule_is_the_clock_and_no_change_gate_is_rendered() {
+        let spec = endpoint_pipeline_spec(
+            Some("BikeHireDockingStation"),
+            vec![],
+            None,
+            Some("*/15 * * * *"),
+        );
+        let rendered = render_endpoint_stream(&spec, "helsinki/kpi", "src", "dst").expect("render");
+        assert_eq!(rendered["input"]["generate"]["interval"], "*/15 * * * *");
+        let processors = rendered["pipeline"]["processors"]
+            .as_array()
+            .expect("processors");
+        assert!(processors
+            .iter()
+            .all(|p| p.get("cache").is_none() && p.get("branch").is_none()));
+    }
+
+    #[test]
+    fn an_on_change_trigger_renders_the_change_gate_before_the_compute() {
+        let mut spec = endpoint_pipeline_spec(Some("BikeHireDockingStation"), vec![], None, None);
+        spec.source.as_mut().expect("source").trigger = Some(
+            serde_json::from_value(serde_json::json!({
+                "subscription": { "type": "BikeHireDockingStation", "watchedAttributes": ["availableBikeNumber", "status"] }
+            }))
+            .expect("trigger"),
+        );
+        let rendered =
+            render_endpoint_stream(&spec, "helsinki/bikes-kpi", "src", "dst").expect("render");
+
+        // No period: the source is looked at every ten seconds, with the watched attributes.
+        assert_eq!(rendered["input"]["generate"]["interval"], "10s");
+        let processors = rendered["pipeline"]["processors"]
+            .as_array()
+            .expect("processors");
+        assert!(processors[0]["try"][0]["http"]["url"]
+            .as_str()
+            .expect("url")
+            .contains("attrs=availableBikeNumber,status&"));
+        let hash = processors[2]["mutation"].as_str().expect("the hash");
+        assert!(
+            hash.contains(r#"e.get("availableBikeNumber.value"), e.get("status.value")"#),
+            "{hash}"
+        );
+        assert_eq!(
+            processors[3]["branch"]["processors"][0]["cache"],
+            serde_json::json!({ "resource": CHANGE_CACHE, "operator": "get", "key": "helsinki/bikes-kpi" })
+        );
+        assert_eq!(processors[4], serde_json::json!({ "catch": [] }));
+        assert_eq!(
+            processors[5]["mutation"],
+            "root = if @jc_last == @jc_change { deleted() }"
+        );
+        assert_eq!(processors[6]["cache"]["operator"], "set");
+        assert_eq!(processors[6]["cache"]["key"], "helsinki/bikes-kpi");
+        // The compute comes after the gate.
+        assert_eq!(processors[7]["mapping"], "root = this");
+    }
+
+    #[test]
+    fn an_on_change_period_under_five_seconds_is_raised_and_a_longer_one_kept() {
+        let trigger: jc_core::kinds::pipeline::Trigger = serde_json::from_value(
+            serde_json::json!({ "subscription": { "type": "BikeHireDockingStation" } }),
+        )
+        .expect("trigger");
+        for (period, interval) in [("1s", "5s"), ("500ms", "5s"), ("30s", "30s"), ("2m", "2m")] {
+            let mut spec =
+                endpoint_pipeline_spec(Some("BikeHireDockingStation"), vec![], Some(period), None);
+            spec.source.as_mut().expect("source").trigger = Some(trigger.clone());
+            let rendered = render_endpoint_stream(&spec, "k", "src", "dst").expect("render");
+            assert_eq!(
+                rendered["input"]["generate"]["interval"], interval,
+                "{period}"
+            );
+            // No watched attributes named: the query's are watched.
+            assert!(rendered["pipeline"]["processors"][2]["mutation"]
+                .as_str()
+                .expect("hash")
+                .contains(r#"e.get("availableBikeNumber.value")"#));
+        }
+    }
+
+    #[test]
     fn endpoint_source_ids_renders_id_param() {
         let urn: jc_core::urn::Urn = "urn:ngsi-ld:BikeHireDockingStation:hel.fi:h:station-1"
             .parse()
             .expect("urn");
         let spec = endpoint_pipeline_spec(None, vec![urn], None, Some("*/15 * * * *"));
-        let rendered = render_endpoint_stream(&spec, "source_slug_123", "target_slug_456")
-            .expect("rendered endpoint stream");
+        let rendered =
+            render_endpoint_stream(&spec, "helsinki/kpi", "source_slug_123", "target_slug_456")
+                .expect("rendered endpoint stream");
 
         assert_eq!(rendered["input"]["generate"]["interval"], "*/15 * * * *");
         let http = &rendered["pipeline"]["processors"][0]["try"][0]["http"];

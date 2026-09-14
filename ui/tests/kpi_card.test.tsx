@@ -10,7 +10,7 @@ import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tan
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
-import { KpiCard, formatValue, kpiOf } from "../src/pages/apps/KpiCard";
+import { KpiCard, formatValue, keepMessage, kpiOf } from "../src/pages/apps/KpiCard";
 import type { Kpi } from "../src/pages/apps/KpiCard";
 
 const SLUG = "kpislug0000000000000000000";
@@ -33,9 +33,9 @@ const KPI: Kpi = {
   entity: ENTITY,
 };
 
-function renderCard(kpi: Kpi = KPI) {
+function renderCard(kpi: Kpi = KPI, onSend?: (text: string) => void) {
   const rootRoute = createRootRoute();
-  const home = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => <KpiCard project="helsinki" kpi={kpi} /> });
+  const home = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => <KpiCard project="helsinki" kpi={kpi} onSend={onSend} /> });
   const explore = createRoute({ getParentRoute: () => rootRoute, path: "/projects/$project/explore", component: () => <p>explore</p> });
   const plural = createRoute({ getParentRoute: () => rootRoute, path: "/projects/$project/$plural", component: () => <p>list</p> });
   const router = createRouter({ routeTree: rootRoute.addChildren([home, explore, plural]) });
@@ -111,6 +111,47 @@ describe("the indicator card", () => {
     expect(screen.queryByRole("button", { name: en.agentRun.kpi.write })).toBeNull();
     expect(screen.getByRole("link", { name: en.agentRun.kpi.openEndpoints })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("asks the assistant to keep the indicator updated on a period or on every change, into the space the person names", async () => {
+    const onSend = vi.fn();
+    const kpi = kpiOf(
+      { ...KPI },
+      { name: "average-pm10", type: "AirQualityObserved", attribute: "pm10", agg: "avg", q: "pm10>0" },
+    );
+    expect(kpi?.query).toEqual({ type: "AirQualityObserved", attribute: "pm10", agg: "avg", q: "pm10>0" });
+    renderCard(kpi ?? KPI, onSend);
+    await userEvent.click(await screen.findByRole("button", { name: en.agentRun.kpi.keep }));
+    const form = screen.getByRole("form", { name: en.agentRun.kpi.keep });
+    const minutes = within(form).getByRole("spinbutton", { name: en.agentRun.kpi.keepMinutes });
+    await userEvent.clear(minutes);
+    await userEvent.type(minutes, "30");
+    const space = within(form).getByRole("textbox");
+    expect(space).toHaveValue("helsinki-kpi");
+    await userEvent.clear(space);
+    await userEvent.type(space, "air-kpi");
+    await userEvent.click(within(form).getByRole("button", { name: en.agentRun.kpi.keepSend }));
+    expect(onSend).toHaveBeenCalledWith(
+      "Keep the indicator average-pm10 updated: avg of pm10 over AirQualityObserved where pm10>0, every 30m, into the space air-kpi.",
+    );
+
+    // Reopened, the form keeps the space the person named.
+    await userEvent.click(screen.getByRole("button", { name: en.agentRun.kpi.keep }));
+    await userEvent.click(screen.getByRole("radio", { name: en.agentRun.kpi.keepOnChange }));
+    await userEvent.click(screen.getByRole("button", { name: en.agentRun.kpi.keepSend }));
+    expect(onSend).toHaveBeenLastCalledWith(
+      "Keep the indicator average-pm10 updated: avg of pm10 over AirQualityObserved where pm10>0, on every change, into the space air-kpi.",
+    );
+  });
+
+  it("offers no pipeline when the conversation takes no message, and a count names no attribute", () => {
+    renderCard();
+    expect(screen.queryByRole("button", { name: en.agentRun.kpi.keep })).toBeNull();
+    const t = i18n.getFixedT("en");
+    const count = { ...KPI, query: { type: "BikeHireDockingStation", attribute: "", agg: "count" } };
+    expect(keepMessage(count, { onChange: false, minutes: 15, space: "transportation-kpi" }, t)).toBe(
+      "Keep the indicator average-pm10 updated: count of BikeHireDockingStation, every 15m, into the space transportation-kpi.",
+    );
   });
 
   it("takes only what the Portal wrote, and formats a value to read", () => {

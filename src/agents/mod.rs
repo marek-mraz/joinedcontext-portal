@@ -1,9 +1,11 @@
 pub mod access;
 pub mod code;
+pub mod endpoints;
 pub mod events;
 pub mod fields;
 pub mod kit;
 pub mod kpi;
+pub mod kpi_pipeline;
 pub mod kube;
 pub mod needs;
 pub mod oneshot;
@@ -15,3 +17,4 @@ pub mod run;
 pub mod share;
 pub mod store;
 pub mod transpile;
+pub mod verification;

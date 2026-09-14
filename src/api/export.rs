@@ -4,7 +4,12 @@
 //! the forge at that revision, strips what must not leave (`status`, literal secret values) and
 //! hands back what a `git archive` of the same path would hold. Nothing here reads the live
 //! mirror: an export names a revision, and the mirror only ever knows one.
+//!
+//! A whole-project export also says what its files mean (MF-41): the JSON Schema of every kind it
+//! holds, every data model's LinkML source and JSON Schema, and a README that ties them together,
+//! so a person or another tool can read the bundle without this platform's documentation.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 
 use axum::extract::{Path, Query, State};
@@ -213,6 +218,11 @@ fn matches_filters(
         && names.is_none_or(|wanted| wanted.contains(&envelope.metadata.name))
 }
 
+fn pretty(value: &Value) -> Result<String, ApiError> {
+    serde_json::to_string_pretty(value)
+        .map_err(|e| ApiError::Internal(format!("schema did not serialise: {e}")))
+}
+
 fn attachment(body: Vec<u8>, content_type: &'static str, filename: String) -> Response {
     (
         StatusCode::OK,
@@ -252,6 +262,339 @@ fn bundle_index(
     });
     serde_yaml_ng::to_string(&bundle)
         .map_err(|e| ApiError::Internal(format!("bundle index did not serialise: {e}")))
+}
+
+/// Where a complete archive puts its README and its schemas. Both describe the bundle rather than
+/// belonging to the project, so import leaves them out (MF-41).
+pub(crate) const README_PATH: &str = "README.md";
+pub(crate) const SCHEMAS_DIR: &str = "schemas/";
+
+/// What each kind is, in one sentence, for the README of a complete export (MF-41). The field
+/// by field meaning is in the kind's JSON Schema; this is the line a person reads first.
+const KIND_ABOUT: &[(&str, &str)] = &[
+    ("Organization", "The city or institution running the instance: its domain, name and defaults."),
+    ("Project", "A workspace of one department or programme, holding its spaces, pipelines and applications."),
+    ("ContextSpace", "One topic's live data, such as air quality: the broker tenant and the data model it serves."),
+    ("DataModel", "The entity types of a space, authored in LinkML; its JSON Schema and JSON-LD context are generated from it."),
+    ("Mapping", "How a source's records become the model's entities, compiled to Bloblang."),
+    ("Policy", "Who may read or write which entities and attributes of a space."),
+    ("ScopeDefinition", "A named OAuth scope and the policy grants it stands for."),
+    ("Endpoint", "A published door onto a space: its address, audience, formats and limits."),
+    ("ModelProjection", "A reduced or reshaped view of a data model that an endpoint serves."),
+    ("SharedSpaceReference", "A space another project or instance shares with this one."),
+    ("ContextSourceRegistration", "A federated source whose entities a space answers for."),
+    ("ServiceAccount", "A machine identity and the grants it holds."),
+    ("Pipeline", "A job that loads or transforms data into a space through an endpoint."),
+    ("DataSource", "The connection to one external feed and the references to its credentials."),
+    ("App", "An application built on endpoints: its data needs, visibility and build."),
+    ("CkanInstance", "An open data catalogue the project publishes its datasets to."),
+    ("Blueprint", "A reusable template that creates a set of resources."),
+    ("AgentProfile", "The model, limits and permitted operations of an AI agent."),
+    ("DataSpaceParticipant", "The organization's identity in a data space: its DID and connector."),
+    ("DataOffer", "An endpoint offered in a data space under an ODRL policy."),
+    ("DataAgreement", "A concluded data space contract and the access compiled from it."),
+    ("SyncSource", "A repository, bundle or instance this configuration follows."),
+    ("Bundle", "The index of a download: what it holds and where it came from."),
+    ("UiSchema", "How the Portal arranges the form of one kind."),
+    ("Role", "A named set of permissions."),
+    ("RoleBinding", "Who holds which role, and where."),
+    ("Dashboard", "A page of charts, maps and indicators over endpoints."),
+    ("Layer", "A map layer a dashboard or an application draws."),
+];
+
+fn about(kind: &str) -> &'static str {
+    KIND_ABOUT
+        .iter()
+        .find(|(known, _)| *known == kind)
+        .map_or("", |(_, about)| about)
+}
+
+/// One data model's files, as a complete export carries them.
+#[derive(Debug, Default)]
+struct ModelFiles {
+    classes: Vec<String>,
+    linkml: Option<String>,
+    json_schema: Option<Value>,
+    /// What could not be had, in words, for the README.
+    missing: Vec<String>,
+}
+
+/// What a complete export adds so that it explains itself (MF-41).
+struct Description {
+    readme: String,
+    kinds: BTreeMap<String, Value>,
+    models: BTreeMap<String, ModelFiles>,
+}
+
+impl Description {
+    /// The models as the YAML index and the JSON list carry them.
+    fn models_json(&self) -> Value {
+        Value::Object(
+            self.models
+                .iter()
+                .map(|(name, files)| {
+                    (
+                        name.clone(),
+                        serde_json::json!({
+                            "classes": files.classes,
+                            "linkml": files.linkml,
+                            "jsonSchema": files.json_schema,
+                            "missing": files.missing,
+                        }),
+                    )
+                })
+                .collect(),
+        )
+    }
+}
+
+/// A path written relative to a manifest, resolved against the manifest's own directory. A path
+/// that climbs out of the repository answers `None`; one that climbs out of the project simply
+/// finds no file, because only this project's files are looked in.
+fn beside(manifest_path: &str, relative: &str) -> Option<String> {
+    let mut parts: Vec<&str> = manifest_path.split('/').collect();
+    parts.pop();
+    for segment in relative.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// The LinkML source and JSON Schema of one `DataModel`: the repository's own files, a JSON
+/// Schema generated by Model Tools when the repository has none, and the reason for anything
+/// that could not be had.
+async fn model_files(state: &AppState, file: &Exported, all: &[Exported]) -> ModelFiles {
+    let Some(envelope) = &file.manifest else {
+        return ModelFiles::default();
+    };
+    let spec = &envelope.spec;
+    let content_at = |relative: &str| {
+        let wanted = beside(&file.path, relative)?;
+        all.iter()
+            .find(|other| other.path == wanted)
+            .map(|other| other.content.clone())
+    };
+    let mut model = ModelFiles {
+        classes: spec
+            .get("classes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+        ..ModelFiles::default()
+    };
+    match spec.get("linkml").and_then(Value::as_str) {
+        Some(relative) => match content_at(relative) {
+            Some(source) => model.linkml = Some(source),
+            None => model.missing.push(format!(
+                "LinkML source: `{relative}` is not in the repository"
+            )),
+        },
+        None => model
+            .missing
+            .push("LinkML source: the manifest names none (`spec.linkml`)".to_owned()),
+    }
+    if let Some(relative) = spec
+        .pointer("/artifacts/jsonSchema")
+        .and_then(Value::as_str)
+    {
+        match content_at(relative).map(|text| serde_json::from_str::<Value>(&text)) {
+            Some(Ok(schema)) => model.json_schema = Some(schema),
+            Some(Err(err)) => model
+                .missing
+                .push(format!("JSON Schema: `{relative}` is not JSON ({err})")),
+            None => {}
+        }
+    }
+    if model.json_schema.is_none() {
+        match &model.linkml {
+            Some(source) => {
+                match crate::api::datamodels::compile_artifacts(state, source).await {
+                    Ok(artifacts) if artifacts.json_schema.is_some() => {
+                        model.json_schema = artifacts.json_schema;
+                    }
+                    Ok(artifacts) => model.missing.push(format!(
+                        "JSON Schema: not in the repository, and the LinkML source does not compile: {}",
+                        artifacts.errors.join("; ")
+                    )),
+                    Err(err) => model.missing.push(format!(
+                        "JSON Schema: not in the repository, and Model Tools could not generate it: {err}"
+                    )),
+                }
+            }
+            None => model
+                .missing
+                .push("JSON Schema: no LinkML source to generate it from".to_owned()),
+        }
+    }
+    model
+}
+
+/// The README, the kind schemas and the model files of a complete export (MF-41). `included`
+/// are the manifests the export holds after its filters; `all` is every file of the project, in
+/// which a model's LinkML source and schema artifacts are looked up.
+async fn describe(
+    state: &AppState,
+    included: &[&Exported],
+    all: &[Exported],
+    header: &IndexHeader<'_>,
+    archive: bool,
+) -> Description {
+    let mut by_kind: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut models = BTreeMap::new();
+    for file in included {
+        let Some(envelope) = &file.manifest else {
+            continue;
+        };
+        by_kind
+            .entry(envelope.kind.clone())
+            .or_default()
+            .push(envelope.metadata.name.clone());
+        if envelope.kind == "DataModel" {
+            models.insert(
+                envelope.metadata.name.clone(),
+                model_files(state, file, all).await,
+            );
+        }
+    }
+    let kinds: BTreeMap<String, Value> = by_kind
+        .keys()
+        .filter_map(|kind| Some((kind.clone(), jc_core::registry::schema_of(kind)?)))
+        .collect();
+    let readme = readme(header, &by_kind, &models, archive);
+    Description {
+        readme,
+        kinds,
+        models,
+    }
+}
+
+/// Who exported what, from where: the head every index and README of one export shares.
+struct IndexHeader<'a> {
+    project: &'a str,
+    revision: &'a str,
+    exporter: &'a str,
+    omitted: usize,
+}
+
+fn readme(
+    header: &IndexHeader<'_>,
+    by_kind: &BTreeMap<String, Vec<String>>,
+    models: &BTreeMap<String, ModelFiles>,
+    archive: bool,
+) -> String {
+    let IndexHeader {
+        project,
+        revision,
+        exporter,
+        omitted,
+    } = header;
+    let mut out = format!(
+        "# Project {project}\n\n\
+         The configuration of project `{project}` as the repository held it at revision \
+         `{revision}`, exported by {exporter}. It can be imported again as it is: `status` is \
+         removed and secret values are empty strings, while the references to secrets \
+         (`secretRef`) are kept.\n\n## What is where\n\n"
+    );
+    if archive {
+        out.push_str(&format!(
+            "- `projects/{project}/`: the manifests (`apiVersion`, `kind`, `metadata`, `spec`) and the \
+             files beside them (Bento configuration, LinkML sources, generated schema artifacts).\n\
+             - `projects/{project}/bundle.yaml`: the index of this download.\n\
+             - `{SCHEMAS_DIR}kinds/{{Kind}}.schema.json`: the JSON Schema (draft-07) of each kind \
+             below; every field carries its description.\n\
+             - `{SCHEMAS_DIR}models/{{name}}/`: each data model's LinkML source \
+             (`{{name}}.linkml.yaml`) and the JSON Schema of its entities (`{{name}}.schema.json`).\n"
+        ));
+    } else {
+        out.push_str(
+            "- The manifests (`apiVersion`, `kind`, `metadata`, `spec`), one per YAML document or \
+             one per `items` entry of the JSON list.\n\
+             - `schemas.kinds`: the JSON Schema (draft-07) of each kind below; every field carries \
+             its description.\n\
+             - `schemas.models`: each data model's LinkML source (`linkml`) and the JSON Schema of \
+             its entities (`jsonSchema`).\n\
+             - In YAML these sit in the `spec` of the closing `kind: Bundle` document; in JSON, \
+             beside `items`.\n",
+        );
+    }
+    out.push_str("\n## Kinds\n\n| Kind | Resources | What it is | Schema |\n|---|---|---|---|\n");
+    for (kind, names) in by_kind {
+        const SHOWN: usize = 12;
+        let mut listed = names
+            .iter()
+            .take(SHOWN)
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if names.len() > SHOWN {
+            listed.push_str(&format!(" and {} more", names.len() - SHOWN));
+        }
+        let schema = if archive {
+            format!("`{SCHEMAS_DIR}kinds/{kind}.schema.json`")
+        } else {
+            format!("`schemas.kinds.{kind}`")
+        };
+        out.push_str(&format!(
+            "| {kind} | {} ({listed}) | {} | {schema} |\n",
+            names.len(),
+            about(kind)
+        ));
+    }
+    if !models.is_empty() {
+        out.push_str(
+            "\n## Data models\n\n| Model | Entity types | LinkML | JSON Schema |\n|---|---|---|---|\n",
+        );
+        for (name, files) in models {
+            let (linkml, schema) = if archive {
+                (
+                    format!("`{SCHEMAS_DIR}models/{name}/{name}.linkml.yaml`"),
+                    format!("`{SCHEMAS_DIR}models/{name}/{name}.schema.json`"),
+                )
+            } else {
+                (
+                    format!("`schemas.models.{name}.linkml`"),
+                    format!("`schemas.models.{name}.jsonSchema`"),
+                )
+            };
+            let present =
+                |found: bool, place: String| if found { place } else { "missing".to_owned() };
+            out.push_str(&format!(
+                "| {name} | {} | {} | {} |\n",
+                files.classes.join(", "),
+                present(files.linkml.is_some(), linkml),
+                present(files.json_schema.is_some(), schema),
+            ));
+        }
+        let missing: Vec<String> = models
+            .iter()
+            .flat_map(|(name, files)| {
+                files
+                    .missing
+                    .iter()
+                    .map(move |why| format!("- {name}: {why}"))
+            })
+            .collect();
+        if !missing.is_empty() {
+            out.push_str("\n## Missing\n\n");
+            out.push_str(&missing.join("\n"));
+            out.push('\n');
+        }
+    }
+    if *omitted > 0 {
+        out.push_str(&format!(
+            "\n{omitted} files of the project are not in this download: the repository did not hand them back as text.\n"
+        ));
+    }
+    out
 }
 
 #[utoipa::path(
@@ -310,6 +653,24 @@ pub async fn export(
     let names = selected(query.names.as_deref());
     let short = revision.chars().take(7).collect::<String>();
 
+    let included: Vec<&Exported> = files
+        .iter()
+        .filter(|file| {
+            file.manifest
+                .as_ref()
+                .is_some_and(|envelope| matches_filters(envelope, kinds.as_ref(), names.as_ref()))
+        })
+        .collect();
+    let header = IndexHeader {
+        project: &project,
+        revision: &revision,
+        exporter: &user.0.identity.username,
+        omitted,
+    };
+    // An export that names resources is those manifests and nothing else; every other export of
+    // something is complete and says what its files mean (MF-41).
+    let complete = names.is_none() && !included.is_empty();
+
     if format == "zip" {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let options = zip::write::SimpleFileOptions::default()
@@ -344,12 +705,39 @@ pub async fn export(
             written,
             omitted,
         )?;
-        writer
-            .start_file(format!("projects/{project}/bundle.yaml"), options)
-            .map_err(|err| ApiError::Internal(format!("archive entry failed: {err}")))?;
-        writer
-            .write_all(index.as_bytes())
-            .map_err(|e| ApiError::Internal(format!("archive write failed: {e}")))?;
+        let mut entries = vec![(format!("projects/{project}/bundle.yaml"), index)];
+        if complete {
+            let description = describe(&state, &included, &files, &header, true).await;
+            entries.push((README_PATH.to_owned(), description.readme));
+            for (kind, schema) in &description.kinds {
+                entries.push((
+                    format!("{SCHEMAS_DIR}kinds/{kind}.schema.json"),
+                    pretty(schema)?,
+                ));
+            }
+            for (name, model) in &description.models {
+                if let Some(linkml) = &model.linkml {
+                    entries.push((
+                        format!("{SCHEMAS_DIR}models/{name}/{name}.linkml.yaml"),
+                        linkml.clone(),
+                    ));
+                }
+                if let Some(schema) = &model.json_schema {
+                    entries.push((
+                        format!("{SCHEMAS_DIR}models/{name}/{name}.schema.json"),
+                        pretty(schema)?,
+                    ));
+                }
+            }
+        }
+        for (entry, content) in entries {
+            writer
+                .start_file(entry, options)
+                .map_err(|err| ApiError::Internal(format!("archive entry failed: {err}")))?;
+            writer
+                .write_all(content.as_bytes())
+                .map_err(|e| ApiError::Internal(format!("archive write failed: {e}")))?;
+        }
         let cursor = writer
             .finish()
             .map_err(|err| ApiError::Internal(format!("archive did not close: {err}")))?;
@@ -360,19 +748,30 @@ pub async fn export(
         ));
     }
 
-    let manifests: Vec<&ResourceEnvelope> = files
+    let manifests: Vec<&ResourceEnvelope> = included
         .iter()
         .filter_map(|file| file.manifest.as_ref())
-        .filter(|envelope| matches_filters(envelope, kinds.as_ref(), names.as_ref()))
         .collect();
+    let description = if complete {
+        Some(describe(&state, &included, &files, &header, false).await)
+    } else {
+        None
+    };
 
     if format == "json" {
-        let list = serde_json::json!({
+        let mut list = serde_json::json!({
             "apiVersion": API_VERSION,
             "kind": "List",
             "metadata": { "revision": revision, "omitted": omitted },
             "items": manifests,
         });
+        if let Some(description) = &description {
+            list["readme"] = Value::String(description.readme.clone());
+            list["schemas"] = serde_json::json!({
+                "kinds": description.kinds,
+                "models": description.models_json(),
+            });
+        }
         let body = serde_json::to_vec_pretty(&list)
             .map_err(|e| ApiError::Internal(format!("export did not serialise: {e}")))?;
         return Ok(attachment(
@@ -383,9 +782,39 @@ pub async fn export(
     }
 
     let mut body = String::new();
-    for envelope in manifests {
+    for envelope in &manifests {
         let document = serde_yaml_ng::to_string(envelope)
             .map_err(|e| ApiError::Internal(format!("export did not serialise: {e}")))?;
+        body.push_str("---\n");
+        body.push_str(&document);
+    }
+    if let Some(description) = &description {
+        // The closing index carries what the manifests mean; import reads it as provenance and
+        // writes none of it (MF-17, MF-41).
+        let contents: Vec<Value> = manifests
+            .iter()
+            .map(|envelope| serde_json::json!({ "kind": envelope.kind, "name": envelope.metadata.name }))
+            .collect();
+        let index = serde_json::json!({
+            "apiVersion": API_VERSION,
+            "kind": "Bundle",
+            "metadata": { "name": project, "namespace": project },
+            "spec": {
+                "project": project,
+                "revision": revision,
+                "exporter": user.0.identity.username,
+                "files": manifests.len(),
+                "omitted": omitted,
+                "contents": contents,
+                "readme": description.readme,
+                "schemas": {
+                    "kinds": description.kinds,
+                    "models": description.models_json(),
+                },
+            }
+        });
+        let document = serde_yaml_ng::to_string(&index)
+            .map_err(|e| ApiError::Internal(format!("bundle index did not serialise: {e}")))?;
         body.push_str("---\n");
         body.push_str(&document);
     }

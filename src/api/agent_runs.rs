@@ -52,6 +52,11 @@ const MAX_MESSAGE_CHARS: usize = 4_000;
 /// Longest runtime error a preview frame may report, and the longest file name it may name.
 const MAX_PREVIEW_ERROR_CHARS: usize = 2_000;
 const MAX_PREVIEW_FILE_CHARS: usize = 256;
+/// The bounds of a preview observation (API/04 §5, SDK-27).
+const MAX_OBSERVED_PAGES: usize = 20;
+const MAX_PAGE_LABEL_CHARS: usize = 120;
+const MAX_PAGE_TEXT_CHARS: usize = 20_000;
+const MAX_OBSERVED_ENTRIES: usize = 50;
 /// How long the workspace's inbox call waits for something new before answering empty. Short
 /// enough to sit inside every proxy's read timeout, long enough that an idle agent is not a
 /// request per second.
@@ -77,8 +82,13 @@ const KEEP_ALIVE_SECS: u64 = 15;
 pub struct CreateRunRequest {
     /// Name of the application to build; becomes the `App` manifest's name.
     pub app_name: String,
-    /// The `Endpoint` the application reads through. Nothing else is reachable.
-    pub endpoint_name: String,
+    /// The one `Endpoint` the application reads through; `endpointNames` for several. Nothing
+    /// else is reachable.
+    #[serde(default)]
+    pub endpoint_name: Option<String>,
+    /// The `Endpoint`s the application reads, one to five, the first the primary (AP-44).
+    #[serde(default)]
+    pub endpoint_names: Vec<String>,
     /// Which `AgentProfile` runs. Defaults to the builder profile the platform ships.
     #[serde(default = "default_profile")]
     pub profile: String,
@@ -164,6 +174,38 @@ pub struct PreviewErrorRequest {
     pub line: Option<u32>,
 }
 
+/// What the preview frame saw of one version, page by page, relayed by the page that frames it
+/// (SDK-27). Every field is text the frame wrote.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewObservationRequest {
+    /// The `v` of the preview URL the frame loaded.
+    pub version: u32,
+    pub pages: Vec<ObservedPage>,
+    #[serde(default)]
+    pub failed_requests: Vec<FailedRequest>,
+}
+
+/// One page of the application as the frame rendered it.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedPage {
+    pub label: String,
+    /// The page's visible text.
+    pub text: String,
+    /// The row counts of its tables.
+    #[serde(default)]
+    pub rows: Vec<u32>,
+}
+
+/// A request of the frame the bridge answered with an error status.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FailedRequest {
+    pub path: String,
+    pub status: u16,
+}
+
 /// Where the workspace reads from, how far it has read, and how long it will wait.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,6 +250,9 @@ pub struct RunContext {
     pub project: String,
     pub app_name: String,
     pub endpoint_slug: String,
+    /// Every endpoint slug of the run, the primary first: what `/v1/data/endpoints/{slug}/…`
+    /// may address (Architecture/19 §4).
+    pub endpoint_slugs: Vec<String>,
     pub allows_write: bool,
     pub branch: String,
     pub path_prefix: String,
@@ -324,12 +369,20 @@ pub async fn create_run(
         request.unattended
     };
 
+    // The endpoints first: every name the project has, with a slug, at most five (AP-44).
+    let names = crate::agents::endpoints::requested(
+        request.endpoint_name.as_deref(),
+        &request.endpoint_names,
+    )
+    .map_err(ApiError::BadRequest)?;
+    let run_endpoints = crate::agents::endpoints::resolve(&state.mirror, &project, &names)?;
+
     // AP-42 and AP-44 in one place: public is refused, and every violation of what the
-    // endpoint publishes is named at once.
+    // endpoints publish is named at once.
     let allows_write = validate_data_needs(
         &state.mirror,
         &project,
-        &request.endpoint_name,
+        &run_endpoints,
         &request.visibility,
         &request.data_needs,
         &user,
@@ -337,9 +390,9 @@ pub async fn create_run(
 
     // AG-70: a profile that lists endpoints builds only on the ones it grants, with write for a
     // run that writes.
-    if !profile
-        .access
-        .grants_endpoint(&request.endpoint_name, allows_write)
+    if let Some(refused) = run_endpoints
+        .iter()
+        .find(|endpoint| !profile.access.grants_endpoint(&endpoint.name, allows_write))
     {
         return Err(ApiError::Denied(format!(
             "agent profile '{}' does not grant {} on endpoint '{}' (AG-70)",
@@ -349,11 +402,11 @@ pub async fn create_run(
             } else {
                 "read"
             },
-            request.endpoint_name
+            refused.name
         )));
     }
 
-    let endpoint_slug = endpoint_slug(&state, &project, &request.endpoint_name)?;
+    let endpoint_slug = run_endpoints[0].slug.clone();
 
     if request.kind != "conversation" {
         if let Some(live) = state
@@ -377,8 +430,9 @@ pub async fn create_run(
         id: id.clone(),
         project: project.clone(),
         app_name: request.app_name.clone(),
-        endpoint_name: request.endpoint_name.clone(),
+        endpoint_name: run_endpoints[0].name.clone(),
         endpoint_slug,
+        endpoints: serde_json::to_value(&run_endpoints).unwrap_or_else(|_| serde_json::json!([])),
         profile: profile.name.clone(),
         kind: request.kind.clone(),
         unattended,
@@ -805,6 +859,114 @@ pub async fn post_preview_error(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/projects/{project}/agent-runs/{id}/preview-observations",
+    tag = "agents",
+    params(
+        ("project" = String, Path, description = "Project name"),
+        ("id" = String, Path, description = "Run id"),
+    ),
+    request_body = PreviewObservationRequest,
+    responses(
+        (status = 204, description = "The observation is on the run's log as a preview_observation event"),
+        (status = 400, description = "A value outside the bounds of API/04 §5", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "No such run in this project", body = ProblemDetails),
+        (status = 409, description = "The run is over, or this version was observed already", body = ProblemDetails)
+    )
+)]
+/// What the preview frame saw of one version, for the run's verification (SDK-27, SDK-28). The
+/// first observation of a version counts; a second one is refused, so a reload does not start a
+/// second check of the same files.
+pub async fn post_preview_observation(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path((project, id)): Path<(String, String)>,
+    Json(request): Json<PreviewObservationRequest>,
+) -> Result<StatusCode, ApiError> {
+    let run = run_of(&state, &project, &id).await?;
+    if terminal(&run) {
+        return Err(ApiError::Conflict(format!(
+            "run '{id}' is '{}' and verifies nothing",
+            run.status
+        )));
+    }
+    if let Some(problem) = observation_out_of_bounds(&request) {
+        return Err(ApiError::BadRequest(problem));
+    }
+    let observed = state
+        .agents
+        .events_since(&id, 0)
+        .await
+        .map_err(unavailable)?
+        .iter()
+        .any(|event| {
+            event.kind == "preview_observation"
+                && event
+                    .payload
+                    .get("version")
+                    .and_then(serde_json::Value::as_u64)
+                    == Some(u64::from(request.version))
+        });
+    if observed {
+        return Err(ApiError::Conflict(format!(
+            "version {} of run '{id}' was observed already",
+            request.version
+        )));
+    }
+    let mut payload = serde_json::to_value(&request)
+        .map_err(|err| ApiError::Internal(format!("the observation did not serialise: {err}")))?;
+    payload["reportedBy"] = serde_json::json!(user.0.identity.username);
+    publish_event(&state, &id, "preview_observation", payload).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The bounds of an observation (API/04 §5), or `None` when it keeps them.
+fn observation_out_of_bounds(request: &PreviewObservationRequest) -> Option<String> {
+    if request.version == 0 {
+        return Some("version starts at 1".into());
+    }
+    if request.pages.is_empty() || request.pages.len() > MAX_OBSERVED_PAGES {
+        return Some(format!("pages must hold 1 to {MAX_OBSERVED_PAGES} pages"));
+    }
+    for (index, page) in request.pages.iter().enumerate() {
+        if page.label.chars().count() > MAX_PAGE_LABEL_CHARS {
+            return Some(format!(
+                "pages[{index}].label is longer than {MAX_PAGE_LABEL_CHARS} characters"
+            ));
+        }
+        if page.text.chars().count() > MAX_PAGE_TEXT_CHARS {
+            return Some(format!(
+                "pages[{index}].text is longer than {MAX_PAGE_TEXT_CHARS} characters"
+            ));
+        }
+        if page.rows.len() > MAX_OBSERVED_ENTRIES {
+            return Some(format!(
+                "pages[{index}].rows holds more than {MAX_OBSERVED_ENTRIES} counts"
+            ));
+        }
+    }
+    if request.failed_requests.len() > MAX_OBSERVED_ENTRIES {
+        return Some(format!(
+            "failedRequests holds more than {MAX_OBSERVED_ENTRIES} entries"
+        ));
+    }
+    for (index, failed) in request.failed_requests.iter().enumerate() {
+        if failed.path.chars().count() > MAX_PREVIEW_FILE_CHARS {
+            return Some(format!(
+                "failedRequests[{index}].path is longer than {MAX_PREVIEW_FILE_CHARS} characters"
+            ));
+        }
+        if !(400..=599).contains(&failed.status) {
+            return Some(format!(
+                "failedRequests[{index}].status must be between 400 and 599"
+            ));
+        }
+    }
+    None
+}
+
 /// How long the Portal waits for `jc-functions`, whose own limit is 5 s of script.
 const FUNCTION_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -930,7 +1092,7 @@ pub async fn call_function(
         .unwrap_or_else(|| run.project.clone());
     let mut modules = built.functions;
     modules.insert("@joinedcontext/sdk/server".to_owned(), server);
-    let invocation = serde_json::json!({
+    let mut invocation = serde_json::json!({
         "files": modules,
         "entry": format!("{}{entry}", transpile::APP),
         "request": {
@@ -951,6 +1113,11 @@ pub async fn call_function(
         },
         "token": caller_token(&state, &headers),
     });
+    let run_endpoints = crate::agents::endpoints::of_run(&run);
+    if run_endpoints.len() > 1 {
+        invocation["config"]["endpoints"] =
+            crate::agents::endpoints::config(&run_endpoints, &run.data_needs);
+    }
 
     let started = std::time::Instant::now();
     let answer = functions_http()
@@ -1284,11 +1451,16 @@ pub async fn internal_get_run(
         .map_err(unavailable)?
         .ok_or_else(|| ApiError::NotFound(format!("run '{id}' not found")))?;
     let profile = Profile::load(&state.mirror, &run.profile)?;
+    let endpoint_slugs = crate::agents::endpoints::of_run(&run)
+        .into_iter()
+        .map(|endpoint| endpoint.slug)
+        .collect();
     Ok(Json(RunContext {
         id: run.id,
         project: run.project,
         app_name: run.app_name,
         endpoint_slug: run.endpoint_slug,
+        endpoint_slugs,
         allows_write: run.allows_write,
         branch: run.branch,
         path_prefix: run.path_prefix,
@@ -1611,25 +1783,6 @@ pub(crate) fn agent_settings(state: &AppState) -> Result<&AgentSettings, ApiErro
     })
 }
 
-/// The slug the gateway addresses the run's endpoint by (EP-02). It is in the manifest, so an
-/// endpoint that has none is a configuration error rather than a run with nothing to read.
-fn endpoint_slug(state: &AppState, project: &str, endpoint: &str) -> Result<String, ApiError> {
-    state
-        .mirror
-        .get(project, "Endpoint", endpoint)
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "endpoint '{endpoint}' not found in project '{project}'"
-            ))
-        })?
-        .spec
-        .get("slug")
-        .and_then(serde_json::Value::as_str)
-        .filter(|slug| !slug.is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| ApiError::BadRequest(format!("endpoint '{endpoint}' has no slug (EP-02)")))
-}
-
 pub(crate) fn expiry(ttl_secs: i64) -> String {
     (time::OffsetDateTime::now_utc() + time::Duration::seconds(ttl_secs))
         .format(&time::format_description::well_known::Rfc3339)
@@ -1671,6 +1824,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/projects/{project}/agent-runs/{id}/preview-errors",
             post(post_preview_error),
+        )
+        .route(
+            "/projects/{project}/agent-runs/{id}/preview-observations",
+            post(post_preview_observation),
         )
         .route(
             "/projects/{project}/agent-runs/{id}/functions/{fn}",
@@ -1832,6 +1989,10 @@ fn code_preview(
         "appName": run.app_name,
         "endpointName": run.endpoint_name,
     });
+    let run_endpoints = crate::agents::endpoints::of_run(run);
+    if run_endpoints.len() > 1 {
+        config["endpoints"] = crate::agents::endpoints::config(&run_endpoints, &run.data_needs);
+    }
     if let Some(url) = crate::api::basemap::style_url(&state.config, &run.project) {
         config["basemap"] = serde_json::Value::String(url);
     }

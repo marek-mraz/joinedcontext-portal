@@ -310,7 +310,12 @@ pub fn bump_version(current: &SemVer, severity: &str) -> Result<SemVer, ApiError
     SemVer::new(&bumped).map_err(|e| ApiError::BadRequest(e.to_string()))
 }
 
-async fn compile_artifacts(state: &AppState, source: &str) -> Result<Artifacts, ApiError> {
+/// The artifacts Model Tools renders from one LinkML source (DM-02); the export reuses it for a
+/// model whose repository holds no JSON Schema (MF-41).
+pub(crate) async fn compile_artifacts(
+    state: &AppState,
+    source: &str,
+) -> Result<Artifacts, ApiError> {
     let base = state
         .config
         .model_tools_url

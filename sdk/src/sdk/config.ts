@@ -5,6 +5,15 @@ export interface JcUser {
   roles?: string[];
 }
 
+/** One endpoint of an application that reads several (SDK-02): the first one is the primary. */
+export interface JcEndpoint {
+  name: string;
+  slug: string;
+  space: string;
+  /** The types the application's data needs read through this endpoint. */
+  types: string[];
+}
+
 export interface JcConfig {
   slug: string;
   orgDomain: string;
@@ -15,6 +24,8 @@ export interface JcConfig {
   basemap?: string;
   language?: string;
   user?: JcUser | null;
+  /** Every endpoint of an application that reads several, the primary first; absent for one. */
+  endpoints?: JcEndpoint[];
 }
 
 export class ConfigError extends Error {
@@ -81,6 +92,31 @@ export function parseConfig(input: unknown): JcConfig {
     errors.push("language: must be a string");
   }
 
+  let endpoints: JcEndpoint[] | undefined;
+  if (raw.endpoints !== undefined) {
+    if (!Array.isArray(raw.endpoints) || raw.endpoints.length === 0 || raw.endpoints.length > 5) {
+      errors.push("endpoints: must be a list of 1 to 5 endpoints");
+    } else {
+      endpoints = [];
+      raw.endpoints.forEach((item: unknown, i: number) => {
+        const e = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
+        if (typeof e.name !== "string" || e.name.trim() === "") {
+          errors.push(`endpoints[${i}].name: must be a non-empty string`);
+        }
+        if (typeof e.slug !== "string" || !SLUG_RE.test(e.slug)) {
+          errors.push(`endpoints[${i}].slug: must match ^[a-z0-9]{1,64}$`);
+        }
+        if (typeof e.space !== "string" || /[:/]/.test(e.space)) {
+          errors.push(`endpoints[${i}].space: must be a string without ':' or '/'`);
+        }
+        if (!Array.isArray(e.types) || !e.types.every((t) => typeof t === "string")) {
+          errors.push(`endpoints[${i}].types: must be an array of strings`);
+        }
+        endpoints?.push(e as unknown as JcEndpoint);
+      });
+    }
+  }
+
   let user: JcUser | null | undefined = undefined;
   if (raw.user !== undefined && raw.user !== null) {
     if (typeof raw.user !== "object" || Array.isArray(raw.user)) {
@@ -120,6 +156,7 @@ export function parseConfig(input: unknown): JcConfig {
     basemap: raw.basemap as string | undefined,
     language: typeof raw.language === "string" && raw.language !== "" ? raw.language : "en",
     user,
+    ...(endpoints ? { endpoints } : {}),
   };
 }
 

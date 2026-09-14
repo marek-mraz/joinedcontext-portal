@@ -62,6 +62,7 @@ fn run() -> AgentRun {
         app_name: "city-bikes-overview".into(),
         endpoint_name: "helsinki-bikes".into(),
         endpoint_slug: "si6epqkx364lprho5uaigutk274r5grb".into(),
+        endpoints: serde_json::json!([]),
         profile: "app-builder".into(),
         kind: "application".into(),
         unattended: false,

@@ -3,7 +3,7 @@ import { cell, toRow } from "../ngsi";
 import type { Schema } from "../write";
 import type { AccessDocument } from "./access";
 import { parseAccess } from "./access";
-import type { JcConfig, JcUser } from "./config";
+import type { JcConfig, JcEndpoint, JcUser } from "./config";
 import { readConfig } from "./config";
 import { queryString, randomId } from "./query";
 import type { Transport } from "./transport";
@@ -42,6 +42,8 @@ export class ProblemError extends Error {
 }
 
 export interface Query {
+  /** The endpoint to read, by the name the served configuration lists; only needed for a type more than one endpoint serves. */
+  endpoint?: string;
   attrs?: string[];
   q?: string;
   georel?: string;
@@ -52,6 +54,7 @@ export interface Query {
 }
 
 export interface TemporalQuery {
+  endpoint?: string;
   attrs?: string[];
   q?: string;
   timerel: "before" | "after" | "between";
@@ -77,16 +80,23 @@ export interface DataClient {
   entities: {
     list<T extends Row = Row>(type: string, query?: Query): Promise<T[]>;
     all<T extends Row = Row>(type: string, query?: Query): Promise<T[]>;
-    get<T extends Row = Row>(id: string, attrs?: string[]): Promise<T>;
-    create(type: string, attrs: Record<string, Cell>, localId?: string): Promise<string>;
-    update(id: string, patch: Record<string, Cell>): Promise<void>;
-    remove(id: string): Promise<void>;
+    get<T extends Row = Row>(id: string, attrs?: string[], options?: EndpointOption): Promise<T>;
+    create(type: string, attrs: Record<string, Cell>, localId?: string, options?: EndpointOption): Promise<string>;
+    update(id: string, patch: Record<string, Cell>, options?: EndpointOption): Promise<void>;
+    remove(id: string, options?: EndpointOption): Promise<void>;
   };
   temporal: { list(type: string, query: TemporalQuery): Promise<TemporalRow[]> };
-  schema(): Promise<Schema>;
-  access(): Promise<AccessDocument>;
+  /** Every endpoint's schemas merged, or one endpoint's by name. */
+  schema(endpoint?: string): Promise<Schema>;
+  /** One endpoint's grant document, the primary's by default. */
+  access(endpoint?: string): Promise<AccessDocument>;
   me(): JcUser | null;
-  entityId(type: string, localId: string): string;
+  entityId(type: string, localId: string, options?: EndpointOption): string;
+}
+
+/** Names one endpoint of an application that reads several (SDK-02). */
+export interface EndpointOption {
+  endpoint?: string;
 }
 
 export interface Client extends DataClient {
@@ -137,12 +147,63 @@ function encodeAttrs(attrs: Record<string, Cell>): Record<string, { type: "Prope
   return result;
 }
 
-export function createClient(config: JcConfig, transport: Transport): Client {
-  let cachedSchema: Schema | null = null;
-  let cachedAccess: AccessDocument | null = null;
+/** The endpoints a configuration names; one that names none reads its one endpoint. */
+export function endpointsOf(config: JcConfig): JcEndpoint[] {
+  if (config.endpoints && config.endpoints.length > 0) {
+    return config.endpoints;
+  }
+  return [{ name: config.endpointName ?? config.slug, slug: config.slug, space: config.space, types: [] }];
+}
 
-  const entityId = (type: string, localId: string): string => {
-    return `urn:ngsi-ld:${type}:${config.orgDomain}:${config.space}:${localId}`;
+/**
+ * The endpoint a call reads (SDK-02): the named one; otherwise the one endpoint serving the
+ * type; a type several serve is refused until the call names one; anything else the primary.
+ */
+export function resolveEndpoint(endpoints: JcEndpoint[], type?: string, name?: string): JcEndpoint {
+  const names = endpoints.map((e) => e.name).join(", ");
+  if (name !== undefined) {
+    const named = endpoints.find((e) => e.name === name);
+    if (!named) {
+      throw new ProblemError(0, { title: `Unknown endpoint '${name}'`, detail: `Unknown endpoint '${name}': the application reads ${names}.` });
+    }
+    return named;
+  }
+  if (type !== undefined) {
+    const serving = endpoints.filter((e) => e.types.includes(type));
+    if (serving.length === 1) {
+      return serving[0];
+    }
+    if (serving.length > 1) {
+      throw new ProblemError(0, {
+        title: `Type '${type}' is served by more than one endpoint`,
+        detail: `Type '${type}' is served by ${serving.map((e) => e.name).join(" and ")}; pass { endpoint: "${serving[0].name}" } to say which one to read.`,
+      });
+    }
+  }
+  return endpoints[0];
+}
+
+export function createClient(config: JcConfig, transport: Transport): Client {
+  const schemas = new Map<string, Schema>();
+  const accesses = new Map<string, AccessDocument>();
+  const known = endpointsOf(config);
+
+  /** The endpoint of an entity id: its type, and its space when several endpoints serve the type. */
+  const endpointOfId = (id: string, name?: string): JcEndpoint => {
+    if (name !== undefined || known.length === 1) {
+      return resolveEndpoint(known, undefined, name);
+    }
+    const parts = id.split(":");
+    const type = parts[2];
+    const space = parts[4];
+    const serving = known.filter((e) => e.types.includes(type));
+    const inSpace = serving.find((e) => e.space === space) ?? known.find((e) => e.space === space);
+    return inSpace ?? resolveEndpoint(known, type);
+  };
+
+  const entityId = (type: string, localId: string, options?: EndpointOption): string => {
+    const space = known.length === 1 ? config.space : resolveEndpoint(known, type, options?.endpoint).space || config.space;
+    return `urn:ngsi-ld:${type}:${config.orgDomain}:${space}:${localId}`;
   };
 
   const entities = {
@@ -183,8 +244,9 @@ export function createClient(config: JcConfig, transport: Transport): Client {
         params.coordinates = query.coordinates;
       }
 
-      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities?${queryString(params)}`;
-      checkEndpointPath(config.slug, path);
+      const { slug } = resolveEndpoint(known, type, query?.endpoint);
+      const path = `/api/endpoint/${encodeURIComponent(slug)}/ngsi-ld/v1/entities?${queryString(params)}`;
+      checkEndpointPath(slug, path);
 
       const resp = await transport({ method: "GET", path });
       if (resp.status < 200 || resp.status >= 300) {
@@ -215,15 +277,16 @@ export function createClient(config: JcConfig, transport: Transport): Client {
       return rows;
     },
 
-    async get<T extends Row = Row>(id: string, attrs?: string[]): Promise<T> {
+    async get<T extends Row = Row>(id: string, attrs?: string[], options?: EndpointOption): Promise<T> {
       const params: Record<string, string | undefined> = { options: "keyValues" };
       if (attrs) {
         const filtered = attrs.filter((a) => a !== "id" && a !== "type" && a !== "@context");
         if (filtered.length > 0) params.attrs = filtered.join(",");
       }
       const qs = queryString(params);
-      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`;
-      checkEndpointPath(config.slug, path);
+      const { slug } = endpointOfId(id, options?.endpoint);
+      const path = `/api/endpoint/${encodeURIComponent(slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`;
+      checkEndpointPath(slug, path);
 
       const resp = await transport({ method: "GET", path });
       if (resp.status < 200 || resp.status >= 300) {
@@ -235,7 +298,7 @@ export function createClient(config: JcConfig, transport: Transport): Client {
       return toRow(resp.body as Record<string, unknown>, config.language) as T;
     },
 
-    async create(type: string, attrs: Record<string, Cell>, localId?: string): Promise<string> {
+    async create(type: string, attrs: Record<string, Cell>, localId?: string, options?: EndpointOption): Promise<string> {
       if (!TYPE_RE.test(type)) {
         throw new ProblemError(0, { title: `Invalid entity type: '${type}'` });
       }
@@ -243,15 +306,16 @@ export function createClient(config: JcConfig, transport: Transport): Client {
       if (!LOCAL_ID_RE.test(lid)) {
         throw new ProblemError(0, { title: `Invalid localId: '${lid}'` });
       }
-      const id = entityId(type, lid);
+      const { slug } = resolveEndpoint(known, type, options?.endpoint);
+      const id = entityId(type, lid, options);
       const body = {
         id,
         type,
         ...encodeAttrs(attrs),
       };
 
-      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities`;
-      checkEndpointPath(config.slug, path);
+      const path = `/api/endpoint/${encodeURIComponent(slug)}/ngsi-ld/v1/entities`;
+      checkEndpointPath(slug, path);
 
       const resp = await transport({ method: "POST", path, body });
       if (resp.status < 200 || resp.status >= 300) {
@@ -260,13 +324,14 @@ export function createClient(config: JcConfig, transport: Transport): Client {
       return id;
     },
 
-    async update(id: string, patch: Record<string, Cell>): Promise<void> {
+    async update(id: string, patch: Record<string, Cell>, options?: EndpointOption): Promise<void> {
       const encoded = encodeAttrs(patch);
       if (Object.keys(encoded).length === 0) {
         return;
       }
-      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}/attrs`;
-      checkEndpointPath(config.slug, path);
+      const { slug } = endpointOfId(id, options?.endpoint);
+      const path = `/api/endpoint/${encodeURIComponent(slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}/attrs`;
+      checkEndpointPath(slug, path);
 
       const resp = await transport({ method: "PATCH", path, body: encoded });
       if (resp.status < 200 || resp.status >= 300) {
@@ -274,9 +339,10 @@ export function createClient(config: JcConfig, transport: Transport): Client {
       }
     },
 
-    async remove(id: string): Promise<void> {
-      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}`;
-      checkEndpointPath(config.slug, path);
+    async remove(id: string, options?: EndpointOption): Promise<void> {
+      const { slug } = endpointOfId(id, options?.endpoint);
+      const path = `/api/endpoint/${encodeURIComponent(slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}`;
+      checkEndpointPath(slug, path);
 
       const resp = await transport({ method: "DELETE", path });
       if (resp.status < 200 || resp.status >= 300) {
@@ -309,8 +375,9 @@ export function createClient(config: JcConfig, transport: Transport): Client {
         if (filtered.length > 0) params.attrs = filtered.join(",");
       }
 
-      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/temporal/entities?${queryString(params)}`;
-      checkEndpointPath(config.slug, path);
+      const { slug } = resolveEndpoint(known, type, query.endpoint);
+      const path = `/api/endpoint/${encodeURIComponent(slug)}/ngsi-ld/v1/temporal/entities?${queryString(params)}`;
+      checkEndpointPath(slug, path);
 
       const resp = await transport({ method: "GET", path });
       if (resp.status < 200 || resp.status >= 300) {
@@ -353,11 +420,21 @@ export function createClient(config: JcConfig, transport: Transport): Client {
     },
   };
 
-  const schema = async (): Promise<Schema> => {
+  const schema = async (endpoint?: string): Promise<Schema> => {
+    if (endpoint === undefined && known.length > 1) {
+      // Every endpoint's schema, merged; a type two endpoints serve keeps the first one's.
+      const merged: Schema = {};
+      for (const e of [...known].reverse()) {
+        Object.assign(merged, await schema(e.name));
+      }
+      return merged;
+    }
+    const { slug, name } = resolveEndpoint(known, undefined, endpoint);
+    const cachedSchema = schemas.get(name);
     if (cachedSchema) return cachedSchema;
 
-    const indexPath = `/api/endpoint/${encodeURIComponent(config.slug)}/schema/index.json`;
-    checkEndpointPath(config.slug, indexPath);
+    const indexPath = `/api/endpoint/${encodeURIComponent(slug)}/schema/index.json`;
+    checkEndpointPath(slug, indexPath);
     const indexResp = await transport({ method: "GET", path: indexPath });
     if (indexResp.status < 200 || indexResp.status >= 300) {
       throw new ProblemError(indexResp.status, indexResp.body);
@@ -369,8 +446,8 @@ export function createClient(config: JcConfig, transport: Transport): Client {
     const versions = [...new Set((indexBody.models ?? []).map((m) => m.version).filter((v): v is number => Number.isInteger(v)))];
     const merged: Schema = {};
     for (const version of versions.length > 0 ? versions : [1]) {
-      const schemaPath = `/api/endpoint/${encodeURIComponent(config.slug)}/schema/v${version}/json-schema`;
-      checkEndpointPath(config.slug, schemaPath);
+      const schemaPath = `/api/endpoint/${encodeURIComponent(slug)}/schema/v${version}/json-schema`;
+      checkEndpointPath(slug, schemaPath);
       const schemaResp = await transport({ method: "GET", path: schemaPath });
       if (schemaResp.status < 200 || schemaResp.status >= 300) {
         throw new ProblemError(schemaResp.status, schemaResp.body);
@@ -392,21 +469,24 @@ export function createClient(config: JcConfig, transport: Transport): Client {
         delete merged[name];
       }
     }
-    cachedSchema = merged;
-    return cachedSchema;
+    schemas.set(name, merged);
+    return merged;
   };
 
-  const access = async (): Promise<AccessDocument> => {
+  const access = async (endpoint?: string): Promise<AccessDocument> => {
+    const { slug, name } = resolveEndpoint(known, undefined, endpoint);
+    const cachedAccess = accesses.get(name);
     if (cachedAccess) return cachedAccess;
 
-    const path = `/api/endpoint/${encodeURIComponent(config.slug)}/access`;
-    checkEndpointPath(config.slug, path);
+    const path = `/api/endpoint/${encodeURIComponent(slug)}/access`;
+    checkEndpointPath(slug, path);
     const resp = await transport({ method: "GET", path });
     if (resp.status < 200 || resp.status >= 300) {
       throw new ProblemError(resp.status, resp.body);
     }
-    cachedAccess = parseAccess(resp.body);
-    return cachedAccess;
+    const parsed = parseAccess(resp.body);
+    accesses.set(name, parsed);
+    return parsed;
   };
 
   const functions = {

@@ -428,6 +428,7 @@ mod tests {
             app_name: "city-bikes-overview".to_owned(),
             endpoint_name: "helsinki-bikes".to_owned(),
             endpoint_slug: "si6epqkx364lprho5uaigutk274r5grb".to_owned(),
+            endpoints: serde_json::json!([]),
             profile: "app-builder".to_owned(),
             kind: "application".to_owned(),
             unattended: false,

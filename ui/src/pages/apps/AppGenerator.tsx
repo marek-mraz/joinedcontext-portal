@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { JSX } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
@@ -24,6 +24,25 @@ export type AppKind = (typeof APP_KINDS)[number];
 
 /** The two apps that ship with the platform, for a deployment with no builder to point at. */
 export const EXAMPLE_APPS = ["hsl-transport", "air-quality"] as const;
+
+/** How many endpoints one application may read (AP-44), the first one the primary. */
+export const MAX_ENDPOINTS = 5;
+
+/** The published model of one endpoint, read with the person's own session. */
+async function endpointSchema(slug: string): Promise<unknown> {
+  const base = `${window.location.origin}/api/endpoint/${slug}/schema`;
+  const index = (await fetchJson(`${base}/index.json`)) as { models?: { version?: number }[] };
+  return fetchJson(`${base}/v${index.models?.[0]?.version ?? 1}/json-schema`);
+}
+
+/**
+ * The request's endpoints (AP-44): `endpointName` for one, `endpointNames` with the primary first
+ * when the person added more.
+ */
+export function endpointFields(primary: string, extra: string[]): Record<string, unknown> {
+  const others = extra.filter((name) => name !== "" && name !== primary);
+  return others.length === 0 ? { endpointName: primary } : { endpointNames: [primary, ...others] };
+}
 
 /** A generated app reads. It updates only when the person ticks it and their own grant allows it. */
 const OPERATIONS = ["queryEntity", "retrieveEntity"];
@@ -151,6 +170,9 @@ export function AppGenerator({
   const [kind, setKind] = useState<AppKind>("static");
   const [prompt, setPrompt] = useState("");
   const [endpointName, setEndpointName] = useState("");
+  /** Endpoints read beside the primary one, e.g. an indicator space's (AP-44). */
+  const [extra, setExtra] = useState<string[]>([]);
+  const [addingEndpoint, setAddingEndpoint] = useState(false);
   const [dropped, setDropped] = useState<string[]>([]);
   const [write, setWrite] = useState(false);
   const [conflictApp, setConflictApp] = useState<string | null>(null);
@@ -190,19 +212,37 @@ export function AppGenerator({
     queryKey: ["generator-endpoint-schema", slug],
     enabled: slug !== "",
     retry: false,
-    queryFn: async () => {
-      const base = `${window.location.origin}/api/endpoint/${slug}/schema`;
-      const index = (await fetchJson(`${base}/index.json`)) as {
-        models?: { version?: number }[];
+    queryFn: async () => endpointSchema(slug),
+  });
+
+  // Every added endpoint is read whole: all its concrete types and attributes, never written.
+  const extraEndpoints = extra
+    .filter((name) => name !== endpointName)
+    .map((name) => choices.find((candidate) => candidate.metadata.name === name))
+    .filter((candidate): candidate is Manifest => candidate !== undefined);
+  const extraSchemas = useQueries({
+    queries: extraEndpoints.map((candidate) => {
+      const extraSlug = endpointSpec(candidate).slug ?? "";
+      return {
+        queryKey: ["generator-endpoint-schema", extraSlug],
+        enabled: extraSlug !== "",
+        retry: false,
+        queryFn: async () => endpointSchema(extraSlug),
       };
-      return fetchJson(`${base}/v${index.models?.[0]?.version ?? 1}/json-schema`);
-    },
+    }),
   });
 
   // Both are a pass over a handful of names; the React Compiler memoizes them, and a manual
   // useMemo here only tells it a dependency might be mutated when none of them is.
   const types = concreteTypes(schema.data);
-  const needs = endpoint ? dataNeeds(endpoint, types, dropped, write && writes.length > 0) : [];
+  const needs = endpoint
+    ? [
+        ...dataNeeds(endpoint, types, dropped, write && writes.length > 0),
+        ...extraEndpoints.flatMap((candidate, i) =>
+          dataNeeds(candidate, concreteTypes(extraSchemas[i]?.data), []),
+        ),
+      ]
+    : [];
 
   const generate = useMutation({
     mutationFn: async () => {
@@ -215,7 +255,7 @@ export function AppGenerator({
           body: {
             appName: chosen,
             appClass: kind,
-            endpointName,
+            ...endpointFields(endpointName, extraEndpoints.map((candidate) => candidate.metadata.name)),
             prompt,
             // The confirmed list, derived from the endpoint: the run is refused if it names
             // anything the endpoint does not publish, so the two cannot drift (AP-44).
@@ -313,6 +353,7 @@ export function AppGenerator({
           value={endpointName}
           onChange={(event) => {
             setEndpointName(event.target.value);
+            setExtra((current) => current.filter((name) => name !== event.target.value));
             setDropped([]);
           }}
           className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
@@ -325,6 +366,51 @@ export function AppGenerator({
           ))}
         </select>
         <p className="mt-1 text-xs text-muted">{t("apps.generate.endpointHint")}</p>
+        {endpointName !== "" && choices.length > 1 && (
+          <div className="mt-2">
+            {!addingEndpoint && extra.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => setAddingEndpoint(true)}
+                className="text-sm text-primary underline hover:no-underline"
+              >
+                {t("apps.generate.addEndpoint")}
+              </button>
+            ) : (
+              <fieldset>
+                <legend className="text-sm font-medium">{t("apps.generate.moreEndpoints")}</legend>
+                <p className="text-xs text-muted">{t("apps.generate.moreEndpointsHint")}</p>
+                <ul className="mt-1 grid gap-1 sm:grid-cols-2">
+                  {choices
+                    .filter((candidate) => candidate.metadata.name !== endpointName)
+                    .map((candidate) => {
+                      const candidateName = candidate.metadata.name;
+                      const checked = extra.includes(candidateName);
+                      return (
+                        <li key={candidateName}>
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!checked && extra.length + 1 >= MAX_ENDPOINTS}
+                              onChange={(event) => {
+                                setExtra((current) =>
+                                  event.target.checked
+                                    ? [...current, candidateName]
+                                    : current.filter((name) => name !== candidateName),
+                                );
+                              }}
+                            />
+                            {localized(candidate.metadata.title, i18n.language, candidateName)}
+                          </label>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </fieldset>
+            )}
+          </div>
+        )}
       </div>
 
       {/* What the endpoint gives you, read with your own session, before you describe the app. */}

@@ -18,13 +18,14 @@ use tokio::sync::broadcast;
 
 use crate::agents::access::Access;
 use crate::agents::code;
+use crate::agents::endpoints;
 use crate::agents::kit;
 use crate::agents::patch;
 use crate::agents::preview;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
-use crate::agents::{fields, kpi, share};
+use crate::agents::{fields, kpi, kpi_pipeline, share, verification};
 use crate::auth::session::Identity;
 use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::state::AppState;
@@ -285,6 +286,8 @@ struct Driver {
     data_needs: Value,
     /// The endpoint the application reads and, with a write need, writes through (AP-62).
     endpoint_slug: String,
+    /// Every endpoint the run reads, the primary (`endpoint_slug`) first (AP-44).
+    endpoints: Vec<endpoints::RunEndpoint>,
     /// Whether the data needs carry a write operation: what makes a `form` view allowed.
     allows_write: bool,
     bearer: String,
@@ -334,6 +337,7 @@ pub fn spawn(
         prompt: run.prompt.clone(),
         data_needs: run.data_needs.clone(),
         endpoint_slug: run.endpoint_slug.clone(),
+        endpoints: endpoints::of_run(run),
         allows_write: run.allows_write,
         bearer: format!("jcr_{}.{ticket}", run.id),
         proxy_base: proxy_base.trim_end_matches('/').to_owned(),
@@ -457,9 +461,10 @@ impl Driver {
         }
     }
 
-    /// A code run (Architecture/20 §4.1): the template on screen at once, one call writes the
-    /// application over it, what does not build goes back once, and every message after the
-    /// first run is one more pass over the same files.
+    /// A code run (Architecture/20 §4.1): one call writes the application over the template,
+    /// what does not build goes back once, every generated version is checked against what the
+    /// frame observed (SDK-28), and every message after the first run is one more pass over the
+    /// same files. The template is the model's context, never the preview (SDK-14).
     async fn drive_code(
         &self,
         inbox: &mut broadcast::Receiver<AgentRunEvent>,
@@ -479,17 +484,10 @@ impl Driver {
                 .await?
             }
         }
-        let template = files.clone();
         // What the run branch holds, so every commit carries what changed since the last one.
         let mut committed = BTreeMap::new();
-        let mut versioned = false;
-        self.publish_code(
-            &files,
-            "The template is on screen; writing the application for your request.",
-            None,
-            false,
-        )
-        .await?;
+        self.thought("Writing the application for your request.")
+            .await?;
 
         let types = self.types();
         if !types.is_empty() {
@@ -503,26 +501,49 @@ impl Driver {
         self.status(AgentRunStatus::Building).await?;
 
         let mut conversation: Vec<(String, String)> = Vec::new();
-        // SDK-14: the first run sends one problem back, a runtime error of its preview included.
-        // `first_run` holds while its preview may still report one; `may_repair` says whether
-        // that report gets the repair or brings the template back.
-        let (mut first_run, mut may_repair) = (false, false);
+        let mut instruction = self.prompt.clone();
+        // The generated version in the frame, none until one transpiles.
+        let mut shown: Option<Shown> = None;
+        // Verification passes since the last instruction (SDK-28).
+        let mut verified = 0;
+        // A frame that reports an error but never an observation (an older page, a crash
+        // before the application settles) is still checked, on the errors alone.
+        let mut fallback: Option<tokio::time::Instant> = None;
         match self
-            .code_pass(&samples, &mut files, &conversation, &self.prompt)
+            .code_pass(
+                &samples,
+                &mut files,
+                &conversation,
+                &instruction,
+                None,
+                false,
+            )
             .await?
         {
-            CodePass::Built { prose, repaired } => {
-                self.publish_code(&files, &prose, Some(&mut committed), true)
-                    .await?;
-                versioned = true;
-                conversation.push((self.prompt.clone(), prose));
-                (first_run, may_repair) = (true, !repaired);
+            CodePass::Built { prose, .. } => {
+                shown = Some(
+                    self.publish_code(&files, &prose, Some(&mut committed), true)
+                        .await?,
+                );
+                conversation.push((instruction.clone(), prose));
             }
             CodePass::Unchanged(prose) => {
                 self.thought(&prose).await?;
-                conversation.push((self.prompt.clone(), prose));
+                conversation.push((instruction.clone(), prose));
             }
-            CodePass::Failed => {}
+            // The run keeps the files it starts from, so the next message and the function
+            // route read them, though the frame shows none of them.
+            CodePass::Failed => {
+                let stored: serde_json::Map<String, Value> = files
+                    .iter()
+                    .map(|(path, content)| (path.clone(), Value::String(content.clone())))
+                    .collect();
+                self.state
+                    .agents
+                    .set_files(&self.run_id, Value::Object(stored))
+                    .await
+                    .map_err(|err| err.to_string())?;
+            }
         }
         self.status(AgentRunStatus::Testing).await?;
         self.status(AgentRunStatus::Previewing).await?;
@@ -530,81 +551,137 @@ impl Driver {
             self.status(AgentRunStatus::AwaitingApproval).await?;
         }
 
+        let mut queued: std::collections::VecDeque<AgentRunEvent> =
+            std::collections::VecDeque::new();
         loop {
-            let event = tokio::select! {
-                event = inbox.recv() => event,
-                () = tokio::time::sleep_until(deadline) => {
-                    self.expire().await;
-                    return Ok(());
-                }
+            let event = match queued.pop_front() {
+                Some(event) => Some(event),
+                None => tokio::select! {
+                    event = inbox.recv() => match event {
+                        Ok(event) => Some(event),
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                    },
+                    () = tokio::time::sleep_until(deadline) => {
+                        self.expire().await;
+                        return Ok(());
+                    }
+                    () = sleep_until_some(fallback) => None,
+                },
             };
-            let event = match event {
-                Ok(event) => event,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => return Ok(()),
+            let Some(event) = event else {
+                // No observation came after the error: check the version on the errors alone.
+                fallback = None;
+                let unobserved = shown.as_mut().filter(|shown| !shown.observed);
+                if let Some(on_screen) = unobserved.map(|shown| {
+                    shown.observed = true;
+                    shown.clone()
+                }) {
+                    let check = Check {
+                        samples: &samples,
+                        conversation: &conversation,
+                        instruction: &instruction,
+                    };
+                    if let Some(next) = self
+                        .verify(
+                            check,
+                            &mut files,
+                            &mut committed,
+                            &on_screen,
+                            None,
+                            &mut verified,
+                        )
+                        .await?
+                    {
+                        shown = Some(next);
+                    }
+                }
+                continue;
             };
             match event.kind.as_str() {
                 "status" if is_terminal(&event) => return Ok(()),
-                // ponytail: a report names no preview version, so one posted by a frame the run
-                // has replaced counts too; a version in the report is the upgrade.
-                "preview_error" if first_run => {
-                    let error = preview_error_line(&event.payload);
-                    let mut failure = error.clone();
-                    if std::mem::take(&mut may_repair) {
-                        self.thought(&format!(
-                            "The preview reported an error; asking for a repair:\n{error}"
-                        ))
-                        .await?;
-                        let before = files.clone();
-                        let (prose, errors) = self
-                            .code_step(
-                                &samples,
-                                &mut files,
-                                &[],
-                                &self.prompt,
-                                Some(std::slice::from_ref(&error)),
-                            )
-                            .await?;
-                        if errors.is_empty() && files != before {
-                            let prose = or_else(prose, "The error is repaired.");
-                            self.publish_code(&files, &prose, Some(&mut committed), false)
-                                .await?;
-                            continue;
-                        }
-                        if !errors.is_empty() {
-                            failure = errors.join("\n");
-                        }
+                "preview_error" => {
+                    if shown.as_ref().is_some_and(|shown| !shown.observed) && fallback.is_none() {
+                        fallback = Some(tokio::time::Instant::now() + OBSERVATION_WAIT);
                     }
-                    first_run = false;
-                    files = template.clone();
-                    self.publish_code(
-                        &files,
-                        &format!(
-                            "The application did not recover, so the frame shows the template \
-                             again:\n{failure}"
-                        ),
-                        Some(&mut committed),
-                        false,
-                    )
-                    .await?;
+                }
+                "preview_observation" => {
+                    let version = event
+                        .payload
+                        .get("version")
+                        .and_then(Value::as_u64)
+                        .and_then(|v| u32::try_from(v).ok());
+                    let Some(on_screen) = shown
+                        .as_mut()
+                        .filter(|shown| Some(shown.version) == version && !shown.observed)
+                    else {
+                        continue;
+                    };
+                    on_screen.observed = true;
+                    fallback = None;
+                    let on_screen = on_screen.clone();
+                    // A person's message waiting behind the observation comes first; the
+                    // check of a version the message is about to replace is dropped.
+                    while let Ok(next) = inbox.try_recv() {
+                        queued.push_back(next);
+                    }
+                    if queued
+                        .iter()
+                        .any(|next| next.kind == "message" && sent_by_person(next))
+                    {
+                        continue;
+                    }
+                    let check = Check {
+                        samples: &samples,
+                        conversation: &conversation,
+                        instruction: &instruction,
+                    };
+                    if let Some(next) = self
+                        .verify(
+                            check,
+                            &mut files,
+                            &mut committed,
+                            &on_screen,
+                            Some(&event.payload),
+                            &mut verified,
+                        )
+                        .await?
+                    {
+                        shown = Some(next);
+                    }
                 }
                 "message" if sent_by_person(&event) => {
-                    first_run = false;
+                    fallback = None;
+                    verified = 0;
                     let text = event
                         .payload
                         .get("text")
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_owned();
+                    instruction = text.clone();
                     self.thought("Working on your message…").await?;
                     match self
-                        .code_pass(&samples, &mut files, &conversation, &text)
+                        .code_pass(
+                            &samples,
+                            &mut files,
+                            &conversation,
+                            &text,
+                            None,
+                            shown.is_some(),
+                        )
                         .await
                     {
                         Ok(CodePass::Built { prose, .. }) => {
-                            self.publish_code(&files, &prose, Some(&mut committed), !versioned)
-                                .await?;
-                            versioned = true;
+                            shown = Some(
+                                self.publish_code(
+                                    &files,
+                                    &prose,
+                                    Some(&mut committed),
+                                    shown.is_none(),
+                                )
+                                .await?,
+                            );
                             conversation.push((text, prose));
                         }
                         Ok(CodePass::Unchanged(prose)) => {
@@ -622,39 +699,139 @@ impl Driver {
         }
     }
 
+    /// SDK-28: the version on screen checked against the run with no model call, and a
+    /// verification pass when the check finds something, at most [`MAX_VERIFICATIONS`] after
+    /// each instruction. The version a pass publishes is returned; it is checked in its turn
+    /// when its own observation arrives.
+    async fn verify(
+        &self,
+        check: Check<'_>,
+        files: &mut BTreeMap<String, String>,
+        committed: &mut BTreeMap<String, String>,
+        on_screen: &Shown,
+        observation: Option<&Value>,
+        verified: &mut u32,
+    ) -> Result<Option<Shown>, String> {
+        let since = self
+            .state
+            .agents
+            .events_since(&self.run_id, on_screen.seq)
+            .await
+            .map_err(|err| err.to_string())?;
+        let found = verification::check(check.samples, &since, observation);
+        if found.problems.is_empty() {
+            if observation.is_some() {
+                self.thought(&found.summary()).await?;
+            }
+            return Ok(None);
+        }
+        let list = found
+            .problems
+            .iter()
+            .map(|problem| format!("- {problem}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if *verified >= MAX_VERIFICATIONS {
+            self.thought(&format!(
+                "The preview still shows problems after {MAX_VERIFICATIONS} verification \
+                 passes; say what to change:\n{list}"
+            ))
+            .await?;
+            return Ok(None);
+        }
+        *verified += 1;
+        self.thought(&format!("Checking the preview found:\n{list}"))
+            .await?;
+        let mut asked = found.problems.clone();
+        if let Some(observation) = observation {
+            asked.push(verification::rendered(observation));
+        }
+        match self
+            .code_pass(
+                check.samples,
+                files,
+                check.conversation,
+                check.instruction,
+                Some(&asked),
+                true,
+            )
+            .await
+        {
+            Ok(CodePass::Built { prose, .. }) => Ok(Some(
+                self.publish_code(files, &prose, Some(committed), false)
+                    .await?,
+            )),
+            Ok(CodePass::Unchanged(prose)) => {
+                self.thought(&prose).await?;
+                Ok(None)
+            }
+            Ok(CodePass::Failed) => Ok(None),
+            // The version on screen stands; a failed call is said, not a failed run.
+            Err(message) => {
+                self.thought(&format!("The verification pass failed: {message}"))
+                    .await?;
+                Ok(None)
+            }
+        }
+    }
+
     /// One pass of a code run: a call, its blocks applied, the project checked, and one repair
     /// call when it does not build (SDK-13, SDK-14). A pass that still does not build leaves the
     /// files as they were and says why.
+    ///
+    /// `found` is what a verification of the version on screen found, when the pass is one;
+    /// `on_screen` says whether a generated version is in the frame, which is what a pass that
+    /// still does not build leaves there.
     async fn code_pass(
         &self,
         samples: &Value,
         files: &mut BTreeMap<String, String>,
         conversation: &[(String, String)],
         instruction: &str,
+        found: Option<&[String]>,
+        on_screen: bool,
     ) -> Result<CodePass, String> {
         let before = files.clone();
         let (mut prose, mut errors) = self
-            .code_step(samples, files, conversation, instruction, None)
+            .code_step(
+                samples,
+                files,
+                conversation,
+                instruction,
+                found.map(Fix::Preview),
+            )
             .await?;
-        let repaired = !errors.is_empty();
-        if repaired {
+        if !errors.is_empty() {
             self.thought(&format!(
                 "The application does not build; asking for a repair:\n{}",
                 errors.join("\n")
             ))
             .await?;
             (prose, errors) = self
-                .code_step(samples, files, conversation, instruction, Some(&errors))
+                .code_step(
+                    samples,
+                    files,
+                    conversation,
+                    instruction,
+                    Some(Fix::Build(&errors)),
+                )
                 .await?;
         }
         if !errors.is_empty() {
             *files = before;
-            self.thought(&format!(
-                "The application still does not build, so the preview keeps the version before \
-                 this request:\n{}",
-                errors.join("\n")
-            ))
-            .await?;
+            let said = if on_screen {
+                format!(
+                    "The application still does not build, so the preview keeps the version \
+                     before this request:\n{}",
+                    errors.join("\n")
+                )
+            } else {
+                format!(
+                    "The application could not be built:\n{}\nSend a message to try again.",
+                    errors.join("\n")
+                )
+            };
+            self.thought(&said).await?;
             return Ok(CodePass::Failed);
         }
         if *files == before {
@@ -665,7 +842,6 @@ impl Driver {
         }
         Ok(CodePass::Built {
             prose: or_else(prose, "The application is ready."),
-            repaired,
         })
     }
 
@@ -678,10 +854,10 @@ impl Driver {
         files: &mut BTreeMap<String, String>,
         conversation: &[(String, String)],
         instruction: &str,
-        errors: Option<&[String]>,
+        fix: Option<Fix<'_>>,
     ) -> Result<(String, Vec<String>), String> {
         let user = self
-            .code_pack(samples, files, conversation, instruction, errors)
+            .code_pack(samples, files, conversation, instruction, fix)
             .await;
         let answer = self
             .complete_within(&code::SYSTEM, &user, CODE_OUTPUT_BUDGET)
@@ -729,7 +905,7 @@ impl Driver {
         files: &BTreeMap<String, String>,
         conversation: &[(String, String)],
         instruction: &str,
-        errors: Option<&[String]>,
+        fix: Option<Fix<'_>>,
     ) -> String {
         let mut pack = String::from("## THE SDK\n\n");
         pack.push_str(code::SDK_API.trim());
@@ -750,6 +926,7 @@ impl Driver {
         );
         pack.push_str(&serde_json::to_string_pretty(&self.served_needs()).unwrap_or_default());
         pack.push_str("\n```\n\n");
+        pack.push_str(&endpoints::pack_section(&self.endpoints, &self.data_needs));
         if self.allows_write {
             let schema = fields::for_endpoint(
                 &self.state,
@@ -792,8 +969,8 @@ impl Driver {
             "\n## THE REQUEST\n\n{}\n\n## THIS CALL\n\n",
             self.prompt
         ));
-        match errors {
-            Some(errors) => {
+        match fix {
+            Some(Fix::Build(errors)) => {
                 pack.push_str(
                     "The last answer was applied and the project does not build. Fix every \
                      problem below, each named with its file and line, and answer with the blocks \
@@ -801,6 +978,18 @@ impl Driver {
                 );
                 for error in errors {
                     pack.push_str(&format!("- {error}\n"));
+                }
+                pack.push_str(&format!("\nThe request being fulfilled: {instruction}\n"));
+            }
+            Some(Fix::Preview(found)) => {
+                pack.push_str(
+                    "The application builds and is on screen. Checking its preview against the \
+                     data found the problems below; the last item is what the preview rendered, \
+                     page by page. Fix every problem at its cause, change nothing else, and \
+                     answer with the blocks that fix them:\n",
+                );
+                for problem in found {
+                    pack.push_str(&format!("- {problem}\n"));
                 }
                 pack.push_str(&format!("\nThe request being fulfilled: {instruction}\n"));
             }
@@ -829,30 +1018,64 @@ impl Driver {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        // ponytail: the first model publishing a needed type; an endpoint over two models whose
-        // types the application both needs gets the other model's types as the placeholder's.
-        let model = models
-            .iter()
-            .find(|model| {
-                model["types"].as_array().is_some_and(|types| {
-                    types
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .any(|t| needed.iter().any(|n| n == t))
-                })
+        let serves_needed = |model: &Value| {
+            model["types"].as_array().is_some_and(|types| {
+                types
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|t| needed.iter().any(|n| n == t))
             })
-            .or(models.first())
-            .ok_or("the endpoint publishes no model")?;
-        let major = model["version"]
-            .as_u64()
-            .ok_or("the endpoint's model has no version")?;
-        let source = self
-            .read_text(&format!(
-                "{}/v1/data/schema/v{major}/model.linkml.yaml",
-                self.proxy_base
-            ))
-            .await?;
-        crate::tools::model_tools::typescript(&self.state, &source).await
+        };
+        // ponytail: per endpoint, the first model publishing a needed type; an endpoint over two
+        // models whose types the application both needs gets the other model's types as the
+        // placeholder's.
+        let mut chosen: Vec<&Value> = Vec::new();
+        for at in 0..self.endpoints.len().max(1) {
+            let of_endpoint =
+                |model: &&Value| model["endpoint"].as_u64().unwrap_or(0) as usize == at;
+            if let Some(model) = models
+                .iter()
+                .filter(of_endpoint)
+                .filter(|model| model["unread"].as_bool() != Some(true))
+                .find(|model| serves_needed(model))
+            {
+                chosen.push(model);
+            }
+        }
+        if chosen.is_empty() {
+            chosen.extend(models.first());
+        }
+        if chosen.is_empty() {
+            return Err("the endpoint publishes no model".to_owned());
+        }
+        let mut rendered = Vec::new();
+        for model in chosen {
+            let major = model["version"]
+                .as_u64()
+                .ok_or("the endpoint's model has no version")?;
+            let at = model["endpoint"].as_u64().unwrap_or(0) as usize;
+            let types = async {
+                let source = self
+                    .read_text(&format!(
+                        "{}/schema/v{major}/model.linkml.yaml",
+                        self.data_base(at)
+                    ))
+                    .await?;
+                crate::tools::model_tools::typescript(&self.state, &source).await
+            }
+            .await;
+            match types {
+                Ok(types) => rendered.push(types),
+                // The primary's types are the file; another endpoint's that cannot be rendered
+                // leaves its rows untyped rather than every row.
+                Err(reason) if at == 0 => return Err(reason),
+                Err(_) => {}
+            }
+        }
+        if rendered.is_empty() {
+            return Err("no model of the run's endpoints could be rendered".to_owned());
+        }
+        Ok(merge_declarations(&rendered))
     }
 
     /// Stores the files, says `prose`, commits what changed since `committed` when given, and
@@ -863,7 +1086,7 @@ impl Driver {
         prose: &str,
         committed: Option<&mut BTreeMap<String, String>>,
         first_version: bool,
-    ) -> Result<(), String> {
+    ) -> Result<Shown, String> {
         let stored: serde_json::Map<String, Value> = files
             .iter()
             .map(|(path, content)| (path.clone(), Value::String(content.clone())))
@@ -890,7 +1113,12 @@ impl Driver {
         if first_version {
             self.first_version().await;
         }
-        self.event("preview", json!({ "previewUrl": url })).await
+        let event = self.append("preview", json!({ "previewUrl": url })).await?;
+        Ok(Shown {
+            version: pass,
+            seq: event.seq,
+            observed: false,
+        })
     }
 
     /// What changed since `committed`, as one commit on the run's branch (SDK-17, AP-24). A
@@ -1091,6 +1319,9 @@ impl Driver {
         if let Some(call) = share::edit_call(&answer) {
             return self.edit_endpoint(call, &answer).await;
         }
+        if let Some(call) = kpi_pipeline::tool_call(&answer) {
+            return self.kpi_pipeline(call, &answer).await;
+        }
         if let Some(call) = kpi::tool_call(&answer) {
             return self.kpi(call, &answer).await;
         }
@@ -1191,14 +1422,63 @@ block, nothing else, in this shape:
 The platform reads the entities through the endpoint, computes the value, renders the
 `KeyPerformanceIndicator` entity with its formula and provenance, and shows it to the person.
 
+## WHEN THE PERSON ASKS TO KEEP AN INDICATOR UPDATED
+
+"Keep the average of free bikes updated every 15 minutes", "recompute it on every change",
+"save the indicators into transportation-kpi", "Keep the indicator … updated": a pipeline, not one
+number. Answer with one or two plain sentences and then ONE fenced JSON block, nothing else:
+
+```json
+{{
+  "tool": "draft_kpi_pipeline",
+  "name": "<a short lowercase name with dashes, e.g. bikes-available-avg>",
+  "title": "<a title in the language of the request>",
+  "type": "<the entity type>",
+  "attribute": "<the attribute folded; empty for count>",
+  "agg": "avg | sum | count | min | max",
+  "unit": "<a UN/CEFACT common code, e.g. C62 for a count>",
+  "q": "<an NGSI-LD filter narrowing the entities, or omit it>",
+  "sourceEndpoint": "<the endpoint read, a name from the project; omit for this conversation's endpoint>",
+  "targetSpace": "<the indicator space written, ending with -kpi; omit for {project}-kpi>",
+  "every": "<a period of at least a minute such as 15m or 1h; omit when onChange>",
+  "onChange": false,
+  "watchedAttributes": ["<attributes whose change recomputes it, when onChange; the folded one by default>"]
+}}
+```
+
+Give `every` or `"onChange": true`, never both. The platform drafts the pipeline, drafts the
+indicator space when it does not exist, tests the pipeline and opens its form; the person
+proposes it.
+
 ## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE
 
-A request to complete, draft or fill out a context space's drafts. Answer with one or two plain sentences and then ONE fenced JSON block:
+A message that gives the URL of a data feed is an integration, whether or not it says so:
+"integrate https://…", "load this feed", a URL with a description of the data, a URL with a
+specification pasted below it (a field list, a JSON Schema, a vendor's documentation). Answer
+with one or two plain sentences and then ONE fenced JSON block:
 
 ```json
 {{
   "tool": "space_complete",
-  "space": "<context space name>"
+  "space": "<a context space name: lowercase letters, digits and dashes, from what the data is>",
+  "url": "<the URL exactly as the person wrote it>",
+  "typeName": "<the entity type in PascalCase, singular, from the description or the specification, e.g. WeatherObserved, BikeHireDockingStation>",
+  "description": "<one paragraph: what the data is and what its fields mean, from the description and the specification; omit it when the person gave neither>"
+}}
+```
+
+The platform probes the URL, infers the data model under that type, drafts the context space,
+the data source, the pipeline and its endpoint, checks each, and opens them for the person to
+review and propose. You never propose them yourself.
+
+A request to complete a context space without a URL cannot run from the chat: say in one or two
+sentences that the person drops the folder or the files on the Complete this space page, and
+open it with ONE fenced JSON block:
+
+```json
+{{
+  "tool": "navigate",
+  "route": "/projects/{project}/spaces/complete"
 }}
 ```
 
@@ -1781,10 +2061,61 @@ proposes it.
         needs_served(&self.data_needs, self.schema_index.get())
     }
 
-    /// The endpoint's schema index, read through the proxy with the run's ticket (EP-46).
+    /// The endpoint's schema index, read through the proxy with the run's ticket (EP-46). A run
+    /// over several endpoints gets one index: every endpoint's models, each marked with the
+    /// index of its endpoint; an endpoint whose index cannot be read keeps the types its needs
+    /// name, so a proxy that does not serve it yet narrows nothing away.
     async fn schema_index(&self) -> Result<Value, String> {
-        self.read_entities(&format!("{}/v1/data/schema/index.json", self.proxy_base))
-            .await
+        let mut index = self
+            .read_entities(&format!("{}/schema/index.json", self.data_base(0)))
+            .await?;
+        if self.endpoints.len() < 2 {
+            return Ok(index);
+        }
+        let by_endpoint = endpoints::types_by_endpoint(&self.endpoints, &self.data_needs);
+        let mut models: Vec<Value> = Vec::new();
+        for at in 0..self.endpoints.len() {
+            let read = if at == 0 {
+                Ok(index.clone())
+            } else {
+                self.read_entities(&format!("{}/schema/index.json", self.data_base(at)))
+                    .await
+            };
+            match read {
+                Ok(read) => models.extend(
+                    read["models"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .cloned()
+                        .map(|mut model| {
+                            model["endpoint"] = json!(at);
+                            model
+                        }),
+                ),
+                Err(_) => models.push(json!({
+                    "endpoint": at,
+                    "unread": true,
+                    "types": by_endpoint.get(at).cloned().unwrap_or_default(),
+                })),
+            }
+        }
+        index["models"] = Value::Array(models);
+        Ok(index)
+    }
+
+    /// Where the data of the run's endpoint at `at` is read through the proxy.
+    fn data_base(&self, at: usize) -> String {
+        endpoints::data_base(&self.proxy_base, &self.endpoints, at)
+    }
+
+    /// Where the entities of one type are read: through the endpoint of the need naming it.
+    fn data_base_of(&self, entity_type: &str) -> String {
+        self.data_base(endpoints::of_type(
+            &self.endpoints,
+            &self.data_needs,
+            entity_type,
+        ))
     }
 
     /// Every source's rows, read through the proxy in pages up to the source's limit. A source
@@ -1801,8 +2132,8 @@ proposes it.
             while (rows.len() as u32) < limit {
                 let page = kit::PAGE.min(limit - rows.len() as u32);
                 let mut url = format!(
-                    "{}/v1/data/ngsi-ld/v1/entities?type={}&options=keyValues&limit={page}&offset={}",
-                    self.proxy_base,
+                    "{}/ngsi-ld/v1/entities?type={}&options=keyValues&limit={page}&offset={}",
+                    self.data_base_of(&source.entity_type),
                     urlencoding(&source.entity_type),
                     rows.len()
                 );
@@ -1877,8 +2208,8 @@ proposes it.
         let mut samples = serde_json::Map::new();
         for entity_type in types {
             let url = format!(
-                "{}/v1/data/ngsi-ld/v1/entities?type={}&limit={SAMPLES_PER_TYPE}&options=keyValues",
-                self.proxy_base,
+                "{}/ngsi-ld/v1/entities?type={}&limit={SAMPLES_PER_TYPE}&options=keyValues",
+                self.data_base_of(entity_type),
                 urlencoding(entity_type)
             );
             match self.read_entities(&url).await {
@@ -1999,6 +2330,13 @@ proposes it.
             identity: self.identity.clone(),
             via: crate::ops::Via::Session,
         };
+        // The operation reads its own fields only: the call's `tool` key goes, and the
+        // assistant never proposes, the person does on the page it opens (AG-73).
+        let mut input = input;
+        if let Some(fields) = input.as_object_mut() {
+            fields.remove("tool");
+            fields.remove("propose");
+        }
         match crate::ops::call(op, &caller, &self.state, &self.project, input.clone()).await {
             Ok(output) => {
                 let space_name = output
@@ -2081,8 +2419,8 @@ proposes it.
             return self.refused("compute_kpi", started, input, reason).await;
         }
         let mut url = format!(
-            "{}/v1/data/ngsi-ld/v1/entities?type={}&options=keyValues&limit=1000",
-            self.proxy_base,
+            "{}/ngsi-ld/v1/entities?type={}&options=keyValues&limit=1000",
+            self.data_base_of(&params.entity_type),
             urlencoding(&params.entity_type)
         );
         if !params.attribute.is_empty() {
@@ -2184,6 +2522,231 @@ proposes it.
             );
         }
         self.thought(&prose).await?;
+        Ok(prose)
+    }
+
+    /// An indicator kept up to date (AG-74, PL-45, PL-51): the pipeline and, for an indicator
+    /// space the project does not have, its space, endpoint and policies, kept as the person's
+    /// drafts; the pipeline tested on a page of the source and its form opened. Nothing is
+    /// proposed here.
+    async fn kpi_pipeline(
+        &self,
+        call: Result<kpi_pipeline::DraftKpiPipeline, String>,
+        answer: &str,
+    ) -> Result<String, String> {
+        const TOOL: &str = "draft_kpi_pipeline";
+        let started = std::time::Instant::now();
+        let millis = |started: std::time::Instant| {
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+        };
+        let failed = |input: &Value, reason: &str| {
+            json!({
+                "tool": TOOL,
+                "status": "failed",
+                "durationMs": millis(started),
+                "input": input,
+                "error": reason,
+            })
+        };
+        let params = match call {
+            Ok(params) => params,
+            Err(reason) => {
+                self.event("tool", failed(&Value::Null, &reason)).await?;
+                let prose = format!("The pipeline request could not be read: {reason}");
+                self.thought(&prose).await?;
+                return Ok(prose);
+            }
+        };
+        let input = serde_json::to_value(&params).unwrap_or(Value::Null);
+        if let Err(reason) = self.granted("jc_pipeline_propose") {
+            return self.refused(TOOL, started, input, reason).await;
+        }
+
+        let endpoints = self.project_endpoints();
+        let listed = |kind: &str| {
+            self.state
+                .mirror
+                .list(&self.project, kind, &crate::store::ListOptions::default())
+                .items
+        };
+        let spaces: Vec<String> = listed("ContextSpace")
+            .into_iter()
+            .map(|env| env.metadata.name)
+            .collect();
+        let policies: Vec<Value> = listed("Policy")
+            .iter()
+            .filter_map(|env| serde_json::to_value(env).ok())
+            .collect();
+        let run_endpoint = endpoints
+            .iter()
+            .find(|e| {
+                !self.endpoint_slug.is_empty()
+                    && e["spec"]["slug"].as_str() == Some(self.endpoint_slug.as_str())
+            })
+            .and_then(|e| e["metadata"]["name"].as_str())
+            .map(str::to_owned);
+        let org_domain = crate::api::assistant::org_domain(&self.state, &self.project);
+        let slug = share::slug();
+        let world = kpi_pipeline::World {
+            project: &self.project,
+            org_domain: &org_domain,
+            endpoints: &endpoints,
+            spaces: &spaces,
+            policies: &policies,
+            run_endpoint: run_endpoint.as_deref(),
+            new_slug: &slug,
+        };
+        let plan = match kpi_pipeline::plan(&params, &world) {
+            Ok(plan) => plan,
+            Err(reason) => {
+                self.event("tool", failed(&input, &reason)).await?;
+                let prose = format!("The pipeline could not be drafted: {reason}");
+                self.thought(&prose).await?;
+                return Ok(prose);
+            }
+        };
+        let name = params.name.trim().to_owned();
+
+        for drafted in &plan.space_drafts {
+            if let Err(err) = self
+                .state
+                .drafts
+                .put(
+                    &self.project,
+                    &drafted.kind,
+                    &drafted.name,
+                    drafted.manifest.clone(),
+                    None,
+                    &self.created_by,
+                    "assistant",
+                )
+                .await
+            {
+                tracing::warn!(run = %self.run_id, kind = %drafted.kind, error = %err, "draft not kept");
+            }
+        }
+        if let Err(err) = self
+            .state
+            .drafts
+            .put(
+                &self.project,
+                "Pipeline",
+                &name,
+                plan.pipeline.clone(),
+                None,
+                &self.created_by,
+                "assistant",
+            )
+            .await
+        {
+            tracing::warn!(run = %self.run_id, error = %err, "pipeline draft not kept");
+        }
+
+        // The test runs on a page of the source when this run reads that endpoint, and on an
+        // empty page otherwise, so the mapping and the indicator's admission are checked either way.
+        let sampled = run_endpoint.as_deref() == Some(plan.source_endpoint.as_str());
+        let page = if sampled {
+            let mut url = format!(
+                "{}/v1/data/ngsi-ld/v1/entities?type={}&limit=100",
+                self.proxy_base,
+                urlencoding(params.entity_type.trim())
+            );
+            if !params.attribute.trim().is_empty() {
+                url.push_str(&format!("&attrs={}", urlencoding(params.attribute.trim())));
+            }
+            if let Some(q) = params.q.as_deref().filter(|q| !q.trim().is_empty()) {
+                url.push_str(&format!("&q={}", urlencoding(q)));
+            }
+            self.read_text(&url)
+                .await
+                .unwrap_or_else(|_| "[]".to_owned())
+        } else {
+            "[]".to_owned()
+        };
+        let verdict = match crate::ops::find("jc_pipeline_test") {
+            Some(op) => {
+                let caller = crate::ops::Caller {
+                    identity: self.identity.clone(),
+                    via: crate::ops::Via::Session,
+                };
+                let test = json!({
+                    "pipeline": plan.pipeline,
+                    "sample": { "text": page, "format": "text" },
+                    "draft": { "kind": "Pipeline", "name": name },
+                });
+                match crate::ops::call(op, &caller, &self.state, &self.project, test).await {
+                    Ok(out) => out.get("verdict").cloned().unwrap_or(Value::Null),
+                    Err(err) => json!({ "ok": false, "untested": err.to_string() }),
+                }
+            }
+            None => json!({ "ok": false, "untested": "jc_pipeline_test is not registered" }),
+        };
+
+        let drafts: Vec<Value> = plan
+            .space_drafts
+            .iter()
+            .map(|d| json!({ "kind": d.kind, "name": d.name, "plural": d.plural, "manifest": d.manifest }))
+            .collect();
+        // The runner's token names the slugs it may write through; a new endpoint's slug is not
+        // among them until the deployment's runner client says so (Architecture/08, KPI pipelines).
+        let audience = plan
+            .space_drafts
+            .iter()
+            .any(|d| d.kind == "Endpoint")
+            .then(|| plan.target_slug.clone())
+            .flatten();
+        self.event(
+            "tool",
+            json!({
+                "tool": TOOL,
+                "status": "ok",
+                "durationMs": millis(started),
+                "input": input,
+                "output": {
+                    "name": name,
+                    "title": params.title,
+                    "formula": plan.formula,
+                    "trigger": plan.trigger.describe(),
+                    "sourceEndpoint": plan.source_endpoint,
+                    "sourceSpace": plan.source_space,
+                    "targetSpace": plan.target_space,
+                    "targetEndpoint": plan.target_endpoint,
+                    "targetSlug": plan.target_slug,
+                    "sampled": sampled,
+                    "verdict": verdict,
+                    "pipeline": plan.pipeline,
+                    "drafts": drafts,
+                    "runnerAudience": audience,
+                },
+            }),
+        )
+        .await?;
+
+        let mut prose = share::prose_of(answer);
+        if prose.is_empty() {
+            prose = format!(
+                "Drafted the pipeline '{name}': {} into {}, {}; review it in the form and propose it.",
+                plan.formula,
+                plan.target_space,
+                plan.trigger.describe()
+            );
+        }
+        if !plan.space_drafts.is_empty() {
+            prose.push_str(&format!(
+                " The indicator space {} does not exist yet: its drafts are on the card; propose them with the pipeline.",
+                plan.target_space
+            ));
+        }
+        self.thought(&prose).await?;
+        self.event(
+            "navigate",
+            json!({
+                "route": format!("/projects/{}/pipelines", self.project),
+                "prefill": plan.prefill,
+                "draft": { "kind": "Pipeline", "name": name },
+            }),
+        )
+        .await?;
         Ok(prose)
     }
 
@@ -2480,6 +3043,11 @@ proposes it.
     }
 
     async fn event(&self, kind: &str, payload: Value) -> Result<(), String> {
+        self.append(kind, payload).await.map(|_| ())
+    }
+
+    /// [`Self::event`], answering the event as stored, its sequence number included.
+    async fn append(&self, kind: &str, payload: Value) -> Result<AgentRunEvent, String> {
         let event = self
             .state
             .agents
@@ -2487,7 +3055,7 @@ proposes it.
             .await
             .map_err(|err| err.to_string())?;
         self.state.agent_events.broadcast(&event).await;
-        Ok(())
+        Ok(event)
     }
 
     async fn fail(&self, message: &str) {
@@ -2523,16 +3091,55 @@ proposes it.
 }
 
 /// What one pass of a code run came to.
+/// What a code call is asked to fix, when it is a repair.
+#[derive(Clone, Copy)]
+enum Fix<'a> {
+    /// The project does not build: transpile errors and refused imports.
+    Build(&'a [String]),
+    /// The project builds and its preview's check found these (SDK-28).
+    Preview(&'a [String]),
+}
+
+/// A generated version in the frame: its `v`, the sequence number of its `preview` event, so
+/// what happened after it is its own, and whether its observation has arrived.
+#[derive(Clone)]
+struct Shown {
+    version: u32,
+    seq: i64,
+    observed: bool,
+}
+
+/// What a verification pass works over.
+#[derive(Clone, Copy)]
+struct Check<'a> {
+    samples: &'a Value,
+    conversation: &'a [(String, String)],
+    instruction: &'a str,
+}
+
+/// Verification passes after one instruction (SDK-28).
+const MAX_VERIFICATIONS: u32 = 3;
+/// How long a version that reported an error waits for its observation before it is checked on
+/// the errors alone.
+const OBSERVATION_WAIT: Duration = Duration::from_secs(15);
+
+/// Sleeps until `at`, or forever when there is nothing to wait for.
+async fn sleep_until_some(at: Option<tokio::time::Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
+    }
+}
+
 enum CodePass {
-    /// The files changed and build; `repaired` when a problem went back first.
-    Built { prose: String, repaired: bool },
+    /// The files changed and build.
+    Built { prose: String },
     /// The answer changed no file: a turn of the conversation, not a version.
     Unchanged(String),
     /// Still not building after the repair: the files are as they were and the chat says why.
     Failed,
 }
 
-/// `prose` trimmed, or `fallback` when the model wrote none.
 /// The refusals of an answer with its unreadable blocks added, as the step's log shows them.
 fn with_unread(refused: &[patch::Refused], unread: usize) -> Vec<patch::Refused> {
     let mut all = refused.to_vec();
@@ -2590,26 +3197,11 @@ fn commit_message(prose: &str) -> String {
     format!("{subject}\n\n{prose}")
 }
 
+/// `prose` trimmed, or `fallback` when the model wrote none.
 fn or_else(prose: String, fallback: &str) -> String {
     match prose.trim() {
         "" => fallback.to_owned(),
         text => text.to_owned(),
-    }
-}
-
-/// A `preview_error` event as the line the model gets back: `file:line: message`.
-fn preview_error_line(payload: &Value) -> String {
-    let message = payload
-        .get("message")
-        .and_then(Value::as_str)
-        .unwrap_or("the preview reported an error");
-    match (
-        payload.get("file").and_then(Value::as_str),
-        payload.get("line").and_then(Value::as_u64),
-    ) {
-        (Some(file), Some(line)) => format!("{file}:{line}: {message}"),
-        (Some(file), None) => format!("{file}: {message}"),
-        _ => message.to_owned(),
     }
 }
 
@@ -2628,6 +3220,52 @@ const ABSTRACT_TYPES: [&str; 1] = ["Entity"];
 
 /// `types` less the abstract base class and, when the endpoint's schema index is known and
 /// lists any type, less every type the endpoint does not serve (EP-46, AP-44).
+/// The `jc-types.ts` of several models as one file: each exported name once, the first model's
+/// declaration winning, and the first file's preamble.
+fn merge_declarations(files: &[String]) -> String {
+    static EXPORT: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"^export\s+(?:declare\s+)?(?:interface|type|enum|const|class|function)\s+([A-Za-z_$][\w$]*)")
+            .expect("valid regex")
+    });
+    let Some((first, rest)) = files.split_first() else {
+        return String::new();
+    };
+    if rest.is_empty() {
+        return first.clone();
+    }
+    let mut seen: Vec<String> = Vec::new();
+    let mut merged = String::new();
+    for (n, file) in files.iter().enumerate() {
+        // A chunk is a top-level `export` and the lines up to the next one.
+        let mut chunks: Vec<String> = vec![String::new()];
+        for line in file.lines() {
+            if line.starts_with("export ") {
+                chunks.push(String::new());
+            }
+            let chunk = chunks.last_mut().expect("one chunk");
+            chunk.push_str(line);
+            chunk.push('\n');
+        }
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            if i == 0 {
+                if n == 0 {
+                    merged.push_str(&chunk);
+                }
+                continue;
+            }
+            let name = EXPORT
+                .captures(&chunk)
+                .map(|c| c[1].to_owned())
+                .unwrap_or_else(|| chunk.clone());
+            if !seen.contains(&name) {
+                seen.push(name);
+                merged.push_str(&chunk);
+            }
+        }
+    }
+    merged
+}
+
 fn served_only(types: Vec<String>, index: Option<&Value>) -> Vec<String> {
     let served: Vec<&str> = index
         .and_then(|index| index.get("models"))
@@ -2673,7 +3311,7 @@ fn needs_served(data_needs: &Value, index: Option<&Value>) -> Value {
 }
 
 /// The prompt section that teaches each tool, by heading, and the operation behind the tool.
-const TOOL_SECTIONS: [(&str, &str); 4] = [
+const TOOL_SECTIONS: [(&str, &str); 5] = [
     (
         "## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA",
         "jc_endpoint_propose",
@@ -2683,6 +3321,10 @@ const TOOL_SECTIONS: [(&str, &str); 4] = [
         "jc_endpoint_propose",
     ),
     ("## WHEN THE PERSON ASKS FOR AN INDICATOR", "jc_kpi_compute"),
+    (
+        "## WHEN THE PERSON ASKS TO KEEP AN INDICATOR UPDATED",
+        "jc_pipeline_propose",
+    ),
     (
         "## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE",
         "jc_space_complete",
@@ -2753,6 +3395,21 @@ fn urlencoding(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_types_of_several_models_are_one_file_with_each_name_once() {
+        let bikes = "// generated\nimport type { Row } from \"@joinedcontext/sdk\";\nexport interface Station extends Row {\n  type: \"Station\";\n}\nexport type Status = \"open\" | \"closed\";\n";
+        let kpis = "// generated\nimport type { Row } from \"@joinedcontext/sdk\";\nexport interface KeyPerformanceIndicator extends Row {\n  type: \"KeyPerformanceIndicator\";\n}\nexport type Status = \"draft\";\n";
+        let merged = merge_declarations(&[bikes.to_owned(), kpis.to_owned()]);
+        assert_eq!(merged.matches("import type").count(), 1, "{merged}");
+        assert_eq!(merged.matches("export type Status").count(), 1, "{merged}");
+        assert!(merged.contains("\"open\" | \"closed\""), "{merged}");
+        assert!(
+            merged.contains("export interface KeyPerformanceIndicator"),
+            "{merged}"
+        );
+        assert_eq!(merge_declarations(&[bikes.to_owned()]), bikes);
+    }
 
     #[test]
     fn a_commit_subject_is_the_first_sentence_and_short() {
@@ -2924,6 +3581,7 @@ mod tests {
             prompt: "Test prompt".into(),
             data_needs: json!([]),
             endpoint_slug: "test-slug".into(),
+            endpoints: Vec::new(),
             allows_write: false,
             bearer: "test-bearer".into(),
             proxy_base: "http://localhost:8080".into(),

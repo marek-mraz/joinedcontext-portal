@@ -8,6 +8,7 @@ import type { Change } from "../../api/manifest";
 import { usePreviewBridge } from "./previewBridge";
 import { RunTimeline } from "./RunTimeline";
 import { TERMINAL_STATES, useAgentRun } from "./useAgentRun";
+import type { RunEvent } from "./useAgentRun";
 import { rememberRun } from "../../assistant/state";
 
 /**
@@ -27,7 +28,7 @@ export function AgentRunPage({
   onClose: () => void;
 }): JSX.Element {
   const { t } = useTranslation();
-  const { run, cancel, publish } = useAgentRun(project, runId);
+  const { run, events, cancel, publish } = useAgentRun(project, runId);
   // The conversation lives in the shell's assistant dock, which follows the person to the
   // pages the assistant opens (UI-45); this page only tells it which run to show.
   useEffect(() => {
@@ -95,8 +96,9 @@ export function AgentRunPage({
       {/*
         The preview is the page: what the assistant built stands wide beside the assistant
         column the shell keeps on the left, from the moment the first pass lands (UI-41,
-        UI-42). Until then the preview column says which phase the run is in and how long it
-        has been running, so the first minute is watched rather than waited out.
+        UI-42). Until then the preview column shows the building state: the phase, what the
+        run is doing and which entities it reads. The template is the model's context, never
+        the preview, so the frame never shows a dashboard every run would share (SDK-14).
       */}
       <div className="space-y-4">
         <div className="space-y-4">
@@ -132,7 +134,13 @@ export function AgentRunPage({
                 </a>
               </>
             ) : (
-              <Waiting createdAt={record.createdAt} status={record.status} over={over} />
+              <Building
+                createdAt={record.createdAt}
+                status={record.status}
+                over={over}
+                events={events}
+                dataNeeds={record.dataNeeds}
+              />
             )}
           </section>
 
@@ -205,33 +213,93 @@ export function useElapsed(since: string, running: boolean): number {
   return Math.max(0, Math.floor((now - Date.parse(since)) / 1000));
 }
 
-/** The left column before the first preview: the phase, and the clock the promise is measured by. */
-function Waiting({
+/** A live run that stopped without a version: it waits for the person's next message. */
+const IDLE_STATES = ["interviewing", "previewing", "awaiting_approval"];
+
+/** The entity types the run's data needs name, once each, without the abstract base class. */
+export function typesOf(dataNeeds: unknown): string[] {
+  const needs: unknown[] = Array.isArray(dataNeeds) ? dataNeeds : [];
+  const types = needs.flatMap((need) => {
+    const named = (need as { types?: unknown } | null)?.types;
+    return Array.isArray(named) ? named.filter((type): type is string => typeof type === "string") : [];
+  });
+  return [...new Set(types)].filter((type) => type !== "Entity");
+}
+
+/** What the agent said last: the step it is on or, after a failed attempt, its errors. */
+export function latestThought(events: RunEvent[]): string {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const text = events[i].payload.text;
+    if (events[i].kind === "thought" && typeof text === "string" && text.trim() !== "") {
+      return text;
+    }
+  }
+  return "";
+}
+
+/**
+ * The preview column before the first generated version (SDK-14, SDK-15): building, with the
+ * phase, the agent's latest step, the types it reads and the clock; stopped without a version,
+ * with the agent's errors and how to try again; ended, with what it said last.
+ */
+function Building({
   createdAt,
   status,
   over,
+  events,
+  dataNeeds,
 }: {
   createdAt: string;
   status: string;
   over: boolean;
+  events: RunEvent[];
+  dataNeeds: unknown;
 }): JSX.Element {
   const { t } = useTranslation();
-  const elapsed = useElapsed(createdAt, !over);
+  const stuck = !over && IDLE_STATES.includes(status);
+  const elapsed = useElapsed(createdAt, !over && !stuck);
+  const thought = latestThought(events);
+  const types = typesOf(dataNeeds);
   return (
     <div
       role="status"
-      className="flex h-[50vh] min-h-[20rem] flex-col items-center justify-center gap-2 rounded border border-dashed border-border text-center"
+      data-testid="run-building"
+      className="flex h-[50vh] min-h-[20rem] flex-col items-center justify-center gap-3 rounded border border-dashed border-border px-6 text-center"
     >
-      {/* A stopped run's state is already the timeline's red line; here it would be said twice. */}
-      {!over && (
-        <p className="text-lg font-medium">
-          {t(`agentRun.states.${status}`, { defaultValue: status })}
-        </p>
+      {stuck ? (
+        <>
+          <p className="text-lg font-medium">{t("agentRun.preview.notBuilt")}</p>
+          <p className="text-sm text-fg-muted">{t("agentRun.preview.retry")}</p>
+        </>
+      ) : over ? (
+        <p className="text-sm text-fg-muted">{t("agentRun.preview.none")}</p>
+      ) : (
+        <>
+          <p className="text-lg font-medium">{t("agentRun.preview.building")}</p>
+          {/* A stopped run's state is already the timeline's red line; here it would be said twice. */}
+          <p className="text-sm text-fg-muted">{t(`agentRun.states.${status}`, { defaultValue: status })}</p>
+          <div
+            aria-hidden="true"
+            className="h-1 w-48 overflow-hidden rounded-full bg-surface-subtle"
+          >
+            <div className="h-full w-1/3 rounded-full bg-primary motion-safe:animate-pulse" />
+          </div>
+          {types.length > 0 ? (
+            <p className="text-sm text-fg-muted">{t("agentRun.preview.reading", { types: types.join(", ") })}</p>
+          ) : null}
+        </>
       )}
-      <p className="text-sm text-fg-muted">
-        {over ? t("agentRun.preview.none") : t("agentRun.preview.waiting")}
-      </p>
-      <p className="font-mono text-sm text-fg-muted">{t("agentRun.preview.elapsed", { seconds: elapsed })}</p>
+      {thought !== "" ? (
+        <p
+          data-testid="run-building-thought"
+          className="max-h-40 max-w-prose overflow-auto whitespace-pre-wrap break-words text-sm"
+        >
+          {thought}
+        </p>
+      ) : null}
+      {!over && !stuck ? (
+        <p className="font-mono text-sm text-fg-muted">{t("agentRun.preview.elapsed", { seconds: elapsed })}</p>
+      ) : null}
     </div>
   );
 }

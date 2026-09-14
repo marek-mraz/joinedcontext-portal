@@ -74,6 +74,29 @@ export function originTransport(fetchImpl?: typeof fetch, doc?: Document): Trans
   };
 }
 
+/**
+ * What the preview's observer reads (SDK-27): the bridge requests still waiting for the Portal,
+ * when one last started or settled, and the ones the Portal answered with an error status.
+ */
+export interface RequestActivity {
+  pending: number;
+  lastChange: number;
+  failed: { path: string; status: number }[];
+}
+
+/** At most this many failed requests are kept, each path cut to this length (API/04 §5). */
+export const MAX_FAILED_REQUESTS = 50;
+export const MAX_FAILED_PATH = 256;
+
+export const activity: RequestActivity = { pending: 0, lastChange: Date.now(), failed: [] };
+
+/** Forgets every request: a test starts from a quiet document. */
+export function resetActivity(): void {
+  activity.pending = 0;
+  activity.lastChange = Date.now();
+  activity.failed = [];
+}
+
 export interface BridgeOptions {
   target?: Window;
   self?: Window;
@@ -88,8 +111,20 @@ export function bridgeTransport(options?: BridgeOptions): Transport {
     const timeoutMs = options?.timeoutMs ?? 15000;
     const id = ++seq;
 
+    activity.pending += 1;
+    activity.lastChange = Date.now();
+
     return new Promise((resolve) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
+
+      const settle = (response: JcResponse) => {
+        activity.pending = Math.max(0, activity.pending - 1);
+        activity.lastChange = Date.now();
+        if (response.status >= 400 && response.status <= 599 && activity.failed.length < MAX_FAILED_REQUESTS) {
+          activity.failed.push({ path: request.path.slice(0, MAX_FAILED_PATH), status: response.status });
+        }
+        resolve(response);
+      };
 
       const cleanup = () => {
         if (timer) clearTimeout(timer);
@@ -101,14 +136,14 @@ export function bridgeTransport(options?: BridgeOptions): Transport {
         const data = event.data as Partial<{ kind: string; id: number; status: number; body: unknown }> | null;
         if (!data || data.kind !== "jc-response" || data.id !== id || typeof data.status !== "number") return;
         cleanup();
-        resolve({ status: data.status, body: data.body });
+        settle({ status: data.status, body: data.body });
       };
 
       self?.addEventListener("message", onMessage);
 
       timer = setTimeout(() => {
         cleanup();
-        resolve({ status: 0, body: { title: "The Portal did not answer." } });
+        settle({ status: 0, body: { title: "The Portal did not answer." } });
       }, timeoutMs);
 
       target?.postMessage(

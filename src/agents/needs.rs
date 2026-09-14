@@ -1,13 +1,16 @@
 //! Validates application generation dataNeeds against endpoint projection and user grants (AP-44).
 
+use crate::agents::endpoints::{self, RunEndpoint};
 use crate::auth::CurrentUser;
 use crate::error::ApiError;
 use crate::store::Mirror;
 
+/// Every need checked against the endpoint it belongs to (AP-44): the first of `run_endpoints`
+/// whose context space is the need's, the primary otherwise.
 pub fn validate_data_needs(
     mirror: &Mirror,
     project: &str,
-    endpoint_name: &str,
+    run_endpoints: &[RunEndpoint],
     visibility: &str,
     data_needs: &[serde_json::Value],
     _user: &CurrentUser,
@@ -24,28 +27,34 @@ pub fn validate_data_needs(
         ));
     }
 
-    let endpoint_envelope = mirror
-        .get(project, "Endpoint", endpoint_name)
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "endpoint '{endpoint_name}' not found in project '{project}'"
-            ))
-        })?;
+    // The hidden attributes of each endpoint, aligned with `run_endpoints`.
+    let mut hidden: Vec<Vec<String>> = Vec::new();
+    for endpoint in run_endpoints {
+        let envelope = mirror
+            .get(project, "Endpoint", &endpoint.name)
+            .ok_or_else(|| {
+                ApiError::NotFound(format!(
+                    "endpoint '{}' not found in project '{project}'",
+                    endpoint.name
+                ))
+            })?;
+        hidden.push(
+            envelope
+                .spec
+                .get("projection")
+                .and_then(|p| p.get("hiddenAttributes"))
+                .and_then(|a| a.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        );
+    }
 
     let mut violations = Vec::new();
     let mut allows_write = false;
-
-    let hidden_attrs: Vec<String> = endpoint_envelope
-        .spec
-        .get("projection")
-        .and_then(|p| p.get("hiddenAttributes"))
-        .and_then(|a| a.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
 
     for (idx, need) in data_needs.iter().enumerate() {
         // The shape first: `spec.dataNeeds` of the App this run publishes is this value
@@ -74,10 +83,15 @@ pub fn validate_data_needs(
             .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
             .unwrap_or_default();
 
+        let at = endpoints::of_need(run_endpoints, need);
+        let (Some(endpoint), Some(hidden_attrs)) = (run_endpoints.get(at), hidden.get(at)) else {
+            continue;
+        };
         for attr in attrs {
             if hidden_attrs.iter().any(|h| h == attr) {
                 violations.push(format!(
-                    "attribute '{attr}' is hidden by endpoint '{endpoint_name}'"
+                    "attribute '{attr}' is hidden by endpoint '{}'",
+                    endpoint.name
                 ));
             }
         }

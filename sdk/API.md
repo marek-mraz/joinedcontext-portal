@@ -48,9 +48,9 @@ function useSchema(type?: string): { schema: Schema | null; typeSchema: TypeSche
 ```
 Loads merged JSON Schema definitions for all models exposed by the endpoint.
 ```ts
-function useAccess(): { access: AccessDocument | null; error: ProblemError | null; can: (operation: string, type: string, attr?: string) => Decision }
+function useAccess(endpoint?: string): { access: AccessDocument | null; error: ProblemError | null; can: (operation: string, type: string, attr?: string) => Decision }
 ```
-Loads user permissions and provides synchronous evaluation of permissions and prohibitions.
+Loads user permissions (of the named endpoint, the primary by default) and provides synchronous evaluation of permissions and prohibitions.
 ```ts
 function useMe(): JcUser | null
 ```
@@ -226,6 +226,9 @@ function fakeContext(fixture?: Fixture & { user?: JcUser | null }): { jc: DataCl
 Constructs a server function execution context capturing log statements.
 
 ---
+
+## Several endpoints (SDK-02)
+An application may read up to five endpoints (e.g. `transportation` and `transportation-kpis`); the pack's THE ENDPOINTS section lists them with their types. A type served by one endpoint is read there with no extra argument. Only a type served by more than one needs `{ endpoint: "<name>" }`: in `Query` (`useEntities("Vehicle", { endpoint: "transportation" })`), in `TemporalQuery`, or as the last argument of `entities.get`/`create`/`update`/`remove`; without it the call throws a `ProblemError` naming the candidates. Writes go to the endpoint of the entity's type (an id's space picks among several). `schema()` merges every endpoint's schemas; `schema(name)` and `access(name)` read one.
 
 ## Rows (SDK-03)
 Entities read through the SDK are flattened into `Row` objects. `id` (URN) and `type` are always present. KeyValues attributes are simplified into `Cell` values: `Property` becomes primitive value, `GeoProperty` becomes a GeoJSON object, and `LanguageProperty` is resolved to the preferred language string.

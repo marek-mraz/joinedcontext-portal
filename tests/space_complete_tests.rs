@@ -374,3 +374,126 @@ spec:
         assert_eq!(d["inferred"], false);
     }
 }
+
+/// One `jc_space_complete` call as a steward, and its status and body.
+async fn complete_as_steward(payload: Value) -> (StatusCode, Value) {
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None);
+    let app = server::app(state);
+    let cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@hel.fi"),
+        vec!["portal-approver"],
+        vec![],
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/ops/jc_space_complete")
+                .header(header::COOKIE, cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+fn draft<'a>(body: &'a Value, kind: &str) -> &'a Value {
+    body["drafts"]
+        .as_array()
+        .and_then(|drafts| drafts.iter().find(|d| d["kind"] == kind))
+        .unwrap_or_else(|| panic!("a {kind} draft in {body}"))
+}
+
+#[tokio::test]
+async fn a_feed_url_with_a_type_and_a_description_names_the_class_and_describes_the_drafts() {
+    let (status, body) = complete_as_steward(json!({
+        "space": "helsinki-weather",
+        "url": "https://example.invalid/weather.json",
+        "typeName": "WeatherObserved",
+        "description": "Hourly observations of the city's weather stations: temperature in °C, wind in m/s."
+    }))
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["space"], "helsinki-weather");
+    let model = draft(&body, "DataModel");
+    assert_eq!(
+        model["manifest"]["spec"]["classes"],
+        json!(["WeatherObserved"])
+    );
+    let pipeline = draft(&body, "Pipeline");
+    assert_eq!(
+        pipeline["manifest"]["spec"]["output"]["type"],
+        "WeatherObserved"
+    );
+    let mapping = pipeline["manifest"]["spec"]["compute"]["bloblang"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        mapping.contains("urn:ngsi-ld:WeatherObserved:"),
+        "{mapping}"
+    );
+    let source = draft(&body, "DataSource");
+    assert_eq!(
+        source["manifest"]["spec"]["http"]["url"],
+        "https://example.invalid/weather.json"
+    );
+    for kind in ["DataModel", "ContextSpace", "DataSource"] {
+        assert!(
+            draft(&body, kind)["manifest"]["metadata"]["description"]["en"]
+                .as_str()
+                .is_some_and(|d| d.starts_with("Hourly observations")),
+            "{kind} carries the description: {body}"
+        );
+    }
+    assert!(
+        body["change"].is_null(),
+        "nothing is proposed without the person"
+    );
+}
+
+#[tokio::test]
+async fn a_feed_url_without_a_type_names_the_class_after_the_space_never_entity() {
+    let (status, body) = complete_as_steward(json!({
+        "space": "helsinki-bikes",
+        "url": "https://example.invalid/stations"
+    }))
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        draft(&body, "DataModel")["manifest"]["spec"]["classes"],
+        json!(["HelsinkiBike"])
+    );
+    assert_eq!(
+        draft(&body, "Pipeline")["manifest"]["spec"]["output"]["type"],
+        "HelsinkiBike"
+    );
+    assert!(!body.to_string().contains("urn:ngsi-ld:Entity:"), "{body}");
+    assert!(draft(&body, "DataModel")["manifest"]["metadata"]["description"].is_null());
+}
+
+#[tokio::test]
+async fn a_type_name_that_is_not_pascal_case_or_a_description_too_long_is_refused() {
+    for payload in [
+        json!({ "url": "https://example.invalid/feed.json", "typeName": "weather observed" }),
+        json!({ "url": "https://example.invalid/feed.json", "typeName": "urn:ngsi-ld:Entity" }),
+        json!({ "url": "https://example.invalid/feed.json", "description": "x".repeat(4001) }),
+    ] {
+        let (status, body) = complete_as_steward(payload.clone()).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{payload} → {body}"
+        );
+    }
+}

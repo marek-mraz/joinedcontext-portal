@@ -414,6 +414,62 @@ async fn a_change_to_an_existing_endpoint_opens_its_form_with_the_change_and_kee
 }
 
 #[tokio::test]
+async fn a_feed_url_with_a_description_is_integrated_as_drafts_the_person_reviews() {
+    let access = json!({
+        "operations": ["jc_catalog_search", "jc_space_complete"],
+        "kinds": [{ "kind": "ContextSpace", "verbs": ["read", "propose"] }]
+    });
+    let (state, events, prompts) = converse_with(
+        Some(access),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: "I will integrate the weather feed.\n\n```json\n{\"tool\":\"space_complete\",\"space\":\"helsinki-weather\",\"url\":\"https://example.invalid/weather.json\",\"typeName\":\"WeatherObserved\",\"description\":\"Hourly observations of the city's weather stations.\"}\n```\n",
+            message: "integrate https://example.invalid/weather.json, hourly weather observations: temperature, wind",
+            tool: "space_complete",
+            seeded: Vec::new(),
+        },
+    )
+    .await;
+
+    assert!(prompts.contains("## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE"));
+    assert!(
+        prompts.contains("typeName"),
+        "the model is told the integration call"
+    );
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "ok", "{tool}");
+    assert_eq!(
+        tool["input"],
+        json!({
+            "space": "helsinki-weather",
+            "url": "https://example.invalid/weather.json",
+            "typeName": "WeatherObserved",
+            "description": "Hourly observations of the city's weather stations."
+        }),
+        "the operation gets the call's own fields, never `tool` or a proposal"
+    );
+    assert!(tool["output"]["change"].is_null(), "{tool}");
+    let model = state
+        .drafts
+        .get("helsinki", "DataModel", "helsinki-weather")
+        .await
+        .expect("drafts")
+        .expect("the model is the person's draft");
+    assert_eq!(
+        model.manifest["spec"]["classes"],
+        json!(["WeatherObserved"])
+    );
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the drafts open");
+    assert_eq!(
+        navigate.payload["route"],
+        "/projects/helsinki/spaces/complete?space=helsinki-weather"
+    );
+}
+
+#[tokio::test]
 async fn a_change_to_an_endpoint_that_does_not_exist_names_the_real_ones_and_opens_nothing() {
     let endpoint = envelope(
         "Endpoint",
@@ -541,4 +597,155 @@ async fn the_access_view_names_both_halves_and_the_one_that_refuses() {
     assert!(complete["reason"]
         .as_str()
         .is_some_and(|r| r.contains("does not grant")));
+}
+
+const KPI_PIPELINE_SECTION: &str = "## WHEN THE PERSON ASKS TO KEEP AN INDICATOR UPDATED";
+
+const KPI_PIPELINE_ANSWER: &str = "I will recompute the free bikes into transportation-kpi on every change.\n\n```json\n{\"tool\":\"draft_kpi_pipeline\",\"name\":\"free-bikes\",\"title\":\"Free bikes\",\"type\":\"BikeHireDockingStation\",\"attribute\":\"availableBikeNumber\",\"agg\":\"sum\",\"unit\":\"C62\",\"sourceEndpoint\":\"helsinki-all\",\"targetSpace\":\"transportation-kpis\",\"onChange\":true}\n```\n";
+
+/// The data space and its endpoint, which the indicator pipeline reads.
+fn bikes_space() -> Vec<ResourceEnvelope> {
+    vec![
+        envelope(
+            "ContextSpace",
+            "helsinki",
+            "helsinki",
+            json!({ "isSandbox": false, "defaultLocale": "en" }),
+        ),
+        envelope(
+            "Endpoint",
+            "helsinki-all",
+            "helsinki",
+            json!({ "contextSpaceRef": "helsinki", "slug": "allallallallallallallallal", "audience": "organization" }),
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn an_indicator_kept_updated_is_a_drafted_pipeline_into_a_new_indicator_space() {
+    let access = json!({
+        "operations": ["jc_catalog_search", "jc_pipeline_propose", "jc_pipeline_test"],
+        "kinds": [{ "kind": "Pipeline", "verbs": ["read", "propose"] }]
+    });
+    let (state, events, prompts) = converse_with(
+        Some(access),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: KPI_PIPELINE_ANSWER,
+            message: "Keep the number of free bikes updated in transportation-kpis on every change",
+            tool: "draft_kpi_pipeline",
+            seeded: bikes_space(),
+        },
+    )
+    .await;
+
+    assert!(prompts.contains(KPI_PIPELINE_SECTION));
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "ok", "{tool}");
+    let output = &tool["output"];
+    assert_eq!(output["targetSpace"], "transportation-kpi");
+    assert_eq!(output["trigger"], "on every change of availableBikeNumber");
+    assert_eq!(
+        output["formula"],
+        "sum(availableBikeNumber) over BikeHireDockingStation"
+    );
+    // No runner in the test: the verdict says so instead of pretending a pass.
+    assert_eq!(output["verdict"]["ok"], false, "{output}");
+    assert!(output["verdict"]["untested"].is_string(), "{output}");
+    let kinds: Vec<&str> = output["drafts"]
+        .as_array()
+        .expect("drafts")
+        .iter()
+        .filter_map(|d| d["kind"].as_str())
+        .collect();
+    assert_eq!(kinds, ["ContextSpace", "Endpoint", "Policy", "Policy"]);
+    assert_eq!(output["runnerAudience"], output["targetSlug"]);
+
+    let pipeline = state
+        .drafts
+        .get("helsinki", "Pipeline", "free-bikes")
+        .await
+        .expect("drafts")
+        .expect("the pipeline is the person's draft");
+    let spec = &pipeline.manifest["spec"];
+    assert_eq!(
+        spec["source"]["trigger"]["subscription"]["watchedAttributes"],
+        json!(["availableBikeNumber"])
+    );
+    assert_eq!(
+        spec["targetEndpoint"],
+        "urn:ngsi-ld:Endpoint:hel.fi:transportation-kpi:transportation-kpi"
+    );
+    assert_eq!(pipeline.touched_by, "admin");
+    for (kind, name) in [
+        ("ContextSpace", "transportation-kpi"),
+        ("Endpoint", "transportation-kpi"),
+        ("Policy", "transportation-kpi-pipelines-write"),
+        ("Policy", "transportation-kpi-read"),
+    ] {
+        assert!(
+            state
+                .drafts
+                .get("helsinki", kind, name)
+                .await
+                .expect("drafts")
+                .is_some(),
+            "{kind}/{name} is drafted"
+        );
+    }
+
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the form opens");
+    assert_eq!(navigate.payload["route"], "/projects/helsinki/pipelines");
+    assert_eq!(
+        navigate.payload["draft"],
+        json!({ "kind": "Pipeline", "name": "free-bikes" })
+    );
+    assert_eq!(
+        navigate.payload["prefill"]["source"]["endpointRef"],
+        "helsinki-all"
+    );
+    assert!(state
+        .drafts
+        .get("helsinki", "Pipeline", "free-bikes")
+        .await
+        .expect("drafts")
+        .is_some());
+}
+
+#[tokio::test]
+async fn an_indicator_pipeline_outside_the_profile_is_neither_offered_nor_drafted() {
+    let access = json!({ "operations": ["jc_catalog_search"], "kinds": [] });
+    let (state, events, prompts) = converse_with(
+        Some(access),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: KPI_PIPELINE_ANSWER,
+            message: "Keep the number of free bikes updated on every change",
+            tool: "draft_kpi_pipeline",
+            seeded: bikes_space(),
+        },
+    )
+    .await;
+
+    assert!(!prompts.contains(KPI_PIPELINE_SECTION));
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "failed", "{tool}");
+    assert!(tool["error"]
+        .as_str()
+        .is_some_and(|e| e.contains("jc_pipeline_propose")));
+    assert!(state
+        .drafts
+        .get("helsinki", "Pipeline", "free-bikes")
+        .await
+        .expect("drafts")
+        .is_none());
+    assert!(state
+        .drafts
+        .get("helsinki", "ContextSpace", "transportation-kpi")
+        .await
+        .expect("drafts")
+        .is_none());
 }

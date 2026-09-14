@@ -42,6 +42,10 @@ export function exportUrl(
  * One-click download of a manifest, a bundle or the whole project archive, at the current
  * revision or an older one (MF-16, CC-49). No Git knowledge is asked of anyone: the revision
  * picker is the history rendered as sentences.
+ *
+ * From the project, the first and default choice is the whole project: the archive with every
+ * manifest, the schema of every kind and data model, and a README saying what each file means
+ * (MF-41). The plain YAML and JSON forms stay one click further, under other formats.
  */
 export function ExportModal({
   project,
@@ -71,7 +75,25 @@ export function ExportModal({
       ),
   });
 
+  const whole = !target.name && !target.plural;
   const formats: ExportFormat[] = ["yaml", "json", "zip"];
+
+  const option = (value: ExportFormat, label: string, help: string) => (
+    <label key={value} className="flex items-start gap-2 text-sm">
+      <input
+        type="radio"
+        name="export-format"
+        value={value}
+        checked={format === value}
+        onChange={() => setFormat(value)}
+        className="mt-1"
+      />
+      <span>
+        <span className="font-medium">{label}</span>
+        <span className="block text-xs text-surface-fg/60">{help}</span>
+      </span>
+    </label>
+  );
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -87,26 +109,27 @@ export function ExportModal({
 
           <fieldset className="mt-4">
             <legend className="text-sm font-medium">{t("export.format")}</legend>
-            <div className="mt-2 space-y-2">
-              {formats.map((option) => (
-                <label key={option} className="flex items-start gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="export-format"
-                    value={option}
-                    checked={format === option}
-                    onChange={() => setFormat(option)}
-                    className="mt-1"
-                  />
-                  <span>
-                    <span className="font-medium">{t(`export.formats.${option}`)}</span>
-                    <span className="block text-xs text-surface-fg/60">
-                      {t(`export.formats.${option}Help`)}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
+            {whole ? (
+              <div className="mt-2 space-y-2">
+                {option("zip", t("export.formats.whole"), t("export.formats.wholeHelp"))}
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-xs text-surface-fg/70">
+                    {t("export.otherFormats")}
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    {(["yaml", "json"] as const).map((value) =>
+                      option(value, t(`export.formats.${value}`), t(`export.formats.${value}Help`)),
+                    )}
+                  </div>
+                </details>
+              </div>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {formats.map((value) =>
+                  option(value, t(`export.formats.${value}`), t(`export.formats.${value}Help`)),
+                )}
+              </div>
+            )}
           </fieldset>
 
           <label className="mt-4 block text-sm font-medium">

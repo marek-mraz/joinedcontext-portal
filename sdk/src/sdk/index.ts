@@ -7,11 +7,11 @@ export type { Field, FieldSchema, Schema, TypeSchema } from "../write";
 
 // Client
 export { jc, ProblemError } from "./client";
-export type { Client, DataClient, Query, TemporalPoint, TemporalQuery, TemporalRow } from "./client";
+export type { Client, DataClient, EndpointOption, Query, TemporalPoint, TemporalQuery, TemporalRow } from "./client";
 
 // Config (read by startApp from the document the Portal serves; app code never builds a client or a
 // transport, SDK-02 and SDK-06)
-export type { JcConfig, JcUser } from "./config";
+export type { JcConfig, JcEndpoint, JcUser } from "./config";
 
 // Access & Permissions
 export { can } from "./access";

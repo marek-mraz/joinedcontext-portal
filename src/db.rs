@@ -245,7 +245,7 @@ pub async fn save_sync_state(pool: &PgPool, row: &SyncStateRow) -> Result<(), sq
 /// Postgres does that rendering because `time` is compiled here with `formatting` and no parser:
 /// reading a `timestamptz` into the struct would need one. `to_char` of a NULL column is NULL, so
 /// the three optional timestamps stay optional.
-const AGENT_RUN_COLUMNS: &str = "id, project, app_name, endpoint_name, endpoint_slug, profile, \
+const AGENT_RUN_COLUMNS: &str = "id, project, app_name, endpoint_name, endpoint_slug, endpoints, profile, \
      kind, unattended, continues, \
      app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, path_prefix, \
      status, ticket_hash, workspace, merge_request, preview_url, first_frame_ms, first_version_ms, files, steps, tokens_used, created_by, \
@@ -268,9 +268,10 @@ pub async fn insert_agent_run(pool: &PgPool, run: &AgentRun) -> Result<(), sqlx:
         "INSERT INTO agent_runs (id, project, app_name, endpoint_name, endpoint_slug, profile, \
          kind, unattended, continues, \
          app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, \
-         path_prefix, status, ticket_hash, steps, tokens_used, created_by, created_at, expires_at) \
+         path_prefix, status, ticket_hash, steps, tokens_used, created_by, created_at, expires_at, \
+         endpoints) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, \
-         $19, $20, $21, $22, $23::text::timestamptz, $24::text::timestamptz)",
+         $19, $20, $21, $22, $23::text::timestamptz, $24::text::timestamptz, $25)",
     )
     .bind(&run.id)
     .bind(&run.project)
@@ -296,6 +297,7 @@ pub async fn insert_agent_run(pool: &PgPool, run: &AgentRun) -> Result<(), sqlx:
     .bind(&run.created_by)
     .bind(&run.created_at)
     .bind(&run.expires_at)
+    .bind(&run.endpoints)
     .execute(pool)
     .await
     .map(|_| ())

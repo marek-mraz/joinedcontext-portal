@@ -472,6 +472,183 @@ async fn every_data_need_the_endpoint_hides_is_named_at_once() {
     );
 }
 
+/// The indicators of the same city, a second endpoint an application may read beside the first.
+const KPI_SLUG: &str = "q3mzkq2v7w5ayxcbn4ltdj6hofkpis";
+
+fn mirror_with_kpis(profile: Option<Value>) -> Arc<Mirror> {
+    let mirror = mirror(profile);
+    mirror.upsert(envelope(
+        "Endpoint",
+        "helsinki-kpi",
+        PROJECT,
+        json!({
+            "slug": KPI_SLUG,
+            "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki-kpi" },
+            "audience": "project",
+            "projection": { "hiddenAttributes": ["formulaInternal"] }
+        }),
+    ));
+    mirror
+}
+
+fn two_endpoint_body() -> Value {
+    let mut body = create_body();
+    body.as_object_mut()
+        .expect("an object")
+        .remove("endpointName");
+    body["endpointNames"] = json!(["helsinki-bikes", "helsinki-kpi"]);
+    body["dataNeeds"]
+        .as_array_mut()
+        .expect("needs")
+        .push(json!({
+            "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki-kpi" },
+            "types": ["KeyPerformanceIndicator"],
+            "attrs": ["name", "kpiValue"],
+            "operations": ["queryEntity"]
+        }));
+    body
+}
+
+/// AP-44, SDK-02, SDK-18: an application of the bikes and their indicators. Both endpoints are on
+/// the run, the proxy may read both, and the preview's SDK configuration lists both.
+#[tokio::test]
+async fn an_application_reads_several_endpoints_each_need_on_its_own_space() {
+    let config = config();
+    let (state, app, internal) =
+        with_state(mirror_with_kpis(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let (status, created) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(two_endpoint_body()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run = &created["run"];
+    let run = if run.is_null() { &created } else { run };
+    assert_eq!(run["endpointName"], json!("helsinki-bikes"));
+    assert_eq!(run["endpointSlug"], json!(SLUG));
+    assert_eq!(
+        run["endpoints"],
+        json!([
+            { "name": "helsinki-bikes", "slug": SLUG, "space": "helsinki" },
+            { "name": "helsinki-kpi", "slug": KPI_SLUG, "space": "helsinki-kpi" }
+        ])
+    );
+    let id = run["id"].as_str().expect("an id").to_owned();
+
+    let (status, context) = internal_call(
+        &internal,
+        Some(PROXY_TOKEN),
+        Method::GET,
+        &format!("/internal/agent-runs/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{context}");
+    assert_eq!(context["endpointSlug"], json!(SLUG));
+    assert_eq!(context["endpointSlugs"], json!([SLUG, KPI_SLUG]));
+
+    let mut files = preview::template_files();
+    files.retain(|path, _| path.starts_with("src/") || path.starts_with("functions/"));
+    state.agents.set_files(&id, json!(files)).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/projects/{PROJECT}/agent-runs/{id}/preview"
+                ))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8_lossy(&bytes);
+    if status == StatusCode::OK {
+        assert!(body.contains(&format!("\"slug\":\"{KPI_SLUG}\"")), "{body}");
+        assert!(
+            body.contains("\"types\":[\"KeyPerformanceIndicator\"]"),
+            "each endpoint with the types its needs read there"
+        );
+    } else {
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    }
+}
+
+/// AP-44: the second endpoint's projection bounds the need of its space, and the names are one
+/// to five endpoints of the project, never beside `endpointName`.
+#[tokio::test]
+async fn endpoint_names_are_checked_and_each_endpoint_bounds_its_own_needs() {
+    let config = config();
+    let app = router(mirror_with_kpis(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let uri = format!("/api/v1/projects/{PROJECT}/agent-runs");
+
+    let mut hidden = two_endpoint_body();
+    hidden["dataNeeds"][1]["attrs"] = json!(["formulaInternal"]);
+    let (status, problem) = call(&app, &cookie, Method::POST, &uri, Some(hidden)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+    assert!(
+        problem["errors"][0]
+            .as_str()
+            .is_some_and(|e| e.contains("hidden by endpoint 'helsinki-kpi'")),
+        "{problem}"
+    );
+
+    let mut both = two_endpoint_body();
+    both["endpointName"] = json!("helsinki-bikes");
+    assert_eq!(
+        call(&app, &cookie, Method::POST, &uri, Some(both)).await.0,
+        StatusCode::BAD_REQUEST
+    );
+
+    let mut twice = two_endpoint_body();
+    twice["endpointNames"] = json!(["helsinki-bikes", "helsinki-bikes"]);
+    assert_eq!(
+        call(&app, &cookie, Method::POST, &uri, Some(twice)).await.0,
+        StatusCode::BAD_REQUEST
+    );
+
+    let mut neither = two_endpoint_body();
+    neither.as_object_mut().unwrap().remove("endpointNames");
+    assert_eq!(
+        call(&app, &cookie, Method::POST, &uri, Some(neither))
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+
+    let mut unknown = two_endpoint_body();
+    unknown["endpointNames"] = json!(["helsinki-bikes", "helsinki-air"]);
+    assert_eq!(
+        call(&app, &cookie, Method::POST, &uri, Some(unknown))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+
+    let mut profile = builder_profile_spec();
+    profile["access"] =
+        json!({ "operations": [], "endpoints": [{ "name": "helsinki-bikes", "verbs": ["read"] }] });
+    let app = router(mirror_with_kpis(Some(profile)), &config);
+    let (status, problem) =
+        call(&app, &cookie, Method::POST, &uri, Some(two_endpoint_body())).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    assert!(
+        problem["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("helsinki-kpi")),
+        "{problem}"
+    );
+}
+
 #[tokio::test]
 async fn a_write_operation_marks_the_run_as_writing() {
     let config = config();
@@ -964,6 +1141,87 @@ async fn a_preview_error_lands_on_the_runs_log_and_nothing_malformed_does() {
         Method::POST,
         &uri,
         Some(json!({ "message": "late" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{problem}");
+}
+
+#[tokio::test]
+async fn a_preview_observation_lands_once_per_version_within_its_bounds() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let uri = format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview-observations");
+    let page = |text: String| json!({ "label": "Stations", "text": text, "rows": [5] });
+
+    for refused in [
+        json!({ "version": 0, "pages": [page("ok".into())] }),
+        json!({ "version": 1, "pages": [] }),
+        json!({ "version": 1, "pages": vec![page("ok".into()); 21] }),
+        json!({ "version": 1, "pages": [page("x".repeat(20_001))] }),
+        json!({ "version": 1, "pages": [{ "label": "l".repeat(121), "text": "ok" }] }),
+        json!({ "version": 1, "pages": [{ "label": "Stations", "text": "ok", "rows": vec![1; 51] }] }),
+        json!({ "version": 1, "pages": [page("ok".into())], "failedRequests": [{ "path": "/functions/summary", "status": 200 }] }),
+        json!({ "version": 1, "pages": [page("ok".into())], "failedRequests": [{ "path": "p".repeat(257), "status": 500 }] }),
+    ] {
+        let (status, problem) = call(&app, &cookie, Method::POST, &uri, Some(refused)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+    }
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &uri,
+        Some(json!({ "version": 1, "pages": [page("ok".into())], "html": "<p>" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let observation = json!({
+        "version": 1,
+        "pages": [page("Kaivopuisto 7".into())],
+        "failedRequests": [{ "path": "/functions/summary", "status": 500 }]
+    });
+    let (status, _) = call(&app, &cookie, Method::POST, &uri, Some(observation.clone())).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let stream = read_stream(
+        &app,
+        &cookie,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/events"),
+        Some(1),
+        1,
+    )
+    .await;
+    assert!(stream.contains("event: preview_observation"), "{stream}");
+    assert!(
+        stream.contains(r#""text":"Kaivopuisto 7""#)
+            && stream.contains(r#""failedRequests":[{"path":"/functions/summary","status":500}]"#)
+            && stream.contains(STEWARD),
+        "{stream}"
+    );
+    // A reload posts the same version again: the first observation is the one checked.
+    let (status, problem) = call(&app, &cookie, Method::POST, &uri, Some(observation)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{problem}");
+
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/cancel"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &uri,
+        Some(json!({ "version": 2, "pages": [page("late".into())] })),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{problem}");
@@ -1746,6 +2004,7 @@ async fn expired_runs_are_reaped_and_ticket_invalidated_while_live_runs_remain()
         app_name: "expired-app".to_owned(),
         endpoint_name: "helsinki-bikes".to_owned(),
         endpoint_slug: SLUG.to_owned(),
+        endpoints: serde_json::json!([]),
         profile: "app-builder".to_owned(),
         kind: "application".to_owned(),
         unattended: false,
@@ -2005,6 +2264,7 @@ async fn continues_validations_reject_invalid_runs() {
         app_name: "".to_owned(),
         endpoint_name: "".to_owned(),
         endpoint_slug: "".to_owned(),
+        endpoints: serde_json::json!([]),
         profile: "app-builder".to_owned(),
         kind: "conversation".to_owned(),
         unattended: false,
@@ -2121,6 +2381,7 @@ async fn caller_without_portal_approver_sees_only_own_runs_while_approver_sees_b
         app_name: "viewer-app".to_owned(),
         endpoint_name: "helsinki-bikes".to_owned(),
         endpoint_slug: SLUG.to_owned(),
+        endpoints: serde_json::json!([]),
         profile: "app-builder".to_owned(),
         kind: "application".to_owned(),
         unattended: false,

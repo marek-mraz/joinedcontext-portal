@@ -1185,6 +1185,90 @@
         }
       }
     },
+    "/api/v1/projects/{project}/agent-runs/{id}/preview-observations": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "What the preview frame saw of one version, for the run's verification (SDK-27, SDK-28). The\nfirst observation of a version counts; a second one is refused, so a reload does not start a\nsecond check of the same files.",
+        "operationId": "post_preview_observation",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Run id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewObservationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The observation is on the run's log as a preview_observation event"
+          },
+          "400": {
+            "description": "A value outside the bounds of API/04 §5",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run in this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The run is over, or this version was observed already",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/agent-runs/{id}/publish": {
       "post": {
         "tags": [
@@ -4819,6 +4903,9 @@
           "endpointSlug": {
             "type": "string"
           },
+          "endpoints": {
+            "description": "Every endpoint the run reads, `[{name, slug, space}]`, the primary (`endpoint_name`)\nfirst; `[]` for a run of one endpoint recorded before several were possible (AP-44)."
+          },
           "error": {
             "type": [
               "string",
@@ -5522,7 +5609,6 @@
         "description": "What a person asks for when they start a run (AP-51).",
         "required": [
           "appName",
-          "endpointName",
           "appClass",
           "prompt",
           "dataNeeds"
@@ -5542,8 +5628,18 @@
             "description": "The types, attributes and operations the application needs. Checked against what the\nendpoint publishes before anything is scheduled (AP-44)."
           },
           "endpointName": {
-            "type": "string",
-            "description": "The `Endpoint` the application reads through. Nothing else is reachable."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The one `Endpoint` the application reads through; `endpointNames` for several. Nothing\nelse is reachable."
+          },
+          "endpointNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `Endpoint`s the application reads, one to five, the first the primary (AP-44)."
           },
           "kind": {
             "type": "string",
@@ -5828,6 +5924,25 @@
             "format": "int64"
           }
         }
+      },
+      "FailedRequest": {
+        "type": "object",
+        "description": "A request of the frame the bridge answered with an error status.",
+        "required": [
+          "path",
+          "status"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
       },
       "FederationGraph": {
         "type": "object",
@@ -6507,6 +6622,33 @@
         },
         "additionalProperties": false
       },
+      "ObservedPage": {
+        "type": "object",
+        "description": "One page of the application as the frame rendered it.",
+        "required": [
+          "label",
+          "text"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "The row counts of its tables."
+          },
+          "text": {
+            "type": "string",
+            "description": "The page's visible text."
+          }
+        },
+        "additionalProperties": false
+      },
       "OperationAccess": {
         "type": "object",
         "description": "One operation of the registry as a run the caller starts would meet it (AG-70, UI-56).",
@@ -6802,6 +6944,35 @@
           },
           "message": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreviewObservationRequest": {
+        "type": "object",
+        "description": "What the preview frame saw of one version, page by page, relayed by the page that frames it\n(SDK-27). Every field is text the frame wrote.",
+        "required": [
+          "version",
+          "pages"
+        ],
+        "properties": {
+          "failedRequests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailedRequest"
+            }
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObservedPage"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The `v` of the preview URL the frame loaded.",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -7235,6 +7406,7 @@
           "project",
           "appName",
           "endpointSlug",
+          "endpointSlugs",
           "allowsWrite",
           "branch",
           "pathPrefix",
@@ -7268,6 +7440,13 @@
           },
           "endpointSlug": {
             "type": "string"
+          },
+          "endpointSlugs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every endpoint slug of the run, the primary first: what `/v1/data/endpoints/{slug}/…`\nmay address (Architecture/19 §4)."
           },
           "id": {
             "type": "string"

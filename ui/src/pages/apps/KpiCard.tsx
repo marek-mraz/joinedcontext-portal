@@ -11,8 +11,18 @@ import { Button, buttonClass } from "../../components/ui/Button";
  * formula and how many entities it folded, and the one action that matters: writing it into
  * the project's indicator space, through that space's Endpoint, with the person's own session.
  * Nothing is written until the person clicks; the Policy of the indicator space decides.
+ * **Keep it updated** asks the assistant for the pipeline that recomputes the indicator on a
+ * period or on every change, into the space the person names (AG-74).
  * Every string comes from the run's stream and is drawn as text (AG-46).
  */
+
+/** What the indicator was computed over, as the `compute_kpi` call named it. */
+export interface KpiQuery {
+  type: string;
+  attribute: string;
+  agg: string;
+  q?: string;
+}
 
 export interface Kpi {
   name: string;
@@ -25,10 +35,30 @@ export interface Kpi {
   endpointSlug?: string;
   endpointName?: string;
   entity: Record<string, unknown>;
+  query?: KpiQuery;
 }
 
-/** The indicator of a `compute_kpi` step, or none when the payload is not what the Portal wrote. */
-export function kpiOf(output: unknown): Kpi | null {
+function queryOf(input: unknown): KpiQuery | undefined {
+  if (typeof input !== "object" || input === null) {
+    return undefined;
+  }
+  const call = input as Record<string, unknown>;
+  if (typeof call.type !== "string" || typeof call.agg !== "string") {
+    return undefined;
+  }
+  return {
+    type: call.type,
+    attribute: typeof call.attribute === "string" ? call.attribute : "",
+    agg: call.agg,
+    q: typeof call.q === "string" && call.q !== "" ? call.q : undefined,
+  };
+}
+
+/**
+ * The indicator of a `compute_kpi` step, or none when the payload is not what the Portal wrote;
+ * `input`, the step's call, says what it was computed over.
+ */
+export function kpiOf(output: unknown, input?: unknown): Kpi | null {
   if (typeof output !== "object" || output === null) {
     return null;
   }
@@ -54,7 +84,29 @@ export function kpiOf(output: unknown): Kpi | null {
     endpointSlug: typeof value.endpointSlug === "string" ? value.endpointSlug : undefined,
     endpointName: typeof value.endpointName === "string" ? value.endpointName : undefined,
     entity: value.entity as Record<string, unknown>,
+    query: queryOf(input),
   };
+}
+
+/** The message that asks the assistant to keep an indicator updated (AG-74). */
+export function keepMessage(
+  kpi: Kpi,
+  keep: { onChange: boolean; minutes: number; space: string },
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const query = kpi.query;
+  const over = query
+    ? query.agg === "count"
+      ? `count of ${query.type}`
+      : `${query.agg} of ${query.attribute} over ${query.type}`
+    : kpi.formula;
+  const where = query?.q ? ` where ${query.q}` : "";
+  return t(keep.onChange ? "agentRun.kpi.keepOnChangeMessage" : "agentRun.kpi.keepEveryMessage", {
+    name: kpi.name,
+    over: `${over}${where}`,
+    minutes: keep.minutes,
+    space: keep.space,
+  });
 }
 
 /** `18.4`, `1 200`, `0.0031`: enough digits to read, none to mislead. */
@@ -65,9 +117,22 @@ export function formatValue(value: number, locale: string): string {
 
 type State = { kind: "idle" } | { kind: "writing" } | { kind: "written" } | { kind: "refused"; detail: string };
 
-export function KpiCard({ project, kpi }: { project: string; kpi: Kpi }): JSX.Element {
+export function KpiCard({
+  project,
+  kpi,
+  onSend,
+}: {
+  project: string;
+  kpi: Kpi;
+  /** Sends a message into the conversation; without it the card offers no pipeline. */
+  onSend?: (text: string) => void;
+}): JSX.Element {
   const { t, i18n } = useTranslation();
   const [state, setState] = useState<State>({ kind: "idle" });
+  const [keeping, setKeeping] = useState(false);
+  const [onChange, setOnChange] = useState(false);
+  const [minutes, setMinutes] = useState("15");
+  const [space, setSpace] = useState(kpi.space);
 
   const write = async (): Promise<void> => {
     if (!kpi.endpointSlug) {
@@ -159,7 +224,82 @@ export function KpiCard({ project, kpi }: { project: string; kpi: Kpi }): JSX.El
             </Link>
           </>
         )}
+        {onSend && !keeping ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setKeeping(true);
+            }}
+          >
+            {t("agentRun.kpi.keep")}
+          </Button>
+        ) : null}
       </div>
+      {onSend && keeping ? (
+        <form
+          aria-label={t("agentRun.kpi.keep")}
+          className="flex flex-col gap-2 rounded border border-border p-2 text-xs"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const target = space.trim() === "" ? kpi.space : space.trim();
+            const every = Math.max(1, Math.round(Number(minutes)) || 15);
+            onSend(keepMessage(kpi, { onChange, minutes: every, space: target }, t));
+            setKeeping(false);
+          }}
+        >
+          <label className="flex flex-wrap items-center gap-2">
+            <input
+              type="radio"
+              name={`keep-${kpi.name}`}
+              checked={!onChange}
+              onChange={() => {
+                setOnChange(false);
+              }}
+            />
+            {t("agentRun.kpi.keepEvery")}
+            <input
+              type="number"
+              min={1}
+              value={minutes}
+              aria-label={t("agentRun.kpi.keepMinutes")}
+              disabled={onChange}
+              onChange={(event) => {
+                setMinutes(event.target.value);
+              }}
+              className="w-16 rounded border border-border bg-surface px-1 py-0.5"
+            />
+            {t("agentRun.kpi.keepMinutes")}
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name={`keep-${kpi.name}`}
+              checked={onChange}
+              onChange={() => {
+                setOnChange(true);
+              }}
+            />
+            {t("agentRun.kpi.keepOnChange")}
+          </label>
+          <label className="flex flex-wrap items-center gap-2">
+            {t("agentRun.kpi.keepSpace")}
+            <input
+              type="text"
+              value={space}
+              onChange={(event) => {
+                setSpace(event.target.value);
+              }}
+              className="min-w-0 flex-1 rounded border border-border bg-surface px-1 py-0.5 font-mono"
+            />
+          </label>
+          <div>
+            <Button type="submit" variant="primary" size="sm">
+              {t("agentRun.kpi.keepSend")}
+            </Button>
+          </div>
+        </form>
+      ) : null}
     </section>
   );
 }
