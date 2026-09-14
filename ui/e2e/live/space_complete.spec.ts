@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { STEWARD, proposedChange, signIn } from "./portal";
+import { APPROVER, STEWARD, approve, proposedChange, signIn } from "./portal";
 
 const PROJECT = "helsinki";
 
@@ -38,5 +38,11 @@ test("complete a space from sample file and propose change", async ({ browser })
   const changeId = await proposedChange(page);
   expect(changeId).toBeTruthy();
 
+  // The bundle is one Change like any other: listed in Approvals and approved by someone else (CC-34).
+  const approver = await signIn(browser, APPROVER, `/projects/${PROJECT}/approvals?lang=en`);
+  await expect(approver.page.getByRole("row").filter({ hasText: changeId })).toBeVisible({ timeout: 30_000 });
+  await approve(approver.page, PROJECT, changeId);
+
+  await approver.context.close();
   await steward.context.close();
 });
