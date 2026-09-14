@@ -219,6 +219,9 @@ pub struct RunContext {
     pub max_response_bytes: u64,
     pub created_by: String,
     pub model_name: String,
+    /// The profile's `model.reasoningEffort`: the proxy adds it to every model call (AG-72).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 /// The ticket, handed to the workspace and to nobody else. It is in the create answer because
@@ -1297,6 +1300,7 @@ pub async fn internal_get_run(
         max_response_bytes: profile.max_response_bytes,
         created_by: run.created_by,
         model_name: profile.model_name,
+        reasoning_effort: profile.reasoning_effort,
     }))
 }
 

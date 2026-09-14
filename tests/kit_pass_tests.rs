@@ -186,7 +186,7 @@ fn mirror(provider: &str) -> Arc<Mirror> {
                 "image": "ghcr.io/all-hands-ai/agent-server:v1.4.0",
                 "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
             },
-            "model": { "provider": provider, "name": "claude-sonnet-5", "maxTokensPerRun": 400000 },
+            "model": { "provider": provider, "name": "claude-sonnet-5", "maxTokensPerRun": 400000, "reasoningEffort": "medium" },
             "limits": { "stepsPerRun": 120, "wallClock": "PT20M", "concurrentRunsPerOrganization": 2, "requestsPerMinute": 60, "maxResponseBytes": 2097152 },
             "egress": { "allowedHosts": [] },
             "tools": ["shell"],
@@ -596,6 +596,9 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
         && payload["text"]
             .as_str()
             .is_some_and(|t| t.starts_with("A dashboard of the city"))));
+    // The chat names the model and how hard it thinks before the first call (AG-72, SDK-26).
+    assert!(log.iter().any(|(kind, payload)| kind == "thought"
+        && payload["text"] == json!("Building with claude-sonnet-5 at medium reasoning.")));
 
     // The preview: one document with its own policy, or 503 in a build without the bundle.
     let (status, headers, bytes) = call(&app, &cookie, Method::GET, &preview_url, None).await;

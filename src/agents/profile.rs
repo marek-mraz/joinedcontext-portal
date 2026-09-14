@@ -24,6 +24,8 @@ pub struct Profile {
     pub model_name: String,
     /// `anthropic` or `openai-compatible`: which body the model call carries (AG-53).
     pub model_provider: String,
+    /// `low`, `medium` or `high`; absent, no model call carries a reasoning setting (AG-72).
+    pub reasoning_effort: Option<String>,
     pub max_tokens_per_run: u64,
     pub steps_per_run: u32,
     pub requests_per_minute: u32,
@@ -67,6 +69,10 @@ impl Profile {
             image,
             model_name: string_at(spec, &["model", "name"], name)?,
             model_provider: string_at(spec, &["model", "provider"], name)?,
+            reasoning_effort: spec
+                .pointer("/model/reasoningEffort")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             max_tokens_per_run: u64_at(spec, &["model", "maxTokensPerRun"], name)?,
             steps_per_run: u64_at(spec, &["limits", "stepsPerRun"], name)? as u32,
             requests_per_minute: u64_at(spec, &["limits", "requestsPerMinute"], name)? as u32,
@@ -170,10 +176,19 @@ mod tests {
             "the declared digest pins the reference, whatever the tag says (AG-49)"
         );
         assert_eq!(profile.model_name, "claude-sonnet-5");
+        assert_eq!(profile.reasoning_effort, None);
         assert_eq!(profile.max_tokens_per_run, 400_000);
         assert_eq!(profile.requests_per_minute, 60);
         assert_eq!(profile.allowed_hosts.len(), 2);
         assert_eq!(profile.ephemeral_storage, "4Gi");
+    }
+
+    #[test]
+    fn the_reasoning_effort_of_the_model_is_read_when_the_profile_names_one() {
+        let mut spec = profile_spec();
+        spec["model"]["reasoningEffort"] = serde_json::json!("medium");
+        let profile = Profile::load(&mirror_with(spec), "app-builder").expect("profile");
+        assert_eq!(profile.reasoning_effort.as_deref(), Some("medium"));
     }
 
     #[test]

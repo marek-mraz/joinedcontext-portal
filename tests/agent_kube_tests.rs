@@ -42,6 +42,7 @@ fn profile() -> Profile {
         image: format!("ghcr.io/all-hands-ai/agent-server:v1.4.0@{IMAGE_DIGEST}"),
         model_name: "claude-sonnet-5".into(),
         model_provider: "anthropic".into(),
+        reasoning_effort: None,
         max_tokens_per_run: 400_000,
         steps_per_run: 120,
         requests_per_minute: 60,

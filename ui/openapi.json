@@ -7276,6 +7276,13 @@
           "project": {
             "type": "string"
           },
+          "reasoningEffort": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The profile's `model.reasoningEffort`: the proxy adds it to every model call (AG-72)."
+          },
           "requestsPerMinute": {
             "type": "integer",
             "format": "int32",

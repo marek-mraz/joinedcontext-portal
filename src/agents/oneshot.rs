@@ -220,6 +220,8 @@ struct Driver {
     proxy_base: String,
     model: String,
     provider: String,
+    /// Sent by the proxy on every model call of the run; named here for the chat (AG-72).
+    reasoning_effort: Option<String>,
     ttl: Duration,
     /// Passes that produced a preview; the `v` of the preview URL.
     passes: AtomicU32,
@@ -265,6 +267,7 @@ pub fn spawn(
         proxy_base: proxy_base.trim_end_matches('/').to_owned(),
         model: profile.model_name.clone(),
         provider: profile.model_provider.clone(),
+        reasoning_effort: profile.reasoning_effort.clone(),
         ttl: Duration::from_secs(ttl_secs.max(1) as u64),
         passes: AtomicU32::new(0),
         branch: run.branch.clone(),
@@ -308,6 +311,7 @@ impl Driver {
         let samples = self.samples(&types).await;
         let catalog = self.find(&self.prompt).await?;
         self.status(AgentRunStatus::Building).await?;
+        self.thought(&self.model_line()).await?;
 
         let mut files: BTreeMap<String, String> = BTreeMap::new();
         let mut conversation: Vec<(String, String)> = Vec::new();
@@ -1671,6 +1675,14 @@ To build an application or a dashboard, explain in one or two plain sentences th
             })
     }
 
+    /// The model the run builds with and how hard it thinks, as the chat shows it (SDK-26).
+    fn model_line(&self) -> String {
+        match &self.reasoning_effort {
+            Some(effort) => format!("Building with {} at {effort} reasoning.", self.model),
+            None => format!("Building with {}.", self.model),
+        }
+    }
+
     async fn thought(&self, text: &str) -> Result<(), String> {
         self.event("thought", json!({ "text": text })).await
     }
@@ -1902,6 +1914,7 @@ mod tests {
             proxy_base: "http://localhost:8080".into(),
             model: "test-model".into(),
             provider: "anthropic".into(),
+            reasoning_effort: Some("medium".into()),
             ttl: Duration::from_secs(60),
             passes: AtomicU32::new(0),
             branch: "agent/test".into(),

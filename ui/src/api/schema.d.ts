@@ -1864,6 +1864,8 @@ export interface components {
             modelName: string;
             pathPrefix: string;
             project: string;
+            /** @description The profile's `model.reasoningEffort`: the proxy adds it to every model call (AG-72). */
+            reasoningEffort?: string | null;
             /** Format: int32 */
             requestsPerMinute: number;
             status: string;
