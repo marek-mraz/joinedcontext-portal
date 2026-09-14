@@ -1046,6 +1046,7 @@ pub async fn run(
             project,
             report,
             bundle_files,
+            Some(("ContextSpace", &space_name)),
         )
         .await?;
         Some(ch)

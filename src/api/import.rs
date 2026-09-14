@@ -622,24 +622,50 @@ pub async fn import(
             "the bundle holds nothing to import".into(),
         ));
     }
-    let change = propose_bundle(&state, &user.0.identity, &project, report, files).await?;
+    let headline = incoming.iter().find_map(|item| {
+        item.envelope
+            .as_ref()
+            .map(|envelope| (envelope.kind.clone(), envelope.metadata.name.clone()))
+    });
+    let change = propose_bundle(
+        &state,
+        &user.0.identity,
+        &project,
+        report,
+        files,
+        headline.as_ref().map(|(k, n)| (k.as_str(), n.as_str())),
+    )
+    .await?;
     Ok((StatusCode::ACCEPTED, Json(change)).into_response())
 }
 
-/// Commits a bundle of files and manifests as one merge request (MF-21, CC-63).
+/// Commits a bundle of files and manifests as one merge request (MF-21, CC-63). `headline`
+/// is the manifest (kind, name) Approvals shows for the bundle: the branch is named
+/// `portal/create-{kind}-{name}-{hash}`, the form the change list reads, so the whole merge
+/// request can be listed, approved and merged from the Portal.
+/// ponytail: the change's plan counts that one manifest; a bundle-aware Change (every
+/// manifest in the plan) is the upgrade.
 pub async fn propose_bundle(
     state: &AppState,
     identity: &crate::auth::session::Identity,
     project: &str,
     report: ImportReport,
     files: Vec<(String, String)>,
+    headline: Option<(&str, &str)>,
 ) -> Result<Change, ApiError> {
     let gitea: &GiteaClient = state
         .gitea
         .as_deref()
         .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
     let default_branch = gitea.default_branch().await?;
-    let branch = format!("portal/import-{project}-{:08x}", digest(&files));
+    let hash = digest(&files);
+    let branch = match headline {
+        Some((kind, name)) => format!(
+            "portal/create-{}-{name}-{hash:08x}",
+            kind.to_ascii_lowercase()
+        ),
+        None => format!("portal/import-{project}-{hash:08x}"),
+    };
     create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
     let (author_name, author_email) = author_credentials(identity, project);
