@@ -354,7 +354,9 @@ impl Driver {
         if !files.is_empty() {
             self.thought("Changing the dashboard…").await?;
         }
-        let user = self.pack(samples, files, conversation, instruction, catalog, None);
+        let user = self
+            .pack(samples, files, conversation, instruction, catalog, None)
+            .await;
         let answer = self.complete(&user).await?;
         // A share request is answered with a tool call, not a file (EP-72): rendered, shown,
         // and handed to the endpoint form; the dashboard stays as it was.
@@ -374,14 +376,16 @@ impl Driver {
                 errors.join("\n")
             ))
             .await?;
-            let user = self.pack(
-                samples,
-                files,
-                conversation,
-                instruction,
-                catalog,
-                Some(&errors),
-            );
+            let user = self
+                .pack(
+                    samples,
+                    files,
+                    conversation,
+                    instruction,
+                    catalog,
+                    Some(&errors),
+                )
+                .await;
             let answer = self.complete(&user).await?;
             (prose, errors) = self.apply(files, &answer).await?;
         }
@@ -479,7 +483,7 @@ impl Driver {
 
     /// The user message of one call: everything the model needs beyond the fixed system
     /// prompt, current file first so a small edit can copy its lines.
-    fn pack(
+    async fn pack(
         &self,
         samples: &Value,
         files: &BTreeMap<String, String>,
@@ -516,7 +520,8 @@ impl Driver {
                 &self.project,
                 &self.endpoint_slug,
                 &self.types(),
-            );
+            )
+            .await;
             pack.push_str(
                 "This application MAY write: its data needs carry a write operation, so a `form` \
                  view saves through the endpoint. The attributes per type as the space's \

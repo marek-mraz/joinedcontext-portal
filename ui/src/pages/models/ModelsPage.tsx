@@ -2,8 +2,11 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { api, queryKeys, unwrap } from "../../api/client";
+import { api, queryKeys, readCsrfToken, unwrap } from "../../api/client";
+import type { ProblemDetails } from "../../api/client";
 import { asManifests, refName } from "../../api/manifest";
+import type { Change } from "../../api/manifest";
+import { ChangeNotice } from "../../components/ChangeNotice";
 import { takePrefill } from "../../assistant/state";
 import { LinkmlEditor } from "./LinkmlEditor";
 import { MappingsEditor } from "./MappingsEditor";
@@ -34,10 +37,10 @@ export interface ModelsPageProps {
   /** The organisation's locales, for the language maps every title needs (DM-15). */
   locales?: string[];
   /**
-   * The version this edit started from. The import wizard sets it; a future task sets it from
-   * the `DataModel` manifest, which is where a published model's source and version live.
+   * The version this edit started from. The import wizard sets it; a published model's source
+   * is loaded from the portal route when name is provided.
    */
-  baseline?: { source: string; version: string; lifecycle: Lifecycle; name: string };
+  baseline?: { source?: string; version: string; lifecycle: Lifecycle; name: string };
   /**
    * The other models this one can be mapped to and from (DM-33). The document being edited is
    * always among them, so a mapping can be written before it is published.
@@ -63,15 +66,41 @@ export function ModelsPage({
   });
   const [tab, setTab] = useState<Tab>(baseline || prefilled ? "editor" : "import");
   const [published, setPublished] = useState(baseline);
-  const [source, setSource] = useState(
-    baseline?.source ?? prefilled ?? blankSource(`${project}.sk`, "new-model"),
-  );
+  // What the person typed; before the first keystroke the source is the loaded or blank one.
+  const [edited, setEdited] = useState<string | undefined>(baseline?.source ?? prefilled);
+  const [saving, setSaving] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [checkInfo, setCheckInfo] = useState<{ severity: string; version: string } | null>(null);
+  const [changeNotice, setChangeNotice] = useState<Change | null>(null);
+
+  const activeModelName = published?.name ?? baseline?.name;
+  // A published model's source lives in the repository and is read through DM-56's route.
+  const loaded = useQuery({
+    queryKey: ["datamodel-source", project, activeModelName],
+    enabled: Boolean(activeModelName) && !baseline?.source,
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/v1/projects/${encodeURIComponent(project)}/datamodels/${encodeURIComponent(activeModelName ?? "")}/source`,
+        { credentials: "same-origin", headers: { Accept: "text/yaml, text/plain, */*" } },
+      );
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return res.text();
+    },
+  });
+  const loadingSource = loaded.isLoading;
+  const loadError = loaded.error instanceof Error ? loaded.error.message : null;
+  const source = edited ?? loaded.data ?? blankSource(`${project}.sk`, "new-model");
+  const setSource = setEdited;
+  const publishedSource = published?.source ?? loaded.data;
 
   const model = useMemo(() => parseModel(source), [source]);
 
   const changes = useMemo(
-    () => (published ? classifyChanges(parseModel(published.source), model) : []),
-    [published, model],
+    () => (publishedSource ? classifyChanges(parseModel(publishedSource), model) : []),
+    [publishedSource, model],
   );
   const severity = severityOf(changes);
   const nextVersion = published ? bumpVersion(published.version, changes) : "1.0.0";
@@ -137,14 +166,139 @@ export function ModelsPage({
     setTab("editor");
   };
 
+  const handleCheck = async () => {
+    if (!activeModelName) return;
+    setChecking(true);
+    setSaveError(null);
+    setCheckInfo(null);
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "text/yaml; charset=utf-8",
+      };
+      const csrf = readCsrfToken();
+      if (csrf) {
+        headers["x-csrf-token"] = csrf;
+      }
+      const res = await fetch(
+        `/api/v1/projects/${encodeURIComponent(project)}/datamodels/${encodeURIComponent(activeModelName)}/source?dryRun=All`,
+        {
+          method: "PUT",
+          credentials: "same-origin",
+          headers,
+          body: source,
+        },
+      );
+      if (res.status === 200) {
+        const data = (await res.json()) as { severity: string; version: string };
+        setCheckInfo({ severity: data.severity, version: data.version });
+      } else {
+        const problem = (await res.json().catch(() => ({}))) as ProblemDetails;
+        const msg =
+          problem.detail ??
+          (problem.errors && problem.errors.length > 0
+            ? problem.errors.join("; ")
+            : t("models.source.refused", { reason: problem.title ?? `HTTP ${res.status}` }));
+        setSaveError(msg);
+      }
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!activeModelName) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "text/yaml; charset=utf-8",
+      };
+      const csrf = readCsrfToken();
+      if (csrf) {
+        headers["x-csrf-token"] = csrf;
+      }
+      const res = await fetch(
+        `/api/v1/projects/${encodeURIComponent(project)}/datamodels/${encodeURIComponent(activeModelName)}/source`,
+        {
+          method: "PUT",
+          credentials: "same-origin",
+          headers,
+          body: source,
+        },
+      );
+      if (res.status === 202) {
+        const change = (await res.json()) as Change;
+        setChangeNotice(change);
+      } else {
+        const problem = (await res.json().catch(() => ({}))) as ProblemDetails;
+        const msg =
+          problem.detail ??
+          (problem.errors && problem.errors.length > 0
+            ? problem.errors.join("; ")
+            : t("models.source.refused", { reason: problem.title ?? `HTTP ${res.status}` }));
+        setSaveError(msg);
+      }
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl font-semibold">{t("models.title")}</h2>
-        <p className="text-sm text-surface-fg/70">
-          {t("models.version", { version: nextVersion })}
-        </p>
+        <div className="flex items-center gap-3">
+          {activeModelName ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCheck}
+                disabled={checking || saving}
+                className="rounded border border-border px-3 py-1 text-sm font-medium hover:bg-surface-subtle"
+              >
+                {t("models.source.saveCheck")}
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || checking}
+                className="rounded bg-primary px-3 py-1 text-sm font-medium text-primary-fg hover:opacity-90"
+              >
+                {t("models.source.save")}
+              </button>
+            </div>
+          ) : null}
+          <p className="text-sm text-surface-fg/70">
+            {t("models.version", { version: nextVersion })}
+          </p>
+        </div>
       </header>
+
+      {loadingSource ? (
+        <p role="status" className="text-sm text-surface-fg/70">
+          {t("models.source.loading")}
+        </p>
+      ) : null}
+
+      {changeNotice ? <ChangeNotice change={changeNotice} /> : null}
+
+      {saveError || loadError ? (
+        <div role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm text-danger-fg">
+          {saveError ?? loadError}
+        </div>
+      ) : null}
+
+      {checkInfo ? (
+        <div className="rounded border border-border bg-surface-subtle p-3 text-sm">
+          <p className="font-medium">
+            {t(`models.source.severity.${checkInfo.severity}`)} · {t("models.source.willBecome", { version: checkInfo.version })}
+          </p>
+        </div>
+      ) : null}
 
       {published ? (
         <section

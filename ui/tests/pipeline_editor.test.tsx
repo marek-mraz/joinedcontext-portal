@@ -138,7 +138,7 @@ const MODELS = list([
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "DataModel",
     metadata: { name: "bb-air-quality", namespace: "banskabystrica" },
-    spec: { linkml: AIR_MODEL, version: "2.1.0" },
+    spec: { linkml: AIR_MODEL, version: "2.1.0", classes: ["AirQualityObserved"] },
   },
 ]);
 

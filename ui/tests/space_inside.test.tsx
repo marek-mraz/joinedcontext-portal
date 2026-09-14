@@ -178,7 +178,7 @@ describe("space helpers", () => {
     expect(spaceOf(manifest("Policy", "p", {}))).toBeUndefined();
   });
 
-  it("reads entity types from spec.classes or from an inline LinkML source", () => {
+  it("reads entity types from spec.classes only; an inline LinkML source is not parsed (DM-56)", () => {
     expect(entityTypesOf(manifest("DataModel", "m", { classes: ["A", "B"] }))).toEqual(["A", "B"]);
     expect(
       entityTypesOf(
@@ -186,7 +186,7 @@ describe("space helpers", () => {
           linkml: "id: https://x/air\nname: air\nclasses:\n  AirQualityObserved:\n    slots: []\n",
         }),
       ),
-    ).toEqual(["AirQualityObserved"]);
+    ).toEqual([]);
     expect(entityTypesOf(manifest("DataModel", "m", { linkml: "./air.linkml.yaml" }))).toEqual([]);
   });
 });

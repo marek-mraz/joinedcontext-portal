@@ -362,6 +362,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/datamodels/{name}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_source"];
+        put: operations["put_source"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/drafts": {
         parameters: {
             query?: never;
@@ -1430,6 +1446,12 @@ export interface components {
             /** @description `jc_{keyId}_{secret}`, shown once and never recoverable (PF-37). */
             token: string;
         };
+        /** @description Single detected difference between the published model and the candidate LinkML source. */
+        ModelChange: {
+            reason: string;
+            severity: string;
+            subject: string;
+        };
         /** @description One object in the graph. */
         Node: {
             /** @description `ok`, `degraded` or `unknown` (UI-27). */
@@ -1686,6 +1708,13 @@ export interface components {
         /** @description One page of runs, newest first. */
         RunList: {
             items: components["schemas"]["AgentRun"][];
+        };
+        /** @description Result returned for `PUT /source?dryRun=All`. */
+        SourceDryRunResult: {
+            artifacts: components["schemas"]["Artifacts"];
+            changes: components["schemas"]["ModelChange"][];
+            severity: string;
+            version: string;
         };
         /**
          * @description The status the Portal API reports (MF-04). It is `jc_core::Status` plus `sourceUrl` and a phase
@@ -2822,6 +2851,156 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_source: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description DataModel name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description LinkML source in YAML format */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/yaml": string;
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    put_source: {
+        parameters: {
+            query?: {
+                /** @description Target semver */
+                version?: string;
+                /** @description Set to 'All' for dry run */
+                dryRun?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description DataModel name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        /** @description LinkML source in YAML format */
+        requestBody: {
+            content: {
+                "text/yaml": string;
+            };
+        };
+        responses: {
+            /** @description Dry run result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceDryRunResult"];
+                };
+            };
+            /** @description Change proposal accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

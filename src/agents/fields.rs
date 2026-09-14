@@ -98,8 +98,9 @@ pub fn field_schema(linkml: &str, types: &[String]) -> Value {
 }
 
 /// The field schema of the space behind `slug` in `project`, for `types`; `None` when the
-/// endpoint, its space or an inline DataModel cannot be found in the mirror.
-pub fn for_endpoint(
+/// endpoint, its space or its DataModel cannot be found in the mirror, or the model's LinkML
+/// source cannot be read from the forge (DM-56).
+pub async fn for_endpoint(
     state: &AppState,
     project: &str,
     slug: &str,
@@ -114,12 +115,11 @@ pub fn for_endpoint(
     let space = ref_name(&endpoint.spec["contextSpaceRef"])?;
     let space = state.mirror.get(project, "ContextSpace", &space)?;
     let model = ref_name(&space.spec["dataModelRef"])?;
-    let model = state.mirror.get(project, "DataModel", &model)?;
-    let linkml = model.spec["linkml"]
-        .as_str()
-        .or_else(|| model.spec["source"].as_str())
-        .filter(|text| text.contains('\n'))?;
-    Some(field_schema(linkml, types))
+    state.mirror.get(project, "DataModel", &model)?;
+    let linkml = crate::api::datamodels::read_source(state, project, &model)
+        .await
+        .ok()?;
+    Some(field_schema(&linkml, types))
 }
 
 #[cfg(test)]

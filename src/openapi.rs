@@ -15,6 +15,7 @@ use crate::api::changes::{ChangeAuthor, ChangeList, ChangeProposal, ChangeSummar
 use crate::api::ckan::{
     CkanStatus, DataStoreStatus, InstanceSummary, PublicationStatus, ResourceLink,
 };
+use crate::api::datamodels::{ModelChange as DatamodelChange, SourceDryRunResult};
 use crate::api::drafts::{DraftList, PutDraftRequest};
 use crate::api::dry_run::DryRunResult;
 use crate::api::export::{Revision, RevisionList};
@@ -55,6 +56,8 @@ use crate::tools::model_tools::{
         crate::api::resources::list,
         crate::api::blueprints::list_blueprints,
         crate::api::blueprints::start_flow,
+        crate::api::datamodels::get_source,
+        crate::api::datamodels::put_source,
         crate::api::resources::get_resource,
         crate::api::pipelines::get_metrics,
         crate::api::export::export,
@@ -159,6 +162,8 @@ use crate::tools::model_tools::{
         PlanDiff,
         FieldChange,
         DryRunResult,
+        SourceDryRunResult,
+        DatamodelChange,
         OperationSummary,
         OperationAnnotations,
         ChangeProposal,

@@ -18,6 +18,7 @@ const MODEL = {
   metadata: { name: "bikes", namespace: "helsinki" },
   spec: {
     version: "1.0.0",
+    classes: ["BikeHireDockingStation"],
     linkml: [
       "id: https://hel.fi/models/bikes",
       "name: bikes",

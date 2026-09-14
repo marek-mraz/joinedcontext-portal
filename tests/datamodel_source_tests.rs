@@ -1,0 +1,698 @@
+//! Tests for reading and saving DataModel LinkML source and compiled schema artifacts (DM-01, DM-02, DM-22, DM-24, DM-56).
+
+use std::sync::Arc;
+
+use axum::body::Body;
+use axum::http::{header, Request, StatusCode};
+use axum_extra::extract::cookie::PrivateCookieJar;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
+use http_body_util::BodyExt;
+use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
+use joinedcontext_portal::auth::session::{self, Identity, Session};
+use joinedcontext_portal::change::{Change, ChangePhase, Lane};
+use joinedcontext_portal::config::Config;
+use joinedcontext_portal::git::GiteaClient;
+use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+use joinedcontext_portal::server;
+use joinedcontext_portal::state::AppState;
+use serde_json::json;
+use tower::ServiceExt;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+const TEST_CSRF_TOKEN: &str = "csrf-token-12345";
+
+const PUBLISHED_LINKML: &str = r#"id: https://example.org/models/air-quality
+name: air-quality
+prefixes:
+  aq: https://example.org/aq/
+default_prefix: aq
+imports:
+  - linkml:types
+classes:
+  AirQualityObserved:
+    class_uri: https://example.org/aq/AirQualityObserved
+    slots:
+      - dateObserved
+      - pm10
+slots:
+  dateObserved:
+    range: string
+    required: true
+  pm10:
+    range: integer
+    required: false
+"#;
+
+const COMPILED_ARTIFACTS: &str = r##"{
+  "jsonSchema": {"title": "AirQualityObserved"},
+  "context": {"@context": {"pm10": "https://example.org/aq/pm10"}},
+  "docs": "# AirQualityObserved Documentation",
+  "example": {"id": "urn:ngsi-ld:AirQualityObserved:01", "type": "AirQualityObserved"},
+  "generatorVersion": "linkml-1.11.1"
+}"##;
+
+fn session_cookie(config: &Config) -> String {
+    use axum::response::IntoResponse;
+    let now = session::now_unix();
+    let s = Session {
+        identity: Identity {
+            subject: "f:1:demo.steward".into(),
+            username: "demo.steward".into(),
+            email: Some("steward@banskabystrica.sk".into()),
+            name: Some("Demo Steward".into()),
+            roles: Vec::new(),
+            groups: vec!["portal-approver".into()],
+        },
+        expires_at: now + 3600,
+        issued_at: now,
+        id_token: "id-token-placeholder".into(),
+        access_expires_at: now + 3600,
+        refresh_token: None,
+    };
+    let jar = PrivateCookieJar::new(config.cookie_key.clone());
+    let jar = session::store(jar, &s).expect("store session");
+    let response = (jar, StatusCode::OK).into_response();
+    let mut parts = Vec::new();
+    for value in response.headers().get_all(header::SET_COOKIE) {
+        let raw = value.to_str().expect("cookie header");
+        let pair = raw.split(';').next().unwrap_or_default();
+        parts.push(pair.to_string());
+    }
+    parts.push(format!("{CSRF_COOKIE}={TEST_CSRF_TOKEN}"));
+    parts.join("; ")
+}
+
+fn seed_datamodel(state: &AppState, project: &str, name: &str, linkml_path: &str, version: &str) {
+    state.mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "DataModel".to_string(),
+        metadata: ObjectMeta {
+            name: name.to_string(),
+            namespace: Some(project.to_string()),
+            ..Default::default()
+        },
+        spec: json!({
+            "contextSpaceRef": "mobility",
+            "linkml": linkml_path,
+            "version": version,
+            "lifecycle": "published",
+            "classes": ["AirQualityObserved"]
+        }),
+        status: None,
+    });
+}
+
+#[tokio::test]
+async fn get_source_answers_file_content_and_yaml_content_type() {
+    let forge = MockServer::start().await;
+    let forge_url = forge.uri().parse().expect("valid forge url");
+    let gitea = GiteaClient::new(forge_url, "owner", "repo", "token").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "default_branch": "main"
+        })))
+        .mount(&forge)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/owner/repo/contents/projects/ovzdusie/spaces/mobility/datamodels/air-quality.linkml.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(PUBLISHED_LINKML)
+        })))
+        .mount(&forge)
+        .await;
+
+    let config = Config::for_tests();
+    let cookie = session_cookie(&config);
+    let state = AppState::new(config, None).with_gitea(Arc::new(gitea));
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+
+    let app = server::app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/ovzdusie/datamodels/air-quality/source")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "text/yaml; charset=utf-8"
+    );
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body_str = String::from_utf8_lossy(&body_bytes);
+    assert_eq!(body_str, PUBLISHED_LINKML);
+}
+
+#[tokio::test]
+async fn path_traversal_and_absolute_paths_are_400_and_forge_is_not_called() {
+    let forge = MockServer::start().await;
+    let forge_url = forge.uri().parse().expect("valid forge url");
+    let gitea = GiteaClient::new(forge_url, "owner", "repo", "token").expect("client");
+
+    let config = Config::for_tests();
+    let cookie = session_cookie(&config);
+    let state = AppState::new(config, None).with_gitea(Arc::new(gitea));
+
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "escape-relative",
+        "../secrets.linkml.yaml",
+        "1.0.0",
+    );
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "escape-absolute",
+        "/etc/passwd.linkml.yaml",
+        "1.0.0",
+    );
+
+    let app = server::app(state);
+
+    for name in ["escape-relative", "escape-absolute"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/projects/ovzdusie/datamodels/{name}/source"
+                    ))
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    assert_eq!(forge.received_requests().await.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn other_project_or_absent_model_is_404() {
+    let config = Config::for_tests();
+    let cookie = session_cookie(&config);
+    let state = AppState::new(config, None);
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+
+    let app = server::app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/other-project/datamodels/air-quality/source")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn anonymous_request_returns_401() {
+    let config = Config::for_tests();
+    let state = AppState::new(config, None);
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+
+    let app = server::app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/ovzdusie/datamodels/air-quality/source")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn put_breaking_change_under_same_major_is_400_naming_removed_slot() {
+    let forge = MockServer::start().await;
+    let forge_url = forge.uri().parse().expect("valid forge url");
+    let gitea = GiteaClient::new(forge_url, "owner", "repo", "token").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "default_branch": "main"
+        })))
+        .mount(&forge)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/owner/repo/contents/projects/ovzdusie/spaces/mobility/datamodels/air-quality.linkml.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(PUBLISHED_LINKML)
+        })))
+        .mount(&forge)
+        .await;
+
+    let config = Config::for_tests();
+    let cookie = session_cookie(&config);
+    let state = AppState::new(config, None).with_gitea(Arc::new(gitea));
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+
+    let app = server::app(state);
+
+    // Remove slot pm10 -> breaking change
+    let breaking_source = r#"id: https://example.org/models/air-quality
+name: air-quality
+classes:
+  AirQualityObserved:
+    slots:
+      - dateObserved
+slots:
+  dateObserved:
+    range: string
+    required: true
+"#;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/projects/ovzdusie/datamodels/air-quality/source?version=1.0.1")
+                .header(header::COOKIE, &cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "text/yaml")
+                .body(Body::from(breaking_source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let problem: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("breaking change"), "{detail}");
+    let errors = problem["errors"].as_array().unwrap();
+    assert!(
+        errors.iter().any(|e| e.as_str().unwrap().contains("pm10")),
+        "errors must name removed slot pm10"
+    );
+}
+
+#[tokio::test]
+async fn put_source_that_does_not_compile_is_400_with_tool_messages() {
+    let forge = MockServer::start().await;
+    let forge_url = forge.uri().parse().expect("valid forge url");
+    let gitea = GiteaClient::new(forge_url, "owner", "repo", "token").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "default_branch": "main"
+        })))
+        .mount(&forge)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/owner/repo/contents/projects/ovzdusie/spaces/mobility/datamodels/air-quality.linkml.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(PUBLISHED_LINKML)
+        })))
+        .mount(&forge)
+        .await;
+
+    let tools = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/generate"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"errors":["slot 'temperature' has no range declared"]}"#,
+            "application/json",
+        ))
+        .mount(&tools)
+        .await;
+
+    let config = Config {
+        model_tools_url: Some(tools.uri()),
+        ..Config::for_tests()
+    };
+    let cookie = session_cookie(&config);
+    let state = AppState::new(config, None).with_gitea(Arc::new(gitea));
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+
+    let app = server::app(state);
+
+    let candidate = r#"id: https://example.org/models/air-quality
+name: air-quality
+classes:
+  AirQualityObserved:
+    slots:
+      - dateObserved
+      - temperature
+slots:
+  dateObserved:
+    range: string
+  temperature: {}
+"#;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/projects/ovzdusie/datamodels/air-quality/source")
+                .header(header::COOKIE, &cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "text/yaml")
+                .body(Body::from(candidate))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let problem: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("temperature"),
+        "detail must contain tool error: {detail}"
+    );
+}
+
+#[tokio::test]
+async fn put_dry_run_all_returns_200_and_proposes_nothing() {
+    let forge = MockServer::start().await;
+    let forge_url = forge.uri().parse().expect("valid forge url");
+    let gitea = GiteaClient::new(forge_url, "owner", "repo", "token").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "default_branch": "main"
+        })))
+        .mount(&forge)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/owner/repo/contents/projects/ovzdusie/spaces/mobility/datamodels/air-quality.linkml.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(PUBLISHED_LINKML)
+        })))
+        .mount(&forge)
+        .await;
+
+    let tools = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/generate"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(COMPILED_ARTIFACTS, "application/json"),
+        )
+        .mount(&tools)
+        .await;
+
+    let config = Config {
+        model_tools_url: Some(tools.uri()),
+        ..Config::for_tests()
+    };
+    let cookie = session_cookie(&config);
+    let state = AppState::new(config, None).with_gitea(Arc::new(gitea));
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+
+    let app = server::app(state);
+
+    let additive_source = r#"id: https://example.org/models/air-quality
+name: air-quality
+classes:
+  AirQualityObserved:
+    slots:
+      - dateObserved
+      - pm10
+      - co2
+slots:
+  dateObserved:
+    range: string
+    required: true
+  pm10:
+    range: integer
+    required: false
+  co2:
+    range: float
+    required: false
+"#;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/projects/ovzdusie/datamodels/air-quality/source?dryRun=All")
+                .header(header::COOKIE, &cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "text/yaml")
+                .body(Body::from(additive_source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let res: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(res["severity"], "additive");
+    assert_eq!(res["version"], "1.1.0");
+    assert_eq!(
+        res["artifacts"]["docs"],
+        "# AirQualityObserved Documentation"
+    );
+
+    // Proposes nothing
+    let forge_reqs = forge.received_requests().await.unwrap();
+    assert!(!forge_reqs
+        .iter()
+        .any(|r| r.method.as_str() == "POST" && r.url.path().contains("/pulls")));
+}
+
+#[tokio::test]
+async fn put_creates_change_and_writes_manifest_source_and_four_artifacts() {
+    let forge = MockServer::start().await;
+    let forge_url = forge.uri().parse().expect("valid forge url");
+    let gitea = GiteaClient::new(forge_url, "owner", "repo", "token").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "default_branch": "main"
+        })))
+        .mount(&forge)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/owner/repo/contents/projects/ovzdusie/spaces/mobility/datamodels/air-quality.linkml.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(PUBLISHED_LINKML)
+        })))
+        .mount(&forge)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/owner/repo/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&forge)
+        .await;
+
+    // Handle GET content and PUT content for files
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(
+            r"^/api/v1/repos/owner/repo/contents/.*",
+        ))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&forge)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(wiremock::matchers::path_regex(
+            r"^/api/v1/repos/owner/repo/contents/.*",
+        ))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({ "commit": { "sha": "c1" } })),
+        )
+        .mount(&forge)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/owner/repo/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 88,
+            "html_url": "https://forge.example.sk/pulls/88",
+            "state": "open",
+            "mergeable": true,
+            "merged": false
+        })))
+        .mount(&forge)
+        .await;
+
+    let tools = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/generate"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(COMPILED_ARTIFACTS, "application/json"),
+        )
+        .mount(&tools)
+        .await;
+
+    let config = Config {
+        model_tools_url: Some(tools.uri()),
+        ..Config::for_tests()
+    };
+    let cookie = session_cookie(&config);
+    let state = AppState::new(config, None).with_gitea(Arc::new(gitea));
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+
+    let app = server::app(state);
+
+    let additive_source = r#"id: https://example.org/models/air-quality
+name: air-quality
+classes:
+  AirQualityObserved:
+    slots:
+      - dateObserved
+      - pm10
+      - co2
+slots:
+  dateObserved:
+    range: string
+    required: true
+  pm10:
+    range: integer
+    required: false
+  co2:
+    range: float
+    required: false
+"#;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/projects/ovzdusie/datamodels/air-quality/source")
+                .header(header::COOKIE, &cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "text/yaml")
+                .body(Body::from(additive_source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let change: Change = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(change.status.phase, ChangePhase::PendingApproval);
+    assert_eq!(change.status.lane, Lane::Yellow);
+    assert_eq!(
+        change.status.merge_request.as_deref(),
+        Some("https://forge.example.sk/pulls/88")
+    );
+
+    // Verify all 6 files written to the branch
+    let requests = forge.received_requests().await.unwrap();
+    let put_paths: Vec<String> = requests
+        .iter()
+        .filter(|r| {
+            r.method.as_str() == "PUT"
+                && r.url
+                    .path()
+                    .starts_with("/api/v1/repos/owner/repo/contents/")
+        })
+        .map(|r| r.url.path().to_string())
+        .collect();
+
+    assert!(put_paths
+        .iter()
+        .any(|p| p.ends_with("/datamodels/air-quality.yaml")));
+    assert!(put_paths
+        .iter()
+        .any(|p| p.ends_with("/datamodels/air-quality.linkml.yaml")));
+    assert!(put_paths
+        .iter()
+        .any(|p| p.ends_with("/datamodels/json-schema/air-quality.v1.json")));
+    assert!(put_paths
+        .iter()
+        .any(|p| p.ends_with("/datamodels/context/air-quality.v1.jsonld")));
+    assert!(put_paths
+        .iter()
+        .any(|p| p.ends_with("/datamodels/docs/air-quality.md")));
+    assert!(put_paths
+        .iter()
+        .any(|p| p.ends_with("/datamodels/examples/air-quality.example.jsonld")));
+}

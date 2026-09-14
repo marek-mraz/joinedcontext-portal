@@ -14,7 +14,6 @@ import {
   REPRESENTATION_PATHS,
 } from "../../components/endpoints/links";
 import { SharedWithBadge } from "../../components/endpoints/sharing";
-import { parseModel } from "../models/linkml";
 
 const SPACE_LABEL = "joinedcontext.com/space";
 const RESULTS_COUNT_HEADER = "NGSILD-Results-Count";
@@ -47,10 +46,6 @@ export function entityTypesOf(model: Manifest): string[] {
   const classes = model.spec.classes;
   if (Array.isArray(classes)) {
     return classes.filter((c): c is string => typeof c === "string");
-  }
-  const source = model.spec.linkml ?? model.spec.source;
-  if (typeof source === "string" && source.includes("\n")) {
-    return parseModel(source).classes.map((c) => c.name);
   }
   return [];
 }

@@ -1265,7 +1265,8 @@ pub async fn preview(
     };
     // The field schema of AP-61: what the form's inputs are, from the space's DataModel.
     let types: Vec<String> = spec.sources.iter().map(|s| s.entity_type.clone()).collect();
-    let schema = crate::agents::fields::for_endpoint(&state, &project, &run.endpoint_slug, &types);
+    let schema =
+        crate::agents::fields::for_endpoint(&state, &project, &run.endpoint_slug, &types).await;
     let (html, csp) = match page {
         Some(page) => (
             kit::page_document(

@@ -809,6 +809,18 @@
       "populate": "Naplniť editor",
       "cancel": "Zrušiť",
       "close": "Zavrieť"
+    },
+    "source": {
+      "loading": "Loading model source…",
+      "saveCheck": "Check",
+      "save": "Save model",
+      "severity": {
+        "none": "No change",
+        "additive": "Additive change",
+        "breaking": "Breaking change"
+      },
+      "willBecome": "Saves as version {{version}}",
+      "refused": "The change was refused: {{reason}}"
     }
   },
   "apps": {

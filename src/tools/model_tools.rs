@@ -100,7 +100,7 @@ pub struct ImportSdmRequest {
 /// What one Model Tools run rendered. Every artifact is optional: a version that does not
 /// render one omits it, and a source that does not compile yet answers with `errors` filled in
 /// and the artifacts absent. A half-written model is the normal state of an editor.
-#[derive(Debug, Default, Deserialize, Serialize, ToSchema, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, ToSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Artifacts {
     /// The LinkML source itself, which an import produces and the editor then edits; its

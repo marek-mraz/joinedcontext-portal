@@ -45,7 +45,7 @@ const MODEL: Manifest = {
   apiVersion: "joinedcontext.com/v1alpha1",
   kind: "DataModel",
   metadata: { name: "bb-air-quality", namespace: "banskabystrica" },
-  spec: { linkml: AIR_MODEL, version: "1.0.0" },
+  spec: { linkml: AIR_MODEL, version: "1.0.0", classes: ["AirQualityObserved"] },
 };
 const SPACES = list([
   {

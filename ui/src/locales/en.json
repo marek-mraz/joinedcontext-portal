@@ -760,6 +760,18 @@
       "editor": "Editor",
       "subset": "Subset"
     },
+    "source": {
+      "loading": "Loading model source…",
+      "saveCheck": "Check",
+      "save": "Save model",
+      "severity": {
+        "none": "No change",
+        "additive": "Additive change",
+        "breaking": "Breaking change"
+      },
+      "willBecome": "Saves as version {{version}}",
+      "refused": "The change was refused: {{reason}}"
+    },
     "sdm": {
       "browse": "Smart Data Models catalogue",
       "search": "Search models and attributes",
