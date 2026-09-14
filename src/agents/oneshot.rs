@@ -1422,16 +1422,26 @@ impl Driver {
                 .complete_with_system(CONVERSATION_SYSTEM, &user)
                 .await?;
 
+            let searches = data_query::search_calls(&answer);
             let calls = data_query::tool_calls(&answer);
-            if !calls.is_empty() {
-                let left = data_query::MAX_CALLS.saturating_sub(results.len());
-                if left == 0 {
+            if !searches.is_empty() || !calls.is_empty() {
+                if data_query::MAX_CALLS <= results.len() {
                     let prose = "I could not finish from the data within the calls one message \
                                  may make; ask a narrower question."
                         .to_owned();
                     self.thought(&prose).await?;
                     return Ok(prose);
                 }
+                // The model's own searches first: what they find may name the endpoints its
+                // calls read next (AG-58, AG-76).
+                for q in searches
+                    .into_iter()
+                    .take(data_query::MAX_CALLS.saturating_sub(results.len()))
+                {
+                    let text = self.search(&q).await?;
+                    results.push((drafted("search_catalog", Some(json!({ "q": q }))), text));
+                }
+                let left = data_query::MAX_CALLS.saturating_sub(results.len());
                 // Endpoints first, one at a time, so the calls that follow may all run at once.
                 let mut ready = Vec::new();
                 for call in calls.into_iter().take(left) {
@@ -2587,10 +2597,13 @@ proposes it.
                     prose = format!("Completed drafts for context space '{space_name}'.");
                 }
                 self.thought(&prose).await?;
+                // The drafts travel with the navigation: the page shows them ready to propose
+                // instead of an empty form (AG-73).
                 self.event(
                     "navigate",
                     json!({
                         "route": format!("/projects/{}/spaces/complete?space={}", self.project, space_name),
+                        "prefill": { "result": output, "url": input.get("url") },
                     }),
                 )
                 .await?;
@@ -3341,6 +3354,33 @@ proposes it.
         Ok((!catalog.items.is_empty()).then_some(output))
     }
 
+    /// A `search_catalog` call of the model, with its own words: the same search and the same
+    /// tool step as [`Self::find`], answered as text the next model call reads.
+    async fn search(&self, q: &str) -> Result<String, String> {
+        if let Err(reason) = self.granted("jc_catalog_search") {
+            return Ok(format!("error: {reason}"));
+        }
+        let started = std::time::Instant::now();
+        let catalog = crate::api::assistant::search(&self.state, &self.project, q, None).await;
+        let output = serde_json::to_value(&catalog).unwrap_or(Value::Null);
+        self.event(
+            "tool",
+            json!({
+                "tool": "search_catalog",
+                "status": "ok",
+                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "input": { "q": q },
+                "output": output.clone(),
+            }),
+        )
+        .await?;
+        Ok(if catalog.items.is_empty() {
+            format!("nothing in the project matches the words '{q}'")
+        } else {
+            output.to_string()
+        })
+    }
+
     /// The profile and the person who started the run both allow the operation behind a tool
     /// (AG-70).
     fn granted(&self, operation: &str) -> Result<(), String> {
@@ -3524,9 +3564,10 @@ proposes it.
                     .join(", ")
             )),
             Some(i) if !data_query::offers(tools.get(i).map_or(&[], Vec::as_slice), &call.name) => {
-                Some(format!(
-                    "'{}' is not a read tool endpoint '{}' offers",
-                    call.name, call.endpoint
+                Some(data_query::not_offered(
+                    tools.get(i).map_or(&[], Vec::as_slice),
+                    &call.name,
+                    &call.endpoint,
                 ))
             }
             Some(_) => None,

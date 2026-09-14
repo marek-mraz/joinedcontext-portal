@@ -467,6 +467,12 @@ async fn a_feed_url_with_a_description_is_integrated_as_drafts_the_person_review
         navigate.payload["route"],
         "/projects/helsinki/spaces/complete?space=helsinki-weather"
     );
+    // The drafts travel with the navigation, so the page opens ready to propose (AG-73).
+    assert_eq!(
+        navigate.payload["prefill"]["result"]["space"],
+        "helsinki-weather"
+    );
+    assert!(navigate.payload["prefill"]["result"]["drafts"].is_array());
 }
 
 #[tokio::test]

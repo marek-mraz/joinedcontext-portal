@@ -5,6 +5,7 @@ import { I18nextProvider } from "react-i18next";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import i18n from "../src/i18n";
 import { SpaceComplete } from "../src/pages/spaces/SpaceComplete";
+import { rememberPrefill } from "../src/assistant/state";
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
@@ -77,5 +78,37 @@ describe("SpaceComplete page", () => {
     });
     expect(screen.getByTestId("complete-draft-DataSource")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Propose all/i })).toBeInTheDocument();
+  });
+
+  it("opens with the drafts the assistant completed, ready to propose, without running again (AG-73)", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/projects/helsinki/spaces/complete?space=city-bikes");
+    rememberPrefill("/projects/helsinki/spaces/complete?space=city-bikes", {
+      url: "https://example.com/free_bike_status.json",
+      result: {
+        space: "city-bikes",
+        found: [],
+        drafts: [
+          {
+            kind: "Pipeline",
+            name: "city-bikes-load",
+            inferred: true,
+            manifest: { kind: "Pipeline", metadata: { name: "city-bikes-load" } },
+            verdict: { ok: true, findings: [], inputDigest: "abc" },
+          },
+        ],
+        proposeReady: true,
+        lane: "yellow",
+        change: null,
+      },
+    });
+
+    renderComponent();
+
+    expect(await screen.findByTestId("complete-draft-Pipeline")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Endpoint URL/i)).toHaveValue("https://example.com/free_bike_status.json");
+    expect(screen.getByRole("button", { name: /Propose all/i })).toBeEnabled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

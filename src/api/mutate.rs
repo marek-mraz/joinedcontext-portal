@@ -141,15 +141,23 @@ pub(crate) fn resolve_repo_path(
     kind_info: &resource::KindInfo,
     project: &str,
 ) -> Result<String, ApiError> {
+    // A space-scoped kind (Endpoint, DataModel) names its space in `contextSpaceRef`, which is
+    // what jc-core files it under; the project's name only stands in when nothing else says.
     let space = envelope
         .metadata
         .labels
         .get("joinedcontext.com/space")
-        .map(|s| s.as_str())
-        .or(envelope.metadata.namespace.as_deref());
+        .cloned()
+        .or_else(|| crate::api::assistant::ref_name(&envelope.spec["contextSpaceRef"]))
+        .or_else(|| envelope.metadata.namespace.clone());
 
-    resource::repository_path(kind_info, project, space, &envelope.metadata.name)
-        .map_err(ApiError::BadRequest)
+    resource::repository_path(
+        kind_info,
+        project,
+        space.as_deref(),
+        &envelope.metadata.name,
+    )
+    .map_err(ApiError::BadRequest)
 }
 
 pub(crate) fn author_credentials(
@@ -1059,6 +1067,40 @@ mod tests {
         let val_yaml = parse_patch_to_value(&headers_yaml, b"spec:\n  audience: public\n")
             .expect("parse valid yaml patch");
         assert_eq!(val_yaml["spec"]["audience"], "public");
+    }
+
+    #[test]
+    fn a_space_scoped_resource_is_filed_under_the_space_it_references() {
+        let endpoint = |spec: serde_json::Value| ResourceEnvelope {
+            api_version: resource::API_VERSION.into(),
+            kind: "Endpoint".into(),
+            metadata: ObjectMeta {
+                name: "citybikes-2046-all".into(),
+                namespace: Some("helsinki".into()),
+                ..Default::default()
+            },
+            spec,
+            status: None,
+        };
+        let info = resource::by_kind("Endpoint").expect("Endpoint");
+        for reference in [
+            json!("citybikes-2046"),
+            json!({ "kind": "ContextSpace", "name": "citybikes-2046" }),
+        ] {
+            assert_eq!(
+                resolve_repo_path(
+                    &endpoint(json!({ "contextSpaceRef": reference })),
+                    info,
+                    "helsinki"
+                )
+                .expect("a path"),
+                "projects/helsinki/spaces/citybikes-2046/endpoints/citybikes-2046-all.yaml"
+            );
+        }
+        assert_eq!(
+            resolve_repo_path(&endpoint(json!({})), info, "helsinki").expect("a path"),
+            "projects/helsinki/spaces/helsinki/endpoints/citybikes-2046-all.yaml"
+        );
     }
 
     #[tokio::test]

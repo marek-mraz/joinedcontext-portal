@@ -52,6 +52,41 @@ pub fn tool_calls(answer: &str) -> Vec<Result<QueryCall, String>> {
     calls
 }
 
+/// The words of every `search_catalog` call of an answer: the model searches the catalog itself,
+/// with its own words, as often as it needs (AG-58, AG-76).
+pub fn search_calls(answer: &str) -> Vec<String> {
+    share::TOOL_FENCE
+        .captures_iter(answer)
+        .filter_map(|fence| serde_json::from_str::<Value>(&fence[1]).ok())
+        .filter(|value| value.get("tool").and_then(Value::as_str) == Some("search_catalog"))
+        .filter_map(|value| {
+            value
+                .get("q")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|q| !q.is_empty())
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+/// Why a tool the endpoint does not offer was refused, with what it does offer, so the model
+/// calls one of those next rather than giving up (AG-75).
+pub fn not_offered(tools: &[Value], name: &str, endpoint: &str) -> String {
+    let offered: Vec<&str> = tools
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect();
+    if offered.is_empty() {
+        format!("'{name}' is not a read tool endpoint '{endpoint}' offers: it offers you no read tool, so read another endpoint")
+    } else {
+        format!(
+            "'{name}' is not a read tool endpoint '{endpoint}' offers; it offers: {}",
+            offered.join(", ")
+        )
+    }
+}
+
 fn call_of(value: &Value) -> Result<QueryCall, String> {
     let text = |key: &str| {
         value
@@ -176,6 +211,19 @@ where, the latest, one entity, the attributes of a type), and any indicator or p
 draft, is grounded in the data, never in memory or an endpoint's title. Look before you draft:
 list the types, describe the schema, read a page of entities.
 
+Find the data yourself too. Search the project's catalog with your own words, as often as you
+need:
+
+```json
+{{ "tool": "search_catalog", "q": "<words>" }}
+```
+
+The search matches words in names, titles and descriptions. When it finds nothing, search again
+before you answer that nothing is there: synonyms, singular and plural, and the words of the
+data's own language (a Slovak city names bikes cyklo or bicykel, a Finnish one pyörä); then
+look into the endpoints themselves, their types and a page of entities. A failed call answers
+with the reason: correct the call and make it again.
+
 Call tools with fenced JSON blocks and nothing else in that answer. Several blocks in one answer
 run at once, on one endpoint or several, so ask for everything you need together:
 
@@ -205,7 +253,8 @@ the conversation first. Their tools are the same read tools:
 {}
 ```
 
-Read tools every endpoint offers: {}
+Read tools an endpoint may offer; each endpoint above lists the ones its policy grants the person,
+and only those run: {}
 "#,
         serde_json::to_string_pretty(&listed).unwrap_or_default(),
         serde_json::to_string_pretty(&others).unwrap_or_default(),
@@ -240,6 +289,23 @@ pub fn results_section(results: &[(QueryCall, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_model_searches_the_catalog_with_its_own_words_and_a_refusal_names_what_is_offered() {
+        let answer = "Nothing under bikes; trying the city's words.\n```json\n{\"tool\":\"search_catalog\",\"q\":\"cyklo bicykel\"}\n```\n```json\n{\"tool\":\"search_catalog\",\"q\":\"  \"}\n```";
+        assert_eq!(search_calls(answer), vec!["cyklo bicykel".to_owned()]);
+        assert!(search_calls("```json\n{\"tool\":\"query_endpoint\"}\n```").is_empty());
+
+        let tools = vec![
+            json!({ "name": "query_entities" }),
+            json!({ "name": "describe_schema" }),
+        ];
+        assert_eq!(
+            not_offered(&tools, "list_types", "public-air"),
+            "'list_types' is not a read tool endpoint 'public-air' offers; it offers: query_entities, describe_schema"
+        );
+        assert!(not_offered(&[], "list_types", "public-air").contains("offers you no read tool"));
+    }
 
     #[test]
     fn every_call_of_an_answer_is_read_out_of_its_fences_with_its_arguments() {

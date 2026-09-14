@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { readCsrfToken } from "../../api/client";
+import { takePrefill } from "../../assistant/state";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import type { Change } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
@@ -25,19 +26,32 @@ interface CompleteResult {
   change?: Change | null;
 }
 
+/** The drafts the assistant's `space_complete` handed over with its navigation, when it did. */
+function handedOver(prefill: Record<string, unknown> | null): { result: CompleteResult | null; url: string } {
+  const result = prefill?.result as CompleteResult | undefined;
+  return {
+    result: result && Array.isArray(result.drafts) && typeof result.space === "string" ? result : null,
+    url: typeof prefill?.url === "string" ? prefill.url : "",
+  };
+}
+
 export function SpaceComplete({ project }: { project: string }): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  // The agent already completed the space (AG-73): its drafts open here ready to propose.
+  const [handed] = useState(() =>
+    handedOver(typeof window === "undefined" ? null : takePrefill(window.location.pathname)),
+  );
 
   const [spaceName, setSpaceName] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("space") ?? "";
   });
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(handed.url);
   const [files, setFiles] = useState<{ name: string; content: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<CompleteResult | null>(null);
+  const [result, setResult] = useState<CompleteResult | null>(handed.result);
 
   const handleFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files;
