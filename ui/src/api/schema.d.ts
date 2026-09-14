@@ -827,6 +827,11 @@ export interface components {
             error?: string | null;
             expiresAt: string;
             finishedAt?: string | null;
+            /**
+             * Format: int64
+             * @description Milliseconds from creation to the first preview, set once (AP-57).
+             */
+            firstFrameMs?: number | null;
             id: string;
             /** Format: int32 */
             mergeRequest?: number | null;

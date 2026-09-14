@@ -4355,6 +4355,14 @@
               "null"
             ]
           },
+          "firstFrameMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Milliseconds from creation to the first preview, set once (AP-57)."
+          },
           "id": {
             "type": "string"
           },
