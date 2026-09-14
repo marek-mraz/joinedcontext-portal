@@ -4,6 +4,39 @@ import { useTranslation } from "react-i18next";
 import type { RunEvent } from "./useAgentRun";
 
 /**
+ * Why a step failed, on one line, or "" when the step says nothing: a plain error, a runtime
+ * error with the file and line it was thrown at, or the blocks a patch could not apply. The
+ * transcript shows it on the step's own row, so a failure is readable without opening it.
+ */
+export function errorText(
+  payload: Record<string, unknown>,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const { error, refused } = payload;
+  if (typeof error === "string") {
+    return error;
+  }
+  if (typeof error === "object" && error !== null) {
+    const { message, file, line } = error as Record<string, unknown>;
+    if (typeof message === "string" && message !== "") {
+      return typeof file === "string" && file !== "" && line !== undefined && line !== null
+        ? `${message} (${file}:${String(line)})`
+        : message;
+    }
+  }
+  if (Array.isArray(refused) && refused.length > 0) {
+    const first = refused[0] as Record<string, unknown> | null;
+    const reason = typeof first?.reason === "string" ? first.reason : "";
+    const path = typeof first?.path === "string" && first.path !== "" ? first.path : "";
+    return t("agentRun.step.refusedLine", {
+      count: refused.length,
+      reason: path !== "" && reason !== "" ? `${path}: ${reason}` : reason || path,
+    });
+  }
+  return "";
+}
+
+/**
  * One step the assistant took, inspectable (AG-56, OPS-50).
  *
  * The summary is the line the transcript always showed; open, the step shows what the tool was
@@ -34,10 +67,13 @@ export function ActionStep({
     payload.error !== undefined ||
     (exitCode !== undefined && exitCode !== 0);
   const duration = typeof payload.durationMs === "number" ? payload.durationMs : undefined;
+  const reason = failed ? errorText(payload, t) : "";
+  const refused = Array.isArray(payload.refused) && payload.refused.length > 0 ? payload.refused : undefined;
   const sections: Array<[string, unknown]> = [
     [t("agentRun.step.input"), payload.input ?? payload.command],
     [t("agentRun.step.output"), payload.output],
     [t("agentRun.step.error"), payload.error],
+    [t("agentRun.step.refused"), refused],
     [t("agentRun.step.diff"), payload.diff],
   ];
 
@@ -77,7 +113,12 @@ export function ActionStep({
           </span>
         ) : null}
         {duration !== undefined ? (
-          <span className="text-fg-muted">{t("agentRun.step.duration", { ms: duration })}</span>
+          <span className="shrink-0 text-fg-muted">{t("agentRun.step.duration", { ms: duration })}</span>
+        ) : null}
+        {reason !== "" ? (
+          <span data-testid="step-reason" title={reason} className="min-w-0 truncate text-danger">
+            {reason}
+          </span>
         ) : null}
       </summary>
       <div className="space-y-2 px-2 pb-2">
@@ -108,7 +149,7 @@ export function ActionStep({
                 onSend(
                   t("agentRun.step.fixMessage", {
                     tool,
-                    error: typeof payload.error === "string" ? payload.error : String(exitCode ?? ""),
+                    error: reason !== "" ? reason : String(exitCode ?? ""),
                   }),
                 );
               }}

@@ -1259,6 +1259,8 @@
       "input": "Eingabe",
       "output": "Ausgabe",
       "error": "Fehler",
+      "refused": "Nicht angewendet",
+      "refusedLine": "{count} Block/Blöcke nicht angewendet: {reason}",
       "diff": "Änderung",
       "copy": "Ablauf kopieren",
       "copied": "Ablauf kopiert",

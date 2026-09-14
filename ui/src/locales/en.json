@@ -1259,6 +1259,8 @@
       "input": "Input",
       "output": "Output",
       "error": "Error",
+      "refused": "Not applied",
+      "refusedLine": "{count} block(s) not applied: {reason}",
       "diff": "Change",
       "copy": "Copy the trace",
       "copied": "Trace copied",

@@ -41,7 +41,73 @@ const CODE_OUTPUT_BUDGET: u32 = 64000;
 const CALL_TIMEOUT: Duration = Duration::from_secs(480);
 /// The name the driver signs its own chat lines with; a message by anyone else is a pass.
 pub const AGENT: &str = "agent";
-const EMPTY_ANSWER: &str = "the model's answer carried no text";
+/// The smallest output budget worth a second call when the key's credit runs short.
+const MIN_CREDIT_BUDGET: u32 = 4000;
+
+/// Why one model call gave no answer.
+#[derive(Debug)]
+enum CallError {
+    /// The provider answered with no text.
+    Empty,
+    /// The key's credit does not cover the output budget; the provider's own figure when it
+    /// gave one.
+    Credit {
+        affordable: Option<u32>,
+    },
+    Failed(String),
+}
+
+impl CallError {
+    /// What the chat says. Never the provider's body: it carries links to the key's settings.
+    fn said(self, budget: u32) -> String {
+        match self {
+            Self::Empty => "the model's answer carried no text".to_owned(),
+            Self::Credit {
+                affordable: Some(afford),
+            } => format!(
+                "the model provider's credit for this Portal has run out (it covers about \
+                 {afford} more output tokens, this step asks for up to {budget}); an \
+                 administrator tops up the key, then send the message again"
+            ),
+            Self::Credit { affordable: None } => "the model provider's credit for this Portal \
+                 has run out; an administrator tops up the key, then send the message again"
+                .to_owned(),
+            Self::Failed(reason) => reason,
+        }
+    }
+}
+
+/// The output tokens a 402 says the key can still pay for: OpenRouter writes "can only afford
+/// 58556".
+fn affordable_tokens(body: &str) -> Option<u32> {
+    let said = provider_said(body);
+    let (_, rest) = said.split_once("can only afford ")?;
+    rest.split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
+}
+
+static LINK: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"https?://\S+").expect("valid regex"));
+
+/// The provider's error message, without links, at most 300 characters.
+fn provider_said(body: &str) -> String {
+    let message = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/error/message")
+                .or_else(|| value.get("message"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| body.to_owned());
+    LINK.replace_all(&message, "(link removed)")
+        .chars()
+        .take(300)
+        .collect()
+}
 
 /// Kit capabilities JSON loaded directly from sdk/kit.json (AP-65).
 pub static KIT_CAPABILITIES: &str = include_str!("../../sdk/kit.json");
@@ -620,20 +686,24 @@ impl Driver {
         let answer = self
             .complete_within(&code::SYSTEM, &user, CODE_OUTPUT_BUDGET)
             .await?;
-        let (blocks, prose) = patch::parse(&answer);
+        let (blocks, prose, unread) = patch::parse(&answer);
         let (applied, refused) = patch::apply_where(files, &blocks, code::writable, code::REFUSAL);
         self.event(
             "tool",
             json!({
                 "tool": "apply_patch",
-                "command": format!("{} block(s)", blocks.len()),
-                "exitCode": if refused.is_empty() { 0 } else { 1 },
+                "command": format!("{} block(s)", blocks.len() + unread),
+                "exitCode": if refused.is_empty() && unread == 0 { 0 } else { 1 },
                 "applied": applied,
-                "refused": refused,
+                "refused": with_unread(&refused, unread),
             }),
         )
         .await?;
         let mut problems = code::problems(files);
+        // The prose already says what those blocks did, so a lost one is a repair, not a note.
+        if unread > 0 {
+            problems.push(unread_problem(unread));
+        }
         if blocks.is_empty() && conversation.is_empty() {
             problems.push(
                 "the answer carried no SEARCH/REPLACE block; write the application as blocks"
@@ -865,7 +935,7 @@ impl Driver {
             gitea
                 .change_files(
                     &self.branch,
-                    message,
+                    &commit_message(message),
                     Author {
                         name: &self.created_by,
                         email: "agent@joinedcontext.local",
@@ -879,8 +949,11 @@ impl Driver {
         match outcome {
             Ok(sha) => {
                 *committed = files.clone();
-                self.event("commit", json!({ "sha": sha, "message": message }))
-                    .await
+                self.event(
+                    "commit",
+                    json!({ "sha": sha, "message": commit_subject(message) }),
+                )
+                .await
             }
             Err(err) => {
                 self.thought(&format!("The commit did not land in the forge: {err}"))
@@ -1318,7 +1391,7 @@ proposes it.
         files: &mut BTreeMap<String, String>,
         answer: &str,
     ) -> Result<(String, Vec<String>), String> {
-        let (blocks, prose) = patch::parse(answer);
+        let (blocks, prose, unread) = patch::parse(answer);
         let mut allowed = vec![kit::SPEC_FILE, kit::PAGE_FILE];
         if self.kind == "analysis" {
             allowed.push("report.md");
@@ -1328,10 +1401,10 @@ proposes it.
             "tool",
             json!({
                 "tool": "apply_patch",
-                "command": format!("{} block(s)", blocks.len()),
-                "exitCode": if refused.is_empty() { 0 } else { 1 },
+                "command": format!("{} block(s)", blocks.len() + unread),
+                "exitCode": if refused.is_empty() && unread == 0 { 0 } else { 1 },
                 "applied": applied,
-                "refused": refused,
+                "refused": with_unread(&refused, unread),
             }),
         )
         .await?;
@@ -1500,20 +1573,34 @@ proposes it.
         self.complete_within(system, user, OUTPUT_BUDGET).await
     }
 
+    /// A provider that says the key's credit covers fewer output tokens than asked is asked
+    /// once more within what it covers: most answers are far shorter than the budget, and a
+    /// run should not stop over a ceiling it would not have reached.
     async fn complete_within(
         &self,
         system: &str,
         user: &str,
         budget: u32,
     ) -> Result<String, String> {
-        match self.complete_once(system, user, budget).await {
-            Err(reason) if reason == EMPTY_ANSWER => self.complete_once(system, user, budget).await,
+        let first = match self.complete_once(system, user, budget).await {
+            Err(CallError::Empty) => self.complete_once(system, user, budget).await,
+            Err(CallError::Credit {
+                affordable: Some(afford),
+            }) if afford >= MIN_CREDIT_BUDGET && afford < budget => {
+                self.complete_once(system, user, afford - afford / 20).await
+            }
             other => other,
-        }
+        };
+        first.map_err(|err| err.said(budget))
     }
 
     /// One call through the proxy, in the body the profile's provider reads (AG-53).
-    async fn complete_once(&self, system: &str, user: &str, budget: u32) -> Result<String, String> {
+    async fn complete_once(
+        &self,
+        system: &str,
+        user: &str,
+        budget: u32,
+    ) -> Result<String, CallError> {
         let (path, body) = if self.provider == "anthropic" {
             (
                 "/v1/llm/messages",
@@ -1544,17 +1631,26 @@ proposes it.
             .json(&body)
             .send()
             .await
-            .map_err(|err| format!("the model call did not go through the proxy: {err}"))?;
+            .map_err(|err| {
+                CallError::Failed(format!(
+                    "the model call did not go through the proxy: {err}"
+                ))
+            })?;
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
+        if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+            return Err(CallError::Credit {
+                affordable: affordable_tokens(&text),
+            });
+        }
         if !status.is_success() {
-            return Err(format!(
+            return Err(CallError::Failed(format!(
                 "the proxy answered {status} to the model call: {}",
-                text.chars().take(300).collect::<String>()
-            ));
+                provider_said(&text)
+            )));
         }
         let answer: Value = serde_json::from_str(&text)
-            .map_err(|err| format!("the model's answer is not JSON: {err}"))?;
+            .map_err(|err| CallError::Failed(format!("the model's answer is not JSON: {err}")))?;
         // An answer the budget cut is not applied at all: half a page is worse than none.
         let cut = answer
             .pointer("/choices/0/finish_reason")
@@ -1565,10 +1661,10 @@ proposes it.
                 .and_then(Value::as_str)
                 .is_some_and(|reason| reason == "max_tokens");
         if cut {
-            return Err(format!(
+            return Err(CallError::Failed(format!(
                 "the answer was cut at the output budget of {budget} tokens and nothing \
                  was applied; ask for less at once"
-            ));
+            )));
         }
         // OpenAI-compatible: choices[0].message.content. Anthropic: content[].text, joined.
         if let Some(content) = answer
@@ -1589,7 +1685,7 @@ proposes it.
             })
             .unwrap_or_default();
         if joined.is_empty() {
-            return Err(EMPTY_ANSWER.to_owned());
+            return Err(CallError::Empty);
         }
         Ok(joined)
     }
@@ -1869,8 +1965,11 @@ proposes it.
         .await;
         match outcome {
             Ok(sha) => {
-                self.event("commit", json!({ "sha": sha, "message": message }))
-                    .await
+                self.event(
+                    "commit",
+                    json!({ "sha": sha, "message": commit_subject(message) }),
+                )
+                .await
             }
             Err(err) => {
                 self.thought(&format!("The commit did not land in the forge: {err}"))
@@ -2434,6 +2533,63 @@ enum CodePass {
 }
 
 /// `prose` trimmed, or `fallback` when the model wrote none.
+/// The refusals of an answer with its unreadable blocks added, as the step's log shows them.
+fn with_unread(refused: &[patch::Refused], unread: usize) -> Vec<patch::Refused> {
+    let mut all = refused.to_vec();
+    all.extend((0..unread).map(|_| patch::Refused {
+        path: String::new(),
+        reason: "no path line before <<<<<<< SEARCH, or no >>>>>>> REPLACE; not applied".to_owned(),
+    }));
+    all
+}
+
+/// What a repair call is told about blocks it could not read.
+fn unread_problem(unread: usize) -> String {
+    format!(
+        "{unread} block(s) of the answer could not be read and were not applied: every block \
+         needs its file path on the line right before <<<<<<< SEARCH, then =======, then \
+         >>>>>>> REPLACE. Send those changes again as complete blocks"
+    )
+}
+
+/// The first line of a commit: the first sentence of what the model said, short enough for a
+/// log line. The whole of it is the commit body.
+pub(crate) fn commit_subject(prose: &str) -> String {
+    const MAX: usize = 100;
+    let first = prose
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    let sentence = first
+        .char_indices()
+        .find(|(i, c)| {
+            matches!(c, '.' | '!' | '?')
+                && first[i + c.len_utf8()..].starts_with(char::is_whitespace)
+        })
+        .map_or(first, |(i, c)| &first[..i + c.len_utf8()]);
+    if sentence.chars().count() <= MAX {
+        return sentence.to_owned();
+    }
+    let cut: String = sentence.chars().take(MAX - 1).collect();
+    let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
+    format!("{}…", cut.trim_end_matches([',', ';', ':']))
+}
+
+/// The subject, then the whole prose when it says more.
+fn commit_message(prose: &str) -> String {
+    let subject = commit_subject(prose);
+    let prose = prose.trim();
+    if prose.is_empty() || prose == subject {
+        return if subject.is_empty() {
+            "Update the application".to_owned()
+        } else {
+            subject
+        };
+    }
+    format!("{subject}\n\n{prose}")
+}
+
 fn or_else(prose: String, fallback: &str) -> String {
     match prose.trim() {
         "" => fallback.to_owned(),
@@ -2597,6 +2753,43 @@ fn urlencoding(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_commit_subject_is_the_first_sentence_and_short() {
+        assert_eq!(
+            commit_subject("The Overview has more KPIs. It also shows alerts.\n\nMore."),
+            "The Overview has more KPIs."
+        );
+        assert_eq!(
+            commit_subject("Version 2.5 of the map"),
+            "Version 2.5 of the map"
+        );
+        let long = "This application provides an interactive map and dashboard for Helsinki city bike docking stations, showing real-time bike availability and free docking slots";
+        let subject = commit_subject(long);
+        assert!(subject.chars().count() <= 100, "{subject}");
+        assert!(subject.ends_with('…'), "{subject}");
+        assert_eq!(commit_message("Done."), "Done.");
+        assert_eq!(commit_message(""), "Update the application");
+        assert_eq!(commit_message("One. Two."), "One.\n\nOne. Two.");
+    }
+
+    #[test]
+    fn a_credit_refusal_gives_its_figure_and_never_its_links() {
+        let body = r#"{"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 64000 tokens, but can only afford 58556. To increase, visit https://openrouter.ai/workspaces/default/keys/e0cd and adjust the key's total limit","code":402}}"#;
+        assert_eq!(affordable_tokens(body), Some(58556));
+        assert!(!provider_said(body).contains("openrouter.ai"));
+        let said = CallError::Credit {
+            affordable: affordable_tokens(body),
+        }
+        .said(64000);
+        assert!(said.contains("58556") && said.contains("64000"), "{said}");
+        assert!(!said.contains("http"), "{said}");
+        assert_eq!(affordable_tokens("Payment Required"), None);
+        assert_eq!(
+            provider_said("plain <b>body</b> at http://x.test/a"),
+            "plain <b>body</b> at (link removed)"
+        );
+    }
 
     #[test]
     fn a_type_the_endpoint_does_not_serve_and_the_abstract_base_class_are_left_out() {

@@ -45,12 +45,16 @@ pub struct Refused {
     pub reason: String,
 }
 
-/// The blocks of a model answer, in order, and the prose around them.
+/// The blocks of a model answer, in order, the prose around them, and how many blocks could
+/// not be read.
 ///
 /// The prose is the assistant's turn of the conversation: what it built and why. A fence
 /// around the whole answer is unwrapped first, as the script does; fences that wrap single
-/// blocks are dropped from the prose so the person reads sentences, not markup.
-pub fn parse(answer: &str) -> (Vec<Block>, String) {
+/// blocks are dropped from the prose so the person reads sentences, not markup. A block the
+/// model wrote without its path line or without its closing marker is not applied and never
+/// reaches the prose either: the prose ends where the first stray marker starts, and the
+/// count says how many were lost.
+pub fn parse(answer: &str) -> (Vec<Block>, String, usize) {
     let text = match FENCE.captures(answer) {
         Some(fence) => fence[1].to_owned(),
         None => answer.to_owned(),
@@ -70,14 +74,39 @@ pub fn parse(answer: &str) -> (Vec<Block>, String) {
         });
     }
     prose.push_str(&text[cursor..]);
-    let prose = prose
+    let markers = text
         .lines()
-        .filter(|line| !line.trim_start().starts_with("```"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_owned();
-    (blocks, prose)
+        .filter(|line| line.trim_end() == "<<<<<<< SEARCH")
+        .count();
+    let unread = markers.saturating_sub(blocks.len());
+    let mut lines: Vec<&str> = Vec::new();
+    for line in prose.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("<<<<<<<") || trimmed.starts_with(">>>>>>>") || trimmed == "======="
+        {
+            // The path line of a broken block is markup too.
+            while lines
+                .last()
+                .is_some_and(|last| last.trim().is_empty() || is_path(last))
+            {
+                lines.pop();
+            }
+            break;
+        }
+        if !trimmed.starts_with("```") {
+            lines.push(line);
+        }
+    }
+    (blocks, lines.join("\n").trim().to_owned(), unread)
+}
+
+/// Whether a line of an answer reads as a file path rather than a sentence.
+fn is_path(line: &str) -> bool {
+    let line = line.trim().trim_matches(['`', '\'', '"']);
+    !line.is_empty()
+        && !line.contains(char::is_whitespace)
+        && line.contains(['/', '.'])
+        && !line.ends_with('.')
 }
 
 /// Applies every block to `files`, in order. `allowed` is the whole of what a block may name;
@@ -271,11 +300,29 @@ mod tests {
     #[test]
     fn parses_blocks_out_of_prose_and_a_surrounding_fence() {
         let answer = "I made the tiles bigger.\n\n```text\n`spec.json`\n<<<<<<< SEARCH\na\nb\nc\n=======\na\nB\nc\n>>>>>>> REPLACE\n\nerrors.md\n<<<<<<< SEARCH\n=======\n- nothing missing\n>>>>>>> REPLACE\n```\n";
-        let (blocks, prose) = parse(answer);
+        let (blocks, prose, unread) = parse(answer);
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0], block("spec.json", "a\nb\nc", "a\nB\nc"));
         assert_eq!(blocks[1], block("errors.md", "", "- nothing missing"));
         assert_eq!(prose, "I made the tiles bigger.");
+        assert_eq!(unread, 0);
+    }
+
+    #[test]
+    fn a_block_without_its_path_or_its_closing_marker_is_counted_and_kept_out_of_the_prose() {
+        // What a model answered on dev: two blocks without a path line, the first never closed,
+        // and one good block after them.
+        let answer = "I added an HTML export.\n\n<<<<<<< SEARCH\n    download(blob);\n=======\n    download(blob);\n    html();\n\n<<<<<<< SEARCH\nconst a = 1;\n=======\nconst a = 2;\n>>>>>>> REPLACE\n\nsrc/pages/Html.tsx\n<<<<<<< SEARCH\n=======\nexport {};\n>>>>>>> REPLACE\n";
+        let (blocks, prose, unread) = parse(answer);
+        assert_eq!(blocks, vec![block("src/pages/Html.tsx", "", "export {};")]);
+        assert_eq!(prose, "I added an HTML export.");
+        assert_eq!(unread, 2);
+
+        let with_path = "Done.\nsrc/App.tsx\n<<<<<<< SEARCH\nold\n";
+        let (blocks, prose, unread) = parse(with_path);
+        assert!(blocks.is_empty());
+        assert_eq!(prose, "Done.");
+        assert_eq!(unread, 1);
     }
 
     #[test]

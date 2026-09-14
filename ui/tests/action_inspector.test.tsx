@@ -9,6 +9,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
+import { errorText } from "../src/pages/apps/ActionStep";
 import { ConversationPanel } from "../src/pages/apps/ConversationPanel";
 import type { RunEvent } from "../src/pages/apps/useAgentRun";
 
@@ -38,13 +39,13 @@ const EVENTS: RunEvent[] = [
   },
 ];
 
-function renderPanel(live = true) {
+function renderPanel(live = true, events: RunEvent[] = EVENTS) {
   const onSend = vi.fn();
   render(
     <I18nextProvider i18n={i18n}>
       <ConversationPanel
         project="helsinki"
-        events={EVENTS}
+        events={events}
         streaming
         answering={false}
         sending={false}
@@ -122,5 +123,65 @@ describe("the action inspector", () => {
     await userEvent.click(within(failed).getByText("propose_endpoint"));
     expect(within(failed).getByText("<script>alert(1)</script>")).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
+  });
+
+  it("says on the step's own row why a function failed, with the file and line", async () => {
+    const onSend = renderPanel(true, [
+      {
+        seq: 7,
+        kind: "tool",
+        payload: {
+          tool: "function:summary",
+          status: "failed",
+          durationMs: 2,
+          error: { file: "@joinedcontext/sdk/server", line: 97, message: "URLSearchParams is not defined" },
+          output: { logs: [], status: 500 },
+        },
+      },
+    ]);
+    const step = screen.getByRole("group");
+    const reason = within(step).getByTestId("step-reason");
+    expect(reason).toHaveTextContent("URLSearchParams is not defined (@joinedcontext/sdk/server:97)");
+    expect(reason).toHaveAttribute("title", "URLSearchParams is not defined (@joinedcontext/sdk/server:97)");
+
+    await userEvent.click(within(step).getByText("function:summary"));
+    await userEvent.click(within(step).getByRole("button", { name: en.agentRun.step.fix }));
+    const text = onSend.mock.calls[0][0] as string;
+    expect(text).toContain("function:summary");
+    expect(text).toContain("URLSearchParams is not defined (@joinedcontext/sdk/server:97)");
+  });
+
+  it("counts the blocks a patch could not apply and names the first reason", async () => {
+    renderPanel(true, [
+      {
+        seq: 9,
+        kind: "tool",
+        payload: {
+          tool: "apply_patch",
+          command: "4 block(s)",
+          exitCode: 1,
+          applied: [{ path: "src/pages/CustomHtml.tsx", how: "Created" }],
+          refused: [
+            { path: "src/components/ExportButton.tsx", reason: "SEARCH not found" },
+            { path: "src/App.tsx", reason: "SEARCH not found" },
+          ],
+        },
+      },
+    ]);
+    const step = screen.getByRole("group");
+    expect(within(step).getByTestId("step-reason")).toHaveTextContent(
+      "2 block(s) not applied: src/components/ExportButton.tsx: SEARCH not found",
+    );
+    await userEvent.click(within(step).getByText("apply_patch"));
+    expect(within(step).getByText(en.agentRun.step.refused)).toBeInTheDocument();
+  });
+
+  it("shows no reason on a step that succeeded or failed without one", () => {
+    const t = (key: string) => key;
+    expect(errorText({ status: "ok" }, t)).toBe("");
+    expect(errorText({ exitCode: 2 }, t)).toBe("");
+    expect(errorText({ error: { message: "timeout" } }, t)).toBe("timeout");
+    renderPanel(true, [EVENTS[0]]);
+    expect(screen.queryByTestId("step-reason")).toBeNull();
   });
 });

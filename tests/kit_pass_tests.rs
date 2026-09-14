@@ -907,6 +907,61 @@ async fn a_proxy_that_does_not_answer_fails_the_run_with_the_reason() {
 }
 
 #[tokio::test]
+async fn a_key_short_of_credit_is_asked_again_within_what_it_covers() {
+    let (app, cookie, proxy) = portal("anthropic", &[]).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/llm/messages"))
+        .respond_with(ResponseTemplate::new(402).set_body_json(json!({ "error": {
+            "code": 402,
+            "message": "You requested up to 24000 tokens, but can only afford 20000. To increase, visit https://openrouter.ai/workspaces/default/keys/abc"
+        } })))
+        .up_to_n_times(1)
+        .mount(&proxy)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/llm/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(anthropic(&answer(
+            "Bikes.",
+            &[("spec.json", "", VALID_SPEC)],
+        ))))
+        .up_to_n_times(1)
+        .mount(&proxy)
+        .await;
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
+    let requests = model_requests(&proxy).await;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1]["max_tokens"], json!(19000));
+}
+
+#[tokio::test]
+async fn a_key_out_of_credit_fails_the_pass_without_the_providers_links() {
+    let (app, cookie, proxy) = portal("anthropic", &[]).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/llm/messages"))
+        .respond_with(ResponseTemplate::new(402).set_body_json(json!({ "error": {
+            "code": 402,
+            "message": "You requested up to 24000 tokens, but can only afford 1200. To increase, visit https://openrouter.ai/workspaces/default/keys/abc"
+        } })))
+        .mount(&proxy)
+        .await;
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run = wait_for(&app, &cookie, &id, &["failed", "awaiting_approval"]).await;
+    assert_eq!(run["status"], json!("failed"), "{run}");
+    let error = run["error"].as_str().unwrap_or_default();
+    assert!(error.contains("credit") && error.contains("1200"), "{run}");
+    assert!(!error.contains("openrouter.ai"), "{run}");
+    assert_eq!(model_requests(&proxy).await.len(), 1);
+}
+
+#[tokio::test]
 async fn every_pass_is_a_commit_on_the_run_branch_when_there_is_a_forge() {
     let forge = forge().await;
     let (app, cookie, _proxy) = portal_with(

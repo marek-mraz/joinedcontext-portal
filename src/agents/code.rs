@@ -141,7 +141,9 @@ Any other import is refused before a preview exists. Data goes through the SDK, 
 
 ## THE FORMAT RULES
 
-1. Write the file path on its own line before each `<<<<<<< SEARCH` block.
+1. Every block is four markers in order: the file path alone on the line right before
+   `<<<<<<< SEARCH`, then `=======`, then `>>>>>>> REPLACE`. A block without its path line or
+   its closing marker is not read and changes nothing.
 2. To CREATE a file or REWRITE it whole, leave the SEARCH block empty. Do that for every new
    file and for every file that changes in more than a few places.
 3. For a small edit, SEARCH holds at least 3 consecutive lines copied exactly from the current
@@ -152,6 +154,9 @@ Any other import is refused before a preview exists. Data goes through the SDK, 
 5. If something the request asks for is out of reach (a login, a file upload, another data
    source), say so in those sentences and build the nearest thing. Raw HTML or a static page
    is a page component with that markup and its own CSS file under `src/`, said in one sentence.
+6. Do what the message asks and no more. A question gets its answer in the sentences, with no
+   block when nothing has to change; a small request ("put a smiley on the dashboard") is a
+   small edit in place, never a new page, generator or export format nobody asked for.
 
 ## THE SYNTAX
 

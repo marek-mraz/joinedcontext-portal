@@ -1259,6 +1259,8 @@
       "input": "Vstup",
       "output": "Výstup",
       "error": "Chyba",
+      "refused": "Neaplikováno",
+      "refusedLine": "Neaplikované bloky ({count}): {reason}",
       "diff": "Změna",
       "copy": "Kopírovat záznam",
       "copied": "Záznam zkopírován",
