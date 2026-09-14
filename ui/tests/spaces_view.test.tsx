@@ -39,7 +39,8 @@ const SPACES = {
       apiVersion: "joinedcontext.com/v1alpha1",
       kind: "ContextSpace",
       metadata: { name: "doprava", namespace: "banskabystrica" },
-      spec: { isSandbox: true, ttlDays: 7 },
+      // The reference as "Complete this space" writes it: `{ kind, name }` (MF-07).
+      spec: { isSandbox: true, ttlDays: 7, dataModelRef: { kind: "DataModel", name: "citybikes" } },
       status: { phase: "Deploying" },
     },
   ],
@@ -133,6 +134,7 @@ describe("context spaces view", () => {
 
     const sandbox = (await screen.findByText(/sandbox, 7 days/)).closest("tr") as HTMLElement;
     expect(within(sandbox).getByText("doprava")).toBeInTheDocument();
+    expect(within(sandbox).getByText("citybikes")).toBeInTheDocument();
     expect(within(sandbox).getByText(en.phase.deploying)).toBeInTheDocument();
   });
 

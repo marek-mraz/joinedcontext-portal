@@ -23,6 +23,8 @@ export type { InputProps, SelectProps, TextareaProps } from "./Input";
 export { PageHeader } from "./PageHeader";
 export type { PageHeaderProps } from "./PageHeader";
 export { Skeleton } from "./Skeleton";
+export { SourceLink } from "./SourceLink";
+export type { SourceLinkProps } from "./SourceLink";
 export { Switch } from "./Switch";
 export type { SwitchProps } from "./Switch";
 export {

@@ -1107,7 +1107,6 @@
     "notFound": "Toto spustenie v tomto projekte nie je.",
     "subtitle": "Postavené nad endpointom {endpoint}, ako aplikácia typu {appClass}.",
     "back": "Späť na formulár",
-    "loginNote": "Aplikácia sa podáva v platforme na /apps/, za tým istým prihlásením ako Portál. Verejnú adresu nemá.",
     "cancel": "Zastaviť spustenie",
     "publish": "Publikovať túto aplikáciu",
     "states": {

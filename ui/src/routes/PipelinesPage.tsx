@@ -27,7 +27,7 @@ import {
   TableHeaderCell,
   TableRow,
   TableSkeleton,
-  buttonClass,
+  SourceLink,
 } from "../components/ui";
 
 interface SecretRef {
@@ -415,15 +415,7 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
                         {t(running ? "pipelines.pause" : "pipelines.resume")}
                       </Button>
                       {pipeline.status?.sourceUrl ? (
-                        <a
-                          href={pipeline.status.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={buttonClass("ghost", "sm", "text-primary")}
-                        >
-                          {t("spaces.field.source")}
-                          <Icon name="external" className="size-3.5" />
-                        </a>
+                        <SourceLink href={pipeline.status.sourceUrl} label={t("spaces.field.source")} />
                       ) : null}
                     </div>
                   </TableCell>

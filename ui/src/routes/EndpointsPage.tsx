@@ -49,7 +49,7 @@ import {
   TableHeaderCell,
   TableRow,
   TableSkeleton,
-  buttonClass,
+  SourceLink,
 } from "../components/ui";
 
 interface EndpointForm {
@@ -816,15 +816,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                         </Button>
                       ) : null}
                       {endpoint.status?.sourceUrl ? (
-                        <a
-                          href={endpoint.status.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={buttonClass("ghost", "sm", "text-primary")}
-                        >
-                          {t("spaces.field.source")}
-                          <Icon name="external" className="size-3.5" />
-                        </a>
+                        <SourceLink href={endpoint.status.sourceUrl} label={t("spaces.field.source")} />
                       ) : null}
                     </div>
                   </TableCell>

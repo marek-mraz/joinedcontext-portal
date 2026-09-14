@@ -86,10 +86,6 @@ export function AgentRunPage({
         </button>
       </div>
 
-      <p role="note" className="rounded border border-border bg-surface-subtle p-3 text-sm">
-        {t("agentRun.loginNote")}
-      </p>
-
       {change && !record.changeId && <ChangeNotice change={change} project={project} />}
       <RunPublication
         project={project}

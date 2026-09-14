@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
-import { asManifests, localized } from "../../api/manifest";
+import { asManifests, localized, refName } from "../../api/manifest";
 import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
 import { EntityFilters } from "../../components/entities/EntityFilters";
 import { fetchEntities, fetchEntity, filterSlotsOf } from "../../components/entities/filters";
@@ -87,7 +87,7 @@ export function ExplorePage({
   const slug = typeof endpoint?.spec.slug === "string" ? (endpoint.spec.slug as string) : undefined;
   const spaceManifest = (spaces.data ?? []).find((s) => s.metadata.name === space);
   const model = (models.data ?? []).find(
-    (m) => m.metadata.name === spaceManifest?.spec.dataModelRef,
+    (m) => m.metadata.name === refName(spaceManifest?.spec.dataModelRef),
   );
   const types = model ? entityTypesOf(model) : [];
   const slots = filterSlotsOf(model, query.type);

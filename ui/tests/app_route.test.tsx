@@ -210,7 +210,7 @@ describe("AppPage route /projects/$project/apps/$name", () => {
   it("renders the application by name with its active run (AP-69)", async () => {
     renderAppRoute("ovzdusie-dnes");
     expect(await screen.findByRole("heading", { name: APP_TITLE })).toBeInTheDocument();
-    expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.agentRun.back })).toBeInTheDocument();
     expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
   });
 
@@ -235,7 +235,7 @@ describe("AppPage route /projects/$project/apps/$name", () => {
     renderAppRoute("ovzdusie-dnes");
     await screen.findByRole("heading", { name: APP_TITLE });
     expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
-    expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.agentRun.back })).toBeInTheDocument();
   });
 
   it("shows the generator prefilled with the app name when no run exists (AP-68)", async () => {

@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, readCsrfToken, unwrap } from "../../api/client";
-import { asManifests, localized } from "../../api/manifest";
+import { asManifests, localized, refName } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
 import { useBranding } from "../../branding";
 import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
@@ -456,7 +456,7 @@ export function PipelineStudio({
   const space = (endpoint ? spaceOf(endpoint) : undefined) ?? spaceChoice;
   const spaceEndpoints = endpoints.filter((e) => spaceOf(e) === space);
   const spaceManifest = spaceList.find((s) => s.metadata.name === space);
-  const model = modelList.find((m) => m.metadata.name === spaceManifest?.spec.dataModelRef);
+  const model = modelList.find((m) => m.metadata.name === refName(spaceManifest?.spec.dataModelRef));
   const types = model ? entityTypesOf(model) : [];
   const type = draft?.source?.query?.type as string | undefined;
   const slots: FilterSlot[] = filterSlotsOf(model, type);

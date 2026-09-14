@@ -7,7 +7,7 @@ import { approvalStanding, changedKind } from "../../api/approval";
 import { usePermissions } from "../../api/permissions";
 import { useIdentity } from "../../auth/AuthProvider";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
-import { buttonClass } from "../../components/ui";
+import { buttonClass, SourceLink } from "../../components/ui";
 
 /**
  * Where an application lives and how it goes live (AP-71): its source in Git, and after Publish
@@ -77,14 +77,7 @@ export function RunPublication({
       className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 rounded border border-border p-3 text-sm"
     >
       {sourceUrl ? (
-        <a
-          href={sourceUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("agentRun.publication.source")}
-        </a>
+        <SourceLink href={sourceUrl} label={t("agentRun.publication.source")} />
       ) : null}
 
       {changeId ? (

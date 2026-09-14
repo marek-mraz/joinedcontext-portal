@@ -1107,7 +1107,6 @@
     "notFound": "That run is not in this project.",
     "subtitle": "Built against endpoint {endpoint}, as a {appClass} app.",
     "back": "Back to the form",
-    "loginNote": "The app is served inside the platform at /apps/, behind the same sign-in as the Portal. There is no public address for it.",
     "cancel": "Stop the run",
     "publish": "Publish this app",
     "states": {

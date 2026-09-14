@@ -1107,7 +1107,6 @@
     "notFound": "Dieser Lauf gehört nicht zu diesem Projekt.",
     "subtitle": "Gebaut gegen den Endpoint {endpoint}, als Anwendung vom Typ {appClass}.",
     "back": "Zurück zum Formular",
-    "loginNote": "Die Anwendung wird in der Plattform unter /apps/ ausgeliefert, hinter derselben Anmeldung wie das Portal. Eine öffentliche Adresse hat sie nicht.",
     "cancel": "Lauf stoppen",
     "publish": "Diese Anwendung veröffentlichen",
     "states": {

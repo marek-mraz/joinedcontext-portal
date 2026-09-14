@@ -49,6 +49,7 @@ const PATHS: Record<string, string> = {
   paperclip: "M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L9.7 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7",
   sidebar: "M4 5h16v14H4zM14 5v14",
   float: "M4 5h16v14H4zM12 11h6v6h-6z",
+  git: "M6 3v12M18 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 9a9 9 0 0 1-9 9",
 };
 
 export type IconName = keyof typeof PATHS;

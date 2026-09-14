@@ -138,7 +138,7 @@ export function ModelsPage({
       return [];
     }
     const servingSpaces = (spaces.data ?? [])
-      .filter((space) => (space.spec as { dataModelRef?: string })?.dataModelRef === name)
+      .filter((space) => refName((space.spec as { dataModelRef?: unknown })?.dataModelRef) === name)
       .map((space) => space.metadata.name);
     const servingEndpoints = (endpoints.data ?? [])
       .filter((endpoint) =>

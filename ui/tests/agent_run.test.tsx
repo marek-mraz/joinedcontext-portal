@@ -483,13 +483,6 @@ describe("watching a run", () => {
     expect(screen.getByLabelText(en.agentRun.conversation.placeholder)).toBeEnabled();
   });
 
-  it("says the app lives behind the platform login and nowhere else (ADR-N-019)", async () => {
-    renderRun();
-    await screen.findByRole("heading", { name: APP_TITLE });
-
-    expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
-  });
-
   it("renders first frame and first version timings when present, and omits them when absent (T-0551)", async () => {
     const timingFirstFrame = (en.agentRun as { timing?: { firstFrame?: string } })?.timing?.firstFrame ?? "First frame";
     const timingFirstVersion = (en.agentRun as { timing?: { firstVersion?: string } })?.timing?.firstVersion ?? "First version";

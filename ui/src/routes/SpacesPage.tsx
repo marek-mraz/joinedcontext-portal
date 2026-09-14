@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { usePermissions } from "../api/permissions";
 import { Link } from "@tanstack/react-router";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
-import { asManifests, isChange, localized } from "../api/manifest";
+import { asManifests, isChange, localized, refName } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
@@ -27,6 +27,7 @@ import {
   TableRow,
   TableSkeleton,
   buttonClass,
+  SourceLink,
 } from "../components/ui";
 
 /** The namespace organization-scoped manifests such as `Project` live in. */
@@ -273,10 +274,11 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
           ) : (
             spaces.map((space: Manifest) => {
               const spec = space.spec as {
-                dataModelRef?: string;
+                dataModelRef?: unknown;
                 isSandbox?: boolean;
                 ttlDays?: number;
               };
+              const model = refName(spec.dataModelRef);
               return (
                 <TableRow key={space.metadata.name}>
                   <TableCell primary>
@@ -289,8 +291,8 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {spec.dataModelRef ? (
-                      <span className="font-mono text-caption">{spec.dataModelRef}</span>
+                    {model ? (
+                      <span className="font-mono text-caption">{model}</span>
                     ) : (
                       <span className="text-fg-subtle">—</span>
                     )}
@@ -309,15 +311,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                   </TableCell>
                   <TableCell align="right">
                     {space.status?.sourceUrl ? (
-                      <a
-                        href={space.status.sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={buttonClass("ghost", "sm", "text-primary")}
-                      >
-                        {t("spaces.field.source")}
-                        <Icon name="external" className="size-3.5" />
-                      </a>
+                      <SourceLink href={space.status.sourceUrl} label={t("spaces.field.source")} />
                     ) : (
                       <span className="text-fg-subtle">—</span>
                     )}

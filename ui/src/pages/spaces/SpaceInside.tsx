@@ -231,7 +231,7 @@ export function SpaceInside({ project, name }: { project: string; name: string }
   }
 
   const manifest = space.data as Manifest;
-  const dataModelRef = manifest.spec.dataModelRef;
+  const dataModelRef = refName(manifest.spec.dataModelRef);
   const model = asManifests(models.data?.items ?? []).find(
     (m) => m.metadata.name === dataModelRef,
   );
@@ -360,7 +360,7 @@ export function SpaceInside({ project, name }: { project: string; name: string }
                         <div className="font-mono text-xs text-surface-fg/60">
                           {endpoint.metadata.title ? endpoint.metadata.name : null}
                           {spec.policyRef
-                            ? `${endpoint.metadata.title ? " · " : ""}${spec.policyRef}`
+                            ? `${endpoint.metadata.title ? " · " : ""}${refName(spec.policyRef)}`
                             : ""}
                         </div>
                       </td>
