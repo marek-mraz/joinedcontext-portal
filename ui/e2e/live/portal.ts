@@ -4,6 +4,8 @@ import type { Browser, BrowserContext, Page } from "@playwright/test";
 /** The two demo people of the Load journey: one proposes, the other approves (CC-34). */
 export const STEWARD = { user: "demo.steward@hel.fi", password: process.env.PORTAL_PASSWORD ?? "" };
 export const APPROVER = { user: "demo.approver@hel.fi", password: process.env.APPROVER_PASSWORD ?? "" };
+/** A person who may read the projects and change nothing. */
+export const VIEWER = { user: "demo.viewer@hel.fi", password: process.env.VIEWER_PASSWORD ?? "" };
 
 /**
  * Signs one browser context in through the edge: the Portal's /login button, Keycloak's form

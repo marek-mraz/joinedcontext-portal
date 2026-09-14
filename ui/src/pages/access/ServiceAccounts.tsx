@@ -5,6 +5,9 @@ import { useTranslation } from "react-i18next";
 import * as Dialog from "@radix-ui/react-dialog";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
+import { usePermissions } from "../../api/permissions";
+import { useIdentity } from "../../auth/AuthProvider";
+import type { Identity } from "../../auth/AuthProvider";
 import type { Manifest } from "../../api/manifest";
 import type { components } from "../../api/schema";
 
@@ -27,6 +30,12 @@ interface ServiceAccountSpec {
 /** `api-key` credentials only: an `oauth-client` lives in Keycloak and has no key here. */
 function apiKeyCredentials(spec: ServiceAccountSpec): Credential[] {
   return (spec.credentials ?? []).filter((credential) => credential.kind === "api-key");
+}
+
+/** The account is the caller's own: its owner is their username or their email. */
+function ownedBy(spec: ServiceAccountSpec, identity: Identity | null): boolean {
+  const owner = spec.owner?.user ?? "";
+  return owner !== "" && identity !== null && (owner === identity.username || owner === identity.email);
 }
 
 function formatDate(value: string | null | undefined, locale: string): string {
@@ -343,6 +352,10 @@ export function ServiceAccounts({ project }: { project: string }): JSX.Element {
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
   const [minted, setMinted] = useState<MintedKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const identity = useIdentity();
+  // The API answers keys only to the owner or someone who may propose service accounts; the
+  // view asks only for those, so nobody else sees a refused request.
+  const mayChange = usePermissions(project).can("ServiceAccount", "propose");
 
   const list = useQuery({
     queryKey: queryKeys.list(project, "serviceaccounts"),
@@ -435,13 +448,17 @@ export function ServiceAccounts({ project }: { project: string }): JSX.Element {
                   ) : null}
                 </dl>
 
-                <KeyTable
-                  project={project}
-                  account={account.metadata.name}
-                  credentials={apiKeyCredentials(spec)}
-                  onMinted={setMinted}
-                  onError={setError}
-                />
+                {mayChange || ownedBy(spec, identity) ? (
+                  <KeyTable
+                    project={project}
+                    account={account.metadata.name}
+                    credentials={apiKeyCredentials(spec)}
+                    onMinted={setMinted}
+                    onError={setError}
+                  />
+                ) : (
+                  <p className="mt-3 text-sm text-surface-fg/70">{t("access.keys.notYours")}</p>
+                )}
               </li>
             );
           })}

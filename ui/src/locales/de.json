@@ -631,6 +631,7 @@
       "noCredential": "Dieses Konto deklariert kein api-key-Credential; ergänzen Sie es zuerst im Manifest.",
       "empty": "Noch kein API-Schlüssel.",
       "noStore": "API-Schlüssel brauchen die Portal-Datenbank, die hier nicht konfiguriert ist.",
+      "notYours": "Seine Schlüssel sehen nur der Eigentümer und wer Dienstkonten ändern darf.",
       "tableCaption": "API-Schlüssel von {account}",
       "newTitle": "Ihr neuer API-Schlüssel",
       "newHint": "Speichern Sie ihn jetzt in Ihrem Passwortspeicher.",

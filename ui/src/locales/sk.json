@@ -631,6 +631,7 @@
       "noCredential": "Tento účet nemá v manifeste žiadny údaj typu api-key; najprv ho doplňte.",
       "empty": "Zatiaľ žiadny API kľúč.",
       "noStore": "API kľúče potrebujú databázu Portálu, ktorá tu nie je nastavená.",
+      "notYours": "Jeho kľúče vidí iba vlastník a tí, ktorí môžu meniť servisné účty.",
       "tableCaption": "API kľúče účtu {account}",
       "newTitle": "Váš nový API kľúč",
       "newHint": "Uložte si ho teraz do správcu tajomstiev.",

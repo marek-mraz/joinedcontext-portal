@@ -56,7 +56,7 @@ const MINTED = {
   credential: "legacy-push",
 };
 
-function renderAccess(options: { keysStatus?: number } = {}) {
+function renderAccess(options: { keysStatus?: number; identity?: typeof IDENTITY; grants?: unknown[] } = {}) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     // The generated client hands over a `Request`; the gateway call is a plain `fetch(url)`.
     const request = typeof input === "string" || input instanceof URL ? null : input;
@@ -72,7 +72,10 @@ function renderAccess(options: { keysStatus?: number } = {}) {
       );
 
     if (path.endsWith("/auth/me")) {
-      return json(IDENTITY);
+      return json(options.identity ?? IDENTITY);
+    }
+    if (path.endsWith("/permissions/me") && options.grants) {
+      return json({ grants: options.grants });
     }
     if (path.endsWith("/keys") && method === "GET") {
       return json(KEYS, options.keysStatus ?? 200);
@@ -215,5 +218,19 @@ describe("service accounts view", () => {
 
     expect(await screen.findByText(en.access.keys.noStore)).toBeInTheDocument();
     expect(screen.queryByText(en.access.keys.empty)).not.toBeInTheDocument();
+  });
+
+  it("asks for no key of an account the viewer neither owns nor may change", async () => {
+    const fetchMock = renderAccess({
+      identity: { ...IDENTITY, username: "demo.viewer", email: "demo.viewer@hel.fi" },
+      grants: [{ rule: { kinds: ["*"], verbs: ["read"] } }],
+    });
+
+    expect(await screen.findByText("vendorx-parking-push")).toBeInTheDocument();
+    expect(await screen.findByText(en.access.keys.notYours)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /New API key/ })).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some((call) => String((call[0] as Request).url ?? call[0]).includes("/keys")),
+    ).toBe(false);
   });
 });

@@ -631,6 +631,7 @@
       "noCredential": "This account declares no api-key credential; add one to its manifest first.",
       "empty": "No API key yet.",
       "noStore": "API keys need the Portal database, which is not configured here.",
+      "notYours": "Only its owner and those who may change service accounts see its keys.",
       "tableCaption": "API keys of {account}",
       "newTitle": "Your new API key",
       "newHint": "Store it in your secret manager now.",
