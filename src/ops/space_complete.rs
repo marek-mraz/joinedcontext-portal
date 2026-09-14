@@ -1086,10 +1086,7 @@ pub async fn run(
         let mut created = Vec::new();
 
         for d in &drafts {
-            let mut committed = d.manifest.clone();
-            if let Some(obj) = committed.as_object_mut() {
-                obj.remove("status");
-            }
+            let committed = committed(&d.manifest);
             let info = resource::by_kind(&d.kind).ok_or_else(|| {
                 OpError::Api(ApiError::BadRequest(format!("unknown kind '{}'", d.kind)))
             })?;
@@ -1148,6 +1145,22 @@ pub async fn run(
     Ok(serde_json::to_value(out)?)
 }
 
+/// The manifest as the repository takes it: no `status`, and no inline `spec.source` on a
+/// DataModel (the draft carries the LinkML text for the editor; the repository gets it as the
+/// `spec.linkml` file beside the manifest, which is what the kind validates, DM-56).
+fn committed(manifest: &Value) -> Value {
+    let mut committed = manifest.clone();
+    if let Some(obj) = committed.as_object_mut() {
+        obj.remove("status");
+    }
+    if committed["kind"] == "DataModel" {
+        if let Some(spec) = committed["spec"].as_object_mut() {
+            spec.remove("source");
+        }
+    }
+    committed
+}
+
 fn riskiest_lane(drafts: &[CompletedDraft]) -> Lane {
     let mut lane = Lane::Green;
     for d in drafts {
@@ -1185,5 +1198,23 @@ fn draft_error(err: ops::drafts::DraftError) -> OpError {
             "draft '{kind}/{name}' not found in project '{project}'"
         ))),
         ops::drafts::DraftError::Db(msg) => OpError::Api(ApiError::Internal(msg)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_committed_datamodel_keeps_its_linkml_path_and_loses_the_inline_source() {
+        let draft = serde_json::json!({
+            "kind": "DataModel",
+            "spec": { "linkml": "./bikes.linkml.yaml", "source": "classes: {}" },
+            "status": { "x": 1 }
+        });
+        let out = super::committed(&draft);
+        assert_eq!(out["spec"]["linkml"], "./bikes.linkml.yaml");
+        assert!(out["spec"].get("source").is_none());
+        assert!(out.get("status").is_none());
+        let space = serde_json::json!({ "kind": "ContextSpace", "spec": { "source": "kept" } });
+        assert_eq!(super::committed(&space)["spec"]["source"], "kept");
     }
 }

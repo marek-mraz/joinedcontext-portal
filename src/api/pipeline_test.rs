@@ -211,6 +211,7 @@ pub(crate) async fn run_harness(
         sample,
         &format!("{capture}/internal/pipeline-tests/{id}"),
     )
+    .map(single_fetch)
     .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let _slot = Slot::take(project, &id, sender)?;
@@ -308,6 +309,26 @@ pub(crate) async fn probe_source(state: &AppState, project: &str, spec: &Value) 
     }
 }
 
+/// One fetch of a URL sample. The harness reads a URL with Bento's `http_client` input, which
+/// polls without pause: a 1.2 MB feed reached the capture route many times a second until the
+/// Portal was OOM-killed. One `generate` message fetched by an `http` processor is one fetch.
+// ponytail: belongs in jcctl's harness; patched here until the next jcctl tag bump.
+fn single_fetch(mut config: Value) -> Value {
+    let Some(http) = config["input"].get_mut("http_client").map(Value::take) else {
+        return config;
+    };
+    config["input"] = serde_json::json!({
+        "generate": { "count": 1, "interval": "", "mapping": "root = \"\"" }
+    });
+    let fetch = serde_json::json!({ "http": {
+        "url": http["url"], "verb": "GET", "timeout": http["timeout"], "retries": 0
+    }});
+    if let Some(processors) = config["pipeline"]["processors"].as_array_mut() {
+        processors.insert(0, fetch);
+    }
+    config
+}
+
 /// `POST /internal/pipeline-tests/{id}`: what the harness produced, one message per call.
 ///
 /// The id is 130 random bits minted for this test and known to the harness alone; a message
@@ -345,6 +366,27 @@ pub fn internal_router() -> Router<AppState> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_url_sample_is_fetched_once_by_a_processor_and_a_text_sample_is_left_alone() {
+        let url = json!({
+            "input": { "http_client": { "url": "https://feed.example/x.json", "verb": "GET", "timeout": "3s", "retries": 0 } },
+            "pipeline": { "processors": [{ "mapping": "meta jc_input = content().string()" }] }
+        });
+        let out = single_fetch(url);
+        assert_eq!(out["input"]["generate"]["count"], 1);
+        assert!(out["input"].get("http_client").is_none());
+        assert_eq!(
+            out["pipeline"]["processors"][0]["http"]["url"],
+            "https://feed.example/x.json"
+        );
+        assert_eq!(out["pipeline"]["processors"][0]["http"]["timeout"], "3s");
+        assert_eq!(out["pipeline"]["processors"].as_array().unwrap().len(), 2);
+
+        let text =
+            json!({ "input": { "generate": { "count": 1 } }, "pipeline": { "processors": [] } });
+        assert_eq!(single_fetch(text.clone()), text);
+    }
 
     #[test]
     fn a_manifest_of_another_kind_or_a_broken_spec_is_400() {
