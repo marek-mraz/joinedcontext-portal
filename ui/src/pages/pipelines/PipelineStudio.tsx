@@ -404,6 +404,13 @@ export function PipelineStudio({
         return;
       }
       const answer = (await response.json()) as Trace;
+      // A trace that carries errors has no value to show: the first error is the answer.
+      if (answer.errors.length > 0) {
+        const first = answer.errors[0];
+        setKpiTestError(`${first.stage}: ${first.message}`);
+        setKpiValue(null);
+        return;
+      }
       const firstMapping = answer.mapping?.[0] as Record<string, unknown> | undefined;
       const currentValue = firstMapping?.currentValue as Record<string, unknown> | undefined;
       const val = currentValue?.value ?? null;

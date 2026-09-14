@@ -200,6 +200,30 @@ describe("PipelineStudio KPI preset", () => {
     expect(onVerdict).toHaveBeenCalledWith(true, expect.stringContaining("availableBikeNumber"));
   });
 
+  it("shows the trace's first error instead of nothing when the mapping fails", async () => {
+    mockFetch({
+      status: 200,
+      body: {
+        ...KPI_TEST_ANSWER,
+        mapping: [],
+        validation: [],
+        errors: [{ stage: "mapping", line: 3, message: "expected number, got null" }],
+      },
+    });
+    renderStudio();
+
+    await userEvent.selectOptions(screen.getByLabelText(en.pipelines.studio.preset.title), "kpi");
+    await userEvent.selectOptions(
+      await screen.findByLabelText(en.pipelines.studio.kpi.endpoint),
+      "helsinki-all",
+    );
+
+    await userEvent.click(screen.getByTestId("studio-kpi-test"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("mapping: expected number, got null");
+    expect(screen.queryByTestId("studio-kpi-value")).toBeNull();
+  });
+
   it("shows an alert when the pipeline test endpoint fails", async () => {
     mockFetch({
       status: 500,
