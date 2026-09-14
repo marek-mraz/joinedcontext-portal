@@ -159,6 +159,23 @@ metadata:
 spec:
   isSandbox: true
 "#;
+    // The head commit of PR 1 carries the human author; PR 3's branch answers nothing, so its
+    // poster stands in.
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/commits"))
+        .and(query_param("sha", "portal/create-contextspace-mobility-11111111"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "sha": "0123456789abcdef",
+                "commit": {
+                    "message": "create ContextSpace mobility",
+                    "author": { "name": "Demo Steward", "email": "demo.steward@hel.fi", "date": "2026-09-06T10:00:00Z" }
+                }
+            }
+        ])))
+        .mount(&server)
+        .await;
+
     Mock::given(method("GET"))
         .and(path(
             "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
@@ -233,10 +250,11 @@ spec:
     assert_eq!(list.items[1].summary.key, "change.summary.create");
     assert_eq!(list.items[1].summary.params["kind"], "ContextSpace");
     assert_eq!(list.items[1].summary.params["name"], "mobility");
-    assert_eq!(list.items[1].author.name, "Jana Kováčová");
+    // PR 1 was posted by the service token; its head commit names the human (CC-44, T-0506).
+    assert_eq!(list.items[1].author.name, "Demo Steward");
     assert_eq!(
         list.items[1].author.email.as_deref(),
-        Some("jana.kovacova@banskabystrica.sk")
+        Some("demo.steward@hel.fi")
     );
 }
 

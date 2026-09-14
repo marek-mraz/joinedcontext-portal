@@ -408,6 +408,25 @@ async fn load_manifest_data(
     }))
 }
 
+/// The human behind a pull request: the author of its head commit (CC-44; the forge token only
+/// posts the pull request), the poster when the branch has no commit yet or the forge does not
+/// answer.
+// ponytail: one forge call per open change; a cache keyed by head sha if the list grows.
+async fn human_author(gitea: &GiteaClient, pr: &crate::git::gitea::PullRequest) -> ChangeAuthor {
+    match gitea.list_commits(&pr.head_branch, "", 1).await {
+        Ok(commits) if commits.first().is_some_and(|c| !c.author.trim().is_empty()) => {
+            ChangeAuthor {
+                name: commits[0].author.clone(),
+                email: commits[0].email.clone(),
+            }
+        }
+        _ => ChangeAuthor {
+            name: pr.author_name.clone(),
+            email: pr.author_email.clone(),
+        },
+    }
+}
+
 fn build_proposal(
     pr: &PullRequest,
     project: &str,
@@ -510,7 +529,8 @@ pub async fn list_changes_for(state: &AppState, project: &str) -> Result<ChangeL
         };
 
         let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
-        let proposal = build_proposal(&pr, project, &data, plan, None);
+        let mut proposal = build_proposal(&pr, project, &data, plan, None);
+        proposal.author = human_author(gitea, &pr).await;
         proposals.push(proposal);
     }
 
@@ -572,13 +592,11 @@ pub async fn change_for(
 
     let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
     let redacted_fields = redact(plan.fields.clone());
-    Ok(build_proposal(
-        &pr,
-        project,
-        &data,
-        plan,
-        Some(redacted_fields),
-    ))
+    let author = human_author(gitea, &pr).await;
+    Ok(ChangeProposal {
+        author,
+        ..build_proposal(&pr, project, &data, plan, Some(redacted_fields))
+    })
 }
 
 #[utoipa::path(
@@ -647,14 +665,15 @@ pub async fn approve_change_for(
         })?;
     may_approve(state, identity, project, &data)?;
 
-    let is_author = match (&pr.author_email, &identity.email) {
+    let author = human_author(gitea, &pr).await;
+    let is_author = match (&author.email, &identity.email) {
         (Some(pr_email), Some(user_email)) if !pr_email.trim().is_empty() => {
             pr_email.eq_ignore_ascii_case(user_email.trim())
         }
         _ => {
             let user_name = identity.name.as_deref().unwrap_or(&identity.username);
-            pr.author_name.eq_ignore_ascii_case(user_name)
-                || pr.author_name.eq_ignore_ascii_case(&identity.username)
+            author.name.eq_ignore_ascii_case(user_name)
+                || author.name.eq_ignore_ascii_case(&identity.username)
         }
     };
 

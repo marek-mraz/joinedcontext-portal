@@ -126,6 +126,7 @@ pub struct Commit {
     /// First line of the commit message: the picker renders history as plain sentences.
     pub message: String,
     pub author: String,
+    pub email: Option<String>,
     pub date: String,
 }
 
@@ -230,6 +231,8 @@ struct CommitDetailsDto {
 struct CommitAuthorDto {
     #[serde(default)]
     name: String,
+    #[serde(default)]
+    email: Option<String>,
     #[serde(default)]
     date: String,
 }
@@ -626,6 +629,7 @@ impl GiteaClient {
                 });
                 let author = details.author.unwrap_or(CommitAuthorDto {
                     name: String::new(),
+                    email: None,
                     date: String::new(),
                 });
                 Commit {
@@ -637,6 +641,7 @@ impl GiteaClient {
                         .unwrap_or_default()
                         .to_string(),
                     author: author.name,
+                    email: author.email,
                     date: author.date,
                 }
             })
