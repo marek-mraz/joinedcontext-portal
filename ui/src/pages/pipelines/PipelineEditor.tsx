@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../../api/client";
-import { asManifests, prune } from "../../api/manifest";
+import { asManifests, plainTitle, prune } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
 import { useBranding } from "../../branding";
 import { ResourceFormDialog } from "../../components/ResourceFormDialog";
@@ -16,7 +16,7 @@ import { PipelineStudio } from "./PipelineStudio";
 /** The form of a pipeline: `PipelineSpec` with every reference flattened to its name. */
 export interface PipelineForm {
   name?: string;
-  title?: Record<string, string>;
+  title?: string;
   class?: string;
   schedule?: string;
   period?: string;
@@ -104,7 +104,7 @@ export function toEnvelope(project: string, form: PipelineForm, base?: Manifest)
     metadata: {
       name: name ?? "",
       namespace: project,
-      ...(title && Object.keys(title).length > 0 ? { title } : {}),
+      ...(title?.trim() ? { title } : {}),
     },
     spec,
   };
@@ -128,7 +128,7 @@ export function toForm(pipeline: Manifest): PipelineForm {
   void _enabled;
   return prune({
     name: pipeline.metadata.name,
-    ...(pipeline.metadata.title ? { title: pipeline.metadata.title } : {}),
+    ...(plainTitle(pipeline.metadata.title) ? { title: plainTitle(pipeline.metadata.title) } : {}),
     ...rest,
     class: typeof rest.class === "string" ? rest.class : "auto",
     source: source

@@ -6,7 +6,7 @@ import { usePermissions } from "../../api/permissions";
 import { takePrefill } from "../../assistant/state";
 import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
-import { asManifests, isChange, localized, prune } from "../../api/manifest";
+import { asManifests, isChange, localized, plainTitle, prune } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
 import { ChangeNotice } from "../../components/ChangeNotice";
@@ -34,7 +34,7 @@ import type { SecretRefValue } from "../../components/forms/widgets/SecretRef";
 /** The form of one source: the metadata a manifest carries plus the block its type names. */
 export interface DataSourceForm {
   name?: string;
-  title?: string | Record<string, string>;
+  title?: string;
   [block: string]: unknown;
 }
 
@@ -71,7 +71,7 @@ export function toEnvelope(
       metadata: {
         name: name ?? "",
         namespace: project,
-        ...(title && Object.keys(title).length > 0 ? { title } : {}),
+        ...(title?.trim() ? { title } : {}),
       },
       spec: { type, ...prune(connection) },
     };
@@ -108,7 +108,7 @@ export function toEnvelope(
     metadata: {
       name: name ?? "",
       namespace: project,
-      ...(title && Object.keys(title).length > 0 ? { title } : {}),
+      ...(title?.trim() ? { title } : {}),
     },
     spec: {
       type,
@@ -137,7 +137,7 @@ export function toForm(source: Manifest): DataSourceForm {
     }
     return {
       name: source.metadata.name,
-      ...(source.metadata.title ? { title: source.metadata.title } : {}),
+      ...(plainTitle(source.metadata.title) ? { title: plainTitle(source.metadata.title) } : {}),
       ...flattened,
       ...(Array.isArray(spec.secrets) ? { secrets: spec.secrets } : {}),
     };
@@ -147,7 +147,7 @@ export function toForm(source: Manifest): DataSourceForm {
   delete connection.type;
   return {
     name: source.metadata.name,
-    ...(source.metadata.title ? { title: source.metadata.title } : {}),
+    ...(plainTitle(source.metadata.title) ? { title: plainTitle(source.metadata.title) } : {}),
     ...connection,
   };
 }

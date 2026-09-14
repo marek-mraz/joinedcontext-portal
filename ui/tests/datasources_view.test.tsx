@@ -315,7 +315,7 @@ describe("the manifest a data source form describes", () => {
   it("puts the metadata in metadata and everything else under the declared type", () => {
     const envelope = toEnvelope("banskabystrica", "http", {
       name: "aq-opendata",
-      title: { en: "Open data" },
+      title: "Open data",
       http: { url: "https://opendata.banskabystrica.sk/aq.json", verb: "GET" },
       // rjsf leaves this behind for a group the user opened and left alone.
       tls: { caCertRef: {} },
@@ -327,7 +327,7 @@ describe("the manifest a data source form describes", () => {
       metadata: {
         name: "aq-opendata",
         namespace: "banskabystrica",
-        title: { en: "Open data" },
+        title: "Open data",
       },
       spec: {
         type: "http",

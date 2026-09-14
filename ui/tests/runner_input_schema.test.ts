@@ -170,7 +170,7 @@ describe("runnerInputSchema pure function", () => {
   it("toEnvelope builds spec.type, nested input, and retains only referenced secrets", () => {
     const form = {
       name: "kafka-helsinki",
-      title: { en: "Helsinki Air Feed" },
+      title: "Helsinki Air Feed",
       addresses: ["kafka.hel.fi:9093"],
       topics: ["sensors.air"],
       sasl: {
@@ -234,7 +234,8 @@ describe("runnerInputSchema pure function", () => {
 
     const form = toForm(stored);
     expect(form.name).toBe("kafka-live");
-    expect(form.title).toEqual({ en: "Live Kafka Feed" });
+    // UI-50: a legacy map comes into the form as the one string it saves back.
+    expect(form.title).toBe("Live Kafka Feed");
     expect(form.addresses).toEqual(["kafka.hel.fi:9093"]);
     expect(form.topics).toEqual(["sensors.air"]);
     expect((form.sasl as Record<string, unknown>).password).toBe("${DS_KAFKA_HEL_PASSWORD}");

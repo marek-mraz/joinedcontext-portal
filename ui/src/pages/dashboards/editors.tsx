@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
-import { isChange, prune } from "../../api/manifest";
+import { isChange, plainTitle, prune } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { EntityFilters } from "../../components/entities/EntityFilters";
 import { filterSlotsOf } from "../../components/entities/filters";
@@ -15,7 +15,7 @@ const API_VERSION = "joinedcontext.com/v1alpha1";
 
 export interface DashboardForm {
   name: string;
-  title: Record<string, string>;
+  title: string;
   visibility: string;
   pages: {
     title?: string;
@@ -51,7 +51,7 @@ export function dashboardFromManifest(document: unknown): DashboardForm {
   const spec = (manifest.spec ?? {}) as Omit<DashboardForm, "name">;
   return {
     name: manifest.metadata?.name ?? "",
-    title: spec.title ?? {},
+    title: plainTitle(spec.title) ?? "",
     visibility: spec.visibility ?? "project",
     pages: spec.pages ?? [{ layout: "full-map", layers: [] }],
   };

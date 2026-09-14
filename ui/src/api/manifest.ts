@@ -39,6 +39,24 @@ export function localized(
 }
 
 /**
+ * A title as the one string a form edits and a manifest now writes (UI-50): a plain string as
+ * written, a legacy language map as `en`, then its first non-empty value. Saving the form writes
+ * the string, so a manifest converts itself on its next change.
+ */
+export function plainTitle(title: unknown): string | undefined {
+  if (typeof title === "string") {
+    return title.trim() === "" ? undefined : title;
+  }
+  if (!title || typeof title !== "object") {
+    return undefined;
+  }
+  const texts = Object.entries(title as Record<string, unknown>).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== "",
+  );
+  return (texts.find(([locale]) => locale === "en") ?? texts[0])?.[1];
+}
+
+/**
  * The value without the empty leaves a form leaves behind: rjsf keeps an empty object for
  * every group the user opened and left alone, and an empty string for every field they
  * cleared, none of which a manifest should carry.

@@ -31,7 +31,7 @@ import {
 
 interface SpaceForm {
   name: string;
-  title?: Record<string, string>;
+  title?: string;
   dataModelRef?: string;
   defaultLocale?: string;
   isSandbox?: boolean;
@@ -53,7 +53,7 @@ function toEnvelope(project: string, form: SpaceForm) {
     metadata: {
       name,
       namespace: project,
-      ...(title && Object.keys(title).length > 0 ? { title } : {}),
+      ...(title?.trim() ? { title } : {}),
     },
     spec,
   };

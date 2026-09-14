@@ -81,6 +81,24 @@ describe("the UiSchema manifest arranges the form", () => {
     expect(localized(undefined, "en")).toBeUndefined();
   });
 
+  it("reads a plain label as written, in any locale (UI-50)", () => {
+    expect(localized("Basics", "de")).toBe("Basics");
+    expect(localized("Basics")).toBe("Basics");
+    const arranged = arrange({
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "UiSchema",
+      metadata: { name: "endpoint" },
+      spec: {
+        for: "Endpoint",
+        groups: [{ title: "Access", description: "Who may read", fields: ["slug"] }],
+        fields: { slug: { help: "The unguessable address" } },
+      },
+    } as UiSchemaManifest);
+    const options = arranged.uiSchema["ui:options"] as { groups: { title?: string; description?: string }[] };
+    expect(options.groups[0]).toMatchObject({ title: "Access", description: "Who may read" });
+    expect(arranged.uiSchema.slug).toMatchObject({ "ui:help": "The unguessable address" });
+  });
+
   it("refuses a widget the Portal has not registered rather than throwing at render", () => {
     const manifest: UiSchemaManifest = {
       ...MANIFEST,

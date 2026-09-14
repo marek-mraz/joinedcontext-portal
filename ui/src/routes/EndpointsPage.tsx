@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
-import { asManifests, isChange, localized } from "../api/manifest";
+import { asManifests, isChange, localized, plainTitle } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import type { Verdict } from "../api/drafts";
 import { useProjects } from "../api/projects";
@@ -54,7 +54,7 @@ import {
 
 interface EndpointForm {
   name: string;
-  title?: string | Record<string, string>;
+  title?: string;
   contextSpaceRef: string;
   slug?: string;
   audience: string;
@@ -113,7 +113,7 @@ function toEnvelope(
       name,
       namespace: project,
       labels: { [SPACE_LABEL]: form.contextSpaceRef },
-      ...(title && Object.keys(title).length > 0 ? { title } : {}),
+      ...(title?.trim() ? { title } : {}),
     },
     spec,
   };
@@ -131,7 +131,7 @@ function toForm(endpoint: Manifest): EndpointForm {
   };
   return {
     name: endpoint.metadata.name,
-    title: endpoint.metadata.title ?? undefined,
+    title: plainTitle(endpoint.metadata.title),
     contextSpaceRef: spec.contextSpaceRef ?? "",
     slug: spec.slug ?? "",
     audience: spec.audience ?? "project-list",

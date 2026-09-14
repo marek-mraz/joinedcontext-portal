@@ -20,7 +20,7 @@ const PLURAL = "csrs";
 /** The form of one registration: the metadata a manifest carries plus its spec. */
 export interface RegistrationForm {
   name?: string;
-  title?: Record<string, string>;
+  title?: string;
   [field: string]: unknown;
 }
 
@@ -33,7 +33,7 @@ export function toEnvelope(project: string, form: RegistrationForm) {
     metadata: {
       name: name ?? "",
       namespace: project,
-      ...(title && Object.keys(title).length > 0 ? { title } : {}),
+      ...(title?.trim() ? { title } : {}),
     },
     spec: prune(spec),
   };

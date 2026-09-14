@@ -270,7 +270,7 @@ describe("what a registration form describes", () => {
     expect(
       toEnvelope("banskabystrica", {
         name: "zvolen-ovzdusie",
-        title: { en: "Zvolen" },
+        title: "Zvolen",
         contextSpaceRef: "hub",
         endpoint: EXTERNAL_URL,
         information: [{ entities: [{ type: "AirQualityObserved" }] }],
@@ -283,7 +283,7 @@ describe("what a registration form describes", () => {
       metadata: {
         name: "zvolen-ovzdusie",
         namespace: "banskabystrica",
-        title: { en: "Zvolen" },
+        title: "Zvolen",
       },
       spec: {
         contextSpaceRef: "hub",

@@ -14,16 +14,11 @@ export const DNS1123 = "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$";
 export const SLUG_PATTERN = "^[a-z2-7]{26,}$";
 
 /**
- * A manifest title is a map of language to text. The form asks for English only: the
- * instances run English for now, and four inputs for one name was noise on every page. Other
- * languages a manifest already carries stay valid (`additionalProperties`) and untouched.
+ * A manifest title is one plain string in the author's language (UI-50): one box, never a
+ * language per input. A legacy map is collapsed by `plainTitle` before the form sees it.
  */
 function titleProperty(label: string) {
-  return {
-    type: "object",
-    properties: { en: { type: "string", title: label } },
-    additionalProperties: { type: "string" },
-  } as const;
+  return { type: "string", title: label } as const;
 }
 
 export function contextSpaceSchema(t: (key: string) => string): JsonSchema {

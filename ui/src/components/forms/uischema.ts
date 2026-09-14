@@ -33,8 +33,11 @@ const BUILT_IN_WIDGETS = [
   "hidden",
 ] as const;
 
-/** A human string in every locale the manifest carries (Architecture/09 section 3). */
-export type LanguageMap = Record<string, string>;
+/**
+ * A human string: one plain string in the author's language (UI-50), or the legacy map of
+ * every locale the manifest carries (Architecture/09 section 3), still read through v0.9.
+ */
+export type LanguageMap = string | Record<string, string>;
 
 /** One field's arrangement. */
 export interface FieldArrangement {
@@ -93,10 +96,13 @@ export interface Arranged {
 /** The default locale of the platform, and the fallback of every language map. */
 const DEFAULT_LOCALE = "sk";
 
-/** One language map in the caller's locale, then Slovak, then whatever it carries. */
+/** A plain string as written; a legacy map in the caller's locale, then Slovak, then anything. */
 export function localized(map: LanguageMap | undefined, locale?: string): string | undefined {
   if (!map) {
     return undefined;
+  }
+  if (typeof map === "string") {
+    return map;
   }
   const wanted = locale ? map[locale] : undefined;
   return wanted ?? map[DEFAULT_LOCALE] ?? Object.values(map)[0];
