@@ -927,6 +927,68 @@ async fn every_pass_is_a_commit_on_the_run_branch_when_there_is_a_forge() {
 }
 
 #[tokio::test]
+async fn an_answer_that_changes_no_file_is_a_reply_not_a_version() {
+    let forge = forge().await;
+    let refusal = "A data model is made in the data-model editor, not in this dashboard.";
+    let (app, cookie, proxy) = portal_with(
+        "anthropic",
+        &[
+            answer("Bikes.", &[("spec.json", "", VALID_SPEC)]),
+            answer(refusal, &[]),
+        ],
+        Some(&forge),
+    )
+    .await;
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
+    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let (status, _) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": "create a new data model" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let mut seen = Vec::new();
+    for _ in 0..100 {
+        seen = events(&app, &cookie, &id).await;
+        if seen.iter().any(|(_, p)| p["text"] == json!(refusal)) {
+            break;
+        }
+    }
+    let count = |kind: &str| seen.iter().filter(|(k, _)| k == kind).count();
+    assert!(
+        seen.iter().any(|(_, p)| p["text"] == json!(refusal)),
+        "the reply reaches the chat: {:?}",
+        kinds(&seen)
+    );
+    assert_eq!(count("commit"), 1, "{:?}", kinds(&seen));
+    assert_eq!(count("preview"), 1, "{:?}", kinds(&seen));
+    assert_eq!(model_requests(&proxy).await.len(), 2);
+    let run = json(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}"),
+        None,
+    )
+    .await
+    .1;
+    assert_eq!(
+        run["previewUrl"],
+        json!(format!(
+            "/api/v1/projects/{PROJECT}/agent-runs/{id}/preview?v=1"
+        ))
+    );
+}
+
+#[tokio::test]
 async fn a_page_beside_the_spec_replaces_the_kit_in_the_preview() {
     const PAGE: &str = "<!doctype html><html><head><title>3D</title>\
         <script src=\"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js\"></script>\

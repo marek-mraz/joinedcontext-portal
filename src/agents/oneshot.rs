@@ -632,7 +632,7 @@ To build an application or a dashboard, explain in one or two plain sentences th
         catalog: Option<&Value>,
     ) -> Result<Option<String>, String> {
         if !files.is_empty() {
-            self.thought("Changing the dashboard…").await?;
+            self.thought("Working on your message…").await?;
         }
         let user = self
             .pack(samples, files, conversation, instruction, catalog, None)
@@ -652,6 +652,7 @@ To build an application or a dashboard, explain in one or two plain sentences th
         if let Some(call) = space_complete_tool_call(&answer) {
             return self.space_complete(call, &answer).await.map(Some);
         }
+        let before = files.clone();
         let (mut prose, mut errors) = self.apply(files, &answer).await?;
         if !errors.is_empty() {
             // One repair call: the model is shown what did not validate and answers again.
@@ -679,7 +680,19 @@ To build an application or a dashboard, explain in one or two plain sentences th
                 errors.join("\n")
             ))
             .await?;
+            *files = before;
             return Ok(None);
+        }
+        // An answer that changes no file is a turn of the conversation, not a version: nothing
+        // is stored or committed and the frame keeps what it shows (AP-60).
+        if !before.is_empty() && *files == before {
+            let prose = if prose.trim().is_empty() {
+                "The dashboard is unchanged.".to_owned()
+            } else {
+                prose.trim().to_owned()
+            };
+            self.thought(&prose).await?;
+            return Ok(Some(prose));
         }
         // The rows travel inside the preview document, because the sandboxed frame has no
         // session to read them with; they are read here, once per pass, through the proxy.

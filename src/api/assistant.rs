@@ -104,14 +104,45 @@ impl Access {
     }
 }
 
-/// The words of a question: two characters or more, lower-cased, each once.
+/// The function words of a request, which name nothing in a catalog (API/01 §18).
+const FILLER: &[&str] = &[
+    "a", "about", "add", "all", "an", "and", "any", "are", "as", "at", "be", "build", "but", "by",
+    "can", "change", "could", "create", "do", "does", "for", "from", "get", "give", "how", "i",
+    "in", "into", "is", "it", "its", "list", "make", "me", "my", "new", "no", "not", "of", "on",
+    "or", "our", "please", "set", "show", "so", "some", "than", "that", "the", "their", "them",
+    "then", "there", "these", "this", "those", "to", "up", "us", "was", "we", "were", "what",
+    "when", "where", "which", "who", "why", "will", "with", "would", "you", "your",
+];
+
+/// The words of a question: two characters or more, lower-cased, no function word, each once.
 pub fn words(q: &str) -> Vec<String> {
     q.split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.chars().count() >= 2)
         .map(str::to_lowercase)
+        .filter(|w| !FILLER.contains(&w.as_str()))
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+/// The words of a field, split at punctuation and at camel case (`BikeHireDockingStation`).
+fn field_words(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let mut after_lower = false;
+    for c in text.chars() {
+        if (!c.is_alphanumeric() || (c.is_uppercase() && after_lower)) && !word.is_empty() {
+            out.push(std::mem::take(&mut word));
+        }
+        if c.is_alphanumeric() {
+            word.extend(c.to_lowercase());
+        }
+        after_lower = c.is_lowercase() || c.is_numeric();
+    }
+    if !word.is_empty() {
+        out.push(word);
+    }
+    out
 }
 
 /// Every string leaf of a value, joined: a title in four languages is four strings.
@@ -172,17 +203,20 @@ fn fields(env: &ResourceEnvelope) -> Vec<(&'static str, String)> {
 
 /// How many words hit, and the fields they hit.
 fn score(fields: &[(&'static str, String)], words: &[String]) -> (usize, Vec<String>) {
-    let lowered: Vec<(&str, String)> = fields
+    let split: Vec<(&str, Vec<String>)> = fields
         .iter()
-        .map(|(name, text)| (*name, text.to_lowercase()))
+        .map(|(name, text)| (*name, field_words(text)))
         .collect();
+    // A word matches where a word of the field begins with it: "bike" finds "bikes", "the"
+    // does not find "weather".
+    let matches = |field: &[String], word: &str| field.iter().any(|f| f.starts_with(word));
     let hits = words
         .iter()
-        .filter(|w| lowered.iter().any(|(_, text)| text.contains(w.as_str())))
+        .filter(|w| split.iter().any(|(_, field)| matches(field, w)))
         .count();
-    let reasons = lowered
+    let reasons = split
         .iter()
-        .filter(|(_, text)| words.iter().any(|w| text.contains(w.as_str())))
+        .filter(|(_, field)| words.iter().any(|w| matches(field, w)))
         .map(|(name, _)| (*name).to_owned())
         .collect();
     (hits, reasons)
@@ -766,9 +800,25 @@ mod tests {
     fn words_are_short_lower_and_unique() {
         assert_eq!(
             words("Where is the Bike  availability, bike?"),
-            vec!["availability", "bike", "is", "the", "where"]
+            vec!["availability", "bike"]
         );
         assert!(words("a , !").is_empty());
+    }
+
+    #[test]
+    fn a_word_matches_the_start_of_a_field_word_and_filler_matches_nothing() {
+        let fields = vec![
+            ("name", "helsinki-weather".to_owned()),
+            ("title", "Helsinki indicators and news".to_owned()),
+            (
+                "classes",
+                "https://smartdatamodels.org/BikeHireDockingStation".to_owned(),
+            ),
+        ];
+        assert_eq!(score(&fields, &words("change the color to black")).0, 0);
+        assert_eq!(score(&fields, &words("create a new one")).0, 0);
+        assert_eq!(score(&fields, &words("docking weather")).0, 2);
+        assert_eq!(score(&fields, &words("news")).1, vec!["title"]);
     }
 
     #[test]
