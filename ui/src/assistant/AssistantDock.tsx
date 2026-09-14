@@ -67,7 +67,7 @@ export function AssistantDock(): JSX.Element | null {
   const over = record.data ? TERMINAL_STATES.includes(record.data.status) : false;
 
   return (
-    <div className="fixed bottom-4 right-4 z-30 flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col items-end gap-2">
+    <div className="fixed bottom-4 left-4 z-30 flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col items-start gap-2">
       {navigated !== null && isPortalRoute(navigated) ? (
         <div
           role="status"

@@ -187,8 +187,13 @@ describe("the assistant dock", () => {
       );
     });
     // The dock came along, and says what it did.
-    expect(await screen.findByText(`The assistant opened /projects/${PROJECT}/endpoints`)).toBeInTheDocument();
+    const notice = await screen.findByText(`The assistant opened /projects/${PROJECT}/endpoints`);
+    expect(notice).toBeInTheDocument();
     expect(dockStream().url).toBe(`/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/events`);
+    // And it is where it always is: the bottom-left corner, on this page as on the run page.
+    const dock = notice.closest(".fixed") as HTMLElement;
+    expect(dock.className).toContain("left-4");
+    expect(dock.className).not.toContain("right-4");
   });
 
   it("ignores a navigate frame that is not a path inside the Portal", async () => {

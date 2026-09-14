@@ -93,12 +93,12 @@ export function AgentRunPage({
       )}
 
       {/*
-        The preview is the page: what the assistant built stands wide on the left from the
-        moment the first pass lands, and the chat that changes it stands beside it (UI-41,
-        UI-42). Until then the left column says which phase the run is in and how long it has
-        been running, so the first minute is watched rather than waited out.
+        The preview is the page: what the assistant built stands wide beside the assistant
+        dock (always bottom-left, so the page keeps that column free) from the moment the first
+        pass lands (UI-41, UI-42). Until then the preview column says which phase the run is in
+        and how long it has been running, so the first minute is watched rather than waited out.
       */}
-      <div className="space-y-4 lg:pr-[23rem]">
+      <div className="space-y-4 lg:pl-[23rem]">
         <div className="space-y-4">
           <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-2">
             <h2 id="run-preview" className="text-base font-semibold">
