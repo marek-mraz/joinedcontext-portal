@@ -29,20 +29,38 @@ export const EXAMPLE_APPS = ["hsl-transport", "air-quality"] as const;
 const OPERATIONS = ["queryEntity", "retrieveEntity"];
 const WRITE_OPERATION = "updateAttrs";
 
+/** Words that say what to do, not what the app is: a name made of them says nothing. */
+const FILLER = new Set(
+  (
+    "create generate make build show give add want need please can could would like let " +
+    "me us i we you a an the of for with and or on in at to from by that which this these new " +
+    "my our your some all app apps application applications dashboard page site web " +
+    "vytvor vygeneruj urob sprav ukaz pridaj chcem potrebujem prosim novu nove novy " +
+    "vytvorit udelej ukaz chci potrebuji prosim " +
+    "erstelle erzeuge mach zeige gib fuge ich will brauche bitte eine einen ein der die das " +
+    "fur mit und von im"
+  ).split(" "),
+);
+
 /**
  * A name for the app, from what the person asked for.
  *
  * It becomes the path the app is served at, so it is the lower-case, dash-joined form a URL
- * takes; a person who wants another one writes it under the details.
+ * takes, made of the first three words that say what the app is ("Create a map of the bike
+ * stations" is `map-bike-stations`, not `create-a-map-of`). With nothing left it is the
+ * endpoint's app; a person who wants another name writes it under the details.
  */
-export function slugOf(prompt: string): string {
-  return prompt
+export function slugOf(prompt: string, endpointName = ""): string {
+  const words = prompt
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .split("-")
-    .slice(0, 4)
-    .join("-");
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word !== "" && !FILLER.has(word))
+    .slice(0, 3);
+  const fallback = `${endpointName}-app`.replace(/^-+/, "");
+  const slug = (words.length > 0 ? words.join("-") : fallback).slice(0, 40).replace(/-+$/, "");
+  return slug === "" ? "app" : slug;
 }
 
 interface EndpointSpec {
@@ -65,6 +83,17 @@ export function endpointSpec(endpoint: Manifest): EndpointSpec {
  * user unticks what the app does not need; there is no control that adds one back, which is
  * what AP-22 means by the confirmed list being the grant rather than the prompt.
  */
+/**
+ * The types an app can read: the schema's definitions minus the base classes a model derives
+ * from, which no entity is served as (`Entity`, or a definition the schema marks abstract).
+ */
+export function concreteTypes(document: unknown): ReturnType<typeof publishedTypes> {
+  const defs = (document as { $defs?: Record<string, { abstract?: unknown }> } | null)?.$defs ?? {};
+  return publishedTypes(document).filter(
+    (type) => type.name !== "Entity" && defs[type.name]?.abstract !== true,
+  );
+}
+
 export function dataNeeds(
   endpoint: Manifest,
   types: PublishedType[],
@@ -172,7 +201,7 @@ export function AppGenerator({
 
   // Both are a pass over a handful of names; the React Compiler memoizes them, and a manual
   // useMemo here only tells it a dependency might be mutated when none of them is.
-  const types = publishedTypes(schema.data);
+  const types = concreteTypes(schema.data);
   const needs = endpoint ? dataNeeds(endpoint, types, dropped, write && writes.length > 0) : [];
 
   const generate = useMutation({
@@ -234,7 +263,7 @@ export function AppGenerator({
 
   // A name is needed for the URL the app is served at, not for the conversation: it is derived
   // from what the person asked for and stays editable under the details.
-  const chosen = name.trim() === "" ? slugOf(prompt) : name.trim();
+  const chosen = name.trim() === "" ? slugOf(prompt, endpointName) : name.trim();
   const ready = chosen !== "" && prompt.trim() !== "" && endpointName !== "" && needs.length > 0;
 
   return (
@@ -336,7 +365,7 @@ export function AppGenerator({
             <input
               id="generator-name"
               value={name}
-              placeholder={slugOf(prompt)}
+              placeholder={slugOf(prompt, endpointName)}
               onChange={(event) => {
                 setName(event.target.value);
               }}

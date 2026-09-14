@@ -16,10 +16,13 @@ export function ActionStep({
   event,
   live,
   onSend,
+  count = 1,
 }: {
   event: RunEvent;
   live: boolean;
   onSend: (text: string) => void;
+  /** How many times in a row the same step repeated; the event is the newest of them. */
+  count?: number;
 }): JSX.Element {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -68,6 +71,11 @@ export function ActionStep({
           {failed ? "✗" : "✓"}
         </span>
         <span className="min-w-0 break-words">{tool}</span>
+        {count > 1 ? (
+          <span data-testid="step-count" className="rounded bg-surface px-1 text-fg-muted">
+            ×{count}
+          </span>
+        ) : null}
         {duration !== undefined ? (
           <span className="text-fg-muted">{t("agentRun.step.duration", { ms: duration })}</span>
         ) : null}

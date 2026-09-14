@@ -23,6 +23,36 @@ export function speakerOf(kind: string): Speaker {
   return "activity";
 }
 
+/** What makes two tool steps the same step: the tool, how it ended and why. */
+function stepKey(event: RunEvent): string {
+  const { tool, status, error, exitCode } = event.payload;
+  return JSON.stringify([tool, status, error ?? null, exitCode ?? null]);
+}
+
+/**
+ * The events as the transcript draws them: a tool step repeated in a row with the same outcome
+ * is one step with a count, the newest occurrence standing for all of them, so a function the
+ * preview calls on every render does not bury the conversation. A repeat after anything else
+ * starts a new step.
+ */
+export function foldRepeats(events: RunEvent[]): { event: RunEvent; count: number }[] {
+  const folded: { event: RunEvent; count: number }[] = [];
+  for (const event of events) {
+    const last = folded.at(-1);
+    if (
+      last !== undefined &&
+      event.kind === "tool" &&
+      last.event.kind === "tool" &&
+      stepKey(event) === stepKey(last.event)
+    ) {
+      folded[folded.length - 1] = { event, count: last.count + 1 };
+    } else {
+      folded.push({ event, count: 1 });
+    }
+  }
+  return folded;
+}
+
 /**
  * One line of the run, as text.
  *
@@ -163,7 +193,7 @@ export function ConversationPanel({
         )}
 
         <ol className="space-y-2 text-sm" aria-label={t("agentRun.conversation.title")}>
-          {events.map((event) => {
+          {foldRepeats(events).map(({ event, count }) => {
             const speaker = speakerOf(event.kind);
             if (event.kind === "tool") {
               // What the assistant found is drawn as cards above the step itself (UI-46).
@@ -179,7 +209,7 @@ export function ConversationPanel({
                     <EndpointProposalCard project={project} proposal={proposal} />
                   ) : null}
                   {kpi !== null ? <KpiCard project={project} kpi={kpi} /> : null}
-                  <ActionStep event={event} live={live} onSend={onSend} />
+                  <ActionStep event={event} live={live} onSend={onSend} count={count} />
                 </li>
               );
             }
