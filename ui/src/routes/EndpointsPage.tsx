@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -32,6 +32,8 @@ import {
 } from "../components/endpoints/sharing";
 import { endpointSchema, endpointUiSchema, generateSlug } from "../schemas/kinds";
 import type { JsonSchema } from "../components/forms/types";
+import { ModelPicker } from "../pages/endpoints/ModelPicker";
+import type { ModelPickerState } from "../pages/endpoints/ModelPicker";
 import {
   Alert,
   Badge,
@@ -54,7 +56,7 @@ interface EndpointForm {
   name: string;
   title?: Record<string, string>;
   contextSpaceRef: string;
-  slug: string;
+  slug?: string;
   audience: string;
   enabledRepresentations: string[];
   allowedProjects?: string[];
@@ -62,21 +64,18 @@ interface EndpointForm {
   caching?: { maxAgeSeconds?: number };
 }
 
-/**
- * The spec the manifest takes, with the optional blocks the steward left alone removed.
- *
- * rjsf renders a nested object whether or not anybody fills it in, so an untouched fieldset
- * arrives as `{}` or as a half-filled object; either one fails `EndpointSpec::validate` on
- * the way in. `allowedProjects` goes the other way: the manifest requires it for
- * `project-list` and refuses it for the other two audiences (EP-14, EP-15).
- */
-function toSpec(form: EndpointForm, hiddenAttributes: string[]) {
+function toSpec(
+  form: EndpointForm,
+  slug: string,
+  hiddenAttributes: string[],
+  projectionRefName?: string,
+) {
   const { allowedProjects, rateLimits, caching, ...rest } = form;
-  // `name` and `title` are metadata, not spec.
   delete (rest as Partial<EndpointForm>).name;
   delete (rest as Partial<EndpointForm>).title;
   return {
     ...rest,
+    slug,
     ...(form.audience === "project-list" && allowedProjects && allowedProjects.length > 0
       ? { allowedProjects }
       : {}),
@@ -92,19 +91,27 @@ function toSpec(form: EndpointForm, hiddenAttributes: string[]) {
       ? { caching: { maxAgeSeconds: caching.maxAgeSeconds } }
       : {}),
     ...(hiddenAttributes.length > 0 ? { projection: { hiddenAttributes } } : {}),
+    ...(projectionRefName
+      ? { projectionRef: { kind: "ModelProjection", name: projectionRefName } }
+      : {}),
   };
 }
 
-function toEnvelope(project: string, form: EndpointForm, hiddenAttributes: string[]) {
+function toEnvelope(
+  project: string,
+  form: EndpointForm,
+  slug: string,
+  hiddenAttributes: string[],
+  projectionRefName?: string,
+) {
   const { name, title } = form;
-  const spec = toSpec(form, hiddenAttributes);
+  const spec = toSpec(form, slug, hiddenAttributes, projectionRefName);
   return {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "Endpoint",
     metadata: {
       name,
       namespace: project,
-      // The Endpoint path template carries a {space}; the label is where the API reads it.
       labels: { [SPACE_LABEL]: form.contextSpaceRef },
       ...(title && Object.keys(title).length > 0 ? { title } : {}),
     },
@@ -135,7 +142,6 @@ function toForm(endpoint: Manifest): EndpointForm {
   };
 }
 
-/** The attributes an Endpoint holds back, `spec.projection.hiddenAttributes` (EP-61). */
 function hiddenOf(endpoint: Manifest): string[] {
   const projection = (endpoint.spec as { projection?: { hiddenAttributes?: string[] } })
     .projection;
@@ -186,8 +192,13 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     return new URLSearchParams(window.location.search).get("draft") ?? undefined;
   });
 
-  // The assistant may have sent the person here with a form in hand (UI-45): taken once,
-  // before the first render, so the dialog is open from the start and a reload starts clean.
+  const [activeSlug, setActiveSlug] = useState<string>(() => generateSlug());
+
+  const [pickerState, setPickerState] = useState<ModelPickerState>({
+    projectionName: "",
+    classes: {},
+  });
+
   const [prefill] = useState(
     () =>
       takePrefill(window.location.pathname) as
@@ -199,7 +210,6 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       return {
         name: urlDraftName,
         contextSpaceRef: "",
-        slug: generateSlug(),
         audience: "project-list",
         enabledRepresentations: ["ngsi-ld"],
         allowedProjects: [],
@@ -208,13 +218,11 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     if (!prefill) {
       return null;
     }
-    // The hidden attributes are the projection, not a form field (EP-61): kept beside the form.
     const form: Partial<EndpointForm> & { hiddenAttributes?: string[] } = { ...prefill };
     delete form.hiddenAttributes;
     return {
       name: "",
       contextSpaceRef: "",
-      slug: generateSlug(),
       audience: "project-list",
       enabledRepresentations: ["ngsi-ld"],
       allowedProjects: [],
@@ -225,8 +233,6 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const mayPropose = usePermissions(project).can("Endpoint", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  // Kept beside the form rather than in it: the panel names the attributes the endpoint
-  // already publishes, which the form's own schema knows nothing about (EP-61).
   const [hidden, setHidden] = useState<string[]>(() =>
     Array.isArray(prefill?.hiddenAttributes)
       ? prefill.hiddenAttributes.filter((a): a is string => typeof a === "string")
@@ -243,12 +249,32 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       ),
   });
 
+  const orgsQuery = useQuery({
+    queryKey: queryKeys.list(project, "organizations"),
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project, plural: "organizations" } },
+        }),
+      ),
+  });
+
   const spacesQuery = useQuery({
     queryKey: queryKeys.list(project, "spaces"),
     queryFn: async () =>
       unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}", {
           params: { path: { project, plural: "spaces" } },
+        }),
+      ),
+  });
+
+  const modelsQuery = useQuery({
+    queryKey: queryKeys.list(project, "datamodels"),
+    queryFn: async () =>
+      unwrap(
+        await api.GET("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project, plural: "datamodels" } },
         }),
       ),
   });
@@ -280,11 +306,149 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
 
   const [verdict, setVerdict] = useState<Verdict | null>(null);
 
-  /** The check of the form (PF-57): a dry run of the envelope, its Verdict filed on the draft. */
+  const orgDomain = useMemo(() => {
+    const orgs = asManifests(orgsQuery.data?.items ?? []);
+    const domain = (orgs[0]?.spec as { domain?: string })?.domain;
+    return domain || project;
+  }, [orgsQuery.data, project]);
+
+  const editedSpace = editing?.contextSpaceRef;
+  const spaceHasModel =
+    editedSpace !== undefined &&
+    asManifests(modelsQuery.data?.items ?? []).some(
+      (m) => (m.spec as { contextSpaceRef?: string })?.contextSpaceRef === editedSpace,
+    );
+
+  const buildManifests = (form: EndpointForm) => {
+    if (!spaceHasModel) {
+      return [toEnvelope(project, form, activeSlug, hidden)];
+    }
+
+    const tickedClassNames = Object.keys(pickerState.classes).filter(
+      (c) => pickerState.classes[c]?.ticked,
+    );
+
+    const projectionName = pickerState.projectionName || form.name || "projection";
+    const projRefName = pickerState.selectedProjectionRef || projectionName;
+
+    const endpointEnvelope = toEnvelope(project, form, activeSlug, hidden, projRefName);
+
+    if (pickerState.selectedProjectionRef) {
+      return [endpointEnvelope];
+    }
+
+    const modelProjection = {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "ModelProjection",
+      metadata: {
+        name: projectionName,
+        namespace: project,
+        labels: { [SPACE_LABEL]: form.contextSpaceRef },
+      },
+      spec: {
+        contextSpaceRef: form.contextSpaceRef,
+        dataModelRef: {
+          kind: "DataModel",
+          name: pickerState.dataModelName ?? "",
+          version: pickerState.dataModelVersion ?? "1",
+        },
+        classes: tickedClassNames.map((cName) => ({
+          name: cName,
+          slots: pickerState.classes[cName].slots,
+        })),
+      },
+    };
+
+    const readInfo = tickedClassNames.map((cName) => {
+      const slots = pickerState.classes[cName].slots;
+      return {
+        entities: [{ type: cName }],
+        ...(slots.length > 0 ? { propertyNames: slots } : {}),
+      };
+    });
+
+    const readPolicy = {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "Policy",
+      metadata: {
+        name: `${form.name}-read`,
+        namespace: project,
+        labels: { [SPACE_LABEL]: form.contextSpaceRef },
+      },
+      spec: {
+        contextSpaceRef: { kind: "ContextSpace", name: form.contextSpaceRef },
+        assigner: `did:web:${orgDomain}`,
+        assignee:
+          form.audience === "public"
+            ? { kind: "role", id: "public" }
+            : { kind: "role", id: `${project}-readers` },
+        operations: ["retrieveOps"],
+        information: readInfo,
+      },
+    };
+
+    const writableClassNames = tickedClassNames.filter((c) => pickerState.classes[c]?.writable);
+    const manifests = [modelProjection, endpointEnvelope, readPolicy];
+
+    if (writableClassNames.length > 0) {
+      const writeInfo = writableClassNames.map((cName) => {
+        const cfg = pickerState.classes[cName];
+        return {
+          entities: [{ type: cName, ...(cfg.idPattern ? { idPattern: cfg.idPattern } : {}) }],
+        };
+      });
+      const firstCfg = pickerState.classes[writableClassNames[0]];
+      const writePolicy = {
+        apiVersion: "joinedcontext.com/v1alpha1",
+        kind: "Policy",
+        metadata: {
+          name: `${form.name}-write`,
+          namespace: project,
+          labels: { [SPACE_LABEL]: form.contextSpaceRef },
+        },
+        spec: {
+          contextSpaceRef: { kind: "ContextSpace", name: form.contextSpaceRef },
+          assigner: `did:web:${orgDomain}`,
+          assignee: { kind: "role", id: `${project}-writers` },
+          operations: ["updateOps"],
+          information: writeInfo,
+          ...(firstCfg?.scope ? { scopeQ: firstCfg.scope } : {}),
+          ...(firstCfg?.writeQ ? { q: firstCfg.writeQ } : {}),
+        },
+      };
+      manifests.push(writePolicy);
+    }
+
+    return manifests;
+  };
+
   const check = useMutation({
     mutationFn: async (form: EndpointForm) => {
       setFormError(null);
-      const envelope = toEnvelope(project, form, hidden);
+      if (spaceHasModel) {
+        const ticked = Object.keys(pickerState.classes).filter((c) => pickerState.classes[c]?.ticked);
+        if (ticked.length === 0) {
+          throw new Error(t("endpoints.picker.nothingTicked"));
+        }
+        const manifests = buildManifests(form);
+        const res = await globalThis.fetch(
+          new Request(
+            `${window.location.origin}/api/v1/projects/${encodeURIComponent(project)}/import?dryRun=All`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ manifests }),
+            },
+          ),
+        );
+        if (!res.ok) {
+          const problem = (await res.json().catch(() => null)) as { detail?: string } | null;
+          throw new ApiError(res.status, problem?.detail || `HTTP ${res.status}`);
+        }
+        return res.json();
+      }
+
+      const envelope = toEnvelope(project, form, activeSlug, hidden);
       const draftRef = form.name ? { kind: "Endpoint", name: form.name } : undefined;
       const body = (draftRef ? { ...envelope, draft: draftRef } : envelope) as never;
       return unwrap(
@@ -296,7 +460,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     },
     onSuccess: (result) => {
       const answer = result as { verdict?: Verdict };
-      if (answer.verdict) {
+      if (answer?.verdict) {
         setVerdict(answer.verdict);
       }
     },
@@ -322,7 +486,30 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       draft?: { kind: string; name: string };
     }) => {
       setFormError(null);
-      const envelope = toEnvelope(project, form, hidden);
+      if (spaceHasModel) {
+        const ticked = Object.keys(pickerState.classes).filter((c) => pickerState.classes[c]?.ticked);
+        if (ticked.length === 0) {
+          throw new Error(t("endpoints.picker.nothingTicked"));
+        }
+        const manifests = buildManifests(form);
+        const res = await globalThis.fetch(
+          new Request(
+            `${window.location.origin}/api/v1/projects/${encodeURIComponent(project)}/import`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ manifests }),
+            },
+          ),
+        );
+        if (!res.ok) {
+          const problem = (await res.json().catch(() => null)) as { detail?: string } | null;
+          throw new ApiError(res.status, problem?.detail || `HTTP ${res.status}`);
+        }
+        return res.json();
+      }
+
+      const envelope = toEnvelope(project, form, activeSlug, hidden);
       const body = (draftRef ? { ...envelope, draft: draftRef } : envelope) as never;
       const result = create
         ? await api.POST("/api/v1/projects/{project}/{plural}", {
@@ -342,6 +529,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       setEditing(null);
       setUrlDraftName(undefined);
       void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, "endpoints") });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, "projections") });
     },
     onError: (err) => {
       setFormError(
@@ -425,16 +613,11 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const endpoints = asManifests(list.data.items ?? []);
   const spaceNames = asManifests(spacesQuery.data?.items ?? []).map((s) => s.metadata.name);
   const references = asManifests(referencesQuery.data?.items ?? []);
-  // Only what the gateway would admit this project to (resolver.rs): organization-wide, public,
-  // or a project-list that names it.
   const shared = others.flatMap((source, index) =>
     asManifests(otherLists[index]?.data?.items ?? [])
       .filter((endpoint) => admits(endpoint, source, project))
       .map((endpoint) => ({ source, endpoint })),
   );
-  // Projects an existing endpoint already lists stay pickable even when the list API no
-  // longer knows them; otherwise the enum would refuse the value the manifest carries. With
-  // no other project known the field stays free text, so nothing typed turns into a checkbox.
   const pickable =
     others.length > 0
       ? [
@@ -452,6 +635,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     ...(pickable.length > 0 ? { allowedProjects: { "ui:widget": "checkboxes" } } : {}),
   };
 
+  // Rebuilt on every render: a handful of small objects, and no hook after the early returns.
+  const previewManifests = editing ? buildManifests(editing) : null;
+
   return (
     <div className="flex flex-col gap-section">
       <PageHeader
@@ -467,10 +653,12 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
               setIsNew(true);
               setUrlDraftName(undefined);
               setHidden([]);
+              const newSlug = generateSlug();
+              setActiveSlug(newSlug);
+              setPickerState({ projectionName: "", classes: {} });
               setEditing({
                 name: "",
                 contextSpaceRef: spaceNames[0] ?? "",
-                slug: generateSlug(),
                 audience: "project-list",
                 enabledRepresentations: ["ngsi-ld"],
                 allowedProjects: [],
@@ -570,7 +758,16 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                             setIsNew(false);
                             setUrlDraftName(endpoint.metadata.name);
                             setHidden(hiddenOf(endpoint));
-                            setEditing(toForm(endpoint));
+                            const parsedForm = toForm(endpoint);
+                            setActiveSlug(parsedForm.slug || generateSlug());
+                            const pRefName = (endpoint.spec as { projectionRef?: { name?: string } })
+                              ?.projectionRef?.name;
+                            setPickerState({
+                              projectionName: pRefName || endpoint.metadata.name,
+                              selectedProjectionRef: pRefName,
+                              classes: {},
+                            });
+                            setEditing(parsedForm);
                           }}
                         >
                           {t("endpoints.edit")}
@@ -739,10 +936,8 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         draftName={editing?.name || urlDraftName || undefined}
         verdict={verdict}
         onVerdictChange={setVerdict}
-        // The draft holds the envelope the page proposes, hidden attributes included, so the
-        // check and the proposal read one manifest (AG-61).
         source={{
-          toManifest: (form) => toEnvelope(project, form, hidden),
+          toManifest: (form) => toEnvelope(project, form, activeSlug, hidden),
           fromManifest: (manifest) => toForm(manifest as Manifest),
         }}
         title={isNew ? t("endpoints.add") : t("endpoints.edit")}
@@ -755,25 +950,38 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         error={formError}
         onSubmit={(form, draftRef) => propose.mutate({ form, create: isNew, draft: draftRef })}
         onChange={(form) => {
-          // Keeps typed fields when the slug generator replaces one value of the form.
           if (form) {
             setEditing(form);
           }
         }}
       >
-        {isNew ? (
-          <div>
-            <Button
-              size="sm"
-              icon={<Icon name="refresh" className="size-4" />}
-              onClick={() =>
-                setEditing((prev) => (prev ? { ...prev, slug: generateSlug() } : prev))
-              }
-            >
-              {t("endpoints.generateSlug")}
-            </Button>
+        <div className="flex flex-col gap-2 rounded border border-border bg-surface-subtle p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-caption font-medium text-fg">{t("endpoints.field.slug")}:</span>
+            <code data-testid="endpoint-slug" className="font-mono text-caption text-fg font-semibold">
+              {activeSlug}
+            </code>
           </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-caption font-medium text-fg">{t("endpoints.field.publicUrl")}:</span>
+            <code data-testid="endpoint-url" className="font-mono text-caption text-fg-muted break-all">
+              {`${window.location.origin}/api/endpoint/${activeSlug}`}
+            </code>
+          </div>
+          <p className="text-xs text-fg-subtle">{t("endpoints.slugHint")}</p>
+        </div>
+
+        {editing?.contextSpaceRef ? (
+          <ModelPicker
+            project={project}
+            spaceName={editing.contextSpaceRef}
+            endpointName={editing.name}
+            disabled={propose.isPending}
+            value={pickerState}
+            onChange={setPickerState}
+          />
         ) : null}
+
         {editing?.audience === "public" ? (
           <Alert role="note" tone="warning">
             {t("endpoints.publicNotice")}
@@ -792,10 +1000,21 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             {t("endpoints.check")}
           </Button>
         </div>
-        {editing?.slug ? (
-          // A new endpoint has no published schema yet, so the panel offers the typed name
-          // (UI-31): an attribute is hidden from the first approval, not after a second one.
-          <SchemaProjectionPanel slug={editing.slug} hidden={hidden} onHiddenChange={setHidden} />
+
+        {previewManifests ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-caption font-medium text-fg">{t("endpoints.picker.preview")}:</span>
+            <pre
+              data-testid="endpoint-preview"
+              className="max-h-48 overflow-auto rounded border border-border bg-surface p-2.5 font-mono text-xs text-fg-muted"
+            >
+              {JSON.stringify(previewManifests, null, 2)}
+            </pre>
+          </div>
+        ) : null}
+
+        {activeSlug ? (
+          <SchemaProjectionPanel slug={activeSlug} hidden={hidden} onHiddenChange={setHidden} />
         ) : null}
       </ResourceFormDialog>
     </div>

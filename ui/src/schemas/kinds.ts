@@ -102,7 +102,7 @@ export function endpointSchema(
 ): JsonSchema {
   return {
     type: "object",
-    required: ["name", "slug", "contextSpaceRef", "audience", "enabledRepresentations"],
+    required: ["name", "contextSpaceRef", "audience", "enabledRepresentations"],
     properties: {
       name: {
         type: "string",
@@ -115,11 +115,6 @@ export function endpointSchema(
         type: "string",
         title: t("endpoints.field.space"),
         ...(spaces.length > 0 ? { enum: spaces } : {}),
-      },
-      slug: {
-        type: "string",
-        title: t("endpoints.field.slug"),
-        pattern: SLUG_PATTERN,
       },
       audience: {
         type: "string",
@@ -192,7 +187,6 @@ export function endpointSchema(
 /** Checkboxes for the representation set, a slider for the cache TTL; the rest is default. */
 export const endpointUiSchema: UiSchema = {
   enabledRepresentations: { "ui:widget": "checkboxes" },
-  slug: { "ui:autocomplete": "off" },
   caching: { maxAgeSeconds: { "ui:widget": "range" } },
 };
 

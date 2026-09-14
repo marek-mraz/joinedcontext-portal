@@ -159,23 +159,15 @@ describe("endpoints view", () => {
     expect(await within(row).findByRole("button", { name: en.endpoints.copied })).toBeInTheDocument();
   });
 
-  it("prefills a fresh slug for a new endpoint and regenerates it on demand", async () => {
+  it("shows read-only slug and public URL for a new endpoint", async () => {
     renderEndpoints();
 
     await userEvent.click(await screen.findByRole("button", { name: en.endpoints.add }));
     const dialog = await screen.findByRole("dialog");
-    const slugField = within(dialog).getByLabelText(/Slug/) as HTMLInputElement;
-    const first = slugField.value;
-    expect(first).toMatch(new RegExp(SLUG_PATTERN));
-
-    await userEvent.type(within(dialog).getByLabelText(/^Name/), "mestska-doprava");
-    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.generateSlug }));
-
-    await waitFor(() => expect(slugField.value).not.toBe(first));
-    // Regenerating the slug must not throw away what the user already typed.
-    expect((within(dialog).getByLabelText(/^Name/) as HTMLInputElement).value).toBe(
-      "mestska-doprava",
-    );
+    const slugCode = within(dialog).getByTestId("endpoint-slug");
+    expect(slugCode.textContent).toMatch(new RegExp(SLUG_PATTERN));
+    const urlCode = within(dialog).getByTestId("endpoint-url");
+    expect(urlCode.textContent).toContain(slugCode.textContent!);
   });
 
   it("proposes an added representation on an existing endpoint (DEMO step 7)", async () => {

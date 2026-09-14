@@ -200,6 +200,25 @@
     "generateSlug": "Vygenerovat slug",
     "copyUrl": "Kopírovat URL",
     "copied": "Zkopírováno",
+    "slugHint": "Minted by the Portal, never typed: it encodes nothing about the space or the project (EP-03).",
+    "picker": {
+      "title": "Model projection",
+      "hint": "Pick the classes and slots this endpoint exposes. The policy and projection are generated together.",
+      "noModel": "This space has no DataModel, so no projection can be drawn.",
+      "identityOnly": "identity only (id, type)",
+      "writable": "Writable",
+      "idPattern": "ID pattern",
+      "scope": "Scope",
+      "q": "Write query constraint",
+      "readQ": "Read filter (q)",
+      "reuse": "Projection",
+      "drawNew": "Draw a new one",
+      "sharedBy": "Shared by: {endpoints}",
+      "detach": "Detach and copy",
+      "nothingTicked": "Tick at least one class to expose through the endpoint.",
+      "projectionName": "Projection name",
+      "preview": "Generated manifests"
+    },
     "audience": {
       "project-list": "Vybrané projekty",
       "organization": "Organizace",
@@ -218,7 +237,8 @@
       "requestsPerMinute": "Třída",
       "burst": "Špička",
       "caching": "Vyrovnávací paměť",
-      "maxAge": "Životnost ve vyrovnávací paměti (sekundy)"
+      "maxAge": "Životnost ve vyrovnávací paměti (sekundy)",
+      "publicUrl": "Public URL"
     },
     "rateClass": {
       "strict": "Přísná",
