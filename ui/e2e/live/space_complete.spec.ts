@@ -1,13 +1,14 @@
 import { expect, test } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import { STEWARD, proposedChange, signIn } from "./portal";
 
 const PROJECT = "helsinki";
 
 test("complete a space from sample file and propose change", async ({ browser }) => {
   const samplePath = path.resolve(
-    __dirname,
+    path.dirname(fileURLToPath(import.meta.url)),
     "../../../../joinedcontext-presentation/record/samples/bike-stations.csv",
   );
 
