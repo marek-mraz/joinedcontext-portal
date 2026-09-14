@@ -42,6 +42,9 @@ COPY migrations ./migrations
 COPY apps ./apps
 COPY --from=ui /ui/dist ./ui/dist
 COPY --from=kit /kit/dist ./kit/dist
+# The kit's capabilities file is compiled into the binary (`include_str!` in
+# src/agents/oneshot.rs, AP-65), so it is a build input of the Rust stage too.
+COPY kit/kit.json ./kit/kit.json
 # `-p joinedcontext-portal`: this image ships one binary and the reference apps have images of
 # their own, so building the whole workspace here would compile them for nothing.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
