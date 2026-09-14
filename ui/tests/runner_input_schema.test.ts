@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { getDefaultFormState } from "@rjsf/utils";
+import validator from "@rjsf/validator-ajv8";
 import { runnerInputSchema } from "../src/schemas/kinds";
 import type { CatalogInput } from "../src/schemas/kinds";
 import { toEnvelope, toForm } from "../src/pages/datasources/DataSourcesPage";
@@ -105,6 +107,25 @@ describe("runnerInputSchema pure function", () => {
       ],
     });
     expect(schema.required).toEqual(["paths"]);
+  });
+
+  it("keeps a list default out of a YAML text field, so the defaults of a form validate", () => {
+    const { schema } = runnerInputSchema({
+      name: "nats",
+      group: "brokers",
+      summary: "Subscribe to a NATS subject.",
+      fields: [
+        { path: "subject", type: "string", kind: "scalar", secret: false, advanced: false, default: null, description: "" },
+        { path: "tls.client_certs", type: "object", kind: "array", secret: false, advanced: true, default: [], description: "" },
+        { path: "tls.enabled", type: "bool", kind: "scalar", secret: false, advanced: true, default: false, description: "" },
+      ],
+    });
+    const tls = schema.properties?.tls as { properties: Record<string, { type: string; default?: unknown }> };
+    expect(tls.properties.client_certs).toMatchObject({ type: "string" });
+    expect(tls.properties.client_certs.default).toBeUndefined();
+    expect(tls.properties.enabled.default).toBe(false);
+    const defaults = getDefaultFormState(validator, schema, { subject: "helsinki.demo.counters" });
+    expect(validator.validateFormData(defaults, schema).errors).toEqual([]);
   });
 
   it("generates JSON Schema and UiSchema with required non-advanced fields and secretRef widget", () => {

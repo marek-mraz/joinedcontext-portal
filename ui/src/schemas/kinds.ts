@@ -493,7 +493,10 @@ export function runnerInputSchema(input: CatalogInput): { schema: JsonSchema; ui
       propUi["ui:widget"] = "textarea";
     }
 
-    if (f.default !== null && f.default !== undefined) {
+    // A YAML-edited field is a string in the form: a list or map default stays the runner's own
+    // and is not sent, since `[]` in a string field fails the form's validation.
+    const yamlDefault = propSchema.type === "string" && typeof f.default !== "string";
+    if (f.default !== null && f.default !== undefined && !yamlDefault) {
       propSchema.default = f.default as JsonSchema["default"];
     }
     if (f.description) {
