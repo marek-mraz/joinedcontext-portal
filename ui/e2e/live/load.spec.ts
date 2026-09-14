@@ -116,19 +116,27 @@ test("a data source and a pipeline, checked, tested, proposed and approved throu
   expect(personMs, "the person's part of Load stays under a minute").toBeLessThan(60_000);
 
   // 5. The sink is live: Vehicle entities readable through the endpoint (PL-47, T-0646).
-  await page.goto(`/projects/${PROJECT}/explore?space=${PROJECT}&endpoint=helsinki-all&lang=en`, { waitUntil: "networkidle" });
-  const kind = page.locator("#explore-type");
-  if ((await kind.evaluate((el) => el.tagName)) === "SELECT") {
-    await kind.selectOption("Vehicle");
-  } else {
-    await kind.fill("Vehicle");
-    await kind.press("Enter");
-  }
+  // Explore keeps the space and the type in page state, so every poll chooses them again.
+  const chooseVehicle = async () => {
+    await page.goto(`/projects/${PROJECT}/explore?lang=en`, { waitUntil: "networkidle" });
+    await page.locator("#explore-space").selectOption(PROJECT);
+    const kind = page.locator("#explore-type");
+    if ((await kind.evaluate((el) => el.tagName)) === "SELECT") {
+      await kind.selectOption("Vehicle");
+    } else {
+      await kind.fill("Vehicle");
+      await kind.press("Enter");
+    }
+  };
   await expect
     .poll(
       async () => {
-        await page.reload({ waitUntil: "networkidle" });
-        const count = await page.getByText(/^\d+ entities$/).first().textContent().catch(() => "0 entities");
+        await chooseVehicle();
+        const count = await page
+          .getByText(/^\d+ entit(y|ies)$/)
+          .first()
+          .textContent({ timeout: 15_000 })
+          .catch(() => "0 entities");
         return Number.parseInt(count ?? "0", 10);
       },
       { timeout: 240_000, intervals: [10_000] },
