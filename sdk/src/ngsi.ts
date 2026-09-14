@@ -7,6 +7,7 @@
  */
 import type { Agg, Filter, Source } from "./spec";
 import { DEFAULT_LIMIT, MAX_LIMIT } from "./spec";
+import { queryString } from "./sdk/query";
 
 /** A GeoJSON point or polygon as the broker serialises a GeoProperty in keyValues form. */
 export interface Geo {
@@ -26,21 +27,24 @@ export const PAGE = 1000;
 
 /** The entity route of one endpoint, relative to the platform host. */
 export function entitiesUrl(slug: string, source: Source, offset: number): string {
-  const params = new URLSearchParams({ type: source.type, options: "keyValues" });
   const limit = Math.min(source.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-  params.set("limit", String(Math.min(PAGE, limit - offset)));
+  const params: Record<string, string | undefined> = {
+    type: source.type,
+    options: "keyValues",
+    limit: String(Math.min(PAGE, limit - offset)),
+  };
   if (offset > 0) {
-    params.set("offset", String(offset));
+    params.offset = String(offset);
   }
   // id and type come with every entity; asking for them as attributes is a 400.
   const attrs = source.attrs.filter((attr) => attr !== "id" && attr !== "type");
   if (attrs.length > 0) {
-    params.set("attrs", attrs.join(","));
+    params.attrs = attrs.join(",");
   }
   if (source.q) {
-    params.set("q", source.q);
+    params.q = source.q;
   }
-  return `/api/endpoint/${encodeURIComponent(slug)}/ngsi-ld/v1/entities?${params.toString()}`;
+  return `/api/endpoint/${encodeURIComponent(slug)}/ngsi-ld/v1/entities?${queryString(params)}`;
 }
 
 /**

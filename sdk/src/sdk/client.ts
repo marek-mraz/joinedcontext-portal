@@ -5,6 +5,7 @@ import type { AccessDocument } from "./access";
 import { parseAccess } from "./access";
 import type { JcConfig, JcUser } from "./config";
 import { readConfig } from "./config";
+import { queryString, randomId } from "./query";
 import type { Transport } from "./transport";
 import { transportFor } from "./transport";
 
@@ -163,26 +164,26 @@ export function createClient(config: JcConfig, transport: Transport): Client {
         throw new ProblemError(0, { title: "georel, geometry, coordinates must all be provided together" });
       }
 
-      const params = new URLSearchParams({ type, options: "keyValues", limit: String(limit) });
+      const params: Record<string, string | undefined> = { type, options: "keyValues", limit: String(limit) };
       if (query?.offset !== undefined && query.offset > 0) {
-        params.set("offset", String(query.offset));
+        params.offset = String(query.offset);
       }
       if (query?.attrs) {
         const filtered = query.attrs.filter((a) => a !== "id" && a !== "type" && a !== "@context");
         if (filtered.length > 0) {
-          params.set("attrs", filtered.join(","));
+          params.attrs = filtered.join(",");
         }
       }
       if (query?.q) {
-        params.set("q", query.q);
+        params.q = query.q;
       }
       if (query?.georel && query?.geometry && query?.coordinates) {
-        params.set("georel", query.georel);
-        params.set("geometry", query.geometry);
-        params.set("coordinates", query.coordinates);
+        params.georel = query.georel;
+        params.geometry = query.geometry;
+        params.coordinates = query.coordinates;
       }
 
-      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities?${params.toString()}`;
+      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities?${queryString(params)}`;
       checkEndpointPath(config.slug, path);
 
       const resp = await transport({ method: "GET", path });
@@ -215,12 +216,12 @@ export function createClient(config: JcConfig, transport: Transport): Client {
     },
 
     async get<T extends Row = Row>(id: string, attrs?: string[]): Promise<T> {
-      const params = new URLSearchParams({ options: "keyValues" });
+      const params: Record<string, string | undefined> = { options: "keyValues" };
       if (attrs) {
         const filtered = attrs.filter((a) => a !== "id" && a !== "type" && a !== "@context");
-        if (filtered.length > 0) params.set("attrs", filtered.join(","));
+        if (filtered.length > 0) params.attrs = filtered.join(",");
       }
-      const qs = params.toString();
+      const qs = queryString(params);
       const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/entities/${encodeURIComponent(id)}${qs ? `?${qs}` : ""}`;
       checkEndpointPath(config.slug, path);
 
@@ -238,7 +239,7 @@ export function createClient(config: JcConfig, transport: Transport): Client {
       if (!TYPE_RE.test(type)) {
         throw new ProblemError(0, { title: `Invalid entity type: '${type}'` });
       }
-      const lid = localId ?? crypto.randomUUID();
+      const lid = localId ?? randomId();
       if (!LOCAL_ID_RE.test(lid)) {
         throw new ProblemError(0, { title: `Invalid localId: '${lid}'` });
       }
@@ -293,22 +294,22 @@ export function createClient(config: JcConfig, transport: Transport): Client {
         throw new ProblemError(0, { title: "endTimeAt is required for timerel 'between'" });
       }
 
-      const params = new URLSearchParams({
+      const params: Record<string, string | undefined> = {
         type,
         options: "temporalValues",
         timerel: query.timerel,
         timeAt: query.timeAt,
-      });
-      if (query.endTimeAt) params.set("endTimeAt", query.endTimeAt);
-      if (query.lastN !== undefined) params.set("lastN", String(query.lastN));
-      if (query.limit !== undefined) params.set("limit", String(query.limit));
-      if (query.q) params.set("q", query.q);
+      };
+      if (query.endTimeAt) params.endTimeAt = query.endTimeAt;
+      if (query.lastN !== undefined) params.lastN = String(query.lastN);
+      if (query.limit !== undefined) params.limit = String(query.limit);
+      if (query.q) params.q = query.q;
       if (query.attrs) {
         const filtered = query.attrs.filter((a) => a !== "id" && a !== "type" && a !== "@context");
-        if (filtered.length > 0) params.set("attrs", filtered.join(","));
+        if (filtered.length > 0) params.attrs = filtered.join(",");
       }
 
-      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/temporal/entities?${params.toString()}`;
+      const path = `/api/endpoint/${encodeURIComponent(config.slug)}/ngsi-ld/v1/temporal/entities?${queryString(params)}`;
       checkEndpointPath(config.slug, path);
 
       const resp = await transport({ method: "GET", path });

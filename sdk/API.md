@@ -206,6 +206,7 @@ Context providing data access and logging to server functions.
 type FnHandler = (request: FnRequest, ctx: FnContext) => Promise<FnResponse>
 ```
 Standard handler signature implemented by backend function files.
+Backend functions run in QuickJS without browser Web APIs: no `fetch`, `URLSearchParams`, `URL`, `crypto`, DOM or timers. Read data through `ctx.jc` and build strings by hand.
 
 ---
 

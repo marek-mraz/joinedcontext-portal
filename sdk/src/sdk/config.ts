@@ -66,12 +66,8 @@ export function parseConfig(input: unknown): JcConfig {
     if (typeof raw.basemap !== "string") {
       errors.push("basemap: must be an http(s) URL");
     } else {
-      try {
-        const u = new URL(raw.basemap);
-        if (u.protocol !== "https:" && u.protocol !== "http:") {
-          errors.push("basemap: must be an http(s) URL");
-        }
-      } catch {
+      // A pattern, not `new URL`: the SDK runs where no Web API exists too (jc-functions).
+      if (!/^https?:\/\/[^\s/?#]+/i.test(raw.basemap)) {
         errors.push("basemap: must be an http(s) URL");
       }
     }
