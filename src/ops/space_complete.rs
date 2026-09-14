@@ -600,10 +600,13 @@ pub async fn run(
         }
     }
 
-    // 4. Pipeline
+    // 4. Pipeline, and the Endpoint it writes through: a dropped one, the one the mirror
+    // already serves for the space, or a drafted organization-wide one (EP-02 slug).
     let has_pipeline = manifests.contains_key("Pipeline");
     let mut inferred_pipeline = false;
     let mut pipeline_manifest = manifests.get("Pipeline").cloned();
+    let mut inferred_endpoint = false;
+    let mut endpoint_manifest = manifests.get("Endpoint").cloned();
 
     if !has_pipeline && datasource_manifest.is_some() {
         let ds_name = datasource_manifest
@@ -616,25 +619,49 @@ pub async fn run(
                 "root = this\nroot.id = \"urn:ngsi-ld:{class_name}:\" + (this.stationId | this.id | this.station_id | uuid_v4()).string()\nroot.type = \"{class_name}\"\n"
             )
         });
-        // Look up target endpoint if one exists
-        let target_endpoint = state
-            .mirror
-            .list(project, "Endpoint", &crate::store::ListOptions::default())
-            .items
-            .into_iter()
-            .find(|ep| ep.spec.get("contextSpaceRef").and_then(Value::as_str) == Some(&space_name))
-            .map(|ep| {
-                format!(
-                    "urn:ngsi-ld:Endpoint:{}:{}:{}",
-                    crate::api::assistant::org_domain(state, project),
-                    space_name,
-                    ep.metadata.name
-                )
+        let org = crate::api::assistant::org_domain(state, project);
+        let endpoint_name = endpoint_manifest
+            .as_ref()
+            .and_then(|m| m.pointer("/metadata/name"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                state
+                    .mirror
+                    .list(project, "Endpoint", &crate::store::ListOptions::default())
+                    .items
+                    .into_iter()
+                    .find(|ep| {
+                        ep.spec.get("contextSpaceRef").and_then(Value::as_str) == Some(&space_name)
+                    })
+                    .map(|ep| ep.metadata.name)
+            })
+            .unwrap_or_else(|| {
+                let name = format!("{space_name}-all");
+                endpoint_manifest = Some(json!({
+                    "apiVersion": API_VERSION,
+                    "kind": "Endpoint",
+                    "metadata": {
+                        "name": name,
+                        "namespace": project,
+                        "title": { "en": format!("{} context, everything", words_capitalized(&space_name)) }
+                    },
+                    "spec": {
+                        "contextSpaceRef": space_name,
+                        "slug": crate::agents::share::slug(),
+                        "audience": "organization",
+                        "enabledRepresentations": ["ngsi-ld"]
+                    }
+                }));
+                inferred_endpoint = true;
+                name
             });
+        let target_endpoint = format!("urn:ngsi-ld:Endpoint:{org}:{space_name}:{endpoint_name}");
 
-        let mut spec = json!({
+        let spec = json!({
             "class": "auto",
             "period": "60s",
+            "targetEndpoint": target_endpoint,
             "source": {
                 "dataSourceRef": {
                     "kind": "DataSource",
@@ -654,10 +681,6 @@ pub async fn run(
                 "cpuMillicores": 100
             }
         });
-        if let Some(target) = target_endpoint {
-            spec["targetEndpoint"] = Value::String(target);
-        }
-
         let manifest = json!({
             "apiVersion": API_VERSION,
             "kind": "Pipeline",
@@ -841,6 +864,65 @@ pub async fn run(
             kind: "DataSource".into(),
             name: name.into(),
             inferred: inferred_datasource,
+            manifest: m,
+            verdict: final_v,
+        });
+    }
+
+    // Save Endpoint draft
+    if let Some(m) = endpoint_manifest {
+        let name = m
+            .pointer("/metadata/name")
+            .and_then(Value::as_str)
+            .unwrap_or(&space_name);
+        let stored = store
+            .put(
+                project,
+                "Endpoint",
+                name,
+                m.clone(),
+                None,
+                &caller.identity.username,
+                caller.via.touched_kind(),
+            )
+            .await
+            .map_err(draft_error)?;
+        let dry_res = ops::call(
+            ops::find("jc_manifest_dry_run").unwrap(),
+            caller,
+            state,
+            project,
+            json!({ "manifest": m }),
+        )
+        .await;
+        let v = match dry_res {
+            Ok(val) => serde_json::from_value::<Verdict>(
+                val.get("verdict").cloned().unwrap_or(Value::Null),
+            )
+            .ok(),
+            Err(e) => Some(Verdict::red(
+                &m,
+                vec![Finding {
+                    level: Level::Error,
+                    path: "".into(),
+                    message: e.to_string(),
+                }],
+                None,
+            )),
+        };
+        let final_v = if let Some(verdict) = v {
+            store
+                .set_verdict(project, "Endpoint", name, verdict)
+                .await
+                .map_err(draft_error)?
+                .verdict
+        } else {
+            stored.verdict
+        };
+        drafts.push(CompletedDraft {
+            kind: "Endpoint".into(),
+            name: name.into(),
+            inferred: inferred_endpoint,
             manifest: m,
             verdict: final_v,
         });
@@ -1072,6 +1154,8 @@ fn riskiest_lane(drafts: &[CompletedDraft]) -> Lane {
         let l = match d.kind.as_str() {
             "DataModel" | "ContextSpace" | "DataSource" => Lane::Yellow,
             "Pipeline" => Lane::Green,
+            // A public Endpoint is the Red lane (CC-19); an organization-wide one is Yellow.
+            "Endpoint" if d.manifest["spec"]["audience"] == "public" => Lane::Red,
             _ => Lane::Yellow,
         };
         lane = match (lane, l) {

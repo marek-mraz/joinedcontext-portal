@@ -398,4 +398,21 @@ async fn anonymous_is_401_and_a_capture_for_no_test_is_404() {
         .await
         .expect("response");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // A feed-sized message (three mebibytes, over axum's default limit) is read, not 413.
+    let big = format!(
+        r#"{{"input":"{}","output":null,"error":null}}"#,
+        "x".repeat(3 * 1024 * 1024)
+    );
+    let response = server::internal_app(AppState::new(config(None), None))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/internal/pipeline-tests/nosuchtestnosuchtestnosuch")
+                .body(Body::from(big))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

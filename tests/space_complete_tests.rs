@@ -208,6 +208,25 @@ async fn space_complete_readme_url_candidate_never_fetched() {
         .find(|d| d["kind"] == "DataSource")
         .expect("DataSource drafted");
     assert_eq!(ds_draft["manifest"]["spec"]["http"]["url"], candidate_url);
+    // No Endpoint serves the new space, so one is drafted (organization-wide, EP-02 slug) and
+    // the pipeline writes through it: a Pipeline without a target does not even parse.
+    let ep_draft = drafts
+        .iter()
+        .find(|d| d["kind"] == "Endpoint")
+        .expect("Endpoint drafted");
+    assert_eq!(ep_draft["inferred"], true);
+    assert_eq!(ep_draft["manifest"]["spec"]["audience"], "organization");
+    assert_eq!(ep_draft["manifest"]["spec"]["contextSpaceRef"], "bikes");
+    assert!(ep_draft["manifest"]["spec"]["slug"].as_str().unwrap().len() >= 26);
+    let pl_draft = drafts
+        .iter()
+        .find(|d| d["kind"] == "Pipeline")
+        .expect("Pipeline drafted");
+    let target = pl_draft["manifest"]["spec"]["targetEndpoint"]
+        .as_str()
+        .unwrap();
+    assert!(target.ends_with(":bikes:bikes-all"), "{target}");
+    assert_eq!(val["lane"], "yellow");
     // wiremock assertion verifies 0 requests were received by mock_server
 }
 

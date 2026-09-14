@@ -102,6 +102,8 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
       void navigate({ to: `/projects/${project}/datasources?draft=${encodeURIComponent(d.name)}` });
     } else if (d.kind === "Pipeline") {
       void navigate({ to: `/projects/${project}/pipelines?draft=${encodeURIComponent(d.name)}` });
+    } else if (d.kind === "Endpoint") {
+      void navigate({ to: `/projects/${project}/endpoints` });
     } else if (d.kind === "DataModel") {
       const linkmlSource = (d.manifest.spec as { source?: string })?.source;
       if (linkmlSource) {

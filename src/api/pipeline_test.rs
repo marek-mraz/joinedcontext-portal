@@ -334,7 +334,11 @@ pub fn router() -> Router<AppState> {
 }
 
 pub fn internal_router() -> Router<AppState> {
-    Router::new().route("/internal/pipeline-tests/{id}", post(capture))
+    // The harness posts a whole fetched feed back as one message, so the capture route takes
+    // what the test route takes; axum's default two mebibytes turned a 1.2 MB feed into 413.
+    Router::new()
+        .route("/internal/pipeline-tests/{id}", post(capture))
+        .layer(DefaultBodyLimit::max(BODY_LIMIT))
 }
 
 #[cfg(test)]
