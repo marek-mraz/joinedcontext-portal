@@ -21,11 +21,9 @@
     "main": "Hauptnavigation",
     "skipToContent": "Zum Inhalt springen",
     "breadcrumb": "Navigationspfad",
-    "playground": "Spielwiese",
     "flows": "Abläufe",
     "models": "Datenmodelle",
     "ckan": "Offene Daten",
-    "federation": "Föderation",
     "allEndpoints": "Alle Endpunkte",
     "shared": "Geteilte Referenzen",
     "explore": "Daten erkunden",
@@ -98,7 +96,8 @@
     "field": "Feld",
     "diffType": "Änderungstyp",
     "actions": "Aktionen",
-    "view": "Anzeigen"
+    "view": "Anzeigen",
+    "ownAsAdministrator": "Sie haben diese Änderung verfasst; Sie genehmigen sie als Administrator von {kind}."
   },
   "lane": {
     "green": "Grün",
@@ -618,20 +617,6 @@
       "popup": "Attribute im Popup"
     }
   },
-  "playground": {
-    "title": "Föderations-Spielwiese",
-    "subtitle": "Kontexträume, ihre Registrierungen und der Verkehr dazwischen — im Browser gezeichnet, ohne eine Frage an den Server.",
-    "pause": "Anhalten",
-    "resume": "Fortsetzen",
-    "send": "Abfrage senden",
-    "events": "Letzte Antworten",
-    "noEvents": "Noch keine Antwort. Drücken Sie „Abfrage senden“.",
-    "anyType": "jeder Typ",
-    "entities": "{count, plural, =0 {keine Entitäten} one {# Entität} other {# Entitäten}}",
-    "graphLabel": "Föderationsgraph: {spaces} Kontexträume, {links} Registrierungen",
-    "selected": "Registrierungen von {space}",
-    "noLinks": "Dieser Raum registriert keine Kontextquelle und wird von keiner registriert."
-  },
   "access": {
     "title": "Zugriff",
     "accounts": {
@@ -1012,85 +997,6 @@
       "missingInstance": "Katalog {instance} fehlt"
     }
   },
-  "federation": {
-    "title": "Föderation",
-    "lead": "Welche Quellen in den Räumen dieses Projekts antworten und wer diese Plattform ist, wenn sie eine Abfrage weiterreicht. Eine Registrierung gewährt für sich nichts: was zurückkommt, entscheiden weiterhin die Richtlinien der Quelle.",
-    "add": "Quelle registrieren",
-    "propose": "Registrierung vorschlagen",
-    "empty": "In diesem Projekt ist noch keine Quelle registriert.",
-    "dialog": {
-      "description": "Eine Registrierung nennt einen Kontextraum, ein Ziel und was dieses Ziel hält. Nennen Sie einen Endpunkt auf dieser Plattform oder eine Adresse anderswo, niemals beides."
-    },
-    "field": {
-      "name": "Name",
-      "title": "Titel",
-      "space": "Kontextraum",
-      "spaceHint": "Der Raum, dessen Broker von der Quelle erfährt. Die Registrierung wird in den Mandanten dieses Raums geschrieben und in keinen anderen.",
-      "endpointRef": "Endpunkt auf dieser Plattform",
-      "endpoint": "Adresse anderswo",
-      "targetHint": "Das eine oder das andere, niemals beides.",
-      "target": "Ziel",
-      "information": "Was die Quelle hält",
-      "informationHint": "Mindestens eine Entitätsauswahl. Eine Quelle, die nichts beansprucht, wird von nichts getroffen.",
-      "entities": "Entitätstypen",
-      "entityType": "Typ",
-      "idPattern": "Id-Muster",
-      "propertyNames": "Attribute",
-      "mode": "Modus",
-      "federation": "Identität",
-      "identity": "Weitergereicht als",
-      "identityHint": "Keiner der Modi ist eine Gewährung: die Richtlinien der Quelle gelten ohnehin, und die engere der beiden gewinnt.",
-      "serviceAccount": "Dienstkonto",
-      "operations": "Operationen",
-      "operationsHint": "Für welche Operationen die Quelle antwortet, in der Benennung von NGSI-LD (federationOps, retrieveEntity). Leer bedeutet die Voreinstellung des Brokers."
-    },
-    "identity": {
-      "serviceAccount": "Ein Dienstkonto dieser Plattform",
-      "caller": "Das eigene Token des Aufrufers"
-    },
-    "mode": {
-      "inclusive": "Mit lokalen Daten zusammengeführt",
-      "exclusive": "Die einzige Antwort für ihren Bereich",
-      "auxiliary": "Neben den lokalen Daten",
-      "redirect": "Der Aufrufer wird umgeleitet"
-    },
-    "kind": {
-      "ContextSpace": "Kontextraum",
-      "Endpoint": "Endpunkt",
-      "ContextSourceRegistration": "Registrierung",
-      "Pipeline": "Pipeline",
-      "App": "Anwendung",
-      "ExternalSource": "Quelle anderswo",
-      "CkanInstance": "Open-Data-Katalog"
-    },
-    "edge": {
-      "registers": "registriert",
-      "serves": "bedient",
-      "feeds": "speist",
-      "consumes": "liest",
-      "publishes": "veröffentlicht in"
-    },
-    "health": {
-      "ok": "Läuft",
-      "degraded": "Gestört",
-      "unknown": "Keine Meldung"
-    },
-    "graph": {
-      "title": "Föderationsgraph",
-      "empty": "Noch nichts zu zeichnen.",
-      "filter": "Angezeigte Arten",
-      "zoomIn": "Vergrößern",
-      "zoomOut": "Verkleinern",
-      "reset": "Ansicht zurücksetzen"
-    },
-    "card": {
-      "title": "Ausgewähltes Objekt",
-      "health": "Zustand",
-      "noCredential": "Eine Karte zeigt, dass sich eine Registrierung authentifiziert und wie. Das Konto, unter dem weitergereicht wird, wird erst bei der Abfrage aufgelöst, und an diese Seite geht nie ein Geheimnis.",
-      "phase": "Status",
-      "breadcrumb": "Wo dieses Objekt verwaltet wird"
-    }
-  },
   "mappings": {
     "pair": "Modelle",
     "source": "Quellmodell",
@@ -1243,7 +1149,9 @@
       "question": "Frage {question}.",
       "answer": "Auf {question} geantwortet.",
       "message": "{who}: {text}",
-      "lag": "{missed} Zeilen wurden übersprungen; das erneute Verbinden holt sie nach."
+      "lag": "{missed} Zeilen wurden übersprungen; das erneute Verbinden holt sie nach.",
+      "endpoints": "Daten: {names}",
+      "noEndpoints": "Daten: keine"
     },
     "preview": {
       "title": "Vorschau",
@@ -1279,17 +1187,20 @@
     "catalog": {
       "title": "Was der Assistent gefunden hat",
       "none": "In diesem Projekt passt nichts zu diesen Wörtern.",
-      "owner": "Eigentümer {owner}",
       "allowed": "Zugänglich",
       "restricted": "Eingeschränkt",
       "fresh": "Vor {when} gespeist durch {pipeline}",
-      "noFeed": "Kein Live-Feed",
-      "explore": "Erkunden",
-      "open": "Öffnen",
       "agoSeconds": "{n} s",
       "agoMinutes": "{n} min",
       "agoHours": "{n} h",
-      "agoDays": "{n} d"
+      "agoDays": "{n} d",
+      "use": "Verwenden",
+      "inUse": "In Verwendung",
+      "useLabel": "{name} in diesem Gespräch verwenden",
+      "inUseLabel": "{name} ist in Verwendung",
+      "showMore": "{count} weitere anzeigen",
+      "showLess": "Weniger anzeigen",
+      "fed": "gespeist vor {when}"
     },
     "proposal": {
       "title": "Endpunkt-Vorschlag",
@@ -1350,6 +1261,11 @@
       "firstFrame": "Erster Frame",
       "firstVersion": "Erste Version",
       "seconds": "{seconds} s"
+    },
+    "publication": {
+      "title": "Veröffentlichung",
+      "source": "Quellcode in Git",
+      "approve": "Genehmigen und veröffentlichen"
     }
   },
   "assistant": {
@@ -1377,6 +1293,28 @@
       "resume": "Fortsetzen: {title}",
       "recent": "Letzte Unterhaltungen",
       "failed": "Die Unterhaltung hat nicht begonnen. Prüfen Sie die Nachricht und versuchen Sie es erneut."
+    },
+    "data": {
+      "title": "Daten",
+      "label": "Daten, die der Assistent lesen darf",
+      "chosen": "Gewählte Endpunkte",
+      "remove": "{name} entfernen",
+      "add": "Endpunkt hinzufügen",
+      "empty": "Fügen Sie einen Endpunkt hinzu, damit der Assistent seine Daten lesen kann",
+      "search": "Endpunkte suchen",
+      "full": "Höchstens {max} Endpunkte; entfernen Sie einen, um einen anderen hinzuzufügen.",
+      "loading": "Endpunkte werden geladen…",
+      "none": "Kein Endpunkt passt.",
+      "audience": {
+        "public": "öffentlich",
+        "organization": "Organisation",
+        "project": "Projekt"
+      }
+    },
+    "query": {
+      "id": "Entität",
+      "rows": "Zeilen: {count}",
+      "someRows": "{shown} von {total} Zeilen"
     }
   },
   "permissions": {
@@ -1457,6 +1395,12 @@
       "propose": "Änderung vorschlagen",
       "cancel": "Abbrechen",
       "yamlError": "Kein gültiges YAML: {{message}}"
-    }
+    },
+    "states": {
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Gestoppt",
+      "expired": "Beendet"
+    },
+    "timings": "Zeiten"
   }
 }

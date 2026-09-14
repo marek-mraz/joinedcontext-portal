@@ -1251,3 +1251,163 @@ async fn approve_without_csrf_header_returns_403() {
     assert_eq!(problem.status, 403);
     assert_eq!(problem.r#type, "https://joinedcontext.com/errors/forbidden");
 }
+
+/// PF-58: the pull request of `author` creating ContextSpace `mobility`, and a state whose
+/// mirror binds `author` to a role of `verbs` on ContextSpace across the organization.
+async fn own_change_of(verbs: &[&str]) -> (MockServer, AppState) {
+    use joinedcontext_portal::permissions::ORG_NAMESPACE;
+    use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+
+    let server = MockServer::start().await;
+    let client = GiteaClient::new(
+        server.uri().parse().expect("url"),
+        "test-owner",
+        "test-repo",
+        "token-xyz",
+    )
+    .expect("client");
+    let state = AppState::new(Config::for_tests(), None).with_gitea(Arc::new(client));
+    let org = |kind: &str, name: &str, spec: serde_json::Value| ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: kind.to_owned(),
+        metadata: ObjectMeta::new(name, ORG_NAMESPACE),
+        spec,
+        status: None,
+    };
+    state.mirror.upsert(org(
+        "Role",
+        "space-role",
+        json!({ "rules": [{ "kinds": ["ContextSpace"], "verbs": verbs }] }),
+    ));
+    state.mirror.upsert(org(
+        "RoleBinding",
+        "space-binding",
+        json!({
+            "subjects": [{ "user": "jana.kovacova@banskabystrica.sk" }],
+            "role": "space-role",
+            "scope": { "organization": "bb" }
+        }),
+    ));
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 1,
+            "html_url": "https://gitea.example.sk/pulls/1",
+            "state": "open",
+            "title": "create ContextSpace mobility",
+            "head": { "ref": "portal/create-contextspace-mobility-11111111" },
+            "base": { "ref": "main" },
+            "created_at": "2026-09-06T09:14:22Z",
+            "user": {
+                "login": "jana.kovacova",
+                "full_name": "Jana Kováčová",
+                "email": "jana.kovacova@banskabystrica.sk"
+            },
+            "mergeable": true,
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .and(query_param("ref", "portal/create-contextspace-mobility-11111111"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "blob-1",
+            "content": encode_b64("apiVersion: joinedcontext.com/v1alpha1\nkind: ContextSpace\nmetadata:\n  name: mobility\n  namespace: ovzdusie\nspec:\n  isSandbox: true\n")
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/1/merge"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    (server, state)
+}
+
+async fn approve_own(state: AppState) -> axum::response::Response {
+    let config = state.config.clone();
+    let cookies = session_and_csrf_cookies(
+        &config,
+        "jana.kovacova",
+        Some("jana.kovacova@banskabystrica.sk"),
+        Some("Jana Kováčová"),
+        vec![],
+    );
+    server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/changes/chg-00000001/approve")
+                .header(header::COOKIE, cookies)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({ "confirm": "mobility" }).to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response")
+}
+
+#[tokio::test]
+async fn an_administrator_of_the_kind_approves_their_own_change_and_the_merge_says_so() {
+    let (server, state) = own_change_of(&["propose", "approve", "delete"]).await;
+
+    let response = approve_own(state).await;
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let requests = server.received_requests().await.expect("requests");
+    let merge = requests
+        .iter()
+        .find(|r| r.url.path().ends_with("/pulls/1/merge"))
+        .expect("the change was merged");
+    let body = String::from_utf8_lossy(&merge.body);
+    assert!(
+        body.contains("its author, as an administrator of ContextSpace (PF-58)"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn an_author_who_approves_but_may_not_delete_still_cannot_approve_their_own_change() {
+    let (server, state) = own_change_of(&["propose", "approve"]).await;
+
+    let response = approve_own(state).await;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let requests = server.received_requests().await.expect("requests");
+    assert!(!requests.iter().any(|r| r.url.path().ends_with("/merge")));
+}
+
+#[tokio::test]
+async fn an_operation_never_approves_its_callers_own_change_even_for_an_administrator() {
+    let (server, state) = own_change_of(&["propose", "approve", "delete"]).await;
+    let identity = Identity {
+        subject: "sub-jana.kovacova".into(),
+        username: "jana.kovacova".into(),
+        email: Some("jana.kovacova@banskabystrica.sk".into()),
+        name: Some("Jana Kováčová".into()),
+        roles: Vec::new(),
+        groups: Vec::new(),
+    };
+
+    let refused = joinedcontext_portal::api::changes::approve_change_for(
+        &state,
+        &identity,
+        "ovzdusie",
+        "chg-00000001",
+        Some("mobility"),
+        joinedcontext_portal::api::changes::ApprovedBy::Operation,
+    )
+    .await;
+
+    assert!(matches!(
+        refused,
+        Err(joinedcontext_portal::error::ApiError::SelfApproval(_))
+    ));
+    let requests = server.received_requests().await.expect("requests");
+    assert!(!requests.iter().any(|r| r.url.path().ends_with("/merge")));
+}

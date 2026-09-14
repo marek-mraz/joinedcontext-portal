@@ -281,7 +281,7 @@ describe("apps catalog", () => {
       run("r3", "mapa-vystavby", "building"),
     ]);
 
-    expect(await screen.findByRole("heading", { name: "mapa-vystavby" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Mapa vystavby" })).toBeInTheDocument();
     expect(screen.queryByText("stare-mapa")).toBeNull();
     expect(screen.queryByText("zrusena")).toBeNull();
     expect(screen.queryByRole("heading", { name: en.apps.builds.title })).toBeNull();
@@ -303,6 +303,23 @@ describe("apps catalog", () => {
     expect(screen.queryByLabelText(en.apps.generate.prompt)).toBeNull();
   });
 
+  it("names a draft by its run's title, else its name as words, never the id", async () => {
+    renderCatalog([], undefined, [
+      {
+        id: "r1",
+        project: "banskabystrica",
+        appName: "map-visualization",
+        title: "Helsinki Traffic Alerts Map",
+        status: "building",
+        createdAt: "2026-09-12T08:00:00Z",
+      },
+      { id: "r2", project: "banskabystrica", appName: "kpi_board", status: "building", createdAt: "2026-09-12T08:00:00Z" },
+    ]);
+    expect(await screen.findByRole("heading", { name: "Helsinki Traffic Alerts Map" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Kpi board" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "map-visualization" })).toBeNull();
+  });
+
   it("lists draft applications with their status label and no embed or preview link (AP-65, AP-70)", async () => {
     const draftRun = {
       id: "run-draft-1",
@@ -313,7 +330,7 @@ describe("apps catalog", () => {
     };
     renderCatalog([], undefined, [draftRun]);
 
-    const heading = await screen.findByRole("heading", { name: "mapa-vystavby" });
+    const heading = await screen.findByRole("heading", { name: "Mapa vystavby" });
     const card = heading.closest("li");
     if (!card) throw new Error("the draft is not a card");
     expect(within(card).getByText(en.apps.drafts.state.building)).toBeInTheDocument();

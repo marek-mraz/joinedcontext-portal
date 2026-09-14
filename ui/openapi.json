@@ -4884,6 +4884,13 @@
           "branch": {
             "type": "string"
           },
+          "changeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `chg-…` id of the Change that publishes the application, read from `merge_request`\nwhen the API answers (AP-71)."
+          },
           "continues": {
             "type": [
               "string",
@@ -4971,6 +4978,13 @@
           "promptDigest": {
             "type": "string"
           },
+          "sourceUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The forge's public web address of the run's source, its `path_prefix` on its branch (AP-71)."
+          },
           "startedAt": {
             "type": [
               "string",
@@ -4983,6 +4997,13 @@
           "steps": {
             "type": "integer",
             "format": "int32"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The application's name for people, chosen with its first version; `app_name` is the id."
           },
           "tokensUsed": {
             "type": "integer",
@@ -6412,6 +6433,16 @@
           "text"
         ],
         "properties": {
+          "endpointNames": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "On a conversation: the endpoints the assistant may query from this message on (AG-75)."
+          },
           "text": {
             "type": "string"
           }
@@ -7544,6 +7575,13 @@
               "string",
               "null"
             ]
+          },
+          "endpointNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The endpoints the person chose, zero to five, which the assistant may query (AG-75)."
           },
           "message": {
             "type": "string"

@@ -9,6 +9,7 @@ import { CatalogCards, catalogItemsOf } from "./CatalogCards";
 import { EndpointProposalCard, proposalOf } from "./EndpointProposalCard";
 import { KpiCard, kpiOf } from "./KpiCard";
 import { KpiPipelineCard, kpiPipelineOf } from "./KpiPipelineCard";
+import { QueryResultCard, queryResultOf } from "./QueryResultCard";
 import type { RunEvent } from "./useAgentRun";
 
 /** Who a line came from. The three read differently, so they are drawn differently. */
@@ -98,6 +99,14 @@ export function line(
       return t("agentRun.line.question", { question: text("questionId") });
     case "lag":
       return t("agentRun.line.lag", { missed: String(payload.missed ?? "") });
+    case "endpoints": {
+      const names = Array.isArray(payload.names)
+        ? payload.names.filter((name): name is string => typeof name === "string")
+        : [];
+      return names.length > 0
+        ? t("agentRun.line.endpoints", { names: names.join(", ") })
+        : t("agentRun.line.noEndpoints");
+    }
     default:
       return event.kind;
   }
@@ -139,6 +148,9 @@ export function ConversationPanel({
   onAnswer,
   onSend,
   attach,
+  above,
+  onUseEndpoint,
+  usedEndpoints,
 }: {
   /** The project the run belongs to: what a card's links open. */
   project: string;
@@ -152,6 +164,12 @@ export function ConversationPanel({
   onSend: (text: string) => void;
   /** A control beside the text box, such as the dock's attach button. */
   attach?: ReactNode;
+  /** A row above the text box, such as the dock's data bar. */
+  above?: ReactNode;
+  /** Adds an endpoint the catalog search found to the conversation's data (AG-75). */
+  onUseEndpoint?: (name: string) => void;
+  /** The endpoints the conversation queries, so a found one says it is in use. */
+  usedEndpoints?: string[];
 }): JSX.Element {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
@@ -204,17 +222,35 @@ export function ConversationPanel({
                 event.payload.tool === "propose_endpoint" ? proposalOf(event.payload.output) : null;
               const kpi =
                 event.payload.tool === "compute_kpi" ? kpiOf(event.payload.output, event.payload.input) : null;
+              const queried = queryResultOf(event.payload);
               const kpiPipeline =
                 event.payload.tool === "draft_kpi_pipeline" ? kpiPipelineOf(event.payload.output) : null;
               return (
                 <li key={event.seq} className="space-y-2">
-                  {found !== null ? <CatalogCards project={project} items={found} /> : null}
+                  {found !== null ? (
+                    <CatalogCards
+                      project={project}
+                      items={found}
+                      onUseEndpoint={live ? onUseEndpoint : undefined}
+                      usedEndpoints={usedEndpoints}
+                    />
+                  ) : null}
                   {proposal !== null ? (
                     <EndpointProposalCard project={project} proposal={proposal} />
                   ) : null}
                   {kpi !== null ? <KpiCard project={project} kpi={kpi} onSend={live ? onSend : undefined} /> : null}
                   {kpiPipeline !== null ? <KpiPipelineCard project={project} pipeline={kpiPipeline} /> : null}
+                  {queried !== null ? <QueryResultCard result={queried} /> : null}
                   <ActionStep event={event} live={live} onSend={onSend} count={count} />
+                </li>
+              );
+            }
+            if (event.kind === "endpoints") {
+              return (
+                <li key={event.seq} data-testid="endpoints-line" className="flex items-center gap-1.5 text-xs text-fg-muted">
+                  <span aria-hidden className="h-px flex-1 bg-border" />
+                  <span className="min-w-0 break-words">{line(event, t)}</span>
+                  <span aria-hidden className="h-px flex-1 bg-border" />
                 </li>
               );
             }
@@ -270,40 +306,43 @@ export function ConversationPanel({
 
       {live ? (
         <form
-          className="flex items-end gap-2 border-t border-border p-3"
+          className="flex flex-col gap-2 border-t border-border p-3"
           onSubmit={(event) => {
             event.preventDefault();
             send();
           }}
         >
-          {attach}
-          <label className="sr-only" htmlFor="run-message">
-            {t("agentRun.conversation.placeholder")}
-          </label>
-          <textarea
-            id="run-message"
-            rows={2}
-            value={draft}
-            placeholder={t("agentRun.conversation.placeholder")}
-            onChange={(event) => {
-              setDraft(event.target.value);
-            }}
-            // Enter sends, as every chat box does; a newline is still Shift+Enter.
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                send();
-              }
-            }}
-            className="block min-w-0 flex-1 resize-none rounded border border-border bg-surface px-3 py-1.5 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={draft.trim() === "" || sending}
-            className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {t("agentRun.conversation.send")}
-          </button>
+          {above}
+          <div className="flex items-end gap-2">
+            {attach}
+            <label className="sr-only" htmlFor="run-message">
+              {t("agentRun.conversation.placeholder")}
+            </label>
+            <textarea
+              id="run-message"
+              rows={2}
+              value={draft}
+              placeholder={t("agentRun.conversation.placeholder")}
+              onChange={(event) => {
+                setDraft(event.target.value);
+              }}
+              // Enter sends, as every chat box does; a newline is still Shift+Enter.
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  send();
+                }
+              }}
+              className="block min-w-0 flex-1 resize-none rounded border border-border bg-surface px-3 py-1.5 text-sm"
+            />
+            <button
+              type="submit"
+              disabled={draft.trim() === "" || sending}
+              className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("agentRun.conversation.send")}
+            </button>
+          </div>
         </form>
       ) : (
         <p className="border-t border-border p-3 text-sm text-fg-muted">

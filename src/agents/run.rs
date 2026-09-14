@@ -107,6 +107,9 @@ pub struct AgentRun {
     pub id: String,
     pub project: String,
     pub app_name: String,
+    /// The application's name for people, chosen with its first version; `app_name` is the id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub endpoint_name: String,
     pub endpoint_slug: String,
     /// Every endpoint the run reads, `[{name, slug, space}]`, the primary (`endpoint_name`)
@@ -133,6 +136,15 @@ pub struct AgentRun {
     pub workspace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merge_request: Option<i32>,
+    /// The `chg-…` id of the Change that publishes the application, read from `merge_request`
+    /// when the API answers (AP-71).
+    #[sqlx(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_id: Option<String>,
+    /// The forge's public web address of the run's source, its `path_prefix` on its branch (AP-71).
+    #[sqlx(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_url: Option<String>,
     /// Milliseconds from creation to the first preview, set once (AP-57).

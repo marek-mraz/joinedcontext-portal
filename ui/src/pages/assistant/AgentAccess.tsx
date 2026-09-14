@@ -146,12 +146,10 @@ function ProfileCard({ project, profile }: { project: string; profile: ProfileAc
 
       <Table caption={t("assistantPage.access.caption", { name: profile.name })}>
         <TableHead>
-          <TableRow>
-            <TableHeaderCell>{t("assistantPage.access.operation")}</TableHeaderCell>
-            <TableHeaderCell>{t("assistantPage.access.profile")}</TableHeaderCell>
-            <TableHeaderCell>{t("assistantPage.access.you")}</TableHeaderCell>
-            <TableHeaderCell>{t("assistantPage.access.reason")}</TableHeaderCell>
-          </TableRow>
+          <TableHeaderCell>{t("assistantPage.access.operation")}</TableHeaderCell>
+          <TableHeaderCell>{t("assistantPage.access.profile")}</TableHeaderCell>
+          <TableHeaderCell>{t("assistantPage.access.you")}</TableHeaderCell>
+          <TableHeaderCell>{t("assistantPage.access.reason")}</TableHeaderCell>
         </TableHead>
         <TableBody>
           {profile.operations.map((op) => (

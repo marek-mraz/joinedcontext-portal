@@ -35,6 +35,20 @@ async function fetchIdentity(): Promise<Identity | null> {
   return unwrap(result);
 }
 
+/**
+ * The signed-in identity from the same session query the provider reads, for a component that
+ * may render without the provider around it (a run page inside a test, a dock).
+ */
+export function useIdentity(): Identity | null {
+  const session = useQuery({
+    queryKey: queryKeys.session(),
+    queryFn: fetchIdentity,
+    retry: false,
+    staleTime: 60_000,
+  });
+  return session.data ?? null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const queryClient = useQueryClient();
   const session = useQuery({

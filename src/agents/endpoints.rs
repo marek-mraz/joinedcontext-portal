@@ -91,6 +91,10 @@ pub fn of_run(run: &AgentRun) -> Vec<RunEndpoint> {
     let stored: Vec<RunEndpoint> =
         serde_json::from_value(run.endpoints.clone()).unwrap_or_default();
     if stored.is_empty() {
+        // A conversation started without endpoints reads none.
+        if run.endpoint_slug.is_empty() {
+            return Vec::new();
+        }
         return vec![RunEndpoint {
             name: run.endpoint_name.clone(),
             slug: run.endpoint_slug.clone(),

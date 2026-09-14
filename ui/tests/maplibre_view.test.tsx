@@ -14,6 +14,8 @@ const calls = vi.hoisted(() => ({
   layers: [] as Record<string, unknown>[],
   clickHandlers: new Map<string, (event: unknown) => void>(),
   popups: [] as { html: string }[],
+  errorHandlers: [] as (() => void)[],
+  styles: [] as unknown[],
   throwOnConstruct: false,
 }));
 
@@ -37,11 +39,21 @@ vi.mock("maplibre-gl", () => {
         (second as () => void)();
         return;
       }
+      if (event === "error" && typeof second === "function") {
+        calls.errorHandlers.push(second as () => void);
+        return;
+      }
       if (event === "click" && typeof second === "string" && typeof third === "function") {
         calls.clickHandlers.set(second, third as (event: unknown) => void);
       }
     }
     remove() {}
+    isStyleLoaded() {
+      return false;
+    }
+    setStyle(style: unknown) {
+      calls.styles.push(style);
+    }
     getSource() {
       return undefined;
     }
@@ -169,6 +181,8 @@ describe("map dashboard", () => {
     await i18n.changeLanguage("en");
     window.history.pushState({}, "", "/projects/banskabystrica/dashboards");
     calls.constructed.length = 0;
+    calls.errorHandlers.length = 0;
+    calls.styles.length = 0;
     calls.sources.length = 0;
     calls.layers.length = 0;
     calls.popups.length = 0;
@@ -186,6 +200,23 @@ describe("map dashboard", () => {
       await screen.findByRole("application", { name: "Air quality" }),
     ).toBeInTheDocument();
     await waitFor(() => expect(calls.constructed).toHaveLength(1));
+  });
+
+  it("draws the ground from the project's basemap route on the Portal's origin, never a third-party style (AP-67)", async () => {
+    renderDashboards();
+    await waitFor(() => expect(calls.constructed).toHaveLength(1));
+    const style = calls.constructed[0].style as string;
+    expect(style).toBe(
+      `${window.location.origin}/api/v1/projects/banskabystrica/basemap/default/style.json`,
+    );
+    expect(style).not.toContain("demotiles");
+
+    // A platform without a basemap answers the style with an error: the map falls back to the
+    // plain ground once instead of waiting for a style that never loads.
+    calls.errorHandlers.forEach((handler) => handler());
+    calls.errorHandlers.forEach((handler) => handler());
+    expect(calls.styles).toHaveLength(1);
+    expect(calls.styles[0]).toMatchObject({ version: 8, sources: {} });
   });
 
   it("loads the layer as GeoJSON from the endpoint, filters included (UI-22)", async () => {

@@ -12,6 +12,7 @@ import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import { Icon } from "../../components/ui/icons";
 import { requestOpen } from "../../assistant/state";
 import { AgentRunPage } from "./AgentRunPage";
+import { appDisplayName, useEndpointTitles } from "./appTitle";
 import { runInUrl, setRunInUrl } from "./useAgentRun";
 
 interface DataNeed {
@@ -62,6 +63,9 @@ export function draftState(status: string): "building" | "needsYou" | "failed" |
 interface CatalogRun {
   id: string;
   appName: string;
+  /** What the application is called; absent from older runs, which show the name as words. */
+  title?: string;
+  endpointName?: string;
   status: string;
   prompt?: string;
   error?: string;
@@ -171,6 +175,7 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
       ),
     refetchInterval: runId === null ? 15000 : false,
   });
+  const endpointTitles = useEndpointTitles(project);
 
   const publish = useMutation({
     mutationFn: async (app: Manifest) => {
@@ -305,7 +310,8 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {apps.map((app) => {
           const spec = appSpec(app);
-          const title = localized(app.metadata.title, i18n.language, app.metadata.name);
+          const title =
+            localized(app.metadata.title, i18n.language, "") || appDisplayName({ appName: app.metadata.name });
           const needs = spec.dataNeeds ?? [];
           return (
             <li
@@ -382,7 +388,13 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
               className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4 text-center hover:bg-surface-subtle"
             >
               <AppIcon />
-              <h2 className="line-clamp-2 text-sm font-semibold">{draft.appName}</h2>
+              <h2 className="line-clamp-2 text-sm font-semibold">
+                {appDisplayName({
+                  title: draft.title,
+                  appName: draft.appName,
+                  endpointTitle: draft.endpointName ? endpointTitles.get(draft.endpointName) : undefined,
+                })}
+              </h2>
               <span className="rounded bg-surface-subtle px-2 py-0.5 text-xs font-medium text-fg-muted">
                 {t(`apps.drafts.state.${state}`)}
               </span>

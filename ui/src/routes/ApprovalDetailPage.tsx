@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { approvalStanding, changedKind } from "../api/approval";
 import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
@@ -54,20 +55,12 @@ export function ApprovalDetailPage({
   const expectedName = proposal ? computeExpectedName(proposal) : "";
   const confirmMatches = !isRedLane || confirmInput.trim() === expectedName;
 
-  // Any grant with `approve` in this project; the API checks the change's kind (PF-50).
-  const hasApproverRole = permissions.can("*", "approve");
-  const isAuthor = Boolean(
-    identity?.email &&
-      proposal?.author.email &&
-      identity.email.toLowerCase() === proposal.author.email.toLowerCase(),
-  );
-
-  let disabledReason: string | null = null;
-  if (!hasApproverRole) {
-    disabledReason = t("approvals.needsRole");
-  } else if (isAuthor) {
-    disabledReason = t("approvals.ownProposal");
-  }
+  // Approve on the change's kind, and on someone else's change unless the caller administers
+  // that kind (PF-50, PF-58); the API checks the same.
+  const standing = proposal
+    ? approvalStanding(permissions, identity?.email ?? undefined, proposal)
+    : { block: null, ownAsAdministrator: false };
+  const disabledReason = standing.block ? t(`approvals.${standing.block}`) : null;
 
   const approveMutation = useMutation({
     mutationFn: async () => {
@@ -240,6 +233,12 @@ export function ApprovalDetailPage({
               className="block w-full max-w-sm rounded border border-border bg-surface px-3 py-1.5 text-sm text-surface-fg placeholder:text-surface-fg/40 focus:border-border-focus focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>
+        ) : null}
+
+        {standing.ownAsAdministrator && isPendingApproval ? (
+          <p role="note" className="text-sm text-fg-muted">
+            {t("approvals.ownAsAdministrator", { kind: changedKind(proposal) })}
+          </p>
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3">

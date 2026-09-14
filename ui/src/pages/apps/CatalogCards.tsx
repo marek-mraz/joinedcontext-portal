@@ -2,15 +2,17 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { Badge } from "../../components/ui/Badge";
-import type { BadgeTone } from "../../components/ui/Badge";
-import { buttonClass } from "../../components/ui/Button";
+import { clsx } from "clsx";
+import { Icon } from "../../components/ui/icons";
+import type { IconName } from "../../components/ui/icons";
 
 /**
- * What the assistant found, as cards (UI-46, AG-58): one per item of a `search_catalog` tool
- * step, with the kind, the owner, how fresh the feed is, whether the door is open to the person
- * and why, and the two things to do next. Every string comes from the run's stream and is
- * rendered as text, never as markup (AG-46).
+ * What the assistant found, as a compact list (UI-46, AG-58): one row per item of a
+ * `search_catalog` tool step, with the kind, the title, the name, whether the door is open to the
+ * person (a dot, the reason on hover) and how fresh the feed is when it is known. Four rows show;
+ * the rest wait behind "Show more". An endpoint row can be put into the conversation's data bar
+ * (AG-75). Every string comes from the run's stream and is rendered as text, never as markup
+ * (AG-46).
  */
 
 export interface CatalogItem {
@@ -25,11 +27,14 @@ export interface CatalogItem {
   freshness: { pipeline: string; scrapedAt: string; received?: number; errors?: number } | null;
 }
 
-const KIND_TONE: Record<string, BadgeTone> = {
-  Endpoint: "primary",
-  ContextSpace: "info",
-  DataModel: "purple",
+const KIND_ICON: Record<string, IconName> = {
+  Endpoint: "endpoints",
+  ContextSpace: "spaces",
+  DataModel: "models",
 };
+
+/** Rows shown before "Show more". */
+const FIRST_ROWS = 4;
 
 const KIND_PLURAL: Record<string, string> = {
   Endpoint: "endpoints",
@@ -84,73 +89,122 @@ export function CatalogCards({
   project,
   items,
   now,
+  onUseEndpoint,
+  usedEndpoints = [],
 }: {
   project: string;
   items: CatalogItem[];
   /** The instant freshness is counted from; the mount time unless a test fixes it. */
   now?: number;
+  /** Puts an endpoint into the conversation's data bar; without it rows offer no "Use". */
+  onUseEndpoint?: (name: string) => void;
+  /** The endpoints the conversation already reads, whose "Use" is spent. */
+  usedEndpoints?: string[];
 }): JSX.Element {
   const { t } = useTranslation();
   const [mounted] = useState(() => Date.now());
+  const [expanded, setExpanded] = useState(false);
   const at = now ?? mounted;
   if (items.length === 0) {
     return <p className="text-sm text-fg-muted">{t("agentRun.catalog.none")}</p>;
   }
+  const shown = expanded ? items : items.slice(0, FIRST_ROWS);
+  const hidden = items.length - FIRST_ROWS;
   return (
-    <ul className="grid gap-2 sm:grid-cols-2" aria-label={t("agentRun.catalog.title")}>
-      {items.map((item) => {
-        const open = item.access.verdict === "allowed";
-        return (
-          <li
-            key={`${item.kind}/${item.name}`}
-            className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3 text-sm"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={KIND_TONE[item.kind] ?? "neutral"}>{item.kind}</Badge>
-              <span className="min-w-0 break-words font-medium">{item.title ?? item.name}</span>
-            </div>
-            <p className="font-mono text-xs text-fg-muted">
-              {item.name} · {t("agentRun.catalog.owner", { owner: item.owner })}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Badge tone={open ? "success" : "warning"} title={item.access.reason}>
-                {open ? t("agentRun.catalog.allowed") : t("agentRun.catalog.restricted")}
-                <span className="font-normal">· {item.access.reason}</span>
-              </Badge>
-              <Badge tone={item.freshness ? "info" : "neutral"}>
-                {item.freshness
-                  ? t("agentRun.catalog.fresh", {
-                      when: ago(item.freshness.scrapedAt, at, t),
-                      pipeline: item.freshness.pipeline,
-                    })
-                  : t("agentRun.catalog.noFeed")}
-              </Badge>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {open && item.kind !== "DataModel" ? (
-                <Link
-                  to="/projects/$project/explore"
-                  params={{ project }}
-                  search={{
-                    space: item.space,
-                    endpoint: item.kind === "Endpoint" ? item.name : undefined,
-                  }}
-                  className={buttonClass("primary", "sm")}
+    <div className="flex min-w-0 max-w-full flex-col text-xs">
+      <ul
+        className="min-w-0 divide-y divide-border rounded-lg border border-border bg-surface"
+        aria-label={t("agentRun.catalog.title")}
+      >
+        {shown.map((item) => {
+          const open = item.access.verdict === "allowed";
+          const access = `${open ? t("agentRun.catalog.allowed") : t("agentRun.catalog.restricted")} · ${item.access.reason}`;
+          const inUse = usedEndpoints.includes(item.name);
+          const linkClass =
+            "min-w-0 truncate font-medium text-fg hover:underline focus:outline-none focus:ring-2 focus:ring-border-focus";
+          return (
+            <li key={`${item.kind}/${item.name}`} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5">
+              <Icon name={KIND_ICON[item.kind] ?? "endpoints"} title={item.kind} className="size-3.5 text-fg-muted" />
+              <span className="flex min-w-0 flex-1 basis-40 items-baseline gap-1.5">
+                {open && item.kind !== "DataModel" ? (
+                  <Link
+                    to="/projects/$project/explore"
+                    params={{ project }}
+                    search={{
+                      space: item.space,
+                      endpoint: item.kind === "Endpoint" ? item.name : undefined,
+                    }}
+                    title={item.title ?? item.name}
+                    className={linkClass}
+                  >
+                    {item.title ?? item.name}
+                  </Link>
+                ) : (
+                  <Link
+                    to="/projects/$project/$plural"
+                    params={{ project, plural: KIND_PLURAL[item.kind] ?? "endpoints" }}
+                    title={item.title ?? item.name}
+                    className={linkClass}
+                  >
+                    {item.title ?? item.name}
+                  </Link>
+                )}
+                {item.title && item.title !== item.name ? (
+                  <span title={item.name} className="min-w-0 truncate font-mono text-[11px] text-fg-muted">
+                    {item.name}
+                  </span>
+                ) : null}
+              </span>
+              {item.freshness ? (
+                <span
+                  className="shrink-0 text-fg-muted"
+                  title={t("agentRun.catalog.fresh", {
+                    when: ago(item.freshness.scrapedAt, at, t),
+                    pipeline: item.freshness.pipeline,
+                  })}
                 >
-                  {t("agentRun.catalog.explore")}
-                </Link>
+                  {t("agentRun.catalog.fed", { when: ago(item.freshness.scrapedAt, at, t) })}
+                </span>
               ) : null}
-              <Link
-                to="/projects/$project/$plural"
-                params={{ project, plural: KIND_PLURAL[item.kind] ?? "endpoints" }}
-                className={buttonClass("secondary", "sm")}
-              >
-                {t("agentRun.catalog.open")}
-              </Link>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
+              <span
+                role="img"
+                aria-label={access}
+                title={access}
+                className={clsx("size-2 shrink-0 rounded-full", open ? "bg-success" : "bg-fg-muted opacity-50")}
+              />
+              {onUseEndpoint && item.kind === "Endpoint" && open ? (
+                <button
+                  type="button"
+                  disabled={inUse}
+                  aria-label={
+                    inUse
+                      ? t("agentRun.catalog.inUseLabel", { name: item.name })
+                      : t("agentRun.catalog.useLabel", { name: item.name })
+                  }
+                  onClick={() => {
+                    onUseEndpoint(item.name);
+                  }}
+                  className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-default disabled:border-transparent disabled:text-fg-muted disabled:hover:bg-transparent"
+                >
+                  {inUse ? t("agentRun.catalog.inUse") : t("agentRun.catalog.use")}
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {hidden > 0 ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => {
+            setExpanded((was) => !was);
+          }}
+          className="self-start rounded px-1 py-0.5 text-fg-muted hover:text-fg focus:outline-none focus:ring-2 focus:ring-border-focus"
+        >
+          {expanded ? t("agentRun.catalog.showLess") : t("agentRun.catalog.showMore", { count: hidden })}
+        </button>
+      ) : null}
+    </div>
   );
 }

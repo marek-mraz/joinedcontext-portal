@@ -21,11 +21,9 @@
     "main": "Main navigation",
     "skipToContent": "Skip to content",
     "breadcrumb": "Breadcrumb",
-    "playground": "Playground",
     "flows": "Flows",
     "models": "Data models",
     "ckan": "Open data",
-    "federation": "Federation",
     "allEndpoints": "All endpoints",
     "shared": "Shared references",
     "explore": "Explore data",
@@ -98,7 +96,8 @@
     "field": "Field",
     "diffType": "Change type",
     "actions": "Actions",
-    "view": "View"
+    "view": "View",
+    "ownAsAdministrator": "You wrote this change; you approve it as an administrator of {kind}."
   },
   "lane": {
     "green": "Green",
@@ -618,20 +617,6 @@
       "popup": "Popup properties"
     }
   },
-  "playground": {
-    "title": "Federation playground",
-    "subtitle": "Context spaces, their registrations and the traffic between them — drawn in your browser, with nothing asked of the server.",
-    "pause": "Pause",
-    "resume": "Resume",
-    "send": "Send a query",
-    "events": "Recent answers",
-    "noEvents": "No answer yet. Press “Send a query”.",
-    "anyType": "every type",
-    "entities": "{count, plural, =0 {no entities} one {# entity} other {# entities}}",
-    "graphLabel": "Federation graph: {spaces} context spaces, {links} registrations",
-    "selected": "Registrations of {space}",
-    "noLinks": "This space registers no context source and is registered by none."
-  },
   "access": {
     "title": "Access",
     "accounts": {
@@ -1012,85 +997,6 @@
       "missingInstance": "catalogue {instance} is missing"
     }
   },
-  "federation": {
-    "title": "Federation",
-    "lead": "Which sources answer inside this project's spaces, and who this platform is when it forwards a query. A registration grants nothing on its own: the source's own policies still decide what comes back.",
-    "add": "Register a source",
-    "propose": "Propose registration",
-    "empty": "No source is registered in this project yet.",
-    "dialog": {
-      "description": "A registration names one context space, one target and what that target holds. Name an endpoint on this platform or an address elsewhere, never both."
-    },
-    "field": {
-      "name": "Name",
-      "title": "Title",
-      "space": "Context space",
-      "spaceHint": "The space whose broker learns of the source. The registration is written into this space's tenant and no other.",
-      "endpointRef": "Endpoint on this platform",
-      "endpoint": "Address elsewhere",
-      "targetHint": "One or the other, never both.",
-      "target": "Target",
-      "information": "What the source holds",
-      "informationHint": "At least one entity selector. A source that claims nothing is matched by nothing.",
-      "entities": "Entity types",
-      "entityType": "Type",
-      "idPattern": "Id pattern",
-      "propertyNames": "Attributes",
-      "mode": "Mode",
-      "federation": "Identity",
-      "identity": "Forwarded as",
-      "identityHint": "Neither mode is a grant: the source's policies apply either way, and the narrower of the two wins.",
-      "serviceAccount": "Service account",
-      "operations": "Operations",
-      "operationsHint": "Which operations the source answers for, as NGSI-LD names them (federationOps, retrieveEntity). Left empty means the broker's own default."
-    },
-    "identity": {
-      "serviceAccount": "A service account of this platform",
-      "caller": "The caller's own token"
-    },
-    "mode": {
-      "inclusive": "Merged with local data",
-      "exclusive": "The only answer for what it covers",
-      "auxiliary": "Alongside local data",
-      "redirect": "The caller is redirected"
-    },
-    "kind": {
-      "ContextSpace": "Context space",
-      "Endpoint": "Endpoint",
-      "ContextSourceRegistration": "Registration",
-      "Pipeline": "Pipeline",
-      "App": "Application",
-      "ExternalSource": "Source elsewhere",
-      "CkanInstance": "Open data catalogue"
-    },
-    "edge": {
-      "registers": "registers",
-      "serves": "serves",
-      "feeds": "feeds",
-      "consumes": "reads",
-      "publishes": "publishes to"
-    },
-    "health": {
-      "ok": "Live",
-      "degraded": "Failing",
-      "unknown": "Not reported"
-    },
-    "graph": {
-      "title": "Federation graph",
-      "empty": "Nothing to draw yet.",
-      "filter": "Kinds shown",
-      "zoomIn": "Zoom in",
-      "zoomOut": "Zoom out",
-      "reset": "Reset view"
-    },
-    "card": {
-      "title": "Selected object",
-      "health": "Health",
-      "noCredential": "A card shows that a registration authenticates and how. The account it forwards as is resolved when a query is made, and no credential is ever sent to this page.",
-      "phase": "Status",
-      "breadcrumb": "Where this object is managed"
-    }
-  },
   "mappings": {
     "pair": "Models",
     "source": "Source model",
@@ -1243,7 +1149,9 @@
       "question": "Asked {question}.",
       "answer": "Answered {question}.",
       "message": "{who}: {text}",
-      "lag": "{missed} lines were skipped; reconnecting fills them in."
+      "lag": "{missed} lines were skipped; reconnecting fills them in.",
+      "endpoints": "Data: {names}",
+      "noEndpoints": "Data: none"
     },
     "preview": {
       "title": "Preview",
@@ -1279,17 +1187,20 @@
     "catalog": {
       "title": "What the assistant found",
       "none": "Nothing in this project matches those words.",
-      "owner": "owner {owner}",
       "allowed": "Allowed",
       "restricted": "Restricted",
       "fresh": "Fed {when} by {pipeline}",
-      "noFeed": "No live feed",
-      "explore": "Explore",
-      "open": "Open",
       "agoSeconds": "{n} s ago",
       "agoMinutes": "{n} min ago",
       "agoHours": "{n} h ago",
-      "agoDays": "{n} d ago"
+      "agoDays": "{n} d ago",
+      "use": "Use",
+      "inUse": "In use",
+      "useLabel": "Use {name} in this conversation",
+      "inUseLabel": "{name} is in use",
+      "showMore": "Show {count} more",
+      "showLess": "Show less",
+      "fed": "fed {when}"
     },
     "proposal": {
       "title": "Endpoint proposal",
@@ -1350,6 +1261,11 @@
       "firstFrame": "First frame",
       "firstVersion": "First version",
       "seconds": "{seconds} s"
+    },
+    "publication": {
+      "title": "Publication",
+      "source": "Source in Git",
+      "approve": "Approve and publish"
     }
   },
   "assistant": {
@@ -1377,6 +1293,28 @@
       "resume": "Resume: {title}",
       "recent": "Recent conversations",
       "failed": "The conversation did not start. Check the message and try again."
+    },
+    "data": {
+      "title": "Data",
+      "label": "Data the assistant may read",
+      "chosen": "Chosen endpoints",
+      "remove": "Remove {name}",
+      "add": "Add endpoint",
+      "empty": "Add an endpoint so the assistant can read its data",
+      "search": "Search endpoints",
+      "full": "At most {max} endpoints; remove one to add another.",
+      "loading": "Loading endpoints…",
+      "none": "No endpoint matches.",
+      "audience": {
+        "public": "public",
+        "organization": "organization",
+        "project": "project"
+      }
+    },
+    "query": {
+      "id": "Entity",
+      "rows": "{count, plural, one {# row} other {# rows}}",
+      "someRows": "{shown} of {total} rows"
     }
   },
   "permissions": {
@@ -1457,6 +1395,12 @@
       "propose": "Propose change",
       "cancel": "Cancel",
       "yamlError": "Not valid YAML: {{message}}"
-    }
+    },
+    "states": {
+      "failed": "Failed",
+      "cancelled": "Stopped",
+      "expired": "Ended"
+    },
+    "timings": "Timings"
   }
 }

@@ -99,7 +99,7 @@ impl Access {
             reason: reason.into(),
         }
     }
-    fn is_allowed(&self) -> bool {
+    pub(crate) fn is_allowed(&self) -> bool {
         self.verdict == "allowed"
     }
 }
@@ -224,7 +224,7 @@ fn score(fields: &[(&'static str, String)], words: &[String]) -> (usize, Vec<Str
 
 /// Whether the endpoint's audience admits a signed-in member of `project` (AG-58). The data's
 /// own grants are the gateway's decision (EP-55); this says whether the door is open at all.
-fn endpoint_access(spec: &Value, project: &str) -> Access {
+pub(crate) fn endpoint_access(spec: &Value, project: &str) -> Access {
     match spec["audience"].as_str().unwrap_or("project-list") {
         "public" => Access::allowed("audience public"),
         "organization" => Access::allowed("audience organization: every signed-in member"),
@@ -242,7 +242,7 @@ fn endpoint_access(spec: &Value, project: &str) -> Access {
     }
 }
 
-fn title_of(env: &ResourceEnvelope) -> Option<String> {
+pub(crate) fn title_of(env: &ResourceEnvelope) -> Option<String> {
     let meta = serde_json::to_value(&env.metadata).unwrap_or(Value::Null);
     let title = &meta["title"];
     title["en"]
@@ -510,6 +510,9 @@ pub struct StartConversation {
     pub profile: Option<String>,
     #[serde(default)]
     pub continues: Option<String>,
+    /// The endpoints the person chose, zero to five, which the assistant may query (AG-75).
+    #[serde(default)]
+    pub endpoint_names: Vec<String>,
 }
 
 #[utoipa::path(
@@ -552,6 +555,24 @@ pub async fn start_conversation(
     let profile_name = request.profile.clone().unwrap_or_else(default_profile);
     let profile = Profile::load(&state.mirror, &profile_name)?;
 
+    let mut run_endpoints = if request.endpoint_names.is_empty() {
+        Vec::new()
+    } else {
+        let names = crate::agents::endpoints::requested(None, &request.endpoint_names)
+            .map_err(ApiError::BadRequest)?;
+        crate::agents::endpoints::resolve(&state.mirror, &project, &names)?
+    };
+    // AG-70: a profile that lists endpoints lets the assistant read only those.
+    if let Some(refused) = run_endpoints
+        .iter()
+        .find(|endpoint| !profile.access.grants_endpoint(&endpoint.name, false))
+    {
+        return Err(ApiError::Denied(format!(
+            "agent profile '{}' does not grant reading endpoint '{}' (AG-70)",
+            profile.name, refused.name
+        )));
+    }
+
     if let Some(parent_id) = &request.continues {
         let parent = state
             .agents
@@ -576,6 +597,10 @@ pub async fn start_conversation(
                 "run '{parent_id}' is not visible to you"
             )));
         }
+        // A continuation that names no endpoints keeps the ones it continues.
+        if run_endpoints.is_empty() {
+            run_endpoints = crate::agents::endpoints::of_run(&parent);
+        }
     }
 
     let id = mint_run_id();
@@ -587,9 +612,16 @@ pub async fn start_conversation(
         id: id.clone(),
         project: project.clone(),
         app_name: String::new(),
-        endpoint_name: String::new(),
-        endpoint_slug: String::new(),
-        endpoints: serde_json::json!([]),
+        title: None,
+        endpoint_name: run_endpoints
+            .first()
+            .map(|e| e.name.clone())
+            .unwrap_or_default(),
+        endpoint_slug: run_endpoints
+            .first()
+            .map(|e| e.slug.clone())
+            .unwrap_or_default(),
+        endpoints: serde_json::to_value(&run_endpoints).unwrap_or_else(|_| serde_json::json!([])),
         profile: profile.name.clone(),
         kind: "conversation".to_owned(),
         unattended: false,
@@ -606,6 +638,8 @@ pub async fn start_conversation(
         ticket_hash,
         workspace: None,
         merge_request: None,
+        change_id: None,
+        source_url: None,
         preview_url: None,
         first_frame_ms: None,
         first_version_ms: None,

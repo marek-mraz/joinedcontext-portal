@@ -29,6 +29,9 @@ import {
   buttonClass,
 } from "../components/ui";
 
+/** The namespace organization-scoped manifests such as `Project` live in. */
+const ORG_NAMESPACE = "org";
+
 interface SpaceForm {
   name: string;
   title?: string;
@@ -121,16 +124,19 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
       ),
   });
 
-  // The quota lives on the Project manifest; a project without one is simply unlimited.
+  // The quota lives on the Project manifest, which is organization-scoped: it sits in the `org`
+  // namespace, not in the project itself. The list always answers, so a project without a
+  // manifest is simply unlimited rather than a 404.
   const projectQuery = useQuery({
-    queryKey: queryKeys.resource(project, "projects", project),
+    queryKey: queryKeys.list(ORG_NAMESPACE, "projects"),
     retry: false,
     queryFn: async () =>
       unwrap(
-        await api.GET("/api/v1/projects/{project}/{plural}/{name}", {
-          params: { path: { project, plural: "projects", name: project } },
+        await api.GET("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project: ORG_NAMESPACE, plural: "projects" } },
         }),
       ),
+    select: (list) => asManifests(list.items ?? []).find((item) => item.metadata.name === project),
   });
 
   const create = useMutation({

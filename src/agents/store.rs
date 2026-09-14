@@ -385,6 +385,41 @@ impl AgentStore {
         Ok(())
     }
 
+    /// The application's name for people, chosen with its first version.
+    pub async fn set_title(&self, run_id: &str, title: &str) -> Result<(), StoreError> {
+        if let Some(pool) = &self.db {
+            db::set_agent_run_title(pool, run_id, title).await?;
+            return Ok(());
+        }
+        if let Some(run) = self.memory.write().await.runs.get_mut(run_id) {
+            run.title = Some(title.to_owned());
+        }
+        Ok(())
+    }
+
+    /// The endpoints a conversation reads from the next message on (AG-75).
+    pub async fn set_endpoints(
+        &self,
+        run_id: &str,
+        endpoints: &[crate::agents::endpoints::RunEndpoint],
+    ) -> Result<(), StoreError> {
+        let value = serde_json::to_value(endpoints).unwrap_or_else(|_| serde_json::json!([]));
+        let (name, slug) = endpoints
+            .first()
+            .map(|e| (e.name.clone(), e.slug.clone()))
+            .unwrap_or_default();
+        if let Some(pool) = &self.db {
+            db::set_agent_run_endpoints(pool, run_id, &value, &name, &slug).await?;
+            return Ok(());
+        }
+        if let Some(run) = self.memory.write().await.runs.get_mut(run_id) {
+            run.endpoints = value;
+            run.endpoint_name = name;
+            run.endpoint_slug = slug;
+        }
+        Ok(())
+    }
+
     pub async fn set_merge_request(&self, run_id: &str, number: i32) -> Result<(), StoreError> {
         if let Some(pool) = &self.db {
             db::set_agent_run_merge_request(pool, run_id, number).await?;
@@ -426,6 +461,7 @@ mod tests {
             id: id.to_owned(),
             project: project.to_owned(),
             app_name: "city-bikes-overview".to_owned(),
+            title: None,
             endpoint_name: "helsinki-bikes".to_owned(),
             endpoint_slug: "si6epqkx364lprho5uaigutk274r5grb".to_owned(),
             endpoints: serde_json::json!([]),
@@ -445,6 +481,8 @@ mod tests {
             ticket_hash: "$argon2id$stub".to_owned(),
             workspace: None,
             merge_request: None,
+            change_id: None,
+            source_url: None,
             preview_url: None,
             first_frame_ms: None,
             first_version_ms: None,

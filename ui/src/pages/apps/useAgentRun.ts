@@ -34,12 +34,15 @@ export const EVENT_KINDS = [
   "usage",
   "navigate",
   "lag",
+  "endpoints",
 ] as const;
 
 export interface AgentRun {
   id: string;
   project: string;
   appName: string;
+  /** What the application is called on screen; the name is its id (absent from older runs). */
+  title?: string;
   endpointName: string;
   /** The endpoint the preview's reads and writes go through (AP-63). */
   endpointSlug?: string;
@@ -52,6 +55,12 @@ export interface AgentRun {
   steps: number;
   tokensUsed: number;
   previewUrl?: string;
+  /** Started without asking, ending waiting for approval with its preview built (AG-69). */
+  unattended?: boolean;
+  /** The `chg-…` id of the Change that publishes the application, after Publish (AP-71). */
+  changeId?: string;
+  /** The forge's web address of the application's source (AP-71). */
+  sourceUrl?: string;
   /** Milliseconds from admission to the first frame and to the first generated version (AG-66). */
   firstFrameMs?: number | null;
   firstVersionMs?: number | null;
@@ -206,11 +215,13 @@ export function useAgentRun(project: string, runId: string | null) {
   });
 
   const send = useMutation({
-    mutationFn: async (text: string) =>
+    // A message may change the endpoints a conversation queries (AG-75): they travel with it.
+    mutationFn: async (message: string | { text: string; endpointNames?: string[] }) =>
       unwrap(
         await api.POST("/api/v1/projects/{project}/agent-runs/{id}/messages", {
           params: { path: { project, id: runId ?? "" } },
-          body: { text },
+          // `endpointNames` is AG-75; the generated body type catches up with the next API render.
+          body: (typeof message === "string" ? { text: message } : message) as { text: string },
         }),
       ),
   });

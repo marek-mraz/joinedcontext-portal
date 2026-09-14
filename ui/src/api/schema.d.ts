@@ -948,6 +948,11 @@ export interface components {
             appClass: string;
             appName: string;
             branch: string;
+            /**
+             * @description The `chg-…` id of the Change that publishes the application, read from `merge_request`
+             *     when the API answers (AP-71).
+             */
+            changeId?: string | null;
             continues?: string | null;
             createdAt: string;
             createdBy: string;
@@ -982,10 +987,14 @@ export interface components {
             project: string;
             prompt: string;
             promptDigest: string;
+            /** @description The forge's public web address of the run's source, its `path_prefix` on its branch (AP-71). */
+            sourceUrl?: string | null;
             startedAt?: string | null;
             status: string;
             /** Format: int32 */
             steps: number;
+            /** @description The application's name for people, chosen with its first version; `app_name` is the id. */
+            title?: string | null;
             /** Format: int64 */
             tokensUsed: number;
             unattended: boolean;
@@ -1600,6 +1609,8 @@ export interface components {
         };
         /** @description What a person says to a run that is already going (AG-45). */
         MessageRequest: {
+            /** @description On a conversation: the endpoints the assistant may query from this message on (AG-75). */
+            endpointNames?: string[] | null;
             text: string;
         };
         /** @description A minted key. The only place a raw token ever appears (PF-36). */
@@ -1955,6 +1966,8 @@ export interface components {
         /** @description Request payload for starting or continuing an assistant conversation. */
         StartConversation: {
             continues?: string | null;
+            /** @description The endpoints the person chose, zero to five, which the assistant may query (AG-75). */
+            endpointNames?: string[];
             message: string;
             profile?: string | null;
         };

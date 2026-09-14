@@ -245,7 +245,7 @@ pub async fn save_sync_state(pool: &PgPool, row: &SyncStateRow) -> Result<(), sq
 /// Postgres does that rendering because `time` is compiled here with `formatting` and no parser:
 /// reading a `timestamptz` into the struct would need one. `to_char` of a NULL column is NULL, so
 /// the three optional timestamps stay optional.
-const AGENT_RUN_COLUMNS: &str = "id, project, app_name, endpoint_name, endpoint_slug, endpoints, profile, \
+const AGENT_RUN_COLUMNS: &str = "id, project, app_name, title, endpoint_name, endpoint_slug, endpoints, profile, \
      kind, unattended, continues, \
      app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, path_prefix, \
      status, ticket_hash, workspace, merge_request, preview_url, first_frame_ms, first_version_ms, files, steps, tokens_used, created_by, \
@@ -521,6 +521,36 @@ pub async fn set_agent_run_files(
         .execute(pool)
         .await
         .map(|_| ())
+}
+
+/// The application's name for people (AP-44).
+pub async fn set_agent_run_title(pool: &PgPool, id: &str, title: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE agent_runs SET title = $2 WHERE id = $1")
+        .bind(id)
+        .bind(title)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+/// The endpoints a conversation reads from now on, the primary first (AG-75).
+pub async fn set_agent_run_endpoints(
+    pool: &PgPool,
+    id: &str,
+    endpoints: &serde_json::Value,
+    primary_name: &str,
+    primary_slug: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE agent_runs SET endpoints = $2, endpoint_name = $3, endpoint_slug = $4 WHERE id = $1",
+    )
+    .bind(id)
+    .bind(endpoints)
+    .bind(primary_name)
+    .bind(primary_slug)
+    .execute(pool)
+    .await
+    .map(|_| ())
 }
 
 /// Records the merge request a publish opened (AP-55).

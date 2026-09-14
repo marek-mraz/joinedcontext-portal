@@ -111,23 +111,25 @@ export function ModelsPage({
 
   // Who breaks when this model's major changes (DM-25). A space names its model, and an
   // endpoint names its space, so the consumers of a model are the endpoints behind it.
-  const listOf = async (plural: string) => {
-    const answer = await unwrap(
+  // The list keys are shared with every page that lists these kinds, so the cache holds the list
+  // as the API answers it and the manifests are read off it here (T-0625).
+  const listOf = async (plural: string) =>
+    unwrap(
       await api.GET("/api/v1/projects/{project}/{plural}", {
         params: { path: { project, plural } },
       }),
     );
-    return asManifests(answer.items ?? []);
-  };
   const spaces = useQuery({
     queryKey: queryKeys.list(project, "spaces"),
     retry: false,
     queryFn: () => listOf("spaces"),
+    select: (list) => asManifests(list.items ?? []),
   });
   const endpoints = useQuery({
     queryKey: queryKeys.list(project, "endpoints"),
     retry: false,
     queryFn: () => listOf("endpoints"),
+    select: (list) => asManifests(list.items ?? []),
   });
 
   const consumers = useMemo(() => {

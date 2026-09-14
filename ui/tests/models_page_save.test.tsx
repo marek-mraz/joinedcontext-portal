@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import i18n from "../src/i18n";
+import { queryKeys } from "../src/api/client";
 import { ModelsPage } from "../src/pages/models/ModelsPage";
 
 const PUBLISHED_LINKML = `id: https://example.org/models/air-quality
@@ -25,12 +26,14 @@ slots:
     required: true
 `;
 
-function renderWithClient(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
+function renderWithClient(
+  ui: React.ReactElement,
+  queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
     },
-  });
+  }),
+) {
   const rootRoute = createRootRoute();
   const home = createRoute({
     getParentRoute: () => rootRoute,
@@ -98,6 +101,47 @@ describe("ModelsPage save and source loading (DM-56)", () => {
     // Check that editor view loaded the classes
     await waitFor(() => {
       expect(screen.getAllByText("AirQualityObserved").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("opens when another page already cached the spaces and endpoints lists as the API answers them", async () => {
+    const list = (items: unknown[]) => ({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items });
+    const space = {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "ContextSpace",
+      metadata: { name: "air", namespace: "ovzdusie" },
+      spec: { dataModelRef: "air-quality" },
+    };
+    const fetchMock = vi.fn().mockImplementation((req: RequestInfo | URL) => {
+      const urlStr = typeof req === "string" ? req : req instanceof Request ? req.url : req.toString();
+      if (urlStr.includes("/datamodels/air-quality/source")) {
+        return Promise.resolve(new Response(PUBLISHED_LINKML, { status: 200 }));
+      }
+      if (urlStr.includes("/spaces")) {
+        return Promise.resolve(new Response(JSON.stringify(list([space])), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify(list([])), { status: 200 }));
+    });
+    global.fetch = fetchMock;
+
+    // The keys are shared: the Spaces or Endpoints page, or the assistant, filled them first.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(queryKeys.list("ovzdusie", "spaces"), list([space]));
+    queryClient.setQueryData(queryKeys.list("ovzdusie", "endpoints"), list([]));
+
+    renderWithClient(
+      <ModelsPage
+        project="ovzdusie"
+        baseline={{ name: "air-quality", version: "1.0.0", lifecycle: "published" }}
+      />,
+      queryClient,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("AirQualityObserved").length).toBeGreaterThan(0);
+    });
+    expect(queryClient.getQueryData(queryKeys.list("ovzdusie", "spaces"))).toMatchObject({
+      kind: "List",
     });
   });
 

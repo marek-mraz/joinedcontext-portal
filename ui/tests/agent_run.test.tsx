@@ -23,6 +23,9 @@ import { AssistantDock } from "../src/assistant/AssistantDock";
 const PROJECT = "banskabystrica";
 const RUN_ID = "01J8ZQ4T7K9M2N3P4Q5R6S7T8V";
 
+/** The run's name read as words, never its id; the endpoint's title follows when it is known. */
+const APP_TITLE = "Ovzdusie dnes";
+
 const RUN = {
   id: RUN_ID,
   project: PROJECT,
@@ -36,6 +39,17 @@ const RUN = {
   tokensUsed: 48_210,
   createdBy: "jana.kovacova",
   createdAt: "2026-09-12T08:00:00Z",
+};
+
+/** The Change a Publish opened, written by the person watching the run (AP-71, PF-58). */
+const PUBLICATION = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "Change",
+  metadata: { name: "chg-00000069", namespace: PROJECT },
+  summary: { key: "change.summary.create", params: { kind: "App", name: "ovzdusie-dnes" } },
+  author: { name: "Jana Kováčová", email: "jana.kovacova@banskabystrica.sk" },
+  createdAt: "2026-09-12T08:05:00Z",
+  status: { lane: "yellow", phase: "PendingApproval", plan: { create: 1 } },
 };
 
 /**
@@ -105,7 +119,28 @@ function renderRun(options: Options = {}) {
       );
 
     if (url.pathname.endsWith("/auth/me")) {
-      return json({ subject: "b7c1e0f4", username: "jana.kovacova", roles: ["domain-editor"] });
+      return json({
+        subject: "b7c1e0f4",
+        username: "jana.kovacova",
+        email: "jana.kovacova@banskabystrica.sk",
+        roles: ["domain-editor"],
+      });
+    }
+    if (url.pathname.endsWith("/permissions/me")) {
+      return json({
+        project: PROJECT,
+        bootstrap: false,
+        grants: [
+          {
+            role: "org-admin",
+            binding: "admins",
+            rule: { kinds: ["App"], verbs: ["propose", "approve", "delete"] },
+          },
+        ],
+      });
+    }
+    if (url.pathname.includes("/changes/") && request.method === "GET") {
+      return json(PUBLICATION);
     }
     if (request.method === "POST") {
       return json(write.body, write.status);
@@ -168,16 +203,24 @@ describe("watching a run", () => {
 
   it("subscribes to the run's own stream with the session cookie", async () => {
     renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     expect(stream().url).toBe(`/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/events`);
     // The stream is behind the same edge login as the Portal, so it needs the cookie.
     expect(stream().withCredentials).toBe(true);
   });
 
+  it("heads the page with the run's title, keeping the name only as small print", async () => {
+    renderRun({ run: { ...RUN, title: "Air quality today" } });
+    expect(await screen.findByRole("heading", { name: "Air quality today" })).toBeInTheDocument();
+    const id = screen.getByText(RUN.appName);
+    expect(id).toHaveClass("font-mono");
+    expect(id.tagName).not.toMatch(/^H\d$/);
+  });
+
   it("shows the state the run is in, and the steps it has spent", async () => {
     renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     const timeline = screen.getByRole("region", { name: en.agentRun.timeline.title });
     const current = within(timeline).getByText(en.agentRun.states.building);
@@ -191,7 +234,7 @@ describe("watching a run", () => {
 
   it("says an expired run has ended and keeps its preview, with no failure line (T-0669)", async () => {
     renderRun({ run: { ...RUN, status: "expired", previewUrl: "/api/v1/projects/helsinki/agent-runs/run-1/preview?v=1" } });
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     const timeline = screen.getByRole("region", { name: en.agentRun.timeline.title });
     const ended = within(timeline).getByRole("status");
@@ -203,7 +246,7 @@ describe("watching a run", () => {
 
   it("renders the agent's lines as they arrive", async () => {
     renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     await emit("thought", { seq: 1, text: "Reading the projected schema" });
     await emit("tool", { seq: 2, tool: "bash", command: "cargo test", exitCode: 0 });
@@ -212,7 +255,8 @@ describe("watching a run", () => {
     const conversation = await screen.findByRole("region", { name: en.agentRun.conversation.title });
     expect(await within(conversation).findByText("Reading the projected schema")).toBeInTheDocument();
     // A tool line is an inspectable step (AG-56): its name on the summary, its command inside.
-    const step = screen.getByRole("group");
+    // The data bar above the text box is a group too; the step is the one that holds the tool.
+    const step = within(conversation).getAllByRole("group").find((group) => group.tagName === "DETAILS") as HTMLElement;
     expect(within(step).getByText("bash")).toBeInTheDocument();
     expect(within(step).getByRole("img", { name: en.agentRun.step.ok })).toBeInTheDocument();
     await userEvent.click(within(step).getByText("bash"));
@@ -221,7 +265,7 @@ describe("watching a run", () => {
 
   it("does not double a line the reconnect replayed (AG-45)", async () => {
     renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     await emit("thought", { seq: 7, text: "Wiring the map" });
     // What a resume from `Last-Event-ID` brings back: the same frame, the same seq.
@@ -234,7 +278,7 @@ describe("watching a run", () => {
 
   it("drops a frame it cannot parse instead of rendering half of it", async () => {
     renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     await emit("thought", undefined, "not json at all");
 
@@ -243,7 +287,7 @@ describe("watching a run", () => {
 
   it("re-reads the record when the run changes state rather than polling", async () => {
     const { setRun } = renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     setRun({ ...RUN, status: "testing" });
     await emit("status", { seq: 3, status: "testing" });
@@ -260,7 +304,7 @@ describe("watching a run", () => {
   it("answers a question against the schema the agent asked for", async () => {
     const user = userEvent.setup();
     const { fetchMock } = renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     await emit("question", {
       seq: 4,
@@ -288,7 +332,7 @@ describe("watching a run", () => {
 
   it("stops asking once the question is answered", async () => {
     renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     await emit("question", {
       seq: 5,
@@ -306,7 +350,7 @@ describe("watching a run", () => {
 
   it("offers publishing only once there is a preview to judge (AP-55)", async () => {
     const { setRun } = renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     const publish = screen.getByRole("button", { name: en.agentRun.publish });
     expect(publish).toBeDisabled();
@@ -319,12 +363,54 @@ describe("watching a run", () => {
     });
   });
 
+  it("publishes an unattended run that waits for approval with its preview built (AG-69)", async () => {
+    renderRun({
+      run: { ...RUN, unattended: true, status: "awaiting_approval", previewUrl: "/apps/x/" },
+    });
+    await screen.findByRole("heading", { name: APP_TITLE });
+
+    expect(screen.getByRole("button", { name: en.agentRun.publish })).toBeEnabled();
+  });
+
+  it("links the source in Git and approves its own publication in place as an administrator (AP-71, PF-58)", async () => {
+    const { fetchMock } = renderRun({
+      run: {
+        ...RUN,
+        unattended: true,
+        status: "awaiting_approval",
+        previewUrl: "/apps/x/",
+        changeId: "chg-00000069",
+        sourceUrl: "https://city.example/git/joinedcontext/configuration/src/branch/agent/ovzdusie-dnes/apps/ovzdusie-dnes",
+      },
+      write: { body: { ...PUBLICATION, status: { ...PUBLICATION.status, phase: "Deploying" } }, status: 202 },
+    });
+    await screen.findByRole("heading", { name: APP_TITLE });
+
+    const panel = screen.getByRole("region", { name: en.agentRun.publication.title });
+    expect(within(panel).getByRole("link", { name: en.agentRun.publication.source })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/src/branch/agent/ovzdusie-dnes/"),
+    );
+    // Already published: the run's Change stands for it, so Publish is not offered twice.
+    expect(await screen.findByRole("button", { name: en.agentRun.publication.approve })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.agentRun.publish })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: en.agentRun.publication.approve }));
+    await waitFor(() => {
+      const approvals = fetchMock.mock.calls
+        .map((call) => call[0] as Request)
+        .filter((request) => request.method === "POST" && request.url.includes("/changes/chg-00000069/approve"));
+      expect(approvals).toHaveLength(1);
+    });
+    expect(await within(panel).findByText(en.phase.deploying)).toBeInTheDocument();
+  });
+
   it("frames the preview without handing it the reviewer's session (AP-19)", async () => {
     renderRun({ run: { ...RUN, status: "previewing", previewUrl: "/apps/ovzdusie-dnes-preview/" } });
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     const frame = await screen.findByTitle(
-      en.agentRun.preview.frameTitle.replace("{app}", RUN.appName),
+      en.agentRun.preview.frameTitle.replace("{app}", APP_TITLE),
     );
     expect(frame).toHaveAttribute("src", "/apps/ovzdusie-dnes-preview/");
     // `allow-scripts` with `allow-same-origin` on a same-origin frame is not a sandbox: the
@@ -340,7 +426,7 @@ describe("watching a run", () => {
         dataNeeds: [{ types: ["BikeHireDockingStation", "Entity"], operations: ["queryEntity"] }],
       },
     });
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
     await emit("thought", { seq: 3, text: "Reading 5 entities of BikeHireDockingStation through the endpoint." });
 
     const building = await screen.findByTestId("run-building");
@@ -349,12 +435,12 @@ describe("watching a run", () => {
     expect(within(building).getByTestId("run-building-thought")).toHaveTextContent(
       "Reading 5 entities of BikeHireDockingStation through the endpoint.",
     );
-    expect(screen.queryByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName))).toBeNull();
+    expect(screen.queryByTitle(en.agentRun.preview.frameTitle.replace("{app}", APP_TITLE))).toBeNull();
   });
 
   it("says a live run without a version could not build yet, with its errors and how to retry (SDK-14)", async () => {
     renderRun({ run: { ...RUN, status: "previewing" } });
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
     await emit("thought", { seq: 4, text: "The application still does not build:\nsrc/App.tsx:3 Cannot find name 'Row'" });
 
     const building = await screen.findByTestId("run-building");
@@ -368,7 +454,7 @@ describe("watching a run", () => {
     const { setRun } = renderRun({
       run: { ...RUN, status: "building", createdAt: new Date(Date.now() - 12_000).toISOString() },
     });
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     // Before the first pass the preview column says which phase the run is in and how long it
     // has been running, rather than standing empty.
@@ -376,12 +462,12 @@ describe("watching a run", () => {
     expect(within(preview).getByText(en.agentRun.states.building)).toBeInTheDocument();
     expect(within(preview).getByText(en.agentRun.preview.building)).toBeInTheDocument();
     expect(within(preview).getByText(/^1[0-9] s since the run started$/)).toBeInTheDocument();
-    expect(screen.queryByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName))).toBeNull();
+    expect(screen.queryByTitle(en.agentRun.preview.frameTitle.replace("{app}", APP_TITLE))).toBeNull();
 
     const first = `/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/preview?v=1`;
     setRun({ ...RUN, status: "previewing", previewUrl: first });
     await emit("status", { seq: 5, status: "previewing" });
-    const frame = await screen.findByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName));
+    const frame = await screen.findByTitle(en.agentRun.preview.frameTitle.replace("{app}", APP_TITLE));
     expect(frame).toHaveAttribute("src", first);
 
     // A second pass is a second URL: the frame is replaced, never left on the old document.
@@ -390,7 +476,7 @@ describe("watching a run", () => {
     await emit("status", { seq: 9, status: "previewing" });
     await waitFor(() => {
       expect(
-        screen.getByTitle(en.agentRun.preview.frameTitle.replace("{app}", RUN.appName)),
+        screen.getByTitle(en.agentRun.preview.frameTitle.replace("{app}", APP_TITLE)),
       ).toHaveAttribute("src", second);
     });
     // The chat stands beside the preview with its composer open.
@@ -399,7 +485,7 @@ describe("watching a run", () => {
 
   it("says the app lives behind the platform login and nowhere else (ADR-N-019)", async () => {
     renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
   });
@@ -410,7 +496,7 @@ describe("watching a run", () => {
 
     // Absent case: default RUN has neither firstFrameMs nor firstVersionMs
     const { view } = renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     expect(screen.queryByText(timingFirstFrame)).not.toBeInTheDocument();
     expect(screen.queryByText(timingFirstVersion)).not.toBeInTheDocument();
@@ -425,7 +511,7 @@ describe("watching a run", () => {
         firstVersionMs: 45_600,
       },
     });
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     expect(screen.getByText(timingFirstFrame)).toBeInTheDocument();
     expect(screen.getByText(timingFirstVersion)).toBeInTheDocument();
@@ -435,7 +521,7 @@ describe("watching a run", () => {
 
   it("cannot be stopped twice: a run that is over offers nothing", async () => {
     renderRun({ run: { ...RUN, status: "cancelled" } });
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     expect(screen.getByRole("button", { name: en.agentRun.cancel })).toBeDisabled();
     expect(screen.getByRole("button", { name: en.agentRun.publish })).toBeDisabled();
@@ -455,7 +541,7 @@ describe("watching a run", () => {
         },
       },
     });
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     await user.click(screen.getByRole("button", { name: en.agentRun.cancel }));
 
@@ -464,7 +550,7 @@ describe("watching a run", () => {
 
   it("closes the stream when the page goes away", async () => {
     const { view } = renderRun();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
     const source = stream();
 
     view.unmount();

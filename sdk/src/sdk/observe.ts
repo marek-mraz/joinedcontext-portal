@@ -2,8 +2,8 @@ import { activity, MAX_FAILED_REQUESTS } from "./transport";
 
 /**
  * What the preview shows, read by the SDK inside the frame and posted to the Portal once per
- * document (SDK-27, Architecture/20 §4.1): the run checks each generated version against the
- * entities it sampled without asking anyone to look. Once the application's requests have
+ * document when the Portal asks for it (SDK-27, Architecture/20 §4.1): the run checks each
+ * generated version against the entities it sampled without asking anyone to look. Once the application's requests have
  * settled, the observer walks the pages its navigation offers (the links and tabs inside `nav`),
  * reads each one's visible text and table row counts, and returns to the page the person was on.
  * The bounds are the route's own (API/04 §5), so a post is never refused for its size.
@@ -169,24 +169,48 @@ export async function observe(options: ObserveOptions = {}): Promise<Observation
 }
 
 let started = false;
+let listening = false;
 
-/** Observes once per document load and posts the result to the host page; errors stay in the console. */
+/**
+ * Waits for the host page to ask (`{kind: "jc-observe", version}` from the window that framed
+ * this document) and then observes once and posts the result; errors stay in the console. The
+ * page asks only for a live run's version it has not had an observation of, so reopening a
+ * finished application never walks its pages (SDK-27). Tells the host it is listening with
+ * `{kind: "jc-ready"}`.
+ */
 export function startObserver(options: ObserveOptions = {}): void {
-  if (started) return;
-  started = true;
+  if (listening) return;
   const win = options.win ?? (typeof window !== "undefined" ? window : undefined);
-  void observe(options)
-    .then((observation) => {
-      if (observation && win?.parent && win.parent !== win) {
-        win.parent.postMessage(observation, "*");
-      }
-    })
-    .catch((error: unknown) => {
-      console.error("jc: the preview could not be observed", error);
-    });
+  if (!win || !win.parent || win.parent === win || typeof win.addEventListener !== "function") {
+    return;
+  }
+  listening = true;
+  win.addEventListener("message", (event: MessageEvent) => {
+    const data = (typeof event.data === "object" && event.data !== null ? event.data : {}) as Record<string, unknown>;
+    if (event.source !== win.parent || data.kind !== "jc-observe" || started) {
+      return;
+    }
+    started = true;
+    const asked = typeof data.version === "number" && Number.isInteger(data.version) && data.version >= 1 ? data.version : undefined;
+    void observe(options)
+      .then((observation) => {
+        if (observation && win.parent && win.parent !== win) {
+          win.parent.postMessage({ ...observation, version: observation.version ?? asked }, "*");
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("jc: the preview could not be observed", error);
+      });
+  });
+  try {
+    win.parent.postMessage({ kind: "jc-ready" }, "*");
+  } catch {
+    // A host that cannot be told simply never asks.
+  }
 }
 
 /** Lets a test observe again in the same document. */
 export function resetObserver(): void {
   started = false;
+  listening = false;
 }

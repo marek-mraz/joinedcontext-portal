@@ -230,14 +230,12 @@ export function ExplorePage({
           <div className="overflow-x-auto">
             <Table caption={t("explore.entities")}>
               <TableHead>
-                <TableRow>
-                  <TableHeaderCell>id</TableHeaderCell>
-                  {columns.map((column) => (
-                    <TableHeaderCell key={column}>
-                      <span className="font-mono">{column}</span>
-                    </TableHeaderCell>
-                  ))}
-                </TableRow>
+                <TableHeaderCell>id</TableHeaderCell>
+                {columns.map((column) => (
+                  <TableHeaderCell key={column}>
+                    <span className="font-mono">{column}</span>
+                  </TableHeaderCell>
+                ))}
               </TableHead>
               <TableBody>
                 {rows.length === 0 && !page.isPending ? (

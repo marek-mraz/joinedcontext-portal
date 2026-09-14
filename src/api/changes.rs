@@ -636,8 +636,47 @@ pub async fn approve_change(
         )
     };
     let confirm = approve_body.as_ref().and_then(|b| b.confirm.as_deref());
-    let change = approve_change_for(&state, &user.0.identity, &project, &id, confirm).await?;
+    let change = approve_change_for(
+        &state,
+        &user.0.identity,
+        &project,
+        &id,
+        confirm,
+        ApprovedBy::Person,
+    )
+    .await?;
     Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+}
+
+/// Who presses approve: a person at the Portal's button, or an operation of the registry, which an
+/// agent calls on a person's behalf (AG-11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovedBy {
+    Person,
+    Operation,
+}
+
+/// Whether a binding covering the project grants `approve` and `delete` on the change's kind: an
+/// administrator of that kind, who may approve their own change (PF-58). The bootstrap group is
+/// not a binding and does not count.
+fn administers(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    data: &ManifestData,
+) -> bool {
+    let effective = crate::permissions::for_request(state, identity, project);
+    if effective.bootstrap {
+        return false;
+    }
+    let target = data
+        .head_envelope
+        .as_ref()
+        .or(data.base_envelope.as_ref())
+        .and_then(|envelope| serde_json::to_value(envelope).ok());
+    [jc_core::kinds::Verb::Approve, jc_core::kinds::Verb::Delete]
+        .into_iter()
+        .all(|verb| effective.check(&data.kind, verb, target.as_ref()).is_ok())
 }
 
 /// Core approval function factored out for reuse by both the REST route and the operations registry.
@@ -647,6 +686,7 @@ pub async fn approve_change_for(
     project: &str,
     id: &str,
     confirm: Option<&str>,
+    by: ApprovedBy,
 ) -> Result<Change, ApiError> {
     may_approve_anything(state, identity, project)?;
     let pr_number = parse_change_id(id)?;
@@ -677,9 +717,11 @@ pub async fn approve_change_for(
         }
     };
 
-    if is_author {
+    // An author approves their own change only at the button and only as an administrator of its
+    // kind (PF-58); an agent never does (AG-11).
+    if is_author && !(by == ApprovedBy::Person && administers(state, identity, project, &data)) {
         return Err(ApiError::SelfApproval(
-            "proposal author cannot approve their own change (AG-11)".to_string(),
+            "proposal author cannot approve their own change (AG-11); an administrator of its kind may, in the Portal (PF-58)".to_string(),
         ));
     }
 
@@ -703,10 +745,17 @@ pub async fn approve_change_for(
     // the Portal checked the binding (PF-50) and the author (CC-34) above, and the merge commit
     // records who approved.
     let approver = identity.email.as_deref().unwrap_or(&identity.username);
-    let merge_msg = format!(
-        "Merge change proposal {id}: {}\n\nApproved in the Portal by {approver}",
-        pr.title
-    );
+    let merge_msg = if is_author {
+        format!(
+            "Merge change proposal {id}: {}\n\nApproved in the Portal by {approver}, its author, as an administrator of {} (PF-58)",
+            pr.title, data.kind
+        )
+    } else {
+        format!(
+            "Merge change proposal {id}: {}\n\nApproved in the Portal by {approver}",
+            pr.title
+        )
+    };
     // Gitea checks a fresh pull's mergeability in the background and answers 405 "Please try
     // again later" until it has; an approval that follows the proposal within seconds (the
     // demo's, a script's) waits it out instead of failing.

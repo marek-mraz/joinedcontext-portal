@@ -176,14 +176,10 @@ export function Shell({
     matchRoute({ to: "/projects/$project/assistant", params: { project } }),
   );
 
-  const playgroundActive = Boolean(matchRoute({ to: "/playground" }));
   const allEndpointsActive = Boolean(matchRoute({ to: "/endpoints" }));
   const modelsActive = Boolean(matchRoute({ to: "/projects/$project/models", params: { project } }));
   const exploreActive = Boolean(matchRoute({ to: "/projects/$project/explore", params: { project } }));
   const ckanActive = Boolean(matchRoute({ to: "/projects/$project/ckan", params: { project } }));
-  const federationActive = Boolean(
-    matchRoute({ to: "/projects/$project/federation", params: { project } }),
-  );
 
   const activeSection = NAV_SECTIONS.find((section) =>
     section.plural === "approvals"
@@ -301,9 +297,9 @@ export function Shell({
               );
             })}
           </ul>
-          {/* Neither is a section of the resource API: the model editor writes LinkML into the
-              repository rather than a manifest of its own, and the playground is a drawing of
-              federation that runs entirely in the browser. Both hang below the list. */}
+          {/* Not sections of the resource API: every endpoint across projects, the model editor
+              that writes LinkML into the repository, the explorer and the CKAN view hang below
+              the list. */}
           <ul className="flex flex-col gap-0.5 border-t border-border pt-3">
             <li>
               <Link
@@ -346,27 +342,6 @@ export function Shell({
                 className={navLinkClass(ckanActive)}
               >
                 <NavLabel icon="ckan" label={t("nav.ckan")} />
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="/projects/$project/federation"
-                params={{ project }}
-                onClick={closeNav}
-                aria-current={federationActive ? "page" : undefined}
-                className={navLinkClass(federationActive)}
-              >
-                <NavLabel icon="federation" label={t("nav.federation")} />
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="/playground"
-                onClick={closeNav}
-                aria-current={playgroundActive ? "page" : undefined}
-                className={navLinkClass(playgroundActive)}
-              >
-                <NavLabel icon="playground" label={t("nav.playground")} />
               </Link>
             </li>
           </ul>

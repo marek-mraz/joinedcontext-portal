@@ -60,6 +60,9 @@ pub struct ComputeKpi {
     /// An NGSI-LD `q` narrowing the entities read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub q: Option<String>,
+    /// The endpoint read, by name; the conversation's endpoint of the type when absent (AG-76).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
 }
 
 /// The tool call in a model answer, when the answer is one.
@@ -216,6 +219,7 @@ mod tests {
             agg,
             unit: Some("GQ".into()),
             q: None,
+            endpoint: None,
         }
     }
 

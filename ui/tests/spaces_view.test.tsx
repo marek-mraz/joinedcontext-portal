@@ -56,7 +56,7 @@ function project(quota?: number) {
   return {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "Project",
-    metadata: { name: "banskabystrica", namespace: "banskabystrica" },
+    metadata: { name: "banskabystrica", namespace: "org" },
     spec: {
       organizationRef: "banskabystrica.sk",
       ...(quota === undefined ? {} : { quotas: { contextSpaces: quota } }),
@@ -83,8 +83,11 @@ function renderSpaces(options: { quota?: number } = { quota: 3 }) {
     if (request.method === "POST") {
       return json(CHANGE, 202);
     }
-    if (path.endsWith("/projects/banskabystrica")) {
-      return json(project(options.quota));
+    if (path === "/api/v1/projects/org/projects") {
+      return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [project(options.quota)] });
+    }
+    if (path.includes("/projects/banskabystrica/projects")) {
+      return json({ status: 404, title: "Resource Not Found" }, 404);
     }
     if (path.endsWith("/spaces")) {
       return json(SPACES);
@@ -149,6 +152,14 @@ describe("context spaces view", () => {
     expect(bar).toHaveAttribute("aria-valuenow", "2");
     expect(bar).toHaveAttribute("aria-valuemax", "3");
     expect(screen.getByText("2 / 3")).toBeInTheDocument();
+  });
+
+  it("reads the quota from the organization's Project manifest, never from inside the project", async () => {
+    const fetchMock = renderSpaces({ quota: 3 });
+    await screen.findByRole("progressbar", { name: en.quota.contextSpaces });
+    const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
+    expect(paths).toContain("/api/v1/projects/org/projects");
+    expect(paths.some((path) => path.includes("/projects/banskabystrica/projects"))).toBe(false);
   });
 
   it("blocks a new space once the quota is used up", async () => {

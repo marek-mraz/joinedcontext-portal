@@ -749,3 +749,180 @@ async fn an_indicator_pipeline_outside_the_profile_is_neither_offered_nor_drafte
         .expect("drafts")
         .is_none());
 }
+
+/// Starts a conversation on `endpoints` whose model answers `answers` in order, with the proxy
+/// serving the endpoint's MCP façade; returns the run's events and every model request body.
+async fn ask_the_data(endpoints: Value, answers: &[&str]) -> (Vec<AgentRunEvent>, Vec<Value>) {
+    let proxy = MockServer::start().await;
+    for answer in answers {
+        Mock::given(method("POST"))
+            .and(path("/v1/llm/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chatcmpl-1", "object": "chat.completion",
+                "choices": [{ "index": 0, "message": { "role": "assistant", "content": answer }, "finish_reason": "stop" }],
+                "usage": { "total_tokens": 900 }
+            })))
+            .up_to_n_times(1)
+            .mount(&proxy)
+            .await;
+    }
+    Mock::given(method("POST"))
+        .and(path("/v1/data/mcp"))
+        .and(wiremock::matchers::body_string_contains("tools/list"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0", "id": 1, "result": { "tools": [
+                { "name": "query_entities", "description": "Query the entities", "annotations": { "readOnlyHint": true },
+                  "inputSchema": { "type": "object", "properties": { "type": { "type": "string" }, "q": { "type": "string" } }, "required": ["type"] } },
+                { "name": "upsert_entity", "description": "Write", "annotations": { "readOnlyHint": false }, "inputSchema": { "type": "object" } }
+            ] }
+        })))
+        .mount(&proxy)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/data/mcp"))
+        .and(wiremock::matchers::body_string_contains("tools/call"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0", "id": 1, "result": {
+                "content": [{ "type": "text", "text": "[{\"id\":\"urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:kaivopuisto\",\"name\":\"Kaivopuisto\",\"availableBikeNumber\":0}]" }]
+            }
+        })))
+        .mount(&proxy)
+        .await;
+    let config = config(&proxy.uri());
+    let mirror = mirror(None);
+    for envelope in bikes_space() {
+        mirror.upsert(envelope);
+    }
+    let state = AppState::new(config.clone(), None).with_mirror(mirror);
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/assistant/conversations")
+                .header(header::COOKIE, cookie(&config, person("admin@hel.fi", &["portal-approver"])))
+                .header(CSRF_HEADER, CSRF)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "message": "Which stations have no bikes?", "endpointNames": endpoints }).to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let created: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let id = created["id"].as_str().expect("run id").to_owned();
+    let mut events = Vec::new();
+    for _ in 0..200 {
+        events = state.agents.events_since(&id, 0).await.expect("events");
+        let answered = events.iter().filter(|e| e.kind == "thought").any(|e| {
+            e.payload["text"]
+                .as_str()
+                .is_some_and(|t| t.contains("Kaivopuisto") || t.contains("calls one message"))
+        });
+        if answered {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let bodies = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.url.path() == "/v1/llm/chat/completions")
+        .map(|r| serde_json::from_slice(&r.body).unwrap_or(Value::Null))
+        .collect();
+    (events, bodies)
+}
+
+const QUERY_ANSWER: &str = "Let me read the stations.\n```json\n{\"tool\":\"query_endpoint\",\"endpoint\":\"helsinki-all\",\"name\":\"query_entities\",\"arguments\":{\"type\":\"BikeHireDockingStation\",\"q\":\"availableBikeNumber==0\"}}\n```";
+const WRITE_ANSWER: &str = "```json\n{\"tool\":\"query_endpoint\",\"endpoint\":\"helsinki-all\",\"name\":\"upsert_entity\",\"arguments\":{}}\n```";
+const DATA_PROSE: &str = "One station has no bikes right now: Kaivopuisto.";
+
+#[tokio::test]
+async fn a_question_about_the_data_is_answered_from_the_endpoints_the_person_chose() {
+    let (events, bodies) = ask_the_data(
+        json!(["helsinki-all"]),
+        &[WRITE_ANSWER, QUERY_ANSWER, DATA_PROSE],
+    )
+    .await;
+
+    let steps: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.kind == "tool" && e.payload["tool"] == "query_endpoint")
+        .map(|e| &e.payload)
+        .collect();
+    assert_eq!(steps.len(), 2, "{events:?}");
+    // A write tool is never called: the model is told, and corrects itself.
+    assert_eq!(steps[0]["status"], "failed");
+    assert!(steps[0]["error"]
+        .as_str()
+        .is_some_and(|e| e.contains("not a read tool")));
+    assert_eq!(steps[1]["status"], "ok", "{}", steps[1]);
+    assert_eq!(
+        steps[1]["input"]["arguments"]["q"],
+        "availableBikeNumber==0"
+    );
+
+    assert_eq!(bodies.len(), 3);
+    let first = bodies[0]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(first.contains("## WORKING WITH THE DATA"));
+    assert!(first.contains("query_entities") && !first.contains("upsert_entity"));
+    let last = bodies[2]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(last.contains("## WHAT YOUR CALLS ANSWERED"));
+    assert!(last.contains("Kaivopuisto"));
+    assert!(events
+        .iter()
+        .any(|e| e.kind == "thought" && e.payload["text"] == DATA_PROSE));
+}
+
+/// Two calls in one answer, on an endpoint the conversation did not read yet.
+const TWO_CALLS: &str = "Let me look at the stations and their types.\n```json\n{\"tool\":\"query_endpoint\",\"endpoint\":\"helsinki-all\",\"name\":\"query_entities\",\"arguments\":{\"type\":\"BikeHireDockingStation\",\"q\":\"availableBikeNumber==0\"}}\n```\n```json\n{\"tool\":\"query_endpoint\",\"endpoint\":\"helsinki-all\",\"name\":\"query_entities\",\"arguments\":{\"type\":\"BikeHireDockingStation\"}}\n```";
+
+#[tokio::test]
+async fn a_conversation_without_endpoints_opens_the_one_the_model_names_and_runs_its_calls_at_once()
+{
+    let (events, bodies) = ask_the_data(json!([]), &[TWO_CALLS, DATA_PROSE]).await;
+
+    // The prompt offers the project's endpoints the person may open.
+    let first = bodies[0]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(first.contains("## WORKING WITH THE DATA"));
+    assert!(first.contains("\"endpoint\": \"helsinki-all\""), "{first}");
+
+    // The endpoint is added to the conversation, as the data bar shows it, before the calls.
+    let opened = events
+        .iter()
+        .position(|e| e.kind == "endpoints")
+        .expect("an endpoints event");
+    assert_eq!(events[opened].payload["names"], json!(["helsinki-all"]));
+    let steps: Vec<(usize, &Value)> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.kind == "tool" && e.payload["tool"] == "query_endpoint")
+        .map(|(i, e)| (i, &e.payload))
+        .collect();
+    assert_eq!(steps.len(), 2, "{events:?}");
+    assert!(steps
+        .iter()
+        .all(|(i, step)| *i > opened && step["status"] == "ok"));
+
+    // Both results go back together in one more model call, which answers.
+    assert_eq!(bodies.len(), 2);
+    let last = bodies[1]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(last.contains("### Call 1") && last.contains("### Call 2"));
+    assert!(last.contains("Kaivopuisto"));
+    assert!(events
+        .iter()
+        .any(|e| e.kind == "thought" && e.payload["text"] == DATA_PROSE));
+}

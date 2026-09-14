@@ -7,7 +7,7 @@
  * 3. A reload (fresh mount of the same URL) shows the same run rather than the form.
  * 4. No run -> the generator form prefilled with the application name.
  */
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +25,9 @@ import { AssistantDock } from "../src/assistant/AssistantDock";
 
 const PROJECT = "banskabystrica";
 const RUN_ID = "01J8ZQ4T7K9M2N3P4Q5R6S7T8V";
+
+/** The run's name read as words, never its id; the endpoint's title follows when it is known. */
+const APP_TITLE = "Ovzdusie dnes · Air quality open data";
 
 const RUN = {
   id: RUN_ID,
@@ -206,29 +209,31 @@ describe("AppPage route /projects/$project/apps/$name", () => {
 
   it("renders the application by name with its active run (AP-69)", async () => {
     renderAppRoute("ovzdusie-dnes");
-    expect(await screen.findByRole("heading", { name: RUN.appName })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: APP_TITLE })).toBeInTheDocument();
     expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
     expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
   });
 
   it("shows a live run with conversation events on stream attachment (AP-69)", async () => {
     renderAppRoute("ovzdusie-dnes");
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
 
     await emit("thought", { seq: 1, text: "Reading the projected schema from store" });
-    expect(await screen.findByText("Reading the projected schema from store")).toBeInTheDocument();
+    // The building panel repeats the latest thought, so the line is looked for in the conversation.
+    const conversation = await screen.findByRole("region", { name: en.agentRun.conversation.title });
+    expect(await within(conversation).findByText("Reading the projected schema from store")).toBeInTheDocument();
   });
 
   it("shows the same run rather than the form on a reload (fresh mount of the same URL) (AP-69)", async () => {
     const { view } = renderAppRoute("ovzdusie-dnes");
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
     expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
 
     view.unmount();
 
     // Fresh mount with the same URL simulating a reload
     renderAppRoute("ovzdusie-dnes");
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: APP_TITLE });
     expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
     expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
   });

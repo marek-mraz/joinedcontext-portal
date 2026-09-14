@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { Map as MapLibreMap, NavigationControl, Popup } from "maplibre-gl";
-import type { MapGeoJSONFeature } from "maplibre-gl";
+import type { MapGeoJSONFeature, StyleSpecification } from "maplibre-gl";
 import { useTranslation } from "react-i18next";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -27,6 +27,8 @@ export type Bbox = [number, number, number, number];
 
 export interface MapLibreViewProps {
   layers: MapLayer[];
+  /** The project whose basemap route draws the ground (AP-67); without one the ground is plain. */
+  project?: string;
   center?: [number, number];
   zoom?: number;
   label: string;
@@ -38,6 +40,30 @@ export interface MapLibreViewProps {
    * same map instead of a second one beside it.
    */
   onReady?: (map: MapLibreMap) => (() => void) | void;
+}
+
+/**
+ * The ground when no basemap is reachable: one background layer and nothing fetched, since the
+ * Portal's policy lets a page connect to its own origin only.
+ */
+export const BLANK_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {},
+  layers: [{ id: "background", type: "background", paint: { "background-color": "#eef1f4" } }],
+};
+
+/**
+ * The style a map starts from: the project's basemap route on the Portal's own origin (AP-67),
+ * never a third-party style, which the Portal's `connect-src 'self'` would refuse anyway.
+ */
+export function mapStyleFor(project?: string): string | StyleSpecification {
+  if (!project) {
+    return BLANK_STYLE;
+  }
+  return new URL(
+    `/api/v1/projects/${encodeURIComponent(project)}/basemap/default/style.json`,
+    window.location.origin,
+  ).href;
 }
 
 /** Banská Bystrica: the demo city, and a better first view than null island. */
@@ -129,6 +155,7 @@ export function MapLibreView({
   center,
   zoom,
   label,
+  project,
   onReady,
   onMoveEnd,
 }: MapLibreViewProps): JSX.Element {
@@ -154,7 +181,7 @@ export function MapLibreView({
     try {
       instance = new MapLibreMap({
         container: container.current,
-        style: import.meta.env.VITE_MAP_STYLE ?? "https://demotiles.maplibre.org/style.json",
+        style: mapStyleFor(project),
         center: center ?? DEFAULT_CENTER,
         zoom: zoom ?? DEFAULT_ZOOM,
       });
@@ -169,6 +196,15 @@ export function MapLibreView({
     map.current = instance;
     const detach = onReady?.(instance);
     instance.on("load", () => setLoaded(instance));
+    // A platform without a basemap answers the style with 404: the map falls back to the plain
+    // ground once, so the layers still draw instead of waiting for a style that never loads.
+    let fellBack = false;
+    instance.on("error", () => {
+      if (!fellBack && !instance.isStyleLoaded()) {
+        fellBack = true;
+        instance.setStyle(BLANK_STYLE);
+      }
+    });
     instance.on("moveend", () => {
       const bounds = instance.getBounds();
       moveEnd.current?.([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
@@ -181,7 +217,7 @@ export function MapLibreView({
       drawn.current.clear();
       setLoaded(null);
     };
-  }, [center, zoom, onReady]);
+  }, [center, zoom, project, onReady]);
 
   // The layers are diffed against what the map holds: a refetch after a pan replaces the
   // data of a source in place, so the viewport the reader chose survives it (UI-22).

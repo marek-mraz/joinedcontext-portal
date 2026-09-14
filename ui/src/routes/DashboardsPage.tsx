@@ -431,9 +431,14 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
           {features.isPending && mapLayers.length > 0 ? (
             <MapPlaceholder label={t("app.loading")} />
           ) : dense.length > 0 ? (
-            <DeckGlOverlay layers={native} dense={dense} label={title} />
+            <DeckGlOverlay layers={native} dense={dense} label={title} project={project} />
           ) : (
-            <MapLibreView layers={native} label={title} onMoveEnd={onMoveEnd} />
+            <MapLibreView
+              layers={native}
+              label={title}
+              project={project}
+              onMoveEnd={onMoveEnd}
+            />
           )}
         </Suspense>
       </Card>

@@ -72,7 +72,7 @@ export function startApp(
     </StrictMode>,
   );
 
-  // A preview reads itself page by page once it has settled, so the run can check what it shows (SDK-27).
+  // A preview reads itself page by page when the host page asks, so the run can check what it shows (SDK-27).
   if (config.transport === "bridge") {
     startObserver({ doc });
   }

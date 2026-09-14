@@ -405,6 +405,7 @@ pub fn plan(call: &DraftKpiPipeline, world: &World) -> Result<Plan, String> {
         agg: call.agg,
         unit: call.unit.clone(),
         q: call.q.clone(),
+        endpoint: None,
     });
     let mapping = bloblang(&Mapping {
         name,

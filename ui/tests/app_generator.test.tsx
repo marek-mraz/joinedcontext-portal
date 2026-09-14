@@ -375,7 +375,8 @@ describe("the app generator", () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe(`/projects/${PROJECT}/apps/ovzdusie-dnes`);
     });
-    expect(await screen.findByRole("heading", { name: "ovzdusie-dnes" })).toBeInTheDocument();
+    // The page names the app in words with its endpoint's title, never by its id.
+    expect(await screen.findByRole("heading", { name: "Ovzdusie dnes · Air quality open data" })).toBeInTheDocument();
     expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
     expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
     // The builder ran in the assistant, which now follows the run it started.

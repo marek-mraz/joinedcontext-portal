@@ -5,7 +5,7 @@
  * frame's error reports go to the run.
  */
 import { describe, expect, it, vi } from "vitest";
-import { functionPathOf, grantedOperations, handleBridgeMessage, observationRelay, operationOf, previewErrorOf, previewObservationOf, previewVersionOf } from "../src/pages/apps/previewBridge";
+import { firstAsk, functionPathOf, grantedOperations, handleBridgeMessage, observationRelay, operationOf, previewErrorOf, previewObservationOf, previewVersionOf } from "../src/pages/apps/previewBridge";
 import type { PreviewError } from "../src/pages/apps/previewBridge";
 
 const SLUG = "k7m2qz4tv6xh3n5jb2ryd3wcfa";
@@ -280,6 +280,59 @@ describe("preview observations (SDK-27)", () => {
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ version: 2, pages: observation.pages, failedRequests: observation.failedRequests });
     expect((fetchImpl.mock.calls[1] as unknown as [string, RequestInit])[1].body).toContain('"version":3');
+  });
+});
+
+describe("asking the frame to observe (SDK-27)", () => {
+  const ready = { kind: "jc-ready" };
+  const read = { kind: "jc-request", id: 1, method: "GET", path: `${BASE}?type=BikeHireDockingStation` };
+  const ok = () => vi.fn(async () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+
+  async function tell(data: unknown, source: Window, options: { live?: boolean; version?: number; ask?: (version: number) => boolean; from?: unknown } = {}) {
+    return handleBridgeMessage(
+      { source: "from" in options ? options.from : source, data },
+      { slug: SLUG, operations: GRANTED, functions: FUNCTIONS, source, version: options.version, live: options.live, ask: options.ask },
+      () => undefined,
+      ok() as unknown as typeof fetch,
+    );
+  }
+  const asks = (source: ReturnType<typeof frame>) =>
+    source.postMessage.mock.calls.filter(([message]) => (message as { kind?: string }).kind === "jc-observe");
+
+  it("asks a ready frame of a live run once per version, however often it loads", async () => {
+    const ask = firstAsk("helsinki/r1", new Set());
+    const first = frame();
+    expect(await tell(ready, first, { live: true, version: 2, ask })).toBe("relayed");
+    expect(asks(first)).toEqual([[{ kind: "jc-observe", version: 2 }, "*"]]);
+
+    // The application closed and opened again: the same version is not walked twice.
+    const reopened = frame();
+    await tell(ready, reopened, { live: true, version: 2, ask });
+    await tell(read, reopened, { live: true, version: 2, ask });
+    expect(asks(reopened)).toEqual([]);
+
+    // A new version is asked for, and a first request counts as ready when `jc-ready` is lost.
+    const next = frame();
+    expect(await tell(read, next, { live: true, version: 3, ask })).toBe("forwarded");
+    expect(asks(next)).toEqual([[{ kind: "jc-observe", version: 3 }, "*"]]);
+  });
+
+  it("never asks for an ended run, a frame without a version, or a foreign window", async () => {
+    const ask = vi.fn(firstAsk("helsinki/r1", new Set()));
+    const source = frame();
+    await tell(ready, source, { live: false, version: 2, ask });
+    await tell(read, source, { live: false, version: 2, ask });
+    await tell(ready, source, { live: true, ask });
+    expect(await tell(ready, source, { live: true, version: 2, ask, from: frame() })).toBe("ignored");
+    expect(asks(source)).toEqual([]);
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("remembers each run's versions apart", () => {
+    const memory = new Set<string>();
+    expect(firstAsk("helsinki/r1", memory)(2)).toBe(true);
+    expect(firstAsk("helsinki/r1", memory)(2)).toBe(false);
+    expect(firstAsk("helsinki/r2", memory)(2)).toBe(true);
   });
 });
 

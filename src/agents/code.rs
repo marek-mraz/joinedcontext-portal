@@ -244,7 +244,7 @@ mod tests {
         assert!(!system.contains("delete nothing that still works"));
         // The rules that keep a project a preview are still there (SDK-11, SDK-12).
         assert!(system.contains("Never `src/main.tsx`"));
-        assert!(system.contains("A test beside every page"));
+        assert!(system.contains("a test beside every page"));
     }
 
     #[test]

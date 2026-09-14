@@ -15,11 +15,9 @@ import { LoginPage } from "./routes/LoginPage";
 import { ResourceListPage } from "./routes/ResourceListPage";
 import { ApprovalsPage } from "./routes/ApprovalsPage";
 import { ApprovalDetailPage } from "./routes/ApprovalDetailPage";
-import { FederationPlayground } from "./components/visualization/FederationPlayground";
 import { ModelsPage } from "./pages/models/ModelsPage";
 import { ExplorePage } from "./pages/explore/ExplorePage";
 import { CkanPage } from "./pages/ckan/CkanPage";
-import { FederationPage } from "./pages/federation/FederationPage";
 import { SpaceInside } from "./pages/spaces/SpaceInside";
 import { AppPage } from "./pages/apps/AppPage";
 import { AssistantPage } from "./pages/assistant/AssistantPage";
@@ -130,16 +128,12 @@ const approvalDetailRoute = createRoute({
   },
 });
 
-/** The playground draws its own data; it needs no project and asks the API for nothing. */
+/** The federation playground is gone (UI-28): an old link lands on the project home. */
 const playgroundRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/playground",
-  component: function PlaygroundRoute() {
-    return (
-      <AnyProjectShell>
-        <FederationPlayground />
-      </AnyProjectShell>
-    );
+  beforeLoad: () => {
+    throw redirect({ to: "/" });
   },
 });
 
@@ -201,16 +195,15 @@ const ckanRoute = createRoute({
   },
 });
 
+/** The Federation page is gone (UI-28): an old link lands on the project's context spaces. */
 const federationRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/federation",
-  component: function FederationRoute() {
-    const { project } = federationRoute.useParams();
-    return (
-      <Shell project={project}>
-        <FederationPage project={project} />
-      </Shell>
-    );
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/projects/$project/$plural",
+      params: { project: params.project, plural: "spaces" },
+    });
   },
 });
 

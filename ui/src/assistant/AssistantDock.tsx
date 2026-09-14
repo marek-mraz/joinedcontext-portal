@@ -10,6 +10,15 @@ import { TERMINAL_STATES, useAgentRun } from "../pages/apps/useAgentRun";
 import type { RunEvent } from "../pages/apps/useAgentRun";
 import { ModelFileDrop } from "../pages/models/ModelFileDrop";
 import { AppGenerator } from "../pages/apps/AppGenerator";
+import { appDisplayName, useEndpointTitles } from "../pages/apps/appTitle";
+import {
+  DataBar,
+  MAX_ENDPOINTS,
+  rememberEndpoints,
+  runEndpointNames,
+  sameEndpoints,
+  storedEndpoints,
+} from "./EndpointPicker";
 import { Icon } from "../components/ui/icons";
 import type { IconName } from "../components/ui/icons";
 import {
@@ -56,8 +65,11 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   // opens the panel; closing forgets the run and leaves the bubble.
   const runId = run?.runId ?? null;
   const [shownRun, setShownRun] = useState(runId);
+  // A change made in a running conversation's data bar waits for its next message (AG-75).
+  const [pendingEndpoints, setPendingEndpoints] = useState<string[] | null>(null);
   if (runId !== shownRun) {
     setShownRun(runId);
+    setPendingEndpoints(null);
     if (runId !== null) {
       setOpen(true);
     }
@@ -67,6 +79,17 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   const [composerMessage, setComposerMessage] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  // The endpoints the next conversation may query (AG-75), remembered per project for the tab.
+  const [chosenEndpoints, setChosenEndpoints] = useState<string[]>(() => storedEndpoints(project));
+  const [endpointsOf, setEndpointsOf] = useState(activeProject);
+  if (endpointsOf !== activeProject) {
+    setEndpointsOf(activeProject);
+    setChosenEndpoints(storedEndpoints(activeProject));
+  }
+  const chooseEndpoints = (names: string[]) => {
+    setChosenEndpoints(names);
+    rememberEndpoints(activeProject, names);
+  };
 
   const { run: record, events, streaming, answer, send, cancel } = useAgentRun(
     activeProject,
@@ -143,7 +166,8 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
       const created = await unwrap(
         await api.POST("/api/v1/projects/{project}/assistant/conversations", {
           params: { path: { project: activeProject } },
-          body: { message: promptText },
+          // `endpointNames` is AG-75; the generated body type catches up with the next API render.
+          body: { message: promptText, endpointNames: chosenEndpoints } as { message: string },
         }),
       );
       rememberRun({ project: activeProject, runId: created.id });
@@ -162,6 +186,15 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   };
 
   const over = record.data ? TERMINAL_STATES.includes(record.data.status) : false;
+  const endpointTitles = useEndpointTitles(activeProject);
+  // A run that builds an application says which one, by its title, never by its id.
+  const buildingApp = record.data?.appName
+    ? appDisplayName({
+        title: record.data.title,
+        appName: record.data.appName,
+        endpointTitle: endpointTitles.get(record.data.endpointName),
+      })
+    : "";
   const lastEvent = events.length > 0 ? events[events.length - 1] : undefined;
   const isBusy = Boolean(run && !over && lastEvent && lastEvent.kind === "message");
 
@@ -178,6 +211,29 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
       }}
     />
   );
+
+  // What the running conversation queries: the newest `endpoints` event, else the run record.
+  const lastEndpointsEvent = [...events].reverse().find((event) => event.kind === "endpoints");
+  const runEndpoints = lastEndpointsEvent
+    ? runEndpointNames(
+        (Array.isArray(lastEndpointsEvent.payload.names) ? lastEndpointsEvent.payload.names : []).map(
+          (name: unknown) => ({ name }),
+        ),
+      )
+    : runEndpointNames((record.data as { endpoints?: unknown } | undefined)?.endpoints);
+  // Once the run queries what the bar shows, the change has landed.
+  if (pendingEndpoints !== null && sameEndpoints(pendingEndpoints, runEndpoints)) {
+    setPendingEndpoints(null);
+  }
+  const liveEndpoints = pendingEndpoints ?? runEndpoints;
+  const addEndpoint = (name: string) => {
+    if (!liveEndpoints.includes(name) && liveEndpoints.length < MAX_ENDPOINTS) {
+      setPendingEndpoints([...liveEndpoints, name]);
+    }
+  };
+  const liveBar = run ? (
+    <DataBar project={run.project} selected={liveEndpoints} onChange={setPendingEndpoints} />
+  ) : null;
 
   if (!open) {
     return (
@@ -223,7 +279,14 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
       }
     >
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">{t("assistant.title")}</h2>
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="shrink-0 text-sm font-semibold">{t("assistant.title")}</h2>
+          {run && buildingApp ? (
+            <span data-testid="assistant-app" title={record.data?.appName} className="truncate text-xs text-fg-muted">
+              {buildingApp}
+            </span>
+          ) : null}
+        </div>
         <div className="flex items-center gap-1">
           {run && !over ? (
             <button
@@ -373,6 +436,12 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
             <label htmlFor="assistant-empty-composer" className="text-xs font-medium text-fg-muted">
               {t("assistant.empty.composer")}
             </label>
+            <DataBar
+              project={activeProject}
+              selected={chosenEndpoints}
+              onChange={chooseEndpoints}
+              opens="down"
+            />
             <textarea
               id="assistant-empty-composer"
               rows={3}
@@ -393,7 +462,9 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
               className="block min-w-0 flex-1 resize-none rounded border border-border bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
             />
             <div className="flex items-center justify-between">
-              {attach}
+              <div className="flex items-center gap-1">
+                {attach}
+              </div>
               <button
                 type="submit"
                 disabled={composerMessage.trim() === "" || isStarting}
@@ -453,9 +524,16 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
               answer.mutate({ questionId, answers });
             }}
             onSend={(text) => {
-              send.mutate(text);
+              send.mutate(
+                pendingEndpoints !== null && !sameEndpoints(pendingEndpoints, runEndpoints)
+                  ? { text, endpointNames: pendingEndpoints }
+                  : text,
+              );
             }}
             attach={attach}
+            above={liveBar}
+            onUseEndpoint={addEndpoint}
+            usedEndpoints={liveEndpoints}
           />
         </div>
       )}

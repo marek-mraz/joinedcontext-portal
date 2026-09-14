@@ -161,6 +161,9 @@ pub struct RelayedEvent {
 #[serde(deny_unknown_fields)]
 pub struct MessageRequest {
     pub text: String,
+    /// On a conversation: the endpoints the assistant may query from this message on (AG-75).
+    #[serde(default, rename = "endpointNames")]
+    pub endpoint_names: Option<Vec<String>>,
 }
 
 /// A runtime error the preview frame posted as `jc-error`, relayed by the page that frames it.
@@ -430,6 +433,7 @@ pub async fn create_run(
         id: id.clone(),
         project: project.clone(),
         app_name: request.app_name.clone(),
+        title: None,
         endpoint_name: run_endpoints[0].name.clone(),
         endpoint_slug,
         endpoints: serde_json::to_value(&run_endpoints).unwrap_or_else(|_| serde_json::json!([])),
@@ -449,6 +453,8 @@ pub async fn create_run(
         ticket_hash,
         workspace: None,
         merge_request: None,
+        change_id: None,
+        source_url: None,
         preview_url: None,
         first_frame_ms: None,
         first_version_ms: None,
@@ -596,6 +602,10 @@ pub async fn list_runs(
         .list_runs_filtered(&project, &filter, limit)
         .await
         .map_err(unavailable)?;
+    let items = items
+        .into_iter()
+        .map(|run| with_links(&state, run))
+        .collect();
     Ok(Json(RunList { items }))
 }
 
@@ -618,7 +628,25 @@ pub async fn get_run(
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
 ) -> Result<Json<AgentRun>, ApiError> {
-    Ok(Json(run_of(&state, &project, &id).await?))
+    Ok(Json(with_links(
+        &state,
+        run_of(&state, &project, &id).await?,
+    )))
+}
+
+/// The run with the links a person follows from it: its source in Git and the Change that
+/// publishes it (AP-71). The forge's public address, never a cluster-internal name.
+pub(crate) fn with_links(state: &AppState, mut run: AgentRun) -> AgentRun {
+    run.change_id = run
+        .merge_request
+        .and_then(|number| u64::try_from(number).ok())
+        .map(|number| crate::change::ChangeMeta::from_merge_request(number, "").name);
+    if let Some(gitea) = state.gitea.as_deref() {
+        if !run.branch.is_empty() {
+            run.source_url = Some(gitea.browse_url(&run.path_prefix, &run.branch));
+        }
+    }
+    run
 }
 
 #[utoipa::path(
@@ -780,6 +808,47 @@ pub async fn post_message(
         return Err(ApiError::BadRequest(format!(
             "text is longer than {MAX_MESSAGE_CHARS} characters"
         )));
+    }
+    if let Some(names) = &request.endpoint_names {
+        if run.kind != "conversation" {
+            return Err(ApiError::BadRequest(
+                "endpointNames changes the endpoints of a conversation only".into(),
+            ));
+        }
+        let endpoints = if names.is_empty() {
+            Vec::new()
+        } else {
+            let names =
+                crate::agents::endpoints::requested(None, names).map_err(ApiError::BadRequest)?;
+            crate::agents::endpoints::resolve(&state.mirror, &project, &names)?
+        };
+        let profile = crate::agents::profile::Profile::load(&state.mirror, &run.profile)?;
+        if let Some(refused) = endpoints
+            .iter()
+            .find(|endpoint| !profile.access.grants_endpoint(&endpoint.name, false))
+        {
+            return Err(ApiError::Denied(format!(
+                "agent profile '{}' does not grant reading endpoint '{}' (AG-70)",
+                profile.name, refused.name
+            )));
+        }
+        let changed = crate::agents::endpoints::of_run(&run) != endpoints;
+        if changed {
+            state
+                .agents
+                .set_endpoints(&id, &endpoints)
+                .await
+                .map_err(unavailable)?;
+            publish_event(
+                &state,
+                &id,
+                "endpoints",
+                serde_json::json!({
+                    "names": endpoints.iter().map(|e| e.name.clone()).collect::<Vec<_>>(),
+                }),
+            )
+            .await?;
+        }
     }
     publish_event(
         &state,
@@ -1363,8 +1432,8 @@ pub async fn publish_run(
         Some(_) => crate::change::Operation::Update,
         None => crate::change::Operation::Create,
     };
-    let response = crate::api::mutate::propose(
-        &user,
+    let outcome = crate::api::mutate::propose_with_identity(
+        &user.0.identity,
         &state,
         &project,
         "apps",
@@ -1374,6 +1443,22 @@ pub async fn publish_run(
         manifest,
     )
     .await?;
+    let crate::api::mutate::ProposeOutcome::Change(change) = outcome else {
+        return Err(ApiError::Internal(
+            "publishing proposed a dry run instead of a Change".into(),
+        ));
+    };
+    // The run remembers its Change, so its page shows it and approves it in place (AP-71).
+    if let Ok(number) = crate::api::changes::parse_change_id(&change.metadata.name) {
+        if let Ok(number) = i32::try_from(number) {
+            state
+                .agents
+                .set_merge_request(&id, number)
+                .await
+                .map_err(unavailable)?;
+        }
+    }
+    let response = (StatusCode::ACCEPTED, Json(change)).into_response();
 
     if !waiting {
         state
@@ -1866,6 +1951,7 @@ pub async fn preview(
     _user: CurrentUser,
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let run = state
         .agents
@@ -1885,7 +1971,7 @@ pub async fn preview(
         .filter_map(|(path, text)| Some((path.clone(), text.as_str()?.to_owned())))
         .collect();
     if !code.is_empty() {
-        return code_preview(&state, &run, &code);
+        return code_preview(&state, &run, &code, &headers);
     }
     let text = run
         .files
@@ -1969,12 +2055,25 @@ pub async fn preview(
         .into_response())
 }
 
+/// One rendered preview: its ETag, and the policy and document it answers with.
+type RenderedPreview = (String, std::sync::Arc<(String, String)>);
+
+/// Rendered code previews by the digest of what they are made of, newest last: reopening a run
+/// serves the document it already rendered instead of transpiling every file again.
+static RENDERED: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::VecDeque<RenderedPreview>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::VecDeque::new()));
+
+/// How many rendered previews the Portal keeps.
+const RENDERED_KEEP: usize = 16;
+
 /// A code run's document: the SDK configured for the bridge on the run's endpoint, the
 /// basemap route the one address it may connect to (SDK-16, AP-63, AP-67).
 fn code_preview(
     state: &AppState,
     run: &AgentRun,
     files: &BTreeMap<String, String>,
+    headers: &HeaderMap,
 ) -> Result<Response, ApiError> {
     let space = state
         .mirror
@@ -1997,6 +2096,45 @@ fn code_preview(
         config["basemap"] = serde_json::Value::String(url);
     }
     let route = crate::api::basemap::route_prefix(&state.config, &run.project);
+    // The document is a function of the files, the configuration and the route: its digest is
+    // the ETag, so a browser reopening an unchanged version gets a 304 and the Portal a hit.
+    let etag = {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        for (path, content) in files {
+            hash.update(path.as_bytes());
+            hash.update([0]);
+            hash.update(content.as_bytes());
+            hash.update([0]);
+        }
+        hash.update(config.to_string().as_bytes());
+        hash.update(route.as_deref().unwrap_or_default().as_bytes());
+        hash.update(env!("CARGO_PKG_VERSION").as_bytes());
+        format!("\"{:x}\"", hash.finalize())
+    };
+    let cached = RENDERED.lock().ok().and_then(|kept| {
+        kept.iter()
+            .find(|(key, _)| *key == etag)
+            .map(|(_, doc)| doc.clone())
+    });
+    if cached.is_some()
+        && headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.split(',').any(|tag| tag.trim() == etag))
+    {
+        return Ok((
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, etag),
+                (header::CACHE_CONTROL, "private, no-cache".to_owned()),
+            ],
+        )
+            .into_response());
+    }
+    if let Some(doc) = cached {
+        return Ok(preview_response(&etag, &doc.1, doc.0.clone()));
+    }
     let document =
         preview::document(files, &run.app_name, &config, route.as_deref()).map_err(|refusal| {
             match refusal {
@@ -2013,16 +2151,31 @@ fn code_preview(
                 },
             }
         })?;
-    Ok((
+    if let Ok(mut kept) = RENDERED.lock() {
+        kept.push_back((
+            etag.clone(),
+            std::sync::Arc::new((document.html.clone(), document.csp.clone())),
+        ));
+        while kept.len() > RENDERED_KEEP {
+            kept.pop_front();
+        }
+    }
+    Ok(preview_response(&etag, &document.csp, document.html))
+}
+
+/// A rendered preview: the page, its script policy, and a validator instead of `no-store`.
+fn preview_response(etag: &str, csp: &str, html: String) -> Response {
+    (
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_owned()),
-            (header::CONTENT_SECURITY_POLICY, document.csp),
+            (header::CONTENT_SECURITY_POLICY, csp.to_owned()),
             (header::X_FRAME_OPTIONS, "SAMEORIGIN".to_owned()),
-            (header::CACHE_CONTROL, "no-store".to_owned()),
+            (header::CACHE_CONTROL, "private, no-cache".to_owned()),
+            (header::ETAG, etag.to_owned()),
         ],
-        document.html,
+        html,
     )
-        .into_response())
+        .into_response()
 }
 
 /// The preview route alone, merged beside the Portal's own routes rather than under them: the

@@ -215,7 +215,14 @@ describe("Assistant page", () => {
     const table = screen.getByRole("table");
     expect(within(table).getAllByText(i18n.t("assistantPage.kinds.conversation"))).toHaveLength(2);
 
-    expect(within(table).getByText("city-bikes-app")).toBeInTheDocument();
+    expect(within(table).getByText("City bikes app")).toBeInTheDocument();
+    expect(within(table).queryByText("city-bikes-app")).not.toBeInTheDocument();
+    // One header row whose five columns line up with every body row's cells.
+    const rows = within(table).getAllByRole("row");
+    expect(within(rows[0]).getAllByRole("columnheader")).toHaveLength(5);
+    for (const row of rows.slice(1)) {
+      expect(within(row).getAllByRole("cell")).toHaveLength(5);
+    }
     expect(within(table).getByText(i18n.t("assistantPage.kinds.application"))).toBeInTheDocument();
 
     expect(within(table).getByText("Continue sensor analysis")).toBeInTheDocument();

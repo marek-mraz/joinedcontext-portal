@@ -12,7 +12,9 @@ import { api, readCsrfToken } from "../../api/client";
  * forwarded; a refused request that carries an id is answered 403 at once, so the application
  * shows the refusal instead of waiting out its timeout. The frame's `jc-error` reports go to the
  * run for its repair, and its first `jc-observation` of each preview version to the run's
- * verification (SDK-27).
+ * verification (SDK-27). The frame walks its pages only when this page asks with `jc-observe`:
+ * once its SDK is ready (`jc-ready` or its first request), for a live run, once per run and
+ * version in this page session, so closing and opening an application does not walk it again.
  */
 
 export interface PreviewError {
@@ -248,6 +250,24 @@ export function observationRelay(
   };
 }
 
+/** The run versions this page session has asked a frame to observe, as `project/id/version`. */
+const asked = new Set<string>();
+
+/**
+ * Whether to ask for `version` of the run `key`: true the first time only. `memory` is the page
+ * session's own set unless a test brings one.
+ */
+export function firstAsk(key: string, memory: Set<string> = asked): (version: number) => boolean {
+  return (version) => {
+    const entry = `${key}/${version}`;
+    if (memory.has(entry)) {
+      return false;
+    }
+    memory.add(entry);
+    return true;
+  };
+}
+
 export interface Preview {
   slug: string | undefined;
   /** Every other endpoint slug of the run (AP-44, SDK-18): reads and writes there pass the same rules. */
@@ -261,6 +281,10 @@ export interface Preview {
   observe?: (observation: PreviewObservation) => void;
   /** The `v` of the URL this page framed, for a frame that does not say its own. */
   version?: number;
+  /** Whether the run is still live; an ended run's preview is never asked to observe. */
+  live?: boolean;
+  /** Whether this version may be asked for now; true once per version (see `firstAsk`). */
+  ask?: (version: number) => boolean;
 }
 
 export type Outcome = "forwarded" | "refused" | "relayed" | "ignored";
@@ -304,9 +328,18 @@ async function perform(
   }
 }
 
+/** Asks a ready frame to observe its version, when the run is live and has not asked for it yet. */
+function askToObserve(source: Window, preview: Preview): void {
+  const { live, version, ask } = preview;
+  if (live && version !== undefined && ask?.(version)) {
+    source.postMessage({ kind: "jc-observe", version }, "*");
+  }
+}
+
 /**
  * One message: ignored when it is not from the preview's frame, relayed when it is an error
- * report, forwarded when it is a request this bridge performs, refused otherwise.
+ * report or the frame saying it is ready, forwarded when it is a request this bridge performs,
+ * refused otherwise.
  */
 export async function handleBridgeMessage(
   event: { source: unknown; data: unknown },
@@ -324,6 +357,10 @@ export async function handleBridgeMessage(
     return "relayed";
   }
   const m = (typeof event.data === "object" && event.data !== null ? event.data : {}) as Record<string, unknown>;
+  if (m.kind === "jc-ready") {
+    askToObserve(source, preview);
+    return "relayed";
+  }
   if (m.kind === "jc-observation") {
     const observation = previewObservationOf(event.data, preview.version);
     if (!observation || !preview.observe) {
@@ -335,6 +372,8 @@ export async function handleBridgeMessage(
   if (m.kind !== "jc-request" || typeof m.id !== "number") {
     return "refused";
   }
+  // A frame that sends requests is ready, whether or not its `jc-ready` arrived.
+  askToObserve(source, preview);
   const fn = preview.functions ? functionPathOf(m.method, m.path, preview.functions) : null;
   if (fn !== null) {
     source.postMessage({ kind: "jc-response", id: m.id, ...(await perform("POST", fn, m.body, fetchImpl)) }, "*");
@@ -366,8 +405,8 @@ export async function handleBridgeMessage(
 }
 
 /**
- * Serves the frame's requests while the page is mounted, and relays its first MAX_ERRORS
- * distinct error reports per preview document to the run.
+ * Serves the frame's requests while the page is mounted, relays its first MAX_ERRORS distinct
+ * error reports per preview document to the run, and asks it to observe while `live`.
  */
 export function usePreviewBridge(
   frame: RefObject<HTMLIFrameElement | null>,
@@ -381,6 +420,7 @@ export function usePreviewBridge(
         previewUrl?: string;
       }
     | undefined,
+  live: boolean,
 ): void {
   const id = run?.id;
   const project = run?.project;
@@ -392,7 +432,11 @@ export function usePreviewBridge(
   const previewUrl = run?.previewUrl;
   const needs = JSON.stringify(run?.dataNeeds ?? null);
   // One relay per run, so a version observed once is not posted again when the frame reloads.
-  const relay = useRef<{ key: string; observe: (observation: PreviewObservation) => void } | null>(null);
+  const relay = useRef<{
+    key: string;
+    observe: (observation: PreviewObservation) => void;
+    ask: (version: number) => boolean;
+  } | null>(null);
   useEffect(() => {
     if (!id || !project || !slug) {
       return undefined;
@@ -416,13 +460,13 @@ export function usePreviewBridge(
     };
     const key = `${project}/${id}`;
     if (relay.current?.key !== key) {
-      relay.current = { key, observe: observationRelay(project, id) };
+      relay.current = { key, observe: observationRelay(project, id), ask: firstAsk(key) };
     }
-    const observe = relay.current.observe;
+    const { observe, ask } = relay.current;
     const version = previewVersionOf(previewUrl);
     const listener = (event: MessageEvent) => {
       const slugs = others === "" ? [] : others.split(",");
-      const preview = { slug, slugs, operations, functions, source: frame.current?.contentWindow, observe, version };
+      const preview = { slug, slugs, operations, functions, source: frame.current?.contentWindow, observe, version, live, ask };
       void handleBridgeMessage(event, preview, report).then((outcome) => {
         if (outcome === "refused") {
           refused += 1;
@@ -432,5 +476,5 @@ export function usePreviewBridge(
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [frame, id, project, slug, others, needs, previewUrl]);
+  }, [frame, id, project, slug, others, needs, previewUrl, live]);
 }

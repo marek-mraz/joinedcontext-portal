@@ -126,6 +126,8 @@ export interface DeckGlOverlayProps {
   center?: [number, number];
   zoom?: number;
   label: string;
+  /** The project whose basemap route draws the ground (AP-67). */
+  project?: string;
 }
 
 /**
@@ -142,6 +144,7 @@ export function DeckGlOverlay({
   center,
   zoom,
   label,
+  project,
 }: DeckGlOverlayProps): JSX.Element {
   const attach = useCallback(
     (map: MapLibreMap) => {
@@ -155,6 +158,13 @@ export function DeckGlOverlay({
   );
 
   return (
-    <MapLibreView layers={layers} center={center} zoom={zoom} label={label} onReady={attach} />
+    <MapLibreView
+      layers={layers}
+      center={center}
+      zoom={zoom}
+      label={label}
+      project={project}
+      onReady={attach}
+    />
   );
 }

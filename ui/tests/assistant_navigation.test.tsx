@@ -198,7 +198,7 @@ describe("the assistant dock", () => {
 
   it("follows a navigate frame to the endpoints page and opens the form prefilled", async () => {
     renderPortal();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
     await waitFor(() => {
       expect(StubEventSource.opened.length).toBeGreaterThan(0);
     });
@@ -234,10 +234,13 @@ describe("the assistant dock", () => {
   it("hides to a bubble at the bottom right, opens full screen, stops the run and closes", async () => {
     const user = userEvent.setup();
     renderPortal();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
     const dock = (await screen.findByRole("button", { name: en.assistant.hide })).closest(
       "aside",
     ) as HTMLElement;
+    // The dock says which application the run builds, by name read as words.
+    expect(within(dock).getByTestId("assistant-app")).toHaveTextContent("Ovzdusie dnes");
+    expect(within(dock).getByTestId("assistant-app")).toHaveAttribute("title", RUN.appName);
 
     await user.click(within(dock).getByRole("button", { name: en.assistant.fullScreen }));
     expect(dock.className).toContain("fixed");
@@ -275,7 +278,7 @@ describe("the assistant dock", () => {
   it("floats over the page, keeps that layout for the tab, and attaches a file from the composer", async () => {
     const user = userEvent.setup();
     renderPortal();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
     const dock = (await screen.findByRole("button", { name: en.assistant.hide })).closest(
       "aside",
     ) as HTMLElement;
@@ -301,7 +304,7 @@ describe("the assistant dock", () => {
 
   it("ignores a navigate frame that is not a path inside the Portal", async () => {
     renderPortal();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
     await waitFor(() => {
       expect(StubEventSource.opened.length).toBeGreaterThan(0);
     });
@@ -353,7 +356,7 @@ describe("the assistant dock", () => {
   it("leaves full screen on Escape key", async () => {
     const user = userEvent.setup();
     renderPortal();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
     const dock = (await screen.findByRole("button", { name: en.assistant.hide })).closest(
       "aside",
     ) as HTMLElement;
@@ -369,7 +372,7 @@ describe("the assistant dock", () => {
 
   it("shows busy dot on bubble while newest event is a person message", async () => {
     renderPortal();
-    await screen.findByRole("heading", { name: RUN.appName });
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
     await waitFor(() => {
       expect(StubEventSource.opened.length).toBeGreaterThan(0);
     });

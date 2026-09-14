@@ -6,10 +6,12 @@ import { ChangeNotice } from "../../components/ChangeNotice";
 import { isChange } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
 import { usePreviewBridge } from "./previewBridge";
+import { RunPublication } from "./RunPublication";
 import { RunTimeline } from "./RunTimeline";
 import { TERMINAL_STATES, useAgentRun } from "./useAgentRun";
 import type { RunEvent } from "./useAgentRun";
 import { rememberRun } from "../../assistant/state";
+import { appDisplayName, useEndpointTitles } from "./appTitle";
 
 /**
  * One builder run, live (UI-34…UI-40).
@@ -29,6 +31,7 @@ export function AgentRunPage({
 }): JSX.Element {
   const { t } = useTranslation();
   const { run, events, cancel, publish } = useAgentRun(project, runId);
+  const endpointTitles = useEndpointTitles(project);
   // The conversation lives in the shell's assistant dock, which follows the person to the
   // pages the assistant opens (UI-45); this page only tells it which run to show.
   useEffect(() => {
@@ -36,7 +39,7 @@ export function AgentRunPage({
   }, [project, runId]);
   // The preview's reads and writes reach the endpoint through this page, never from the frame (AP-63).
   const frame = useRef<HTMLIFrameElement>(null);
-  usePreviewBridge(frame, run.data);
+  usePreviewBridge(frame, run.data, run.data !== undefined && !TERMINAL_STATES.includes(run.data.status));
 
   if (run.isPending) {
     return <p role="status">{t("agentRun.loading")}</p>;
@@ -50,7 +53,14 @@ export function AgentRunPage({
   }
 
   const record = run.data;
+  const endpointTitle = endpointTitles.get(record.endpointName);
+  const displayName = appDisplayName({ title: record.title, appName: record.appName, endpointTitle });
   const over = TERMINAL_STATES.includes(record.status);
+  // A run with a preview publishes; an unattended one ends waiting for approval with its preview
+  // built and publishes from there, once (AG-69, AP-71).
+  const publishable =
+    record.status === "previewing" ||
+    (record.unattended === true && record.status === "awaiting_approval" && !record.changeId);
   const published = publish.data;
   const change: Change | null = published && isChange(published) ? (published as Change) : null;
 
@@ -58,13 +68,14 @@ export function AgentRunPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold">{record.appName}</h1>
+          <h1 className="text-xl font-bold">{displayName}</h1>
           <p className="mt-1 text-sm text-fg-muted">
             {t("agentRun.subtitle", {
-              endpoint: record.endpointName,
+              endpoint: endpointTitle ?? record.endpointName,
               appClass: record.appClass,
             })}
           </p>
+          <p className="mt-0.5 font-mono text-xs text-fg-muted">{record.appName}</p>
         </div>
         <button
           type="button"
@@ -79,7 +90,13 @@ export function AgentRunPage({
         {t("agentRun.loginNote")}
       </p>
 
-      {change && <ChangeNotice change={change} project={project} />}
+      {change && !record.changeId && <ChangeNotice change={change} project={project} />}
+      <RunPublication
+        project={project}
+        sourceUrl={record.sourceUrl}
+        changeId={record.changeId}
+        onApproved={() => void run.refetch()}
+      />
       {record.error !== undefined && record.error !== "" && (
         <p role="alert" className="text-danger">
           {record.error}
@@ -119,7 +136,7 @@ export function AgentRunPage({
                 <iframe
                   ref={frame}
                   key={record.previewUrl}
-                  title={t("agentRun.preview.frameTitle", { app: record.appName })}
+                  title={t("agentRun.preview.frameTitle", { app: displayName })}
                   src={record.previewUrl}
                   sandbox="allow-scripts"
                   className="h-[82vh] min-h-[28rem] w-full rounded border border-border bg-surface"
@@ -180,7 +197,7 @@ export function AgentRunPage({
             </button>
             <button
               type="button"
-              disabled={record.status !== "previewing" || publish.isPending}
+              disabled={!publishable || publish.isPending}
               onClick={() => {
                 publish.mutate();
               }}

@@ -17,7 +17,15 @@ import { activity, bridgeTransport, MAX_FAILED_PATH, resetActivity } from "../sr
 function frameWindow(search = "?v=3", hash = "") {
   const parent = { postMessage: vi.fn() };
   const location = { search, hash };
-  return { win: { parent, location } as unknown as Window, parent, location };
+  const listeners: ((event: MessageEvent) => void)[] = [];
+  const addEventListener = (type: string, listener: (event: MessageEvent) => void) => {
+    if (type === "message") listeners.push(listener);
+  };
+  /** A message to the frame, from the host page unless `source` says otherwise. */
+  const send = (data: unknown, source: unknown = parent) => {
+    for (const listener of listeners) listener({ data, source } as MessageEvent);
+  };
+  return { win: { parent, location, addEventListener } as unknown as Window, parent, location, send };
 }
 
 const FAST = { quietMs: 20, maxWaitMs: 500, pageQuietMs: 10, pageMaxWaitMs: 200, pollMs: 5 };
@@ -106,14 +114,39 @@ describe("observe", () => {
     expect(observation?.failedRequests).toEqual([{ path: "/functions/summary", status: 500 }]);
   });
 
+  it("walks nothing until the host page asks, and says it is listening", async () => {
+    document.body.innerHTML = `<nav><button id="stations">Stations</button></nav><main>Overview</main>`;
+    const clicks: string[] = [];
+    document.getElementById("stations")!.addEventListener("click", () => clicks.push("stations"));
+    const { win, parent, send } = frameWindow("?v=4");
+    startObserver({ ...FAST, win });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(clicks).toEqual([]);
+    expect(parent.postMessage.mock.calls).toEqual([[{ kind: "jc-ready" }, "*"]]);
+
+    // Another window cannot start the walk, only the page that framed the preview.
+    send({ kind: "jc-observe", version: 4 }, { postMessage: vi.fn() });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(clicks).toEqual([]);
+
+    send({ kind: "jc-observe", version: 4 });
+    await vi.waitFor(() => expect(parent.postMessage).toHaveBeenCalledTimes(2));
+    expect(clicks).toEqual(["stations"]);
+    expect(parent.postMessage.mock.calls[1][0]).toMatchObject({ kind: "jc-observation", version: 4 });
+  });
+
   it("reads one page when there is no navigation, and posts it once to the host page", async () => {
     document.title = "Bikes";
     document.body.innerHTML = "<p>NaN bikes</p>";
-    const { win, parent } = frameWindow("?x=1&v=12");
+    const { win, parent, send } = frameWindow("?x=1&v=12");
     startObserver({ ...FAST, win });
     startObserver({ ...FAST, win });
-    await vi.waitFor(() => expect(parent.postMessage).toHaveBeenCalledTimes(1));
-    const [message, origin] = parent.postMessage.mock.calls[0];
+    send({ kind: "jc-observe", version: 12 });
+    send({ kind: "jc-observe", version: 12 });
+    await vi.waitFor(() => expect(parent.postMessage).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(parent.postMessage).toHaveBeenCalledTimes(2);
+    const [message, origin] = parent.postMessage.mock.calls[1];
     expect(origin).toBe("*");
     expect(message).toEqual({
       kind: "jc-observation",

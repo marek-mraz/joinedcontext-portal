@@ -21,11 +21,9 @@
     "main": "Hlavná navigácia",
     "skipToContent": "Preskočiť na obsah",
     "breadcrumb": "Navigačná cesta",
-    "playground": "Ihrisko",
     "flows": "Toky",
     "models": "Dátové modely",
     "ckan": "Otvorené dáta",
-    "federation": "Federácia",
     "allEndpoints": "Všetky koncové body",
     "shared": "Zdieľané odkazy",
     "explore": "Prehliadať dáta",
@@ -98,7 +96,8 @@
     "field": "Pole",
     "diffType": "Typ zmeny",
     "actions": "Akcie",
-    "view": "Zobraziť"
+    "view": "Zobraziť",
+    "ownAsAdministrator": "Túto zmenu ste navrhli vy; schvaľujete ju ako administrátor {kind}."
   },
   "lane": {
     "green": "Zelená",
@@ -618,20 +617,6 @@
       "popup": "Atribúty v bubline"
     }
   },
-  "playground": {
-    "title": "Federačné ihrisko",
-    "subtitle": "Kontextové priestory, ich registrácie a prevádzka medzi nimi — vykreslené v prehliadači, bez otázky na server.",
-    "pause": "Pozastaviť",
-    "resume": "Pokračovať",
-    "send": "Poslať dopyt",
-    "events": "Posledné odpovede",
-    "noEvents": "Zatiaľ žiadna odpoveď. Stlačte „Poslať dopyt“.",
-    "anyType": "každý typ",
-    "entities": "{count, plural, =0 {žiadne entity} one {# entita} few {# entity} other {# entít}}",
-    "graphLabel": "Graf federácie: {spaces} kontextových priestorov, {links} registrácií",
-    "selected": "Registrácie priestoru {space}",
-    "noLinks": "Tento priestor neregistruje žiadny kontextový zdroj a nie je registrovaný žiadnym."
-  },
   "access": {
     "title": "Prístup",
     "accounts": {
@@ -1012,85 +997,6 @@
       "missingInstance": "katalóg {instance} chýba"
     }
   },
-  "federation": {
-    "title": "Federácia",
-    "lead": "Ktoré zdroje odpovedajú v priestoroch tohto projektu a kým je platforma, keď dopyt posiela ďalej. Registrácia sama o sebe nič nepovoľuje: čo sa vráti, stále rozhodujú politiky zdroja.",
-    "add": "Zaregistrovať zdroj",
-    "propose": "Navrhnúť registráciu",
-    "empty": "V tomto projekte zatiaľ nie je registrovaný žiadny zdroj.",
-    "dialog": {
-      "description": "Registrácia pomenúva jeden kontextový priestor, jeden cieľ a to, čo cieľ obsahuje. Uveďte endpoint na tejto platforme alebo adresu inde, nikdy oboje."
-    },
-    "field": {
-      "name": "Názov",
-      "title": "Titulok",
-      "space": "Kontextový priestor",
-      "spaceHint": "Priestor, ktorého broker sa o zdroji dozvie. Registrácia sa zapíše do tenanta tohto priestoru a žiadneho iného.",
-      "endpointRef": "Endpoint na tejto platforme",
-      "endpoint": "Adresa inde",
-      "targetHint": "Jedno alebo druhé, nikdy oboje.",
-      "target": "Cieľ",
-      "information": "Čo zdroj obsahuje",
-      "informationHint": "Aspoň jeden výber entít. Zdroj, ktorý netvrdí nič, nezodpovedá ničomu.",
-      "entities": "Typy entít",
-      "entityType": "Typ",
-      "idPattern": "Vzor identifikátora",
-      "propertyNames": "Atribúty",
-      "mode": "Režim",
-      "federation": "Identita",
-      "identity": "Posiela sa ako",
-      "identityHint": "Ani jeden režim nie je povolenie: politiky zdroja platia tak či tak a užšia z dvoch vyhráva.",
-      "serviceAccount": "Servisný účet",
-      "operations": "Operácie",
-      "operationsHint": "Pre ktoré operácie zdroj odpovedá, v pomenovaní NGSI-LD (federationOps, retrieveEntity). Prázdne znamená predvolené nastavenie brokera."
-    },
-    "identity": {
-      "serviceAccount": "Servisný účet platformy",
-      "caller": "Vlastný token volajúceho"
-    },
-    "mode": {
-      "inclusive": "Zlúčené s lokálnymi dátami",
-      "exclusive": "Jediná odpoveď pre to, čo pokrýva",
-      "auxiliary": "Popri lokálnych dátach",
-      "redirect": "Volajúci je presmerovaný"
-    },
-    "kind": {
-      "ContextSpace": "Kontextový priestor",
-      "Endpoint": "Endpoint",
-      "ContextSourceRegistration": "Registrácia",
-      "Pipeline": "Pipeline",
-      "App": "Aplikácia",
-      "ExternalSource": "Zdroj inde",
-      "CkanInstance": "Katalóg otvorených dát"
-    },
-    "edge": {
-      "registers": "registruje",
-      "serves": "obsluhuje",
-      "feeds": "napĺňa",
-      "consumes": "číta",
-      "publishes": "publikuje do"
-    },
-    "health": {
-      "ok": "Beží",
-      "degraded": "Zlyháva",
-      "unknown": "Bez hlásenia"
-    },
-    "graph": {
-      "title": "Graf federácie",
-      "empty": "Zatiaľ nie je čo kresliť.",
-      "filter": "Zobrazené druhy",
-      "zoomIn": "Priblížiť",
-      "zoomOut": "Oddialiť",
-      "reset": "Pôvodný pohľad"
-    },
-    "card": {
-      "title": "Vybraný objekt",
-      "health": "Stav",
-      "noCredential": "Karta ukazuje, že sa registrácia autentifikuje a ako. Účet, pod ktorým sa dopyt posiela, sa vyhodnocuje až pri dopyte a na túto stránku sa žiadny prihlasovací údaj nikdy neposiela.",
-      "phase": "Stav",
-      "breadcrumb": "Kde sa tento objekt spravuje"
-    }
-  },
   "mappings": {
     "pair": "Modely",
     "source": "Zdrojový model",
@@ -1243,7 +1149,9 @@
       "question": "Otázka {question}.",
       "answer": "Odpovedané na {question}.",
       "message": "{who}: {text}",
-      "lag": "{missed} riadkov bolo preskočených; opätovné pripojenie ich doplní."
+      "lag": "{missed} riadkov bolo preskočených; opätovné pripojenie ich doplní.",
+      "endpoints": "Dáta: {names}",
+      "noEndpoints": "Dáta: žiadne"
     },
     "preview": {
       "title": "Náhľad",
@@ -1279,17 +1187,20 @@
     "catalog": {
       "title": "Čo asistent našiel",
       "none": "V tomto projekte sa nič nezhoduje s týmito slovami.",
-      "owner": "vlastník {owner}",
       "allowed": "Prístupné",
       "restricted": "Obmedzené",
       "fresh": "Plnené pred {when} cez {pipeline}",
-      "noFeed": "Bez živého toku",
-      "explore": "Preskúmať",
-      "open": "Otvoriť",
       "agoSeconds": "{n} s",
       "agoMinutes": "{n} min",
       "agoHours": "{n} h",
-      "agoDays": "{n} d"
+      "agoDays": "{n} d",
+      "use": "Použiť",
+      "inUse": "Používa sa",
+      "useLabel": "Použiť {name} v tejto konverzácii",
+      "inUseLabel": "{name} sa používa",
+      "showMore": "Zobraziť ďalšie ({count})",
+      "showLess": "Zobraziť menej",
+      "fed": "plnené pred {when}"
     },
     "proposal": {
       "title": "Návrh endpointu",
@@ -1350,6 +1261,11 @@
       "firstFrame": "Prvý rámec",
       "firstVersion": "Prvá verzia",
       "seconds": "{seconds} s"
+    },
+    "publication": {
+      "title": "Zverejnenie",
+      "source": "Zdrojový kód v Gite",
+      "approve": "Schváliť a zverejniť"
     }
   },
   "assistant": {
@@ -1377,6 +1293,28 @@
       "resume": "Pokračovať: {title}",
       "recent": "Nedávne konverzácie",
       "failed": "Konverzácia sa nezačala. Skontrolujte správu a skúste to znova."
+    },
+    "data": {
+      "title": "Dáta",
+      "label": "Dáta, ktoré asistent môže čítať",
+      "chosen": "Vybrané endpointy",
+      "remove": "Odstrániť {name}",
+      "add": "Pridať endpoint",
+      "empty": "Pridajte endpoint, aby asistent mohol čítať jeho dáta",
+      "search": "Hľadať endpointy",
+      "full": "Najviac {max} endpointov; odstráňte jeden a pridajte iný.",
+      "loading": "Načítavam endpointy…",
+      "none": "Žiadny endpoint nezodpovedá.",
+      "audience": {
+        "public": "verejný",
+        "organization": "organizácia",
+        "project": "projekt"
+      }
+    },
+    "query": {
+      "id": "Entita",
+      "rows": "Riadky: {count}",
+      "someRows": "{shown} z {total} riadkov"
     }
   },
   "permissions": {
@@ -1457,6 +1395,12 @@
       "propose": "Navrhnúť zmenu",
       "cancel": "Zrušiť",
       "yamlError": "Neplatný YAML: {{message}}"
-    }
+    },
+    "states": {
+      "failed": "Zlyhalo",
+      "cancelled": "Zastavené",
+      "expired": "Skončené"
+    },
+    "timings": "Časy"
   }
 }

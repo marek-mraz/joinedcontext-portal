@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { clsx } from "clsx";
 import { api, ApiError, unwrap } from "../../api/client";
 import { rememberRun, requestOpen } from "../../assistant/state";
 import { Button } from "../../components/ui/Button";
@@ -17,6 +18,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from "../../components/ui/Table";
+import { appDisplayName, useEndpointTitles } from "../apps/appTitle";
 import { TERMINAL_STATES } from "../apps/useAgentRun";
 import { AgentAccess } from "./AgentAccess";
 
@@ -24,6 +26,7 @@ interface RunRecord {
   id: string;
   project: string;
   appName?: string;
+  title?: string | null;
   endpointName?: string;
   kind?: string;
   unattended?: boolean;
@@ -36,11 +39,16 @@ interface RunRecord {
   error?: string;
 }
 
-function formatTitle(run: RunRecord): string {
-  if (run.kind && run.kind !== "conversation" && run.appName) {
-    return run.appName;
+/** An application reads by its title, or its name as words; a conversation by its first message. */
+function formatTitle(run: RunRecord, endpointTitles: Map<string, string>): string {
+  if (run.kind && run.kind !== "conversation" && (run.title || run.appName)) {
+    return appDisplayName({
+      title: run.title,
+      appName: run.appName,
+      endpointTitle: run.endpointName ? endpointTitles.get(run.endpointName) : undefined,
+    });
   }
-  return run.prompt.length > 80 ? run.prompt.slice(0, 80) : run.prompt;
+  return run.prompt.length > 80 ? `${run.prompt.slice(0, 80)}…` : run.prompt;
 }
 
 /**
@@ -53,6 +61,7 @@ function formatTitle(run: RunRecord): string {
  */
 export function AssistantPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
+  const endpointTitles = useEndpointTitles(project);
   const queryClient = useQueryClient();
 
   const [kindFilter, setKindFilter] = useState<string>("");
@@ -274,94 +283,120 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
         <EmptyState icon="chat" title={t("assistantPage.empty")} />
       ) : (
         <Table caption={t("assistantPage.title")}>
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>{t("assistantPage.filters.kind")}</TableHeaderCell>
-                <TableHeaderCell>{t("assistantPage.newWork.name")}</TableHeaderCell>
-                <TableHeaderCell>{t("assistantPage.filters.status")}</TableHeaderCell>
-                <TableHeaderCell>
-                  {t("assistantPage.started")}
-                </TableHeaderCell>
-                <TableHeaderCell className="text-right">
-                  {t("assistantPage.actions")}
-                </TableHeaderCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredRuns.map((run) => {
-                const isEndedConversation =
-                  run.kind === "conversation" && TERMINAL_STATES.includes(run.status);
-                const title = formatTitle(run);
-                return (
-                  <TableRow key={run.id}>
-                    <TableCell className="font-medium text-fg">
-                      {t(`assistantPage.kinds.${run.kind ?? "conversation"}`, {
-                        defaultValue: run.kind,
-                      })}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-0.5">
-                        <span className="font-semibold text-fg">{title}</span>
+          <TableHead>
+            <TableHeaderCell>{t("assistantPage.newWork.name")}</TableHeaderCell>
+            <TableHeaderCell>{t("assistantPage.filters.status")}</TableHeaderCell>
+            <TableHeaderCell className="hidden md:table-cell">
+              {t("assistantPage.timings")}
+            </TableHeaderCell>
+            <TableHeaderCell className="hidden sm:table-cell">
+              {t("assistantPage.started")}
+            </TableHeaderCell>
+            <TableHeaderCell align="right">{t("assistantPage.actions")}</TableHeaderCell>
+          </TableHead>
+          <TableBody>
+            {filteredRuns.map((run) => {
+              const ended = TERMINAL_STATES.includes(run.status);
+              const isEndedConversation = run.kind === "conversation" && ended;
+              const title = formatTitle(run, endpointTitles);
+              return (
+                <TableRow key={run.id}>
+                  <TableCell className="max-w-[28rem]">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate font-semibold text-fg" title={title}>
+                        {title}
+                      </span>
+                      <span className="text-caption text-fg-muted">
+                        <span>
+                          {t(`assistantPage.kinds.${run.kind ?? "conversation"}`, {
+                            defaultValue: run.kind,
+                          })}
+                        </span>
                         {run.continues ? (
-                          <span className="text-caption italic text-fg-muted">
-                            {t("assistantPage.continues")}
-                          </span>
+                          <> · <span className="italic">{t("assistantPage.continues")}</span></>
                         ) : null}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className={clsx(
+                        "inline-flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 text-caption font-medium",
+                        run.status === "failed"
+                          ? "bg-danger-soft text-danger"
+                          : ended
+                            ? "bg-surface-subtle text-fg-muted"
+                            : "bg-primary-soft text-primary-soft-fg",
+                      )}
+                    >
+                      {ended ? null : (
+                        <span aria-hidden className="size-1.5 rounded-full bg-current" />
+                      )}
+                      {t(`assistantPage.states.${run.status}`, {
+                        defaultValue: t(`agentRun.states.${run.status}`, {
+                          defaultValue: run.status,
+                        }),
+                      })}
+                    </span>
+                  </TableCell>
+                  <TableCell className="hidden whitespace-nowrap text-caption text-fg-muted md:table-cell">
+                    {run.firstFrameMs != null || run.firstVersionMs != null ? (
+                      <dl className="grid grid-cols-[auto_auto] gap-x-2">
                         {run.firstFrameMs != null ? (
-                          <span className="text-caption text-fg-muted">
-                            {t("agentRun.timing.firstFrame")}{" "}
-                            {t("agentRun.timing.seconds", {
-                              seconds: (run.firstFrameMs / 1000).toFixed(1),
-                            })}
-                          </span>
+                          <>
+                            <dt>{t("agentRun.timing.firstFrame")}</dt>
+                            <dd className="text-right tabular-nums">
+                              {t("agentRun.timing.seconds", {
+                                seconds: (run.firstFrameMs / 1000).toFixed(1),
+                              })}
+                            </dd>
+                          </>
                         ) : null}
                         {run.firstVersionMs != null ? (
-                          <span className="text-caption text-fg-muted">
-                            {t("agentRun.timing.firstVersion")}{" "}
-                            {t("agentRun.timing.seconds", {
-                              seconds: (run.firstVersionMs / 1000).toFixed(1),
-                            })}
-                          </span>
+                          <>
+                            <dt>{t("agentRun.timing.firstVersion")}</dt>
+                            <dd className="text-right tabular-nums">
+                              {t("agentRun.timing.seconds", {
+                                seconds: (run.firstVersionMs / 1000).toFixed(1),
+                              })}
+                            </dd>
+                          </>
                         ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="rounded bg-surface-subtle px-2 py-0.5 text-caption font-medium text-fg-muted">
-                        {t(`agentRun.states.${run.status}`, { defaultValue: run.status })}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-caption text-fg-muted">
-                      {new Date(run.createdAt).toLocaleString(i18n.language)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {isEndedConversation ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            loading={
-                              continueMutation.isPending &&
-                              continueMutation.variables === run.id
-                            }
-                            disabled={continueMutation.isPending}
-                            onClick={() => continueMutation.mutate(run.id)}
-                          >
-                            {t("assistantPage.continue")}
-                          </Button>
-                        ) : null}
+                      </dl>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell className="hidden whitespace-nowrap text-caption text-fg-muted sm:table-cell">
+                    {new Date(run.createdAt).toLocaleString(i18n.language, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </TableCell>
+                  <TableCell align="right">
+                    <div className="flex items-center justify-end gap-2">
+                      {isEndedConversation ? (
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => handleOpen(run)}
+                          loading={
+                            continueMutation.isPending && continueMutation.variables === run.id
+                          }
+                          disabled={continueMutation.isPending}
+                          onClick={() => continueMutation.mutate(run.id)}
                         >
-                          {t("assistantPage.open")}
+                          {t("assistantPage.continue")}
                         </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
+                      ) : null}
+                      <Button size="sm" variant="secondary" onClick={() => handleOpen(run)}>
+                        {t("assistantPage.open")}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
         </Table>
       )}
 

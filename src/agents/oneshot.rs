@@ -25,7 +25,7 @@ use crate::agents::preview;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
-use crate::agents::{fields, kpi, kpi_pipeline, share, verification};
+use crate::agents::{data_query, fields, kpi, kpi_pipeline, share, verification};
 use crate::auth::session::Identity;
 use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::state::AppState;
@@ -283,6 +283,28 @@ spec.json
     )
 });
 
+/// What a drafting tool of the conversation left: the answer for the person, or what the model
+/// reads back to look at the data again and try once more (AG-76).
+enum Worked {
+    Done(String),
+    Again(String),
+}
+
+/// A draft or a read the model asked for, as the results section names it.
+fn drafted(tool: &str, input: Option<Value>) -> data_query::QueryCall {
+    let input = input.unwrap_or(Value::Null);
+    let endpoint = ["sourceEndpoint", "endpoint"]
+        .iter()
+        .find_map(|key| input.get(*key).and_then(Value::as_str))
+        .unwrap_or("")
+        .to_owned();
+    data_query::QueryCall {
+        endpoint,
+        name: tool.to_owned(),
+        arguments: input,
+    }
+}
+
 /// What one run needs to be driven; everything is copied out of the run and the settings so the
 /// task owns what it reads.
 struct Driver {
@@ -529,6 +551,13 @@ impl Driver {
             .await?
         {
             CodePass::Built { prose, .. } => {
+                let (title, prose) = title_of(&prose);
+                if let Some(title) = title {
+                    if let Err(err) = self.state.agents.set_title(&self.run_id, &title).await {
+                        tracing::warn!(run = %self.run_id, error = %err, "title not recorded");
+                    }
+                    self.event("title", json!({ "title": title })).await?;
+                }
                 shown = Some(
                     self.publish_code(&files, &prose, Some(&mut committed), true)
                         .await?,
@@ -1044,7 +1073,9 @@ impl Driver {
                  `src/app.css`) and the one page the request is most about, complete and working \
                  with the real data. No tests, no other page and no function unless that page \
                  needs it: a second call adds them while the person already looks at this \
-                 version. Keep the whole answer under 6,000 tokens.\n",
+                 version. Keep the whole answer under 6,000 tokens. Begin your sentences with \
+                 the application's name in bold, two to five words that say what it shows, for \
+                 example **Helsinki Traffic Alerts Map**; never a file name or an id.\n",
             ),
             None => pack.push_str(&format!(
                 "The person says: {instruction}\n\nChange the application accordingly, with tests \
@@ -1357,22 +1388,120 @@ impl Driver {
         text: &str,
     ) -> Result<String, String> {
         let catalog = self.find(text).await?;
-        let user = self.conversation_pack(conversation, text, catalog.as_ref());
-        let answer = self
-            .complete_with_system(CONVERSATION_SYSTEM, &user)
-            .await?;
+        let base = self.conversation_pack(conversation, text, catalog.as_ref());
+        // The endpoints the conversation reads, as they stand for this message, each with the
+        // read tools it offers; the model may open more of the project's as it works (AG-75,
+        // AG-76).
+        let mut chosen = match self.state.agents.get_run(&self.run_id).await {
+            Ok(Some(run)) => endpoints::of_run(&run),
+            _ => self.endpoints.clone(),
+        };
+        let mut tools = self.data_tools(&chosen).await;
+        let mut results: Vec<(data_query::QueryCall, String)> = Vec::new();
+        let mut drafts = 0;
+        let answer = loop {
+            let section = data_query::section(&chosen, &tools, &self.openable_endpoints(&chosen));
+            let user = format!(
+                "{}{}",
+                base.replacen("\n## THIS TURN", &format!("\n{section}\n## THIS TURN"), 1),
+                data_query::results_section(&results)
+            );
+            let answer = self
+                .complete_with_system(CONVERSATION_SYSTEM, &user)
+                .await?;
+
+            let calls = data_query::tool_calls(&answer);
+            if !calls.is_empty() {
+                let left = data_query::MAX_CALLS.saturating_sub(results.len());
+                if left == 0 {
+                    let prose = "I could not finish from the data within the calls one message \
+                                 may make; ask a narrower question."
+                        .to_owned();
+                    self.thought(&prose).await?;
+                    return Ok(prose);
+                }
+                // Endpoints first, one at a time, so the calls that follow may all run at once.
+                let mut ready = Vec::new();
+                for call in calls.into_iter().take(left) {
+                    ready.push(match call {
+                        Ok(call) => match self
+                            .open_endpoint(&mut chosen, &mut tools, &call.endpoint)
+                            .await
+                        {
+                            Ok(_) => Ok(call),
+                            Err(reason) => Err((call, reason)),
+                        },
+                        Err(reason) => Err((
+                            data_query::QueryCall {
+                                endpoint: String::new(),
+                                name: String::new(),
+                                arguments: json!({}),
+                            },
+                            reason,
+                        )),
+                    });
+                }
+                let (chosen_now, tools_now) = (&chosen, &tools);
+                let answered =
+                    futures_util::future::join_all(ready.into_iter().map(|call| async move {
+                        match call {
+                            Ok(call) => {
+                                let text = self.query_endpoint(chosen_now, &call, tools_now).await;
+                                text.map(|text| (call, text))
+                            }
+                            Err((call, reason)) => Ok((call, format!("error: {reason}"))),
+                        }
+                    }))
+                    .await;
+                for said in answered {
+                    results.push(said?);
+                }
+                continue;
+            }
+
+            let last = drafts + 1 >= data_query::MAX_DRAFTS;
+            if let Some(call) = kpi_pipeline::tool_call(&answer) {
+                let input = call
+                    .as_ref()
+                    .ok()
+                    .and_then(|c| serde_json::to_value(c).ok());
+                match self
+                    .kpi_pipeline(call, &answer, &mut chosen, &mut tools, last)
+                    .await?
+                {
+                    Worked::Done(prose) => return Ok(prose),
+                    Worked::Again(reason) => {
+                        drafts += 1;
+                        results.push((drafted("draft_kpi_pipeline", input), reason));
+                        continue;
+                    }
+                }
+            }
+            if let Some(call) = kpi::tool_call(&answer) {
+                let input = call
+                    .as_ref()
+                    .ok()
+                    .and_then(|c| serde_json::to_value(c).ok());
+                match self
+                    .kpi(call, &answer, &mut chosen, &mut tools, last)
+                    .await?
+                {
+                    Worked::Done(prose) => return Ok(prose),
+                    Worked::Again(reason) => {
+                        drafts += 1;
+                        results.push((drafted("compute_kpi", input), reason));
+                        continue;
+                    }
+                }
+            }
+            break answer;
+        };
 
         if let Some(call) = share::tool_call(&answer) {
             return self.share(call, &answer).await;
         }
         if let Some(call) = share::edit_call(&answer) {
             return self.edit_endpoint(call, &answer).await;
-        }
-        if let Some(call) = kpi_pipeline::tool_call(&answer) {
-            return self.kpi_pipeline(call, &answer).await;
-        }
-        if let Some(call) = kpi::tool_call(&answer) {
-            return self.kpi(call, &answer).await;
         }
         if let Some(call) = space_complete_tool_call(&answer) {
             return self.space_complete(call, &answer).await;
@@ -1460,22 +1589,29 @@ block, nothing else, in this shape:
   "tool": "compute_kpi",
   "name": "<a short lowercase name with dashes, e.g. average-pm10>",
   "title": "<a title in the language of the request>",
-  "type": "<the entity type>",
-  "attribute": "<the attribute folded; empty for count>",
+  "type": "<the entity type, exact name as the endpoint's schema says>",
+  "attribute": "<the attribute folded, exact name as the schema says; empty for count>",
   "agg": "avg | sum | count | min | max",
   "unit": "<a UN/CEFACT common code when the value has a unit, e.g. GQ for µg/m³, C62 for a count>",
-  "q": "<an NGSI-LD filter narrowing the entities, or omit it>"
+  "q": "<an NGSI-LD filter narrowing the entities, or omit it>",
+  "endpoint": "<the endpoint read, from WORKING WITH THE DATA; required when the conversation reads none>"
 }}
 ```
 
-The platform reads the entities through the endpoint, computes the value, renders the
-`KeyPerformanceIndicator` entity with its formula and provenance, and shows it to the person.
+Read the type's schema or a page of its entities first when you do not know its exact attribute
+names. The platform reads the entities through the endpoint, computes the value, renders the
+`KeyPerformanceIndicator` entity with its formula and provenance, and shows it to the person. When
+the read fails or finds no number, you get the reason back and try again.
 
 ## WHEN THE PERSON ASKS TO KEEP AN INDICATOR UPDATED
 
 "Keep the average of free bikes updated every 15 minutes", "recompute it on every change",
-"save the indicators into transportation-kpi", "Keep the indicator … updated": a pipeline, not one
-number. Answer with one or two plain sentences and then ONE fenced JSON block, nothing else:
+"save the indicators into transportation-kpi", "Keep the indicator … updated", "create a KPI
+pipeline": a pipeline, not one number. A person who asked for a KPI pipeline earlier in the
+conversation and now names the metric ("total available city bikes") wants that pipeline. Work it
+as an agent: find the endpoint that holds the data (the catalog search, WORKING WITH THE DATA),
+read the type's schema and a page of entities, then draft. Answer with one or two plain
+sentences and then ONE fenced JSON block, nothing else:
 
 ```json
 {{
@@ -1487,7 +1623,7 @@ number. Answer with one or two plain sentences and then ONE fenced JSON block, n
   "agg": "avg | sum | count | min | max",
   "unit": "<a UN/CEFACT common code, e.g. C62 for a count>",
   "q": "<an NGSI-LD filter narrowing the entities, or omit it>",
-  "sourceEndpoint": "<the endpoint read, a name from the project; omit for this conversation's endpoint>",
+  "sourceEndpoint": "<the endpoint read, from WORKING WITH THE DATA; required when the conversation reads none>",
   "targetSpace": "<the indicator space written, ending with -kpi; omit for {project}-kpi>",
   "every": "<a period of at least a minute such as 15m or 1h; omit when onChange>",
   "onChange": false,
@@ -1495,9 +1631,11 @@ number. Answer with one or two plain sentences and then ONE fenced JSON block, n
 }}
 ```
 
-Give `every` or `"onChange": true`, never both. The platform drafts the pipeline, drafts the
-indicator space when it does not exist, tests the pipeline and opens its form; the person
-proposes it.
+Give `every` or `"onChange": true`, never both. When the person names no period, use "15m". The
+platform drafts the Bento pipeline, drafts the indicator space when it does not exist, and tests
+the pipeline on a page of the source. A refused plan or a red test comes back to you with the
+reason and the page it ran on: look at the data again and draft it anew. A green draft opens its
+form; the person proposes it.
 
 ## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE
 
@@ -1621,7 +1759,13 @@ proposes it.
         // An indicator is computed here, shown, and written by the person (PF-55): the
         // dashboard stays as it was.
         if let Some(call) = kpi::tool_call(&answer) {
-            return self.kpi(call, &answer).await.map(Some);
+            let (mut chosen, mut tools) = (self.endpoints.clone(), Vec::new());
+            return match self
+                .kpi(call, &answer, &mut chosen, &mut tools, true)
+                .await?
+            {
+                Worked::Done(prose) | Worked::Again(prose) => Ok(Some(prose)),
+            };
         }
         // A space complete request is answered with a tool call (T-0642)
         if let Some(call) = space_complete_tool_call(&answer) {
@@ -2441,7 +2585,10 @@ proposes it.
         &self,
         call: Result<kpi::ComputeKpi, String>,
         answer: &str,
-    ) -> Result<String, String> {
+        chosen: &mut Vec<endpoints::RunEndpoint>,
+        tools: &mut Vec<Vec<Value>>,
+        last: bool,
+    ) -> Result<Worked, String> {
         let started = std::time::Instant::now();
         let millis = |started: std::time::Instant| {
             u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -2454,22 +2601,63 @@ proposes it.
                 "error": reason,
             })
         };
+        // A failure the model can correct goes back to it while drafts are left (AG-76).
+        let again = |reason: String, prose: String| {
+            if last {
+                Worked::Done(prose)
+            } else {
+                Worked::Again(format!("error: {reason}"))
+            }
+        };
         let params = match call {
             Ok(params) => params,
             Err(reason) => {
                 self.event("tool", failed(reason.clone())).await?;
                 let prose = format!("The indicator request could not be read: {reason}");
-                self.thought(&prose).await?;
-                return Ok(prose);
+                if last {
+                    self.thought(&prose).await?;
+                }
+                return Ok(again(reason, prose));
             }
         };
         let input = serde_json::to_value(&params).unwrap_or(Value::Null);
         if let Err(reason) = self.granted("jc_kpi_compute") {
-            return self.refused("compute_kpi", started, input, reason).await;
+            return self
+                .refused("compute_kpi", started, input, reason)
+                .await
+                .map(Worked::Done);
         }
+        let named = params
+            .endpoint
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        let index = match named {
+            Some(name) => self.open_endpoint(chosen, tools, name).await,
+            None if chosen.is_empty() => Err(
+                "the conversation reads no endpoint: name the one the indicator reads (endpoint)"
+                    .to_owned(),
+            ),
+            None => Ok(endpoints::of_type(
+                chosen,
+                &self.data_needs,
+                &params.entity_type,
+            )),
+        };
+        let index = match index {
+            Ok(index) => index,
+            Err(reason) => {
+                self.event("tool", failed(reason.clone())).await?;
+                let prose = format!("The indicator has no endpoint to read: {reason}");
+                if last {
+                    self.thought(&prose).await?;
+                }
+                return Ok(again(reason, prose));
+            }
+        };
         let mut url = format!(
             "{}/ngsi-ld/v1/entities?type={}&options=keyValues&limit=1000",
-            self.data_base_of(&params.entity_type),
+            endpoints::data_base(&self.proxy_base, chosen, index),
             urlencoding(&params.entity_type)
         );
         if !params.attribute.is_empty() {
@@ -2484,8 +2672,10 @@ proposes it.
             Err(reason) => {
                 self.event("tool", failed(reason.clone())).await?;
                 let prose = format!("The entities could not be read: {reason}");
-                self.thought(&prose).await?;
-                return Ok(prose);
+                if last {
+                    self.thought(&prose).await?;
+                }
+                return Ok(again(reason, prose));
             }
         };
         let (value, count) = kpi::compute(&rows, &params.attribute, params.agg);
@@ -2498,27 +2688,21 @@ proposes it.
             );
             self.event("tool", failed(reason.clone())).await?;
             let prose = format!("The indicator has no value: {reason}.");
-            self.thought(&prose).await?;
-            return Ok(prose);
+            if last {
+                self.thought(&prose).await?;
+            }
+            return Ok(again(reason, prose));
         };
-        // The source endpoint, by its slug, for the provenance; the indicator space's
-        // endpoint, when the project has one, for the card's write.
-        let source = self
-            .state
-            .mirror
-            .list(
-                &self.project,
-                "Endpoint",
-                &crate::store::ListOptions::default(),
-            )
-            .items
-            .into_iter()
-            .find(|env| env.spec["slug"].as_str() == Some(self.endpoint_slug.as_str()));
-        let (endpoint_name, endpoint_space) = match &source {
-            Some(env) => (
-                env.metadata.name.clone(),
-                crate::api::assistant::ref_name(&env.spec["contextSpaceRef"])
-                    .unwrap_or_else(|| self.project.clone()),
+        // The endpoint read, for the provenance; the indicator space's endpoint, when the
+        // project has one, for the card's write.
+        let (endpoint_name, endpoint_space) = match chosen.get(index) {
+            Some(read) => (
+                read.name.clone(),
+                if read.space.is_empty() {
+                    self.project.clone()
+                } else {
+                    read.space.clone()
+                },
             ),
             None => (self.project.clone(), self.project.clone()),
         };
@@ -2537,7 +2721,7 @@ proposes it.
                 self.event("tool", failed(reason.clone())).await?;
                 let prose = format!("The indicator could not be rendered: {reason}");
                 self.thought(&prose).await?;
-                return Ok(prose);
+                return Ok(Worked::Done(prose));
             }
         };
         let target = kpi::kpi_endpoint(&self.state, &self.project);
@@ -2571,7 +2755,7 @@ proposes it.
             );
         }
         self.thought(&prose).await?;
-        Ok(prose)
+        Ok(Worked::Done(prose))
     }
 
     /// An indicator kept up to date (AG-74, PL-45, PL-51): the pipeline and, for an indicator
@@ -2582,7 +2766,10 @@ proposes it.
         &self,
         call: Result<kpi_pipeline::DraftKpiPipeline, String>,
         answer: &str,
-    ) -> Result<String, String> {
+        chosen: &mut Vec<endpoints::RunEndpoint>,
+        tools: &mut Vec<Vec<Value>>,
+        last: bool,
+    ) -> Result<Worked, String> {
         const TOOL: &str = "draft_kpi_pipeline";
         let started = std::time::Instant::now();
         let millis = |started: std::time::Instant| {
@@ -2597,18 +2784,48 @@ proposes it.
                 "error": reason,
             })
         };
+        // A refused plan or a red test goes back to the model while drafts are left (AG-76).
+        let again = |reason: String, prose: String| {
+            if last {
+                Worked::Done(prose)
+            } else {
+                Worked::Again(reason)
+            }
+        };
         let params = match call {
             Ok(params) => params,
             Err(reason) => {
                 self.event("tool", failed(&Value::Null, &reason)).await?;
                 let prose = format!("The pipeline request could not be read: {reason}");
-                self.thought(&prose).await?;
-                return Ok(prose);
+                if last {
+                    self.thought(&prose).await?;
+                }
+                return Ok(again(format!("error: {reason}"), prose));
             }
         };
         let input = serde_json::to_value(&params).unwrap_or(Value::Null);
         if let Err(reason) = self.granted("jc_pipeline_propose") {
-            return self.refused(TOOL, started, input, reason).await;
+            return self
+                .refused(TOOL, started, input, reason)
+                .await
+                .map(Worked::Done);
+        }
+        // The source is read like every other endpoint of the conversation: opened first when
+        // the person may read it, so the test runs on a real page (AG-76).
+        if let Some(named) = params
+            .source_endpoint
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            if let Err(reason) = self.open_endpoint(chosen, tools, named).await {
+                self.event("tool", failed(&input, &reason)).await?;
+                let prose = format!("The pipeline could not be drafted: {reason}");
+                if last {
+                    self.thought(&prose).await?;
+                }
+                return Ok(again(format!("error: {reason}"), prose));
+            }
         }
 
         let endpoints = self.project_endpoints();
@@ -2626,14 +2843,7 @@ proposes it.
             .iter()
             .filter_map(|env| serde_json::to_value(env).ok())
             .collect();
-        let run_endpoint = endpoints
-            .iter()
-            .find(|e| {
-                !self.endpoint_slug.is_empty()
-                    && e["spec"]["slug"].as_str() == Some(self.endpoint_slug.as_str())
-            })
-            .and_then(|e| e["metadata"]["name"].as_str())
-            .map(str::to_owned);
+        let run_endpoint = chosen.first().map(|e| e.name.clone());
         let org_domain = crate::api::assistant::org_domain(&self.state, &self.project);
         let slug = share::slug();
         let world = kpi_pipeline::World {
@@ -2650,8 +2860,10 @@ proposes it.
             Err(reason) => {
                 self.event("tool", failed(&input, &reason)).await?;
                 let prose = format!("The pipeline could not be drafted: {reason}");
-                self.thought(&prose).await?;
-                return Ok(prose);
+                if last {
+                    self.thought(&prose).await?;
+                }
+                return Ok(again(format!("error: {reason}"), prose));
             }
         };
         let name = params.name.trim().to_owned();
@@ -2693,11 +2905,12 @@ proposes it.
 
         // The test runs on a page of the source when this run reads that endpoint, and on an
         // empty page otherwise, so the mapping and the indicator's admission are checked either way.
-        let sampled = run_endpoint.as_deref() == Some(plan.source_endpoint.as_str());
-        let page = if sampled {
+        let source_index = chosen.iter().position(|e| e.name == plan.source_endpoint);
+        let sampled = source_index.is_some();
+        let page = if let Some(index) = source_index {
             let mut url = format!(
-                "{}/v1/data/ngsi-ld/v1/entities?type={}&limit=100",
-                self.proxy_base,
+                "{}/ngsi-ld/v1/entities?type={}&limit=100",
+                endpoints::data_base(&self.proxy_base, chosen, index),
                 urlencoding(params.entity_type.trim())
             );
             if !params.attribute.trim().is_empty() {
@@ -2730,6 +2943,55 @@ proposes it.
             }
             None => json!({ "ok": false, "untested": "jc_pipeline_test is not registered" }),
         };
+
+        // A red test the model can act on goes back to it; a test that could not run at all (no
+        // runner) is shown on the card, as before.
+        let red = verdict.get("ok").and_then(Value::as_bool) == Some(false)
+            && verdict.get("untested").is_none();
+        if red {
+            let findings = verdict
+                .get("findings")
+                .and_then(Value::as_array)
+                .map(|all| {
+                    all.iter()
+                        .map(|f| {
+                            format!(
+                                "{} {}",
+                                f.get("path").and_then(Value::as_str).unwrap_or(""),
+                                f.get("message").and_then(Value::as_str).unwrap_or("")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_default();
+            let reason = format!(
+                "the pipeline's test on {} is not green: {findings}. The page it ran on ({} characters): {}",
+                if sampled { "a page of the source" } else { "an empty page" },
+                page.len(),
+                page.chars().take(2_000).collect::<String>()
+            );
+            self.event(
+                "tool",
+                json!({
+                    "tool": TOOL,
+                    "status": "failed",
+                    "durationMs": millis(started),
+                    "input": input,
+                    "error": format!("the test is not green: {findings}"),
+                    "output": { "verdict": verdict, "pipeline": plan.pipeline },
+                }),
+            )
+            .await?;
+            if !last {
+                return Ok(Worked::Again(reason));
+            }
+            let prose = format!(
+                "The pipeline '{name}' is drafted but its test is still not green: {findings}. The draft is kept on the Pipelines page."
+            );
+            self.thought(&prose).await?;
+            return Ok(Worked::Done(prose));
+        }
 
         let drafts: Vec<Value> = plan
             .space_drafts
@@ -2796,7 +3058,7 @@ proposes it.
             }),
         )
         .await?;
-        Ok(prose)
+        Ok(Worked::Done(prose))
     }
 
     async fn share(
@@ -3087,6 +3349,205 @@ proposes it.
             })
     }
 
+    /// Each endpoint's read tools, from its own `tools/list` through the proxy, so the model
+    /// sees exactly what the gateway offers this person there (AG-75). An endpoint that does
+    /// not answer offers nothing.
+    async fn data_tools(&self, chosen: &[endpoints::RunEndpoint]) -> Vec<Vec<Value>> {
+        let lists = (0..chosen.len()).map(|index| self.tools_of(chosen, index));
+        futures_util::future::join_all(lists).await
+    }
+
+    /// The read tools one endpoint of the conversation offers, from its own `tools/list`.
+    async fn tools_of(&self, chosen: &[endpoints::RunEndpoint], index: usize) -> Vec<Value> {
+        let url = format!(
+            "{}/mcp",
+            endpoints::data_base(&self.proxy_base, chosen, index)
+        );
+        let list = self
+            .http
+            .post(&url)
+            .bearer_auth(&self.bearer)
+            .header("accept", "application/json")
+            .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
+            .send()
+            .await;
+        match list {
+            Ok(response) if response.status().is_success() => response
+                .json::<Value>()
+                .await
+                .map(|list| data_query::read_only_tools(&list))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The project's endpoints the conversation does not read yet and the person may open: an
+    /// audience that admits the project and a profile that grants reading it (AG-58, AG-70).
+    fn openable_endpoints(&self, chosen: &[endpoints::RunEndpoint]) -> Vec<data_query::Openable> {
+        self.state
+            .mirror
+            .list(
+                &self.project,
+                "Endpoint",
+                &crate::store::ListOptions::default(),
+            )
+            .items
+            .into_iter()
+            .filter(|env| !chosen.iter().any(|c| c.name == env.metadata.name))
+            .filter(|env| {
+                env.spec["slug"]
+                    .as_str()
+                    .is_some_and(|slug| !slug.is_empty())
+            })
+            .filter(|env| {
+                crate::api::assistant::endpoint_access(&env.spec, &self.project).is_allowed()
+            })
+            .filter(|env| self.access.grants_endpoint(&env.metadata.name, false))
+            .map(|env| data_query::Openable {
+                title: crate::api::assistant::title_of(&env),
+                space: crate::api::assistant::ref_name(&env.spec["contextSpaceRef"])
+                    .unwrap_or_default(),
+                name: env.metadata.name,
+            })
+            .collect()
+    }
+
+    /// The index of `name` among the conversation's endpoints, opening it first when the person
+    /// may read it: stored on the run and shown in the data bar, as if the person had used it
+    /// (AG-76). `Err` is what the model reads back.
+    async fn open_endpoint(
+        &self,
+        chosen: &mut Vec<endpoints::RunEndpoint>,
+        tools: &mut Vec<Vec<Value>>,
+        name: &str,
+    ) -> Result<usize, String> {
+        if let Some(index) = chosen.iter().position(|e| e.name == name) {
+            return Ok(index);
+        }
+        let openable = self.openable_endpoints(chosen);
+        if !openable.iter().any(|o| o.name == name) {
+            return Err(format!(
+                "'{name}' is not an endpoint the person may read in this project; they may open: {}",
+                openable
+                    .iter()
+                    .map(|o| o.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if chosen.len() >= endpoints::MAX_ENDPOINTS {
+            return Err(format!(
+                "a conversation reads at most {} endpoints: {}",
+                endpoints::MAX_ENDPOINTS,
+                chosen
+                    .iter()
+                    .map(|e| e.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        let opened = endpoints::resolve(&self.state.mirror, &self.project, &[name.to_owned()])
+            .map_err(|err| err.to_string())?;
+        chosen.extend(opened);
+        self.state
+            .agents
+            .set_endpoints(&self.run_id, chosen)
+            .await
+            .map_err(|err| err.to_string())?;
+        self.event(
+            "endpoints",
+            json!({ "names": chosen.iter().map(|e| e.name.clone()).collect::<Vec<_>>() }),
+        )
+        .await?;
+        let index = chosen.len() - 1;
+        let offered = self.tools_of(chosen, index).await;
+        tools.resize(chosen.len() - 1, Vec::new());
+        tools.push(offered);
+        Ok(index)
+    }
+
+    /// One `tools/call` on an endpoint of the conversation, on the log as a `query_endpoint`
+    /// step; what the model reads back, errors included, so it can correct itself.
+    async fn query_endpoint(
+        &self,
+        chosen: &[endpoints::RunEndpoint],
+        call: &data_query::QueryCall,
+        tools: &[Vec<Value>],
+    ) -> Result<String, String> {
+        let started = std::time::Instant::now();
+        let input =
+            json!({ "endpoint": call.endpoint, "name": call.name, "arguments": call.arguments });
+        let index = chosen.iter().position(|e| e.name == call.endpoint);
+        let refusal = match index {
+            None => Some(format!(
+                "'{}' is not an endpoint of this conversation; the endpoints are: {}",
+                call.endpoint,
+                chosen
+                    .iter()
+                    .map(|e| e.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            Some(i) if !data_query::offers(tools.get(i).map_or(&[], Vec::as_slice), &call.name) => {
+                Some(format!(
+                    "'{}' is not a read tool endpoint '{}' offers",
+                    call.name, call.endpoint
+                ))
+            }
+            Some(_) => None,
+        };
+        let millis = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        if let Some(reason) = refusal {
+            self.event(
+                "tool",
+                json!({ "tool": "query_endpoint", "status": "failed", "durationMs": millis(), "input": input, "error": reason }),
+            )
+            .await?;
+            return Ok(format!("error: {reason}"));
+        }
+        let url = format!(
+            "{}/mcp",
+            endpoints::data_base(&self.proxy_base, chosen, index.unwrap_or(0))
+        );
+        let answer = match self
+            .http
+            .post(&url)
+            .bearer_auth(&self.bearer)
+            .header("accept", "application/json")
+            .json(&data_query::rpc(call))
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                if status.is_success() {
+                    serde_json::from_str::<Value>(&body).unwrap_or_else(
+                        |err| json!({ "error": format!("the endpoint's answer is not JSON: {err}") }),
+                    )
+                } else {
+                    json!({ "error": format!("{status}: {}", body.chars().take(300).collect::<String>()) })
+                }
+            }
+            Err(err) => json!({ "error": format!("the call did not go through the proxy: {err}") }),
+        };
+        let text = data_query::result_text(&answer);
+        let failed = answer.get("error").is_some()
+            || answer.pointer("/result/isError").and_then(Value::as_bool) == Some(true);
+        let mut payload = json!({
+            "tool": "query_endpoint",
+            "status": if failed { "failed" } else { "ok" },
+            "durationMs": millis(),
+            "input": input,
+            "output": answer.get("result").cloned().unwrap_or(Value::Null),
+        });
+        if failed {
+            payload["error"] = Value::String(text.clone());
+        }
+        self.event("tool", payload).await?;
+        Ok(text)
+    }
+
     async fn thought(&self, text: &str) -> Result<(), String> {
         self.event("thought", json!({ "text": text })).await
     }
@@ -3189,6 +3650,23 @@ enum CodePass {
     Unchanged(String),
     /// Still not building after the repair: the files are as they were and the chat says why.
     Failed,
+}
+
+/// The application's name the first answer begins with in bold (`**Helsinki Traffic Alerts
+/// Map**`), and the prose with the markers removed; no name when the answer does not begin
+/// with one of 3 to 60 characters.
+pub(crate) fn title_of(prose: &str) -> (Option<String>, String) {
+    let trimmed = prose.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("**") {
+        if let Some(end) = rest.find("**") {
+            let name = rest[..end].trim();
+            let length = name.chars().count();
+            if (3..=60).contains(&length) && !name.contains('\n') {
+                return (Some(name.to_owned()), format!("{name}{}", &rest[end + 2..]));
+            }
+        }
+    }
+    (None, prose.to_owned())
 }
 
 /// The refusals of an answer with its unreadable blocks added, as the step's log shows them.
@@ -3460,6 +3938,19 @@ mod tests {
             "{merged}"
         );
         assert_eq!(merge_declarations(&[bikes.to_owned()]), bikes);
+    }
+
+    #[test]
+    fn the_first_answer_names_the_application_in_bold() {
+        let (title, prose) =
+            title_of("**Helsinki Traffic Alerts Map** shows every alert on a map.");
+        assert_eq!(title.as_deref(), Some("Helsinki Traffic Alerts Map"));
+        assert_eq!(
+            prose,
+            "Helsinki Traffic Alerts Map shows every alert on a map."
+        );
+        assert_eq!(title_of("A map of alerts.").0, None);
+        assert_eq!(title_of("**ab** too short").0, None);
     }
 
     #[test]

@@ -1040,6 +1040,7 @@ fn init_registry() -> Vec<Operation> {
                         agg: input.agg,
                         unit: input.unit,
                         q: input.q,
+                        endpoint: None,
                     };
                     let rows = input.rows.unwrap_or_default();
                     let (computed_val, _) = kpi::compute(&rows, &params.attribute, params.agg);
@@ -1302,6 +1303,7 @@ fn init_registry() -> Vec<Operation> {
                         project,
                         &input.id,
                         input.confirm.as_deref(),
+                        changes::ApprovedBy::Operation,
                     )
                     .await?;
                     Ok(serde_json::to_value(change)?)

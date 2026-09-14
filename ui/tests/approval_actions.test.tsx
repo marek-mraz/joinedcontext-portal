@@ -52,7 +52,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 function renderDetail(
-  options: { identity?: unknown; change?: Record<string, unknown> } = {},
+  options: { identity?: unknown; change?: Record<string, unknown>; permissions?: unknown } = {},
 ) {
   const change = options.change ?? proposal();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -61,6 +61,9 @@ function renderDetail(
       return Promise.resolve(json(options.identity ?? APPROVER));
     }
     // Roles as code (T-0526): the approver's grant comes from the bindings, not the token.
+    if (request.url.includes("/permissions/me") && options.permissions) {
+      return Promise.resolve(json(options.permissions));
+    }
     if (request.url.includes("/permissions/me")) {
       const identity = (options.identity ?? APPROVER) as { roles?: string[] };
       const approver = identity.roles?.includes("portal-approver") ?? false;
@@ -155,6 +158,53 @@ describe("approval actions", () => {
 
     expect(await screen.findByRole("button", { name: en.approvals.approve })).toBeDisabled();
     expect(screen.getByText(en.approvals.ownProposal)).toBeInTheDocument();
+    expect(posts(fetchMock)).toHaveLength(0);
+  });
+
+  it("lets an administrator of the kind approve their own proposal, and says so (PF-58)", async () => {
+    const fetchMock = renderDetail({
+      change: proposal({ author: { name: "Jana Kováčová", email: APPROVER.email } }),
+      permissions: {
+        project: "banskabystrica",
+        bootstrap: false,
+        grants: [
+          {
+            role: "org-admin",
+            binding: "admins",
+            rule: { kinds: ["Endpoint"], verbs: ["propose", "approve", "delete"] },
+          },
+        ],
+      },
+    });
+
+    const approve = await screen.findByRole("button", { name: en.approvals.approve });
+    await waitFor(() => expect(approve).toBeEnabled());
+    expect(
+      screen.getByText(i18n.t("approvals.ownAsAdministrator", { kind: "Endpoint" })),
+    ).toBeInTheDocument();
+    await userEvent.click(approve);
+    await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
+    expect(posts(fetchMock)[0].url).toContain("/changes/chg-1a2b3c4d/approve");
+  });
+
+  it("keeps an author who may approve but not delete the kind from approving their own proposal", async () => {
+    const fetchMock = renderDetail({
+      change: proposal({ author: { name: "Jana Kováčová", email: APPROVER.email } }),
+      permissions: {
+        project: "banskabystrica",
+        bootstrap: false,
+        grants: [
+          {
+            role: "steward",
+            binding: "stewards",
+            rule: { kinds: ["Endpoint"], verbs: ["propose", "approve"] },
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText(en.approvals.ownProposal)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.approvals.approve })).toBeDisabled();
     expect(posts(fetchMock)).toHaveLength(0);
   });
 

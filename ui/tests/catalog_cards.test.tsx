@@ -1,8 +1,10 @@
 /**
- * The catalog cards (T-0579, UI-46, AG-58): one card per item the assistant found, with the
- * badges, the freshness, the links, and every string drawn as text (AG-46).
+ * The catalog results (T-0579, UI-46, AG-58, AG-75): one compact row per item the assistant
+ * found, four before "Show more", a "Use" that puts an endpoint into the conversation's data bar,
+ * and every string drawn as text (AG-46).
  */
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { RouterProvider, createRootRoute, createRouter } from "@tanstack/react-router";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -46,9 +48,12 @@ const ITEMS: CatalogItem[] = [
   },
 ];
 
-function renderCards(items: CatalogItem[] = ITEMS) {
+function renderCards(
+  items: CatalogItem[] = ITEMS,
+  props: { onUseEndpoint?: (name: string) => void; usedEndpoints?: string[] } = {},
+) {
   const rootRoute = createRootRoute({
-    component: () => <CatalogCards project="helsinki" items={items} now={NOW} />,
+    component: () => <CatalogCards project="helsinki" items={items} now={NOW} {...props} />,
   });
   const router = createRouter({ routeTree: rootRoute });
   return render(
@@ -58,53 +63,126 @@ function renderCards(items: CatalogItem[] = ITEMS) {
   );
 }
 
-describe("the catalog cards", () => {
+function endpointItem(n: number): CatalogItem {
+  return {
+    kind: "Endpoint",
+    name: `helsinki-${String(n)}`,
+    space: "helsinki",
+    owner: "helsinki",
+    title: `Helsinki ${String(n)}`,
+    matchReason: ["title"],
+    access: { verdict: "allowed", reason: "audience public" },
+    freshness: null,
+  };
+}
+
+describe("the catalog results", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
 
-  it("draws one card per item with its kind, owner, access and freshness", async () => {
+  it("draws one compact row per item: kind, title, name, an access dot and freshness when known", async () => {
     renderCards();
     const list = await screen.findByRole("list", { name: en.agentRun.catalog.title });
-    const cards = within(list).getAllByRole("listitem");
-    expect(cards).toHaveLength(3);
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
 
-    const bikes = cards[0];
-    expect(within(bikes).getByText("Endpoint")).toBeInTheDocument();
-    expect(within(bikes).getByText(/helsinki-bikes · owner helsinki/)).toBeInTheDocument();
-    expect(within(bikes).getByText(en.agentRun.catalog.allowed)).toBeInTheDocument();
-    expect(within(bikes).getByText(/audience public/)).toBeInTheDocument();
-    expect(within(bikes).getByText("Fed 12 s ago by hsl-bikes")).toBeInTheDocument();
+    const bikes = rows[0];
+    expect(within(bikes).getByRole("img", { name: "Endpoint" })).toBeInTheDocument();
+    expect(within(bikes).getByText("helsinki-bikes")).toBeInTheDocument();
+    expect(within(bikes).getByRole("img", { name: `${en.agentRun.catalog.allowed} · audience public` })).toBeInTheDocument();
+    const fed = within(bikes).getByText("fed 12 s ago");
+    expect(fed.getAttribute("title")).toBe("Fed 12 s ago by hsl-bikes");
 
-    const partners = cards[1];
-    expect(within(partners).getByText(en.agentRun.catalog.restricted)).toBeInTheDocument();
-    expect(within(partners).getByText(/does not name helsinki/)).toBeInTheDocument();
-    expect(within(partners).getByText(en.agentRun.catalog.noFeed)).toBeInTheDocument();
+    const partners = rows[1];
+    expect(
+      within(partners).getByRole("img", {
+        name: `${en.agentRun.catalog.restricted} · audience project-list does not name helsinki`,
+      }),
+    ).toBeInTheDocument();
+    expect(within(partners).queryByText(/^fed /)).toBeNull();
+
+    expect(within(rows[2]).getByRole("img", { name: "ContextSpace" })).toBeInTheDocument();
   });
 
-  it("links an open item to the explorer on its space and endpoint, and a restricted one only to its page", async () => {
+  it("keeps every row inside a narrow chat column: rows wrap and shrink, long text truncates with a title", async () => {
     renderCards();
     const list = await screen.findByRole("list", { name: en.agentRun.catalog.title });
-    const cards = within(list).getAllByRole("listitem");
+    for (const row of within(list).getAllByRole("listitem")) {
+      expect(row).toHaveClass("min-w-0", "flex-wrap");
+    }
+    const bikes = within(list).getAllByRole("listitem")[0];
+    const title = within(bikes).getByRole("link");
+    expect(title).toHaveClass("min-w-0", "truncate");
+    expect(title).toHaveAttribute("title", ITEMS[0].title);
+    // The access reason rides on the dot's tooltip, never as a line that runs past the edge.
+    expect(within(bikes).queryByText(/audience public/)).toBeNull();
+  });
 
-    const explore = within(cards[0]).getByRole("link", { name: en.agentRun.catalog.explore });
-    const href = explore.getAttribute("href") ?? "";
+  it("links an open item's title to the explorer and a restricted one to its kind's page", async () => {
+    renderCards();
+    const list = await screen.findByRole("list", { name: en.agentRun.catalog.title });
+    const rows = within(list).getAllByRole("listitem");
+
+    const href = within(rows[0]).getByRole("link").getAttribute("href") ?? "";
     expect(href).toContain("/projects/helsinki/explore");
     expect(href).toContain("space=helsinki");
     expect(href).toContain("endpoint=helsinki-bikes");
-    expect(within(cards[0]).getByRole("link", { name: en.agentRun.catalog.open }).getAttribute("href")).toBe(
+
+    expect(within(rows[1]).getByRole("link", { name: "helsinki-partners" }).getAttribute("href")).toBe(
       "/projects/helsinki/endpoints",
     );
 
-    expect(within(cards[1]).queryByRole("link", { name: en.agentRun.catalog.explore })).toBeNull();
-    expect(within(cards[1]).getByRole("link", { name: en.agentRun.catalog.open })).toBeInTheDocument();
+    const space = within(rows[2]).getByRole("link", { name: "Helsinki city context" }).getAttribute("href") ?? "";
+    expect(space).toContain("space=helsinki");
+    expect(space).not.toContain("endpoint=");
+  });
 
-    const space = within(cards[2]).getByRole("link", { name: en.agentRun.catalog.explore });
-    expect(space.getAttribute("href")).toContain("space=helsinki");
-    expect(space.getAttribute("href")).not.toContain("endpoint=");
-    expect(within(cards[2]).getByRole("link", { name: en.agentRun.catalog.open }).getAttribute("href")).toBe(
-      "/projects/helsinki/spaces",
-    );
+  it("shows four rows, then the rest behind Show more", async () => {
+    const user = userEvent.setup();
+    renderCards([1, 2, 3, 4, 5, 6].map(endpointItem));
+    const list = await screen.findByRole("list", { name: en.agentRun.catalog.title });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+
+    await user.click(screen.getByRole("button", { name: "Show 2 more" }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(6);
+
+    await user.click(screen.getByRole("button", { name: en.agentRun.catalog.showLess }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+  });
+
+  it("offers Use on an open endpoint, spent once the conversation reads it; spaces and restricted rows have none", async () => {
+    const user = userEvent.setup();
+    const used: string[] = [];
+    renderCards(ITEMS, {
+      onUseEndpoint: (name) => {
+        used.push(name);
+      },
+      usedEndpoints: ["helsinki-kpi"],
+    });
+    const list = await screen.findByRole("list", { name: en.agentRun.catalog.title });
+    const rows = within(list).getAllByRole("listitem");
+
+    await user.click(within(rows[0]).getByRole("button", { name: "Use helsinki-bikes in this conversation" }));
+    expect(used).toEqual(["helsinki-bikes"]);
+    expect(within(rows[1]).queryByRole("button")).toBeNull();
+    expect(within(rows[2]).queryByRole("button")).toBeNull();
+  });
+
+  it("marks an endpoint already in the conversation as in use", async () => {
+    renderCards(ITEMS, { onUseEndpoint: () => undefined, usedEndpoints: ["helsinki-bikes"] });
+    const list = await screen.findByRole("list", { name: en.agentRun.catalog.title });
+    const button = within(within(list).getAllByRole("listitem")[0]).getByRole("button", {
+      name: "helsinki-bikes is in use",
+    });
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent(en.agentRun.catalog.inUse);
+  });
+
+  it("offers no Use without a conversation to add to", async () => {
+    renderCards();
+    const list = await screen.findByRole("list", { name: en.agentRun.catalog.title });
+    expect(within(list).queryAllByRole("button")).toHaveLength(0);
   });
 
   it("renders what the run stream carried as text, never as markup (AG-46)", async () => {
