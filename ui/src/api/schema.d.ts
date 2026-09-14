@@ -1534,10 +1534,10 @@ export interface components {
             annotations?: {
                 [key: string]: string;
             };
-            /** @description Human-readable multilingual description (PF-24). */
-            description?: {
+            /** @description Human-readable description: one string, or the legacy map per locale (UI-50, PF-24). */
+            description?: (string | {
                 [key: string]: string;
-            } | null;
+            }) | null;
             /** @description Key-value labels for filtering (MF-10). */
             labels?: {
                 [key: string]: string;
@@ -1546,10 +1546,10 @@ export interface components {
             name: string;
             /** @description Resource namespace ("org" or project slug). */
             namespace?: string | null;
-            /** @description Human-readable multilingual title (PF-24). */
-            title?: {
+            /** @description Human-readable title: one string, or the legacy map per locale (UI-50, PF-24). */
+            title?: (string | {
                 [key: string]: string;
-            } | null;
+            }) | null;
         };
         OperationAnnotations: {
             destructiveHint: boolean;

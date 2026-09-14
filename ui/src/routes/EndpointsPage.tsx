@@ -54,7 +54,7 @@ import {
 
 interface EndpointForm {
   name: string;
-  title?: Record<string, string>;
+  title?: string | Record<string, string>;
   contextSpaceRef: string;
   slug?: string;
   audience: string;

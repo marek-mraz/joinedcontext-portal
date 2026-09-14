@@ -34,7 +34,7 @@ import type { SecretRefValue } from "../../components/forms/widgets/SecretRef";
 /** The form of one source: the metadata a manifest carries plus the block its type names. */
 export interface DataSourceForm {
   name?: string;
-  title?: Record<string, string>;
+  title?: string | Record<string, string>;
   [block: string]: unknown;
 }
 

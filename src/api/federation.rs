@@ -297,13 +297,15 @@ impl Builder {
                 id,
                 kind: kind.to_owned(),
                 name: env.metadata.name,
-                title: env
-                    .metadata
-                    .title
-                    .iter()
-                    .flat_map(|title| title.iter())
-                    .map(|(locale, text)| (locale.to_owned(), text.to_owned()))
-                    .collect(),
+                // A plain title (UI-50) is the English one until the graph carries one string.
+                title: match env.metadata.title {
+                    Some(jc_core::Text::Localized(map)) => map
+                        .iter()
+                        .map(|(locale, text)| (locale.to_owned(), text.to_owned()))
+                        .collect(),
+                    Some(jc_core::Text::Plain(text)) => BTreeMap::from([("en".to_owned(), text)]),
+                    None => BTreeMap::new(),
+                },
                 health: health(&env.status),
                 registration,
             },

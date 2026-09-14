@@ -6102,18 +6102,32 @@
             }
           },
           "description": {
-            "type": [
-              "object",
-              "null"
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The form every new manifest writes."
+                  },
+                  {
+                    "type": "object",
+                    "description": "The legacy `{locale: text}` map.",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string",
+                      "pattern": "^[a-z]{2}$"
+                    }
+                  }
+                ],
+                "description": "A human label or description (UI-50): one plain string in the author's language. The legacy language map is still read, through release `v0.9`, and resolves to one string."
+              },
+              {
+                "type": "null"
+              }
             ],
-            "description": "Human-readable multilingual description (PF-24).",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string",
-              "pattern": "^[a-z]{2}$"
-            }
+            "description": "Human-readable description: one string, or the legacy map per locale (UI-50, PF-24)."
           },
           "labels": {
             "type": "object",
@@ -6134,18 +6148,32 @@
             "description": "Resource namespace (\"org\" or project slug)."
           },
           "title": {
-            "type": [
-              "object",
-              "null"
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "The form every new manifest writes."
+                  },
+                  {
+                    "type": "object",
+                    "description": "The legacy `{locale: text}` map.",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string",
+                      "pattern": "^[a-z]{2}$"
+                    }
+                  }
+                ],
+                "description": "A human label or description (UI-50): one plain string in the author's language. The legacy language map is still read, through release `v0.9`, and resolves to one string."
+              },
+              {
+                "type": "null"
+              }
             ],
-            "description": "Human-readable multilingual title (PF-24).",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string",
-              "pattern": "^[a-z]{2}$"
-            }
+            "description": "Human-readable title: one string, or the legacy map per locale (UI-50, PF-24)."
           }
         },
         "additionalProperties": false

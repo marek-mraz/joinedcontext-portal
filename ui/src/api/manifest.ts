@@ -20,16 +20,22 @@ export function asManifests(items: components["schemas"]["ResourceEnvelope"][]):
   return items as Manifest[];
 }
 
-/** Reads a language map (`metadata.title`) for the active locale, falling back to the name. */
+/**
+ * Reads `metadata.title` for the active locale, falling back to the name. A title is one plain
+ * string (UI-50); the legacy language map still reads.
+ */
 export function localized(
-  map: Record<string, string> | null | undefined,
+  title: string | Record<string, string> | null | undefined,
   locale: string,
   fallback: string,
 ): string {
-  if (!map) {
+  if (typeof title === "string") {
+    return title.trim() === "" ? fallback : title;
+  }
+  if (!title) {
     return fallback;
   }
-  return map[locale] ?? map[locale.split("-")[0]] ?? map.en ?? map.sk ?? fallback;
+  return title[locale] ?? title[locale.split("-")[0]] ?? title.en ?? title.sk ?? fallback;
 }
 
 /**
