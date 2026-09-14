@@ -111,6 +111,13 @@ export function toEnvelope(project: string, form: PipelineForm, base?: Manifest)
 }
 
 /** The form one manifest fills, so editing starts from what is in Git rather than from blank. */
+/** An output with a type and no write mode is completed with `upsert`, the mode every preset
+ * uses, so a typed type never reaches the runner as an unparsable spec (T-0661, PL-32). */
+export function completeOutput(form: PipelineForm | undefined): PipelineForm | undefined {
+  if (!form?.output?.type || form.output.mode) return form;
+  return { ...form, output: { ...form.output, mode: "upsert" } };
+}
+
 export function toForm(pipeline: Manifest): PipelineForm {
   const spec = pipeline.spec as Omit<PipelineForm, "name" | "title" | "source" | "compute"> & {
     source?: Record<string, unknown>;
@@ -284,13 +291,13 @@ export function PipelineEditorDialog({
       submitDisabledReason={gate}
       error={error}
       source={source}
-      onChange={setDraft}
+      onChange={(form) => setDraft(completeOutput(form))}
       onSubmit={(form) => onSubmit(toEnvelope(project, form, editing ?? undefined))}
     >
       <PipelineStudio
         project={project}
         draft={draft}
-        onChange={setDraft}
+        onChange={(form) => setDraft(completeOutput(form))}
         dataSources={dataSourceList}
         endpoints={endpointList}
         toManifest={source.toManifest}

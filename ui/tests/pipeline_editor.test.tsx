@@ -8,6 +8,7 @@ import { parse as parseYaml } from "yaml";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import type { Manifest } from "../src/api/manifest";
+import type { PipelineForm } from "../src/pages/pipelines/PipelineEditor";
 
 // Monaco draws on a canvas and starts a worker, neither of which exists in jsdom. The stand-in
 // is a textarea with the same contract, so what the test exercises is the dialog's own work:
@@ -25,7 +26,7 @@ function MockEditor({ value, onChange }: { value: string; onChange?: (value: str
 vi.mock("../src/pages/models/MonacoSourceView", () => ({ default: MockEditor }));
 
 const { App } = await import("../src/App");
-const { endpointUrn, fromManifest, toEnvelope, toForm } = await import(
+const { completeOutput, endpointUrn, fromManifest, toEnvelope, toForm } = await import(
   "../src/pages/pipelines/PipelineEditor"
 );
 const { aggregateBloblang, attributesOf, sourceKindOf } = await import(
@@ -263,6 +264,15 @@ describe("pipeline editor", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("completes a typed output with the upsert mode and leaves a chosen mode alone", () => {
+    const typed = { class: "auto", output: { type: "Vehicle", mode: "" } } as PipelineForm;
+    expect(completeOutput(typed)?.output).toEqual({ type: "Vehicle", mode: "upsert" });
+    const chosen = { class: "auto", output: { type: "Vehicle", mode: "update-attrs" } } as PipelineForm;
+    expect(completeOutput(chosen)?.output?.mode).toBe("update-attrs");
+    expect(completeOutput({ class: "auto" } as PipelineForm)?.output).toBeUndefined();
+    expect(completeOutput(undefined)).toBeUndefined();
   });
 
   it("maps a manifest to the form and back without losing a field", () => {
