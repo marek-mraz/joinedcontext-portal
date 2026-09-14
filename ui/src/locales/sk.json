@@ -1289,7 +1289,13 @@
   "assistant": {
     "navigated": "Asistent otvoril {route}",
     "dismiss": "Zavrieť oznam",
-    "close": "Zavrieť asistenta"
+    "close": "Zavrieť asistenta",
+    "title": "Asistent",
+    "open": "Otvoriť asistenta",
+    "hide": "Skryť asistenta",
+    "fullScreen": "Na celú obrazovku",
+    "sideView": "Späť do boku",
+    "cancel": "Zastaviť beh"
   },
   "permissions": {
     "denied": "Vypnuté: vaša rola nedovoľuje ''{verb}'' na ''{kind}'' v tomto projekte"

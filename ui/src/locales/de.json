@@ -1289,7 +1289,13 @@
   "assistant": {
     "navigated": "Der Assistent hat {route} geöffnet",
     "dismiss": "Ausblenden",
-    "close": "Assistent schließen"
+    "close": "Assistent schließen",
+    "title": "Assistent",
+    "open": "Assistent öffnen",
+    "hide": "Assistent ausblenden",
+    "fullScreen": "Vollbild",
+    "sideView": "Zurück an die Seite",
+    "cancel": "Lauf stoppen"
   },
   "permissions": {
     "denied": "Deaktiviert: Ihre Rolle erlaubt ''{verb}'' auf ''{kind}'' in diesem Projekt nicht"

@@ -355,10 +355,6 @@ export function Shell({
             </li>
           </ul>
         </nav>
-        {/* The assistant is the column between the navigation and the page, always on the
-            left, on every page a run is remembered (UI-41, UI-45). */}
-        <AssistantDock />
-
         <main id="main" className="min-w-0 flex-1">
           <div className="mx-auto flex max-w-content flex-col gap-section px-4 py-5 sm:px-gutter sm:py-6">
             <nav aria-label={t("nav.breadcrumb")} className="text-caption text-fg-muted">
@@ -401,6 +397,9 @@ export function Shell({
             {children}
           </div>
         </main>
+        {/* The assistant is on the right of every page a run is remembered: a column beside
+            the page, or a bubble at the bottom right when hidden (UI-45). */}
+        <AssistantDock />
       </div>
 
       {branding.organisation || branding.contactEmail ? (

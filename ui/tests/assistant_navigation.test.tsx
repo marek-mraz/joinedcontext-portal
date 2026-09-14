@@ -5,11 +5,13 @@
  * really moves the router and opens the form with the values, that the dock survives the move,
  * and that a frame naming anything but a path inside the Portal moves nothing.
  */
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
+import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { isPortalRoute, rememberPrefill, takePrefill } from "../src/assistant/state";
 
@@ -79,9 +81,14 @@ class StubEventSource {
   }
 }
 
+let requests: Request[] = [];
+const fetchCalls = () => requests;
+
 function renderPortal() {
+  requests = [];
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
+    requests.push(request);
     const path = new URL(request.url, "http://localhost").pathname;
     const json = (body: unknown, status = 200) =>
       Promise.resolve(
@@ -190,15 +197,53 @@ describe("the assistant dock", () => {
     const notice = await screen.findByText(`The assistant opened /projects/${PROJECT}/endpoints`);
     expect(notice).toBeInTheDocument();
     expect(dockStream().url).toBe(`/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/events`);
-    // And it is where it always is: the column on the left, between the navigation and the
-    // page, never floating, on this page as on the run page.
+    // And it is where it always is: the column on the right of the page, after the main
+    // content, on this page as on the run page.
     const dock = notice.closest("aside") as HTMLElement;
     expect(dock.className).not.toContain("fixed");
-    expect(dock.className).toContain("border-r");
-    const nav = document.getElementById("portal-sidebar") as HTMLElement;
+    expect(dock.className).toContain("border-l");
     const main = document.querySelector("main") as HTMLElement;
-    expect(nav.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(dock.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(main.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("hides to a bubble at the bottom right, opens full screen, stops the run and closes", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+    await screen.findByRole("heading", { name: RUN.appName });
+    const dock = (await screen.findByRole("button", { name: en.assistant.hide })).closest(
+      "aside",
+    ) as HTMLElement;
+
+    await user.click(within(dock).getByRole("button", { name: en.assistant.fullScreen }));
+    expect(dock.className).toContain("fixed");
+    await user.click(within(dock).getByRole("button", { name: en.assistant.sideView }));
+    expect(dock.className).not.toContain("fixed");
+
+    await user.click(within(dock).getByRole("button", { name: en.assistant.hide }));
+    const bubble = screen.getByRole("button", { name: en.assistant.open });
+    expect(bubble.className).toContain("fixed");
+    expect(bubble.className).toContain("right-4");
+    expect(bubble.className).toContain("bottom-4");
+    await user.click(bubble);
+    const reopened = screen.getByRole("button", { name: en.assistant.hide }).closest("aside") as HTMLElement;
+
+    await user.click(within(reopened).getByRole("button", { name: en.assistant.cancel }));
+    await waitFor(() => {
+      expect(
+        fetchCalls().some(
+          (request) =>
+            request.method === "POST" &&
+            request.url.endsWith(`/agent-runs/${RUN_ID}/cancel`),
+        ),
+      ).toBe(true);
+    });
+
+    await user.click(within(reopened).getByRole("button", { name: en.assistant.close }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: en.assistant.hide })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: en.assistant.open })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem("jc.assistant.run")).toBeNull();
   });
 
   it("ignores a navigate frame that is not a path inside the Portal", async () => {

@@ -43,6 +43,11 @@ const PATHS: Record<string, string> = {
   arrowDown: "M12 5v14M5 12l7 7 7-7",
   trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6",
   logout: "M10 4H5v16h5M14 8l4 4-4 4M18 12H9",
+  chat: "M4 5h16v11H9l-5 4z",
+  minimize: "M5 12h14",
+  expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+  shrink: "M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5",
+  stop: "M7 7h10v10H7z",
 };
 
 export type IconName = keyof typeof PATHS;

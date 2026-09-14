@@ -1289,7 +1289,13 @@
   "assistant": {
     "navigated": "The assistant opened {route}",
     "dismiss": "Dismiss",
-    "close": "Close the assistant"
+    "close": "Close the assistant",
+    "title": "Assistant",
+    "open": "Open the assistant",
+    "hide": "Hide the assistant",
+    "fullScreen": "Full screen",
+    "sideView": "Back to the side",
+    "cancel": "Stop the run"
   },
   "permissions": {
     "denied": "Disabled: your role does not permit ''{verb}'' on ''{kind}'' in this project"

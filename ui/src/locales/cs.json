@@ -1289,7 +1289,13 @@
   "assistant": {
     "navigated": "Asistent otevřel {route}",
     "dismiss": "Zavřít oznámení",
-    "close": "Zavřít asistenta"
+    "close": "Zavřít asistenta",
+    "title": "Asistent",
+    "open": "Otevřít asistenta",
+    "hide": "Skrýt asistenta",
+    "fullScreen": "Na celou obrazovku",
+    "sideView": "Zpět do strany",
+    "cancel": "Zastavit běh"
   },
   "permissions": {
     "denied": "Vypnuto: vaše role nedovoluje ''{verb}'' na ''{kind}'' v tomto projektu"

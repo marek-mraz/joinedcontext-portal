@@ -6,6 +6,7 @@ import { ConversationPanel } from "../pages/apps/ConversationPanel";
 import { TERMINAL_STATES, useAgentRun } from "../pages/apps/useAgentRun";
 import type { RunEvent } from "../pages/apps/useAgentRun";
 import { ModelFileDrop } from "../pages/models/ModelFileDrop";
+import { Icon } from "../components/ui/icons";
 import {
   dismissNotice,
   isPortalRoute,
@@ -18,9 +19,10 @@ import {
 } from "./state";
 
 /**
- * The assistant, the left column of every page while a run is remembered (UI-41, UI-45): the
- * shell renders it between the navigation and the main content, so it never floats over a
- * page and never sits anywhere but the left.
+ * The assistant, on the right of every page while a run is remembered (UI-45): the shell
+ * renders it after the main content as a column beside the page, full screen on request, and
+ * as a bubble at the bottom right while hidden. The header's icons stop the run, switch full
+ * screen, hide the column and close the assistant; the file drop sits under the conversation.
  *
  * The column belongs to the shell rather than to the run page, so the conversation stays open
  * while the assistant sends the person somewhere else: a `navigate` event switches the route,
@@ -37,9 +39,10 @@ export function AssistantDock(): JSX.Element | null {
   const run = useMemo(() => parseRun(raw), [raw]);
   const navigated = useSyncExternalStore(onAssistantChange, noticeSnapshot);
   const [open, setOpen] = useState(true);
+  const [full, setFull] = useState(false);
   const handled = useRef(0);
 
-  const { run: record, events, streaming, answer, send } = useAgentRun(
+  const { run: record, events, streaming, answer, send, cancel } = useAgentRun(
     run?.project ?? "",
     run?.runId ?? null,
   );
@@ -67,33 +70,92 @@ export function AssistantDock(): JSX.Element | null {
     return null;
   }
   const over = record.data ? TERMINAL_STATES.includes(record.data.status) : false;
+  const iconButton =
+    "rounded p-1.5 text-fg-muted hover:bg-surface-subtle hover:text-fg focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50";
 
   if (!open) {
     return (
-      <aside
-        aria-label={t("agentRun.conversation.title")}
-        className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface py-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)]"
+      <button
+        type="button"
+        aria-expanded={false}
+        aria-controls="run-chat"
+        aria-label={t("assistant.open")}
+        title={t("assistant.open")}
+        onClick={() => {
+          setOpen(true);
+        }}
+        className="fixed bottom-4 right-4 z-40 flex size-14 items-center justify-center rounded-full bg-primary text-primary-fg shadow-lg hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-border-focus"
       >
-        <button
-          type="button"
-          aria-expanded={false}
-          aria-controls="run-chat"
-          onClick={() => {
-            setOpen(true);
-          }}
-          className="rounded px-1 py-2 text-sm [writing-mode:vertical-rl] hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("agentRun.chat.show")}
-        </button>
-      </aside>
+        <Icon name="chat" className="size-6" />
+      </button>
     );
   }
 
   return (
     <aside
       aria-label={t("agentRun.conversation.title")}
-      className="flex w-full shrink-0 flex-col gap-2 border-r border-border bg-surface p-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)] md:w-[22rem]"
+      className={
+        full
+          ? "fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col gap-2 bg-surface p-3"
+          : "flex w-full shrink-0 flex-col gap-2 border-l border-border bg-surface p-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)] md:w-[24rem]"
+      }
     >
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{t("assistant.title")}</h2>
+        <div className="flex items-center gap-1">
+          {!over ? (
+            <button
+              type="button"
+              aria-label={t("assistant.cancel")}
+              title={t("assistant.cancel")}
+              disabled={cancel.isPending}
+              onClick={() => {
+                cancel.mutate();
+              }}
+              className={iconButton}
+            >
+              <Icon name="stop" className="size-4" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-pressed={full}
+            aria-label={full ? t("assistant.sideView") : t("assistant.fullScreen")}
+            title={full ? t("assistant.sideView") : t("assistant.fullScreen")}
+            onClick={() => {
+              setFull(!full);
+            }}
+            className={iconButton}
+          >
+            <Icon name={full ? "shrink" : "expand"} className="size-4" />
+          </button>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls="run-chat"
+            aria-label={t("assistant.hide")}
+            title={t("assistant.hide")}
+            onClick={() => {
+              setFull(false);
+              setOpen(false);
+            }}
+            className={iconButton}
+          >
+            <Icon name="minimize" className="size-4" />
+          </button>
+          <button
+            type="button"
+            aria-label={t("assistant.close")}
+            title={t("assistant.close")}
+            onClick={() => {
+              rememberRun(null);
+            }}
+            className={iconButton}
+          >
+            <Icon name="close" className="size-4" />
+          </button>
+        </div>
+      </div>
       {navigated !== null && isPortalRoute(navigated) ? (
         <div
           role="status"
@@ -111,40 +173,6 @@ export function AssistantDock(): JSX.Element | null {
           </button>
         </div>
       ) : null}
-      <div className="w-full rounded border border-border bg-surface px-3 py-2">
-        <ModelFileDrop
-            compact
-            project={run.project}
-            onPopulate={(source) => {
-              // The models page picks the draft up as a prefill, the way every assistant
-              // navigation hands a page its form (DM-54, CC-71).
-              rememberPrefill(`/projects/${run.project}/models`, { source });
-              void navigate({ to: "/projects/$project/models", params: { project: run.project } });
-          }}
-        />
-      </div>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls="run-chat"
-          onClick={() => {
-            setOpen(false);
-          }}
-          className="rounded-full border border-border bg-surface px-4 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("agentRun.chat.hide")}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            rememberRun(null);
-          }}
-          className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("assistant.close")}
-        </button>
-      </div>
       <div
         id="run-chat"
         className="min-h-[24rem] w-full flex-1 rounded border border-border bg-surface md:min-h-0 [&>section]:h-full [&>section]:min-h-0"
@@ -161,6 +189,18 @@ export function AssistantDock(): JSX.Element | null {
           }}
           onSend={(text) => {
             send.mutate(text);
+          }}
+        />
+      </div>
+      <div className="w-full rounded border border-border bg-surface px-3 py-2">
+        <ModelFileDrop
+          compact
+          project={run.project}
+          onPopulate={(source) => {
+            // The models page picks the draft up as a prefill, the way every assistant
+            // navigation hands a page its form (DM-54, CC-71).
+            rememberPrefill(`/projects/${run.project}/models`, { source });
+            void navigate({ to: "/projects/$project/models", params: { project: run.project } });
           }}
         />
       </div>
