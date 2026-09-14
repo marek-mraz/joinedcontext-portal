@@ -9,7 +9,8 @@ import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
-import { AppGenerator } from "./AppGenerator";
+import { Icon } from "../../components/ui/icons";
+import { requestOpen } from "../../assistant/state";
 import { AgentRunPage } from "./AgentRunPage";
 import { runInUrl, setRunInUrl } from "./useAgentRun";
 
@@ -144,7 +145,6 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [previewing, setPreviewing] = useState<Manifest | null>(null);
-  const [generating, setGenerating] = useState(false);
   // A run stays where it is: the address names it, so a closed tab reopens the same build.
   const [runId, setRunId] = useState<string | null>(() => runInUrl());
   const [confirming, setConfirming] = useState<Manifest | null>(null);
@@ -254,23 +254,6 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
     );
   }
 
-  if (generating) {
-    return (
-      <div className="space-y-3">
-        <button
-          type="button"
-          onClick={() => {
-            setGenerating(false);
-          }}
-          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("apps.back")}
-        </button>
-        <AppGenerator project={project} />
-      </div>
-    );
-  }
-
   const apps = asManifests(list.data?.items ?? []);
   const publishedNames = new Set(apps.map((app) => app.metadata.name));
 
@@ -281,7 +264,9 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
     if (r.appName && !publishedNames.has(r.appName) && !seenDraftApps.has(r.appName)) {
       seenDraftApps.add(r.appName);
       const state = draftState(r.status);
-      if (state !== null) {
+      // An expired, cancelled or failed build is history, not an application: it stays in the
+      // assistant's past work, not in this grid.
+      if (state !== null && state !== "failed") {
         draftRuns.push(r);
       }
     }
@@ -297,8 +282,9 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
         <PermissionGuard project={project} kind="App" verb="propose">
           <button
             type="button"
+            // The builder lives in the assistant: the same panel on every page (UI-45).
             onClick={() => {
-              setGenerating(true);
+              requestOpen("build");
             }}
             className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
           >
@@ -314,39 +300,9 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
         </p>
       )}
 
-      {(runs.data?.items.length ?? 0) > 0 && (
-        <section aria-labelledby="apps-builds" className="space-y-2">
-          <h2 id="apps-builds" className="text-base font-semibold">
-            {t("apps.builds.title")}
-          </h2>
-          <ul className="divide-y divide-border rounded border border-border">
-            {runs.data?.items.map((run) => (
-              <li key={run.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
-                <span>
-                  <span className="font-medium">{run.appName}</span>{" "}
-                  <span className="text-muted">
-                    {t("apps.builds.line", {
-                      state: t(`agentRun.states.${run.status}`, { defaultValue: run.status }),
-                      when: new Date(run.createdAt).toLocaleString(i18n.language),
-                    })}
-                  </span>
-                </span>
-                <Link
-                  to="/projects/$project/apps/$name"
-                  params={{ project, name: run.appName }}
-                  className="rounded border border-border px-3 py-1 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-                >
-                  {t("apps.builds.open")}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {apps.length === 0 && draftRuns.length === 0 && <p>{t("apps.empty")}</p>}
 
-      <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {apps.map((app) => {
           const spec = appSpec(app);
           const title = localized(app.metadata.title, i18n.language, app.metadata.name);
@@ -354,22 +310,19 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
           return (
             <li
               key={app.metadata.name}
-              className="flex flex-col gap-2 rounded border border-border p-4"
+              title={localized(app.metadata.description, i18n.language, "") || undefined}
+              className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4 text-center hover:bg-surface-subtle"
             >
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="font-semibold">{title}</h2>
-                <LifecycleBadge kind="appLifecycle" value={spec.lifecycle ?? "draft"} />
-              </div>
-              <p className="text-sm text-muted">
-                {localized(app.metadata.description, i18n.language, "")}
-              </p>
+              <AppIcon />
+              <h2 className="line-clamp-2 text-sm font-semibold">{title}</h2>
+              <LifecycleBadge kind="appLifecycle" value={spec.lifecycle ?? "draft"} />
               {spec.visibility ? (
                 <p className="text-xs text-muted">
                   {t("apps.visibility", { visibility: spec.visibility })}
                 </p>
               ) : null}
               {needs.length > 0 && (
-                <p className="text-xs text-muted">
+                <p className="line-clamp-2 text-xs text-muted">
                   {t("apps.dataNeeds", {
                     spaces: [...new Set(needs.map(spaceOf).filter(Boolean))].join(", "),
                     types: [...new Set(needs.flatMap((need) => need.types ?? []))].join(", "),
@@ -377,7 +330,7 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
                 </p>
               )}
 
-              <div className="mt-auto flex flex-wrap gap-2">
+              <div className="mt-auto flex flex-wrap justify-center gap-2">
                 {/* Only a preview is framed here: a published app is reached by its own
                     audience, and a draft has nothing deployed yet (AP-18, AP-19). */}
                 {spec.lifecycle === "preview" && (
@@ -425,19 +378,15 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
           return (
             <li
               key={draft.id}
-              className="flex flex-col gap-2 rounded border border-border p-4"
+              title={draft.prompt || undefined}
+              className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4 text-center hover:bg-surface-subtle"
             >
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="font-semibold">{draft.appName}</h2>
-                <span className="rounded bg-surface-subtle px-2 py-0.5 text-xs font-medium text-fg-muted">
-                  {t(`apps.drafts.state.${state}`)}
-                </span>
-              </div>
-              {draft.prompt ? <p className="text-sm text-muted">{draft.prompt}</p> : null}
-              {state === "failed" && draft.error ? (
-                <p className="text-xs text-danger">{draft.error}</p>
-              ) : null}
-              <div className="mt-auto flex flex-wrap gap-2">
+              <AppIcon />
+              <h2 className="line-clamp-2 text-sm font-semibold">{draft.appName}</h2>
+              <span className="rounded bg-surface-subtle px-2 py-0.5 text-xs font-medium text-fg-muted">
+                {t(`apps.drafts.state.${state}`)}
+              </span>
+              <div className="mt-auto flex flex-wrap justify-center gap-2">
                 <Link
                   to="/projects/$project/apps/$name"
                   params={{ project, name: draft.appName }}
@@ -464,6 +413,15 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
         />
       )}
     </div>
+  );
+}
+
+/** The tile's icon: every application gets the same mark until a manifest carries its own. */
+function AppIcon(): JSX.Element {
+  return (
+    <span className="flex size-14 items-center justify-center rounded-2xl bg-primary-soft text-primary-soft-fg">
+      <Icon name="apps" className="size-7" />
+    </span>
   );
 }
 

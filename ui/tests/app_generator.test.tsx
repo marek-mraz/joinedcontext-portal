@@ -342,6 +342,8 @@ describe("the app generator", () => {
     expect(await screen.findByRole("heading", { name: "ovzdusie-dnes" })).toBeInTheDocument();
     expect(screen.getByText(en.agentRun.loginNote)).toBeInTheDocument();
     expect(screen.queryByLabelText(en.apps.generate.prompt)).not.toBeInTheDocument();
+    // The builder ran in the assistant, which now follows the run it started.
+    expect(window.sessionStorage.getItem("jc.assistant.run")).toContain(CREATED_RUN.id);
   });
 
   it("shows 409 conflict with a link to the live application when app is already being built (AP-68)", async () => {

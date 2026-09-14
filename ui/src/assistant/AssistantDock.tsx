@@ -8,6 +8,7 @@ import { ConversationPanel } from "../pages/apps/ConversationPanel";
 import { TERMINAL_STATES, useAgentRun } from "../pages/apps/useAgentRun";
 import type { RunEvent } from "../pages/apps/useAgentRun";
 import { ModelFileDrop } from "../pages/models/ModelFileDrop";
+import { AppGenerator } from "../pages/apps/AppGenerator";
 import { Icon } from "../components/ui/icons";
 import type { IconName } from "../components/ui/icons";
 import {
@@ -40,6 +41,7 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   const activeProject = run?.project ?? project;
   const navigated = useSyncExternalStore(onAssistantChange, noticeSnapshot);
   const [open, setOpen] = useState(() => Boolean(parseRun(runSnapshot())));
+  const [building, setBuilding] = useState(false);
   const [layout, setLayout] = useState<Layout>(storedLayout);
   useEffect(() => {
     try {
@@ -71,8 +73,9 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   );
 
   useEffect(() => {
-    return onOpenRequest(() => {
+    return onOpenRequest((intent) => {
       setOpen(true);
+      setBuilding(intent === "build");
     });
   }, []);
 
@@ -289,13 +292,46 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
         </div>
       ) : null}
 
-      {!run ? (
+      {building ? (
+        <div
+          id="run-chat"
+          data-testid="assistant-build"
+          className="flex min-h-[24rem] w-full flex-1 flex-col gap-3 overflow-y-auto rounded border border-border bg-surface p-3 md:min-h-0"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setBuilding(false);
+            }}
+            className="self-start rounded border border-border px-2.5 py-1 text-xs hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+          >
+            {t("assistant.backToChat")}
+          </button>
+          <AppGenerator
+            project={activeProject}
+            onStarted={(runId) => {
+              setBuilding(false);
+              rememberRun({ project: activeProject, runId });
+            }}
+          />
+        </div>
+      ) : !run ? (
         <div
           id="run-chat"
           data-testid="assistant-empty"
           className="flex min-h-[24rem] w-full flex-1 flex-col gap-4 overflow-y-auto rounded border border-border bg-surface p-3 md:min-h-0"
         >
           <p className="text-sm text-fg-muted">{t("assistant.empty.lead")}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setBuilding(true);
+            }}
+            className="flex items-center gap-2 rounded border border-border bg-primary-soft p-2 text-left text-sm font-medium text-primary-soft-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus"
+          >
+            <Icon name="apps" className="size-4" />
+            {t("apps.generate.title")}
+          </button>
           <div className="flex flex-col gap-2">
             {[
               t("assistant.empty.examples.find"),

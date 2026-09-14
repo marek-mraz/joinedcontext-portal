@@ -267,6 +267,42 @@ describe("apps catalog", () => {
     expect(draftState("published")).toBeNull();
   });
 
+  it("shows an ended build as nothing: no tile, no builds list, only the apps and the drafts still going", async () => {
+    const run = (id: string, appName: string, status: string) => ({
+      id,
+      project: "banskabystrica",
+      appName,
+      status,
+      createdAt: "2026-09-12T08:00:00Z",
+    });
+    renderCatalog([], undefined, [
+      run("r1", "stare-mapa", "expired"),
+      run("r2", "zrusena", "cancelled"),
+      run("r3", "mapa-vystavby", "building"),
+    ]);
+
+    expect(await screen.findByRole("heading", { name: "mapa-vystavby" })).toBeInTheDocument();
+    expect(screen.queryByText("stare-mapa")).toBeNull();
+    expect(screen.queryByText("zrusena")).toBeNull();
+    expect(screen.queryByRole("heading", { name: en.apps.builds.title })).toBeNull();
+  });
+
+  it("opens the builder in the assistant instead of on the page", async () => {
+    const user = userEvent.setup();
+    const intents: unknown[] = [];
+    const listener = (event: Event) => {
+      intents.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("jc:assistant-open", listener);
+    renderCatalog([]);
+
+    await user.click(await screen.findByRole("button", { name: en.apps.newAction }));
+
+    window.removeEventListener("jc:assistant-open", listener);
+    expect(intents).toEqual(["build"]);
+    expect(screen.queryByLabelText(en.apps.generate.prompt)).toBeNull();
+  });
+
   it("lists draft applications with their status label and no embed or preview link (AP-65, AP-70)", async () => {
     const draftRun = {
       id: "run-draft-1",
@@ -277,7 +313,6 @@ describe("apps catalog", () => {
     };
     renderCatalog([], undefined, [draftRun]);
 
-    // The run also appears in the builds history; the draft card is the one with a heading.
     const heading = await screen.findByRole("heading", { name: "mapa-vystavby" });
     const card = heading.closest("li");
     if (!card) throw new Error("the draft is not a card");

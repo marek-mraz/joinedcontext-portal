@@ -124,13 +124,19 @@ export function takePrefill(pathname: string): Record<string, unknown> | null {
     : null;
 }
 
-export function requestOpen(): void {
-  window.dispatchEvent(new Event(OPEN_REQUEST));
+/** What the panel opens on: the chat, or the app builder (`build`). */
+export type OpenIntent = "chat" | "build";
+
+export function requestOpen(intent: OpenIntent = "chat"): void {
+  window.dispatchEvent(new CustomEvent<OpenIntent>(OPEN_REQUEST, { detail: intent }));
 }
 
-export function onOpenRequest(listener: () => void): () => void {
-  window.addEventListener(OPEN_REQUEST, listener);
+export function onOpenRequest(listener: (intent: OpenIntent) => void): () => void {
+  const handler = (event: Event) => {
+    listener((event as CustomEvent<OpenIntent>).detail === "build" ? "build" : "chat");
+  };
+  window.addEventListener(OPEN_REQUEST, handler);
   return () => {
-    window.removeEventListener(OPEN_REQUEST, listener);
+    window.removeEventListener(OPEN_REQUEST, handler);
   };
 }

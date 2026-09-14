@@ -1309,6 +1309,7 @@
     "floatView": "Über der Seite schweben",
     "cancel": "Assistent stoppen",
     "attach": "Eine Probe (CSV, Excel, JSON oder PDF) anhängen und ein Datenmodell entwerfen",
+    "backToChat": "Zurück zum Assistenten",
     "empty": {
       "lead": "Fragen Sie nach den Daten des Projekts, teilen Sie sie oder lassen Sie etwas bauen.",
       "examples": {

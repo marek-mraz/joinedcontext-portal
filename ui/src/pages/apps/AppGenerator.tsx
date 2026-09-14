@@ -105,7 +105,16 @@ export function dataNeeds(
  * A deployment without the Agent Runner has no `app-from-prompt` blueprint to offer, which is
  * what the banner below says rather than a button that leads nowhere (ADR-N-014).
  */
-export function AppGenerator({ project, initialName }: { project: string; initialName?: string }): JSX.Element {
+export function AppGenerator({
+  project,
+  initialName,
+  onStarted,
+}: {
+  project: string;
+  initialName?: string;
+  /** Called with the new run before the page moves to the app, so the assistant can follow it. */
+  onStarted?: (runId: string) => void;
+}): JSX.Element {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -191,6 +200,7 @@ export function AppGenerator({ project, initialName }: { project: string; initia
       const targetName = created.appName || chosen;
       void queryClient.invalidateQueries({ queryKey: ["projects", project, "agent-runs"] });
       if (typeof created.id === "string") {
+        onStarted?.(created.id);
         void navigate({
           to: "/projects/$project/apps/$name",
           params: { project, name: targetName },

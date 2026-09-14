@@ -1309,6 +1309,7 @@
     "floatView": "Plovat nad stránkou",
     "cancel": "Zastavit asistenta",
     "attach": "Přiložit vzorek (CSV, Excel, JSON nebo PDF) a navrhnout datový model",
+    "backToChat": "Zpět k asistentovi",
     "empty": {
       "lead": "Ptejte se na data projektu, sdílejte je nebo si nechte něco postavit.",
       "examples": {

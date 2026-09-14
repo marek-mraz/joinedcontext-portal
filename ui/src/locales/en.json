@@ -1309,6 +1309,7 @@
     "floatView": "Float over the page",
     "cancel": "Stop the assistant",
     "attach": "Attach a sample file (CSV, Excel, JSON or PDF) to draft a data model",
+    "backToChat": "Back to the assistant",
     "empty": {
       "lead": "Ask about the project's data, share it, or have something built.",
       "examples": {
