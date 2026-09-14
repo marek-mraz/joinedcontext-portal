@@ -4043,6 +4043,36 @@
         }
       }
     },
+    "/api/v1/ready": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "ready",
+        "responses": {
+          "200": {
+            "description": "The mirror holds the repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The mirror has not loaded yet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Readiness"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sync": {
       "get": {
         "tags": [
@@ -6547,6 +6577,18 @@
           "manifest": {}
         },
         "additionalProperties": false
+      },
+      "Readiness": {
+        "type": "object",
+        "description": "Whether this replica serves the repository yet: `ready` or `loading`, nothing more (OPS-51).",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
       },
       "RegistrationCard": {
         "type": "object",

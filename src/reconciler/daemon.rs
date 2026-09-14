@@ -13,8 +13,10 @@
 //! and records why in the status. Serving half a repository is worse than serving a slightly
 //! old one: a resource missing from the Portal reads as deleted.
 //!
-//! Only the elected leader reconciles ([`super::leader`]); the other replicas serve the UI
-//! from the mirror the leader fills and answer `sync_once` with `Ok(0)`.
+//! Only the elected leader reconciles ([`super::leader`]): streams, apps and roles. Every
+//! replica loads the repository into its own mirror, a follower read-only, so each one serves
+//! the projects and a new pod of a rolling update is ready while the old one holds the lock
+//! (OPS-51).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -144,17 +146,17 @@ impl Syncer {
     /// A run that finds another run of this replica in flight waits for it and then runs
     /// itself: a merge that lands while a sync is fetching is not in that sync, and the
     /// approval that asked for the refresh must not wait a whole tick for it (CC-08).
-    /// Answers `Ok(0)` without touching the repository only when this replica is not the
-    /// leader (CC-03); that is an ordinary state, not an error.
+    /// A replica that is not the leader (CC-03) loads the mirror and converges nothing: its
+    /// streams, apps and roles are the leader's to apply (OPS-51).
     pub async fn sync_once(&self) -> Result<usize, SyncError> {
         let _guard = self.running.lock().await;
 
-        if !self.claim_leadership().await {
-            tracing::debug!("another replica holds the reconciler lock, skipping this run");
-            return Ok(0);
+        let leader = self.claim_leadership().await;
+        if !leader {
+            tracing::debug!("another replica holds the reconciler lock, loading the mirror only");
         }
 
-        match self.do_sync().await {
+        match self.do_sync(leader).await {
             Ok((count, revision)) => {
                 let now = crate::auth::session::now_unix();
                 let mut status = self.status.write().unwrap_or_else(|p| p.into_inner());
@@ -162,7 +164,7 @@ impl Syncer {
                 status.revision = Some(revision);
                 status.manifests = count;
                 status.last_error = None;
-                status.leader = true;
+                status.leader = leader;
                 Ok(count)
             }
             Err(err) => {
@@ -200,7 +202,13 @@ impl Syncer {
         }
     }
 
-    async fn do_sync(&self) -> Result<(usize, String), SyncError> {
+    /// Whether this replica's mirror holds the repository: a sync of its own succeeded once
+    /// (OPS-51). A later failed run keeps the last revision that loaded, so it stays ready.
+    pub fn is_ready(&self) -> bool {
+        self.status().last_sync.is_some()
+    }
+
+    async fn do_sync(&self, leader: bool) -> Result<(usize, String), SyncError> {
         // 1. Resolve default branch and its commit revision
         let default_branch = self.gitea.default_branch().await?;
         let revision = self.gitea.branch_head(&default_branch).await?;
@@ -293,6 +301,18 @@ impl Syncer {
             ));
         }
 
+        // A follower stops here: what the runner accepted, what the cluster runs and what the
+        //    forge enforces are the leader's to converge, so its stream pipelines say so.
+        if !leader {
+            mark_streams_pending(
+                &fresh_mirror,
+                "Follower",
+                "another replica reconciles the streams; this one serves the repository",
+            );
+            self.mirror.replace_all(&fresh_mirror);
+            return Ok((loaded, revision));
+        }
+
         // 5b. Deploy resident streams for eligible DataSource pipelines (PL-47).
         if let Some(deployer) = self.streams.as_ref() {
             for (ns, name, outcome) in deployer.converge(&fresh_mirror, &bentos).await {
@@ -343,28 +363,11 @@ impl Syncer {
                 }
             }
         } else {
-            for ns in fresh_mirror.namespaces() {
-                let page =
-                    fresh_mirror.list(&ns, "Pipeline", &crate::store::ListOptions::default());
-                for mut envelope in page.items {
-                    if let Ok(spec) = serde_json::from_value::<jc_core::kinds::pipeline::PipelineSpec>(
-                        envelope.spec.clone(),
-                    ) {
-                        if eligible(&spec) {
-                            if let Some(status) = envelope.status.as_mut() {
-                                status.phase = crate::resource::Phase::Pending;
-                                status.conditions = vec![make_condition(
-                                    "StreamDeployed",
-                                    "False",
-                                    "NoRunner",
-                                    "no pipeline runner is configured (JC_PORTAL_PIPELINE_RUNNER_URL)",
-                                )];
-                            }
-                            fresh_mirror.upsert(envelope);
-                        }
-                    }
-                }
-            }
+            mark_streams_pending(
+                &fresh_mirror,
+                "NoRunner",
+                "no pipeline runner is configured (JC_PORTAL_PIPELINE_RUNNER_URL)",
+            );
         }
 
         self.mirror.replace_all(&fresh_mirror);
@@ -452,6 +455,30 @@ impl Syncer {
                 }
             }
         })
+    }
+}
+
+/// Every stream pipeline in `mirror` is `pending` with `StreamDeployed` false for `reason`: this
+/// run deployed none of them.
+fn mark_streams_pending(mirror: &Mirror, reason: &str, message: &str) {
+    for ns in mirror.namespaces() {
+        let page = mirror.list(&ns, "Pipeline", &crate::store::ListOptions::default());
+        for mut envelope in page.items {
+            let Ok(spec) = serde_json::from_value::<jc_core::kinds::pipeline::PipelineSpec>(
+                envelope.spec.clone(),
+            ) else {
+                continue;
+            };
+            if !eligible(&spec) {
+                continue;
+            }
+            if let Some(status) = envelope.status.as_mut() {
+                status.phase = crate::resource::Phase::Pending;
+                status.conditions =
+                    vec![make_condition("StreamDeployed", "False", reason, message)];
+            }
+            mirror.upsert(envelope);
+        }
     }
 }
 

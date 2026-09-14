@@ -142,7 +142,7 @@ async fn the_advisory_lock_admits_one_replica_at_a_time() {
 }
 
 #[tokio::test]
-async fn a_replica_that_lost_the_election_leaves_the_mirror_alone() {
+async fn a_replica_that_lost_the_election_loads_its_own_mirror_read_only() {
     let Some(url) = database_url() else {
         eprintln!("skipped: JC_PORTAL_TEST_DATABASE_URL is not set");
         return;
@@ -157,34 +157,91 @@ async fn a_replica_that_lost_the_election_leaves_the_mirror_alone() {
         &space("mobility"),
     )])
     .await;
-    let mirror = Arc::new(Mirror::new());
+    // Two replicas, two processes, two mirrors: nothing fills a follower's but itself.
+    let leader_mirror = Arc::new(Mirror::new());
+    let follower_mirror = Arc::new(Mirror::new());
 
-    let leader = Syncer::new(client(&server), Arc::clone(&mirror))
+    let leader = Syncer::new(client(&server), Arc::clone(&leader_mirror))
         .with_leadership(Arc::new(Leadership::new(pool.clone(), key)));
     let follower_lock = Arc::new(Leadership::new(pool.clone(), key));
-    let follower = Syncer::new(client(&server), Arc::clone(&mirror))
+    let follower = Syncer::new(client(&server), Arc::clone(&follower_mirror))
         .with_leadership(Arc::clone(&follower_lock));
 
     assert_eq!(leader.sync_once().await.expect("the leader reconciles"), 1);
-    assert_eq!(mirror.len(), 1);
+    assert!(!follower.is_ready(), "nothing loaded yet");
 
     assert_eq!(
         follower
             .sync_once()
             .await
             .expect("a follower is not an error"),
-        0,
-        "a replica that does not hold the lock must not reconcile"
+        1,
+        "a follower loads the repository so it can serve it (OPS-51)"
     );
     assert!(!follower.is_leader());
     assert!(!follower.status().leader);
-    assert!(
-        follower.status().revision.is_none(),
-        "a follower reports no revision of its own; it serves the leader's mirror"
-    );
-    assert_eq!(mirror.len(), 1, "the mirror is still the leader's");
+    assert_eq!(follower.status().revision.as_deref(), Some(REVISION));
+    assert!(follower.is_ready());
+    assert_eq!(follower_mirror.len(), 1);
 
     follower_lock.resign().await;
+}
+
+/// The readiness probe waits for the mirror, and the liveness probe never does (OPS-51).
+#[tokio::test]
+async fn the_ready_route_answers_503_until_the_first_sync_and_200_after() {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use joinedcontext_portal::config::Config;
+    use joinedcontext_portal::server;
+    use joinedcontext_portal::state::AppState;
+    use tower::ServiceExt;
+
+    let server = forge(&[(
+        "projects/ovzdusie/spaces/mobility/space.yaml",
+        &space("mobility"),
+    )])
+    .await;
+    let mirror = Arc::new(Mirror::new());
+    let syncer = Arc::new(Syncer::new(client(&server), Arc::clone(&mirror)));
+    let app = server::app(
+        AppState::new(Config::for_tests(), None)
+            .with_gitea(client(&server))
+            .with_syncer(Arc::clone(&syncer)),
+    );
+    let get = |uri: &'static str| {
+        Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request")
+    };
+
+    let before = app
+        .clone()
+        .oneshot(get("/api/v1/ready"))
+        .await
+        .expect("ready");
+    assert_eq!(before.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let health = app
+        .clone()
+        .oneshot(get("/api/v1/health"))
+        .await
+        .expect("health");
+    assert_eq!(
+        health.status(),
+        StatusCode::OK,
+        "liveness does not wait for the mirror"
+    );
+
+    assert_eq!(syncer.sync_once().await.expect("sync"), 1);
+
+    let after = app.oneshot(get("/api/v1/ready")).await.expect("ready");
+    assert_eq!(after.status(), StatusCode::OK);
+    let body = http_body_util::BodyExt::collect(after.into_body())
+        .await
+        .expect("body")
+        .to_bytes();
+    assert_eq!(body.as_ref(), br#"{"status":"ready"}"#);
 }
 
 #[tokio::test]
