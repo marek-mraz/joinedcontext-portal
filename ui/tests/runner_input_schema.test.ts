@@ -94,6 +94,19 @@ const KAFKA_CATALOG_ENTRY: CatalogInput = {
 };
 
 describe("runnerInputSchema pure function", () => {
+  it("leaves out of required a field the runner marks optional, even with no default", () => {
+    const { schema } = runnerInputSchema({
+      name: "csv",
+      group: "files",
+      summary: "Reads CSV files.",
+      fields: [
+        { path: "paths", type: "string", kind: "array", secret: false, advanced: false, default: null, description: "" },
+        { path: "expected_number_of_fields", type: "int", kind: "scalar", secret: false, advanced: false, optional: true, default: null, description: "" },
+      ],
+    });
+    expect(schema.required).toEqual(["paths"]);
+  });
+
   it("generates JSON Schema and UiSchema with required non-advanced fields and secretRef widget", () => {
     const { schema, uiSchema } = runnerInputSchema(KAFKA_CATALOG_ENTRY);
 

@@ -367,6 +367,8 @@ export interface CatalogField {
   kind: string;
   secret: boolean;
   advanced: boolean;
+  /** The runner documents the field as optional, whatever its default. */
+  optional?: boolean;
   default: unknown;
   description: string;
 }
@@ -514,7 +516,8 @@ export function runnerInputSchema(input: CatalogInput): { schema: JsonSchema; ui
       objUi[leafKey] = propUi;
     }
 
-    if ((f.default === null || f.default === undefined) && !f.advanced) {
+    // Required is what the runner requires: no default, not advanced, not marked optional.
+    if ((f.default === null || f.default === undefined) && !f.advanced && !f.optional) {
       if (!objSchema.required) {
         objSchema.required = [];
       }
