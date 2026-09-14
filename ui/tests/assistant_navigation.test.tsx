@@ -190,10 +190,15 @@ describe("the assistant dock", () => {
     const notice = await screen.findByText(`The assistant opened /projects/${PROJECT}/endpoints`);
     expect(notice).toBeInTheDocument();
     expect(dockStream().url).toBe(`/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/events`);
-    // And it is where it always is: the bottom-left corner, on this page as on the run page.
-    const dock = notice.closest(".fixed") as HTMLElement;
-    expect(dock.className).toContain("left-4");
-    expect(dock.className).not.toContain("right-4");
+    // And it is where it always is: the column on the left, between the navigation and the
+    // page, never floating, on this page as on the run page.
+    const dock = notice.closest("aside") as HTMLElement;
+    expect(dock.className).not.toContain("fixed");
+    expect(dock.className).toContain("border-r");
+    const nav = document.getElementById("portal-sidebar") as HTMLElement;
+    const main = document.querySelector("main") as HTMLElement;
+    expect(nav.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dock.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("ignores a navigate frame that is not a path inside the Portal", async () => {

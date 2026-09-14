@@ -355,6 +355,9 @@ export function Shell({
             </li>
           </ul>
         </nav>
+        {/* The assistant is the column between the navigation and the page, always on the
+            left, on every page a run is remembered (UI-41, UI-45). */}
+        <AssistantDock />
 
         <main id="main" className="min-w-0 flex-1">
           <div className="mx-auto flex max-w-content flex-col gap-section px-4 py-5 sm:px-gutter sm:py-6">
@@ -416,7 +419,6 @@ export function Shell({
           ) : null}
         </footer>
       ) : null}
-      <AssistantDock />
     </div>
   );
 }

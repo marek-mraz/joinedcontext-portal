@@ -18,9 +18,11 @@ import {
 } from "./state";
 
 /**
- * The assistant, docked to the right edge of every page (UI-41, UI-45).
+ * The assistant, the left column of every page while a run is remembered (UI-41, UI-45): the
+ * shell renders it between the navigation and the main content, so it never floats over a
+ * page and never sits anywhere but the left.
  *
- * The window belongs to the shell rather than to the run page, so the conversation stays open
+ * The column belongs to the shell rather than to the run page, so the conversation stays open
  * while the assistant sends the person somewhere else: a `navigate` event switches the route,
  * leaves the prefill for the page to pick up, and says so in a banner. A route that is not a
  * path inside the Portal is ignored here as it is refused on the server, so a frame the Portal
@@ -66,12 +68,36 @@ export function AssistantDock(): JSX.Element | null {
   }
   const over = record.data ? TERMINAL_STATES.includes(record.data.status) : false;
 
+  if (!open) {
+    return (
+      <aside
+        aria-label={t("agentRun.conversation.title")}
+        className="flex w-10 shrink-0 flex-col items-center gap-2 border-r border-border bg-surface py-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)]"
+      >
+        <button
+          type="button"
+          aria-expanded={false}
+          aria-controls="run-chat"
+          onClick={() => {
+            setOpen(true);
+          }}
+          className="rounded px-1 py-2 text-sm [writing-mode:vertical-rl] hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+        >
+          {t("agentRun.chat.show")}
+        </button>
+      </aside>
+    );
+  }
+
   return (
-    <div className="fixed bottom-4 left-4 z-30 flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col items-start gap-2">
+    <aside
+      aria-label={t("agentRun.conversation.title")}
+      className="flex w-full shrink-0 flex-col gap-2 border-r border-border bg-surface p-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)] md:w-[22rem]"
+    >
       {navigated !== null && isPortalRoute(navigated) ? (
         <div
           role="status"
-          className="flex w-full items-center justify-between gap-2 rounded border border-border bg-surface px-3 py-2 text-sm shadow"
+          className="flex w-full items-center justify-between gap-2 rounded border border-border bg-surface px-3 py-2 text-sm"
         >
           <span>{t("assistant.navigated", { route: navigated })}</span>
           <button
@@ -85,9 +111,8 @@ export function AssistantDock(): JSX.Element | null {
           </button>
         </div>
       ) : null}
-      {open ? (
-        <div className="w-full rounded border border-border bg-surface px-3 py-2 shadow">
-          <ModelFileDrop
+      <div className="w-full rounded border border-border bg-surface px-3 py-2">
+        <ModelFileDrop
             compact
             project={run.project}
             onPopulate={(source) => {
@@ -95,36 +120,34 @@ export function AssistantDock(): JSX.Element | null {
               // navigation hands a page its form (DM-54, CC-71).
               rememberPrefill(`/projects/${run.project}/models`, { source });
               void navigate({ to: "/projects/$project/models", params: { project: run.project } });
-            }}
-          />
-        </div>
-      ) : null}
+          }}
+        />
+      </div>
       <div className="flex gap-2">
         <button
           type="button"
           aria-expanded={open}
           aria-controls="run-chat"
           onClick={() => {
-            setOpen((current) => !current);
+            setOpen(false);
           }}
-          className="rounded-full border border-border bg-surface px-4 py-1.5 text-sm shadow hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+          className="rounded-full border border-border bg-surface px-4 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
         >
-          {open ? t("agentRun.chat.hide") : t("agentRun.chat.show")}
+          {t("agentRun.chat.hide")}
         </button>
         <button
           type="button"
           onClick={() => {
             rememberRun(null);
           }}
-          className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm shadow hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+          className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
         >
           {t("assistant.close")}
         </button>
       </div>
       <div
         id="run-chat"
-        hidden={!open}
-        className="h-[80vh] w-full rounded border border-border bg-surface shadow-lg [&>section]:h-full [&>section]:min-h-0"
+        className="min-h-[24rem] w-full flex-1 rounded border border-border bg-surface md:min-h-0 [&>section]:h-full [&>section]:min-h-0"
       >
         <ConversationPanel
           project={run.project}
@@ -141,7 +164,7 @@ export function AssistantDock(): JSX.Element | null {
           }}
         />
       </div>
-    </div>
+    </aside>
   );
 }
 
