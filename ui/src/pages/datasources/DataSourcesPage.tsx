@@ -585,6 +585,7 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
         }}
       >
         <ResourceFormDialog<DataSourceForm>
+          kind="DataSource"
           open={dialogOpen}
           onOpenChange={(open) => {
             if (!open) {

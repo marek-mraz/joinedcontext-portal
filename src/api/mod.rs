@@ -11,6 +11,7 @@ pub mod drafts;
 pub mod dry_run;
 pub mod export;
 pub mod federation;
+pub mod forms;
 pub mod health;
 pub mod import;
 pub mod mutate;
@@ -50,6 +51,7 @@ pub fn router() -> Router<AppState> {
         .merge(drafts::router())
         .merge(export::router())
         .merge(federation::router())
+        .merge(forms::router())
         .merge(import::router())
         .merge(resources::router())
         .merge(ops::router())

@@ -58,6 +58,8 @@
     "enum": "Der Wert muss einer der zulässigen Werte sein",
     "format": "Ungültiges Format",
     "redacted": "Ausgeblendet",
+    "advancedMode": "Erweiterte Felder anzeigen",
+    "uischemaProblems": "Das Anordnungsmanifest dieses Formulars verlangt etwas, das das Formular nicht kann",
     "view": {
       "form": "Formular",
       "yaml": "YAML"

@@ -1,10 +1,15 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, ReactNode } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import validator from "./forms/validator";
 import { useTranslation } from "react-i18next";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { errorMessageKey, SchemaForm } from "./forms/SchemaForm";
 import type { JsonSchema, UiSchema } from "./forms/types";
+import { portalThemeWidgets } from "./forms/theme";
+import { arrange, index } from "./forms/uischema";
+import { portalWidgets } from "./forms/widgets";
+import { api, queryKeys, unwrap } from "../api/client";
 import { Alert, Button, Dialog, DialogClose } from "./ui";
 import type { DialogSize } from "./ui";
 import { useBranding } from "../branding";
@@ -31,6 +36,12 @@ export interface ResourceFormDialogProps<T> {
   title: string;
   description: string;
   schema: JsonSchema;
+  /**
+   * The manifest kind this form edits, e.g. `Endpoint`: what lets a
+   * `portal/forms/{kind lowercased}.uischema.yaml` arrange it (UI-02). Without a kind, or for a
+   * kind nobody wrote a manifest for, the form renders from `uiSchema` alone.
+   */
+  kind?: string;
   uiSchema?: UiSchema;
   formData?: T;
   submitLabel: string;
@@ -86,6 +97,7 @@ export function ResourceFormDialog<T>({
   title,
   description,
   schema,
+  kind,
   uiSchema,
   formData,
   submitLabel,
@@ -103,8 +115,69 @@ export function ResourceFormDialog<T>({
   onSubmit,
   onChange,
 }: ResourceFormDialogProps<T>): JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const branding = useBranding();
+
+  // One fetch for the whole of `portal/forms/`, shared by every dialog through the query cache.
+  const forms = useQuery({
+    queryKey: queryKeys.forms(),
+    enabled: open && kind !== undefined,
+    staleTime: 5 * 60_000,
+    retry: false,
+    queryFn: async () => unwrap(await api.GET("/api/v1/forms", {})),
+  });
+  // CC-29: the Git mechanics are on the form only when the person asked for them. The stored
+  // preference starts it; the switch answers at once and saves in the background, so an
+  // instance without a preferences database still has a working switch.
+  const preferences = useQuery({
+    queryKey: queryKeys.preferences(),
+    enabled: open && kind !== undefined,
+    retry: false,
+    queryFn: async () => unwrap(await api.GET("/api/v1/preferences", {})),
+  });
+  const [advancedChoice, setAdvancedChoice] = useState<boolean | null>(null);
+  const advanced = advancedChoice ?? preferences.data?.advancedMode === true;
+  const saveAdvanced = useMutation({
+    mutationFn: async (next: boolean) =>
+      unwrap(await api.PUT("/api/v1/preferences", { body: { ...(preferences.data ?? {}), advancedMode: next } })),
+  });
+
+  const arranged = useMemo(() => {
+    if (!kind || !forms.data) {
+      return undefined;
+    }
+    const indexed = index(forms.data.items ?? []);
+    const manifest = indexed.forms[kind];
+    if (!manifest) {
+      return { uiSchema: undefined, problems: indexed.problems, advancedFields: false };
+    }
+    const result = arrange(manifest, {
+      locale: i18n.language,
+      properties: Object.keys(schema.properties ?? {}),
+      widgets: [...Object.keys(portalThemeWidgets), ...Object.keys(portalWidgets)],
+      advanced,
+    });
+    const advancedFields = Object.values(manifest.spec.fields ?? {}).some((field) => field.advanced === true);
+    return { uiSchema: result.uiSchema, problems: [...indexed.problems, ...result.problems], advancedFields };
+  }, [kind, forms.data, schema, i18n.language, advanced]);
+
+  // The manifest arranges what it names; the caller's literal still covers what a manifest
+  // cannot know, such as a name that is read-only once the resource exists.
+  const effectiveUiSchema = useMemo<UiSchema | undefined>(() => {
+    if (!arranged?.uiSchema) {
+      return uiSchema;
+    }
+    const merged: Record<string, unknown> = { ...(arranged.uiSchema as Record<string, unknown>) };
+    for (const [key, value] of Object.entries((uiSchema ?? {}) as Record<string, unknown>)) {
+      const own = merged[key];
+      merged[key] =
+        own && value && typeof own === "object" && typeof value === "object" && !Array.isArray(own) && !Array.isArray(value)
+          ? { ...(own as object), ...(value as object) }
+          : value;
+    }
+    return merged as UiSchema;
+  }, [arranged, uiSchema]);
+  const formProblems = arranged?.problems ?? [];
   const isLax = (branding as { validation?: string })?.validation === "lax";
   const isStrict = !isLax;
 
@@ -525,9 +598,20 @@ export function ResourceFormDialog<T>({
               <div className="flex flex-col gap-3">{children}</div>
             ) : null}
 
+            {formProblems.length > 0 ? (
+              <Alert role="status" tone="warning">
+                <p>{t("form.uischemaProblems")}</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {formProblems.map((problem) => (
+                    <li key={problem}>{problem}</li>
+                  ))}
+                </ul>
+              </Alert>
+            ) : null}
+
             <SchemaForm<T>
               schema={schema}
-              uiSchema={uiSchema}
+              uiSchema={effectiveUiSchema}
               formData={formData}
               disabled={disabled}
               submitLabel={submitLabel}
@@ -544,6 +628,20 @@ export function ResourceFormDialog<T>({
                       {verdictChip}
                       {reasonElement}
                     </>
+                  ) : null}
+                  {arranged?.advancedFields ? (
+                    <label className="flex items-center gap-2 text-caption text-fg-muted">
+                      <input
+                        type="checkbox"
+                        checked={advanced}
+                        onChange={(event) => {
+                          const next = event.target.checked;
+                          setAdvancedChoice(next);
+                          saveAdvanced.mutate(next);
+                        }}
+                      />
+                      {t("form.advancedMode")}
+                    </label>
                   ) : null}
                 </div>
               }

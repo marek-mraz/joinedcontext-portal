@@ -924,6 +924,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       </section>
 
       <ResourceFormDialog<EndpointForm>
+        kind="Endpoint"
         open={editing !== null}
         onOpenChange={(open) => {
           if (!open) {

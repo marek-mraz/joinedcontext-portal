@@ -294,6 +294,7 @@ export function FederationPage({ project }: { project: string }): JSX.Element {
       ) : null}
 
       <ResourceFormDialog<RegistrationForm>
+        kind="ContextSourceRegistration"
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         title={t("federation.add")}

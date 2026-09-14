@@ -37,6 +37,12 @@ pub struct Preferences {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schema(value_type = Object)]
     pub dashboard_layouts: BTreeMap<String, serde_json::Value>,
+    /// Whether manifest forms show the fields a `UiSchema` marks `advanced` (CC-29, UI-02).
+    ///
+    /// Absent means off, so a person who has never chosen gets the view CC-29 asks for. It is a
+    /// display preference: it changes what a form shows, never what a write may do.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advanced_mode: Option<bool>,
 }
 
 impl Preferences {
@@ -161,9 +167,18 @@ mod tests {
             "theme": "system",
             "locale": "sk",
             "defaultProject": "ovzdusie",
-            "dashboardLayouts": { "ovzdusie-prehlad": { "collapsedLegend": true } }
+            "dashboardLayouts": { "ovzdusie-prehlad": { "collapsedLegend": true } },
+            "advancedMode": true
         }));
         assert_eq!(p.validate(), Ok(()));
+        assert_eq!(p.advanced_mode, Some(true));
+        // Absent is off, and stays absent on the way back out (CC-29).
+        let unset = prefs(serde_json::json!({}));
+        assert_eq!(unset.advanced_mode, None);
+        assert!(serde_json::to_value(&unset)
+            .expect("serializes")
+            .get("advancedMode")
+            .is_none());
         assert!(
             Preferences::default().validate().is_ok(),
             "nothing set is fine"

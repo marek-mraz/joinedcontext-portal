@@ -58,6 +58,8 @@
     "enum": "Value must be one of the allowed choices",
     "format": "Invalid format",
     "redacted": "Redacted",
+    "advancedMode": "Show advanced fields",
+    "uischemaProblems": "This form's arrangement manifest asks for something the form cannot do",
     "view": {
       "form": "Form",
       "yaml": "YAML"

@@ -58,6 +58,8 @@
     "enum": "Hodnota musí byť jedna z povolených možností",
     "format": "Neplatný formát",
     "redacted": "Zabezpečené",
+    "advancedMode": "Zobraziť rozšírené polia",
+    "uischemaProblems": "Manifest usporiadania tohto formulára žiada niečo, čo formulár nevie",
     "view": {
       "form": "Formulár",
       "yaml": "YAML"

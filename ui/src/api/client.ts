@@ -145,6 +145,9 @@ export const queryKeys = {
   list: (project: string, plural: string) => ["projects", project, plural] as const,
   // Blueprints are organization-level, so they are not under a project key (CC-30).
   blueprints: () => ["blueprints"] as const,
+  // Form arrangements are organization-level too, and one fetch serves every dialog (UI-02).
+  forms: () => ["forms"] as const,
+  preferences: () => ["preferences"] as const,
   resource: (project: string, plural: string, name: string) =>
     ["projects", project, plural, name] as const,
   changes: (project: string) => ["projects", project, "changes"] as const,

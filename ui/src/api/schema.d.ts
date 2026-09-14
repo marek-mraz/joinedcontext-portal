@@ -97,6 +97,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/forms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_forms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1678,6 +1694,13 @@ export interface components {
             update?: number;
         };
         Preferences: {
+            /**
+             * @description Whether manifest forms show the fields a `UiSchema` marks `advanced` (CC-29, UI-02).
+             *
+             *     Absent means off, so a person who has never chosen gets the view CC-29 asks for. It is a
+             *     display preference: it changes what a form shows, never what a write may do.
+             */
+            advancedMode?: boolean | null;
             /** @description Free JSON per dashboard name, the browser's own saved state. */
             dashboardLayouts?: Record<string, never>;
             /** @description The project the shell opens on. */
@@ -2082,6 +2105,35 @@ export interface operations {
             };
             /** @description No such asset is configured */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    list_forms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every UiSchema manifest in portal/forms/ */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

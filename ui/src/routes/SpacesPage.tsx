@@ -324,6 +324,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
       </Table>
 
       <ResourceFormDialog<SpaceForm>
+        kind="ContextSpace"
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         title={t("spaces.add")}
