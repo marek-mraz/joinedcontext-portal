@@ -48,6 +48,9 @@ const PATHS: Record<string, string> = {
   expand: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
   shrink: "M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5",
   stop: "M7 7h10v10H7z",
+  paperclip: "M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L9.7 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7",
+  sidebar: "M4 5h16v14H4zM14 5v14",
+  float: "M4 5h16v14H4zM12 11h6v6h-6z",
 };
 
 export type IconName = keyof typeof PATHS;

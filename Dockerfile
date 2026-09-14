@@ -48,6 +48,9 @@ COPY sdk/template ./sdk/template
 # The kit's capabilities file is compiled into the binary (`include_str!` in
 # src/agents/oneshot.rs, AP-65), so it is a build input of the Rust stage too.
 COPY sdk/kit.json ./sdk/kit.json
+# A code run's prompt carries the SDK's API and export list (`include_str!` in src/agents/code.rs).
+COPY sdk/API.md ./sdk/API.md
+COPY sdk/src/sdk/index.ts ./sdk/src/sdk/index.ts
 # `-p joinedcontext-portal`: this image ships one binary and the reference apps have images of
 # their own, so building the whole workspace here would compile them for nothing.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

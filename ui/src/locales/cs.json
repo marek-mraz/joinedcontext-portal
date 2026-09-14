@@ -1305,9 +1305,10 @@
     "open": "Otevřít asistenta",
     "hide": "Skrýt asistenta",
     "fullScreen": "Na celou obrazovku",
-    "sideView": "Zpět do strany",
+    "sideView": "Vedle stránky",
+    "floatView": "Plovat nad stránkou",
     "cancel": "Zastavit asistenta",
-    "dropHint": "Přetáhněte sem vzorek CSV, Excel, JSON nebo PDF a dostanete návrh datového modelu.",
+    "attach": "Přiložit vzorek (CSV, Excel, JSON nebo PDF) a navrhnout datový model",
     "empty": {
       "lead": "Ptejte se na data projektu, sdílejte je nebo si nechte něco postavit.",
       "examples": {

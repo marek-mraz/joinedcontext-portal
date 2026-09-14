@@ -1305,9 +1305,10 @@
     "open": "Open the assistant",
     "hide": "Hide the assistant",
     "fullScreen": "Full screen",
-    "sideView": "Back to the side",
+    "sideView": "Beside the page",
+    "floatView": "Float over the page",
     "cancel": "Stop the assistant",
-    "dropHint": "Drop a CSV, Excel, JSON or PDF sample here to get a draft data model.",
+    "attach": "Attach a sample file (CSV, Excel, JSON or PDF) to draft a data model",
     "empty": {
       "lead": "Ask about the project's data, share it, or have something built.",
       "examples": {

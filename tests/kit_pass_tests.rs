@@ -608,9 +608,10 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
         && payload["text"]
             .as_str()
             .is_some_and(|t| t.starts_with("A dashboard of the city"))));
-    // The chat names the model and how hard it thinks before the first call (AG-72, SDK-26).
-    assert!(log.iter().any(|(kind, payload)| kind == "thought"
-        && payload["text"] == json!("Building with claude-sonnet-5 at medium reasoning.")));
+    // The chat never names the model: that is the profile's business, not the person's.
+    assert!(!log.iter().any(|(_, payload)| payload["text"]
+        .as_str()
+        .is_some_and(|t| t.contains("claude-sonnet-5"))));
 
     // The preview: one document with its own policy, or 503 in a build without the bundle.
     let (status, headers, bytes) = call(&app, &cookie, Method::GET, &preview_url, None).await;

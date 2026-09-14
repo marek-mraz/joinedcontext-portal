@@ -5,6 +5,7 @@ import { readCsrfToken } from "../../api/client";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
+import { Icon } from "../../components/ui/icons";
 import { blankSource } from "./linkml";
 import { applyOperations } from "./operations";
 import type { Operation, Refusal } from "./operations";
@@ -129,12 +130,15 @@ export function ModelFileDrop({
   project,
   onPopulate,
   compact = false,
+  icon = false,
 }: {
   project: string;
   /** The draft source the editor opens with, and the answer it came from. */
   onPopulate: (source: string, answer: InferAnswer) => void;
   /** The label and input only, for a dock with no room for the lead. */
   compact?: boolean;
+  /** A paperclip button only, for a chat composer. */
+  icon?: boolean;
 }): JSX.Element {
   const { t } = useTranslation();
   const [busy, setBusy] = useState<string | null>(null);
@@ -182,13 +186,28 @@ export function ModelFileDrop({
   const rows = draft ? slotRows(draft.answer.operations) : [];
   const classes = draft ? draft.answer.operations.filter((op) => op.op === "addClass").length : 0;
 
+  const input = (
+    <input
+      type="file"
+      accept={ACCEPT}
+      aria-label={icon ? t("assistant.attach") : t("models.infer.chooseFile")}
+      className="sr-only"
+      onChange={(event) => {
+        void takeFile(event.target.files?.[0]);
+        event.target.value = "";
+      }}
+    />
+  );
+
   return (
     <section
       aria-label={t("models.infer.title")}
       className={
-        compact
-          ? "flex flex-col gap-1"
-          : "flex flex-col gap-2 rounded-md border border-dashed border-border bg-surface-subtle p-3"
+        icon
+          ? "relative flex"
+          : compact
+            ? "flex flex-col gap-1"
+            : "flex flex-col gap-2 rounded-md border border-dashed border-border bg-surface-subtle p-3"
       }
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
@@ -196,30 +215,38 @@ export function ModelFileDrop({
         void takeFile(event.dataTransfer.files[0]);
       }}
     >
-      {compact ? null : (
+      {compact || icon ? null : (
         <>
           <h3 className="text-body font-semibold text-fg">{t("models.infer.title")}</h3>
           <p className="text-caption text-fg-muted">{t("models.infer.lead")}</p>
         </>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="cursor-pointer text-body">
-          <span className="rounded-md border border-border bg-surface px-3 py-2">{t("models.infer.drop")}</span>
-          <input
-            type="file"
-            accept={ACCEPT}
-            aria-label={t("models.infer.chooseFile")}
-            className="sr-only"
-            onChange={(event) => {
-              void takeFile(event.target.files?.[0]);
-              event.target.value = "";
-            }}
-          />
+      {icon ? (
+        <label
+          title={busy ? t("models.infer.reading", { name: busy }) : t("assistant.attach")}
+          className="flex cursor-pointer items-center rounded p-2 text-fg-muted hover:bg-surface-subtle hover:text-fg focus-within:ring-2 focus-within:ring-border-focus"
+        >
+          <Icon name="paperclip" className={busy ? "size-5 animate-pulse" : "size-5"} />
+          {input}
         </label>
-        {busy ? <span className="text-caption text-fg-muted">{t("models.infer.reading", { name: busy })}</span> : null}
-      </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="cursor-pointer text-body">
+            <span className="rounded-md border border-border bg-surface px-3 py-2">{t("models.infer.drop")}</span>
+            {input}
+          </label>
+          {busy ? <span className="text-caption text-fg-muted">{t("models.infer.reading", { name: busy })}</span> : null}
+        </div>
+      )}
       {problem ? (
-        <p role="alert" className="text-sm text-danger-fg">
+        <p
+          role="alert"
+          className={
+            icon
+              ? "absolute bottom-full left-0 z-10 mb-1 w-56 rounded border border-border bg-surface p-2 text-xs text-danger-fg shadow"
+              : "text-sm text-danger-fg"
+          }
+        >
           {problem}
         </p>
       ) : null}

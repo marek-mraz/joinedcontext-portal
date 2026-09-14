@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { SchemaForm } from "../../components/forms/SchemaForm";
 import type { JsonSchema } from "../../components/forms/types";
@@ -107,6 +107,7 @@ export function ConversationPanel({
   live,
   onAnswer,
   onSend,
+  attach,
 }: {
   /** The project the run belongs to: what a card's links open. */
   project: string;
@@ -118,6 +119,8 @@ export function ConversationPanel({
   live: boolean;
   onAnswer: (questionId: string, answers: unknown) => void;
   onSend: (text: string) => void;
+  /** A control beside the text box, such as the dock's attach button. */
+  attach?: ReactNode;
 }): JSX.Element {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
@@ -238,6 +241,7 @@ export function ConversationPanel({
             send();
           }}
         >
+          {attach}
           <label className="sr-only" htmlFor="run-message">
             {t("agentRun.conversation.placeholder")}
           </label>

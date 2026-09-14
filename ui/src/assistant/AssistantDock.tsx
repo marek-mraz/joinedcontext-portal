@@ -9,6 +9,7 @@ import { TERMINAL_STATES, useAgentRun } from "../pages/apps/useAgentRun";
 import type { RunEvent } from "../pages/apps/useAgentRun";
 import { ModelFileDrop } from "../pages/models/ModelFileDrop";
 import { Icon } from "../components/ui/icons";
+import type { IconName } from "../components/ui/icons";
 import {
   dismissNotice,
   isPortalRoute,
@@ -27,8 +28,9 @@ import {
  * Renders as a round bubble at the bottom right whenever the panel is closed. When open,
  * renders a 24 rem right-docked panel (full width on small viewports, full screen on toggle).
  * If no run is remembered, shows the empty state with example prompts, a composer, recent
- * conversations, and the model file drop zone. When a run is remembered, connects the live
- * conversation panel.
+ * conversations, and a paperclip in the composer that drafts a data model from a sample file.
+ * When a run is remembered, connects the live conversation panel. Open, it sits beside the page,
+ * floats over it, or fills the screen; the choice lasts for the tab.
  */
 export function AssistantDock({ project }: { project: string }): JSX.Element | null {
   const { t } = useTranslation();
@@ -38,7 +40,15 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   const activeProject = run?.project ?? project;
   const navigated = useSyncExternalStore(onAssistantChange, noticeSnapshot);
   const [open, setOpen] = useState(() => Boolean(parseRun(runSnapshot())));
-  const [full, setFull] = useState(false);
+  const [layout, setLayout] = useState<Layout>(storedLayout);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(LAYOUT_KEY, layout);
+    } catch {
+      // No storage (a private window): the layout lasts until the next page.
+    }
+  }, [layout]);
+  const full = layout === "full";
   // A run remembered after mount (the run page, the Assistant page, a started conversation)
   // opens the panel; closing forgets the run and leaves the bubble.
   const runId = run?.runId ?? null;
@@ -72,7 +82,7 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setFull(false);
+        setLayout("side");
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -152,7 +162,18 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   const isBusy = Boolean(run && !over && lastEvent && lastEvent.kind === "message");
 
   const iconButton =
-    "rounded p-1.5 text-fg-muted hover:bg-surface-subtle hover:text-fg focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50";
+    "rounded p-1.5 text-fg-muted hover:bg-surface-subtle hover:text-fg focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50 aria-pressed:bg-primary-soft aria-pressed:text-primary-soft-fg";
+
+  const attach = (
+    <ModelFileDrop
+      icon
+      project={activeProject}
+      onPopulate={(source) => {
+        rememberPrefill(`/projects/${activeProject}/models`, { source });
+        void navigate({ to: "/projects/$project/models", params: { project: activeProject } });
+      }}
+    />
+  );
 
   if (!open) {
     return (
@@ -181,10 +202,13 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   return (
     <aside
       aria-label={t("agentRun.conversation.title")}
+      data-layout={layout}
       className={
         full
           ? "fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col gap-2 bg-surface p-3"
-          : "flex w-full shrink-0 flex-col gap-2 border-l border-border bg-surface p-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)] md:w-[24rem]"
+          : layout === "float"
+            ? "fixed bottom-4 right-4 z-40 flex h-[min(40rem,calc(100vh-5rem))] w-[calc(100vw-2rem)] max-w-[26rem] flex-col gap-2 rounded-lg border border-border bg-surface p-3 shadow-xl"
+            : "flex w-full shrink-0 flex-col gap-2 border-l border-border bg-surface p-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)] md:w-[24rem]"
       }
     >
       <div className="flex items-center justify-between gap-2">
@@ -204,18 +228,21 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
               <Icon name="stop" className="size-4" />
             </button>
           ) : null}
-          <button
-            type="button"
-            aria-pressed={full}
-            aria-label={full ? t("assistant.sideView") : t("assistant.fullScreen")}
-            title={full ? t("assistant.sideView") : t("assistant.fullScreen")}
-            onClick={() => {
-              setFull(!full);
-            }}
-            className={iconButton}
-          >
-            <Icon name={full ? "shrink" : "expand"} className="size-4" />
-          </button>
+          {LAYOUTS.map(({ value, icon, label }) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={layout === value}
+              aria-label={t(label)}
+              title={t(label)}
+              onClick={() => {
+                setLayout(value);
+              }}
+              className={iconButton}
+            >
+              <Icon name={icon} className="size-4" />
+            </button>
+          ))}
           <button
             type="button"
             aria-expanded={open}
@@ -223,7 +250,6 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
             aria-label={t("assistant.hide")}
             title={t("assistant.hide")}
             onClick={() => {
-              setFull(false);
               setOpen(false);
             }}
             className={iconButton}
@@ -322,7 +348,8 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
               }}
               className="block min-w-0 flex-1 resize-none rounded border border-border bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
             />
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between">
+              {attach}
               <button
                 type="submit"
                 disabled={composerMessage.trim() === "" || isStarting}
@@ -384,23 +411,33 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
             onSend={(text) => {
               send.mutate(text);
             }}
+            attach={attach}
           />
         </div>
       )}
 
-      <div className="w-full rounded border border-border bg-surface px-3 py-2">
-        <p className="mb-1 text-xs text-fg-muted">{t("assistant.dropHint")}</p>
-        <ModelFileDrop
-          compact
-          project={activeProject}
-          onPopulate={(source) => {
-            rememberPrefill(`/projects/${activeProject}/models`, { source });
-            void navigate({ to: "/projects/$project/models", params: { project: activeProject } });
-          }}
-        />
-      </div>
     </aside>
   );
+}
+
+/** Beside the page, floating over it, or the whole screen; the bubble is the fourth, closed state. */
+type Layout = "side" | "float" | "full";
+
+const LAYOUT_KEY = "jc.assistant.layout";
+
+const LAYOUTS: { value: Layout; icon: IconName; label: string }[] = [
+  { value: "side", icon: "sidebar", label: "assistant.sideView" },
+  { value: "float", icon: "float", label: "assistant.floatView" },
+  { value: "full", icon: "expand", label: "assistant.fullScreen" },
+];
+
+function storedLayout(): Layout {
+  try {
+    const stored = sessionStorage.getItem(LAYOUT_KEY);
+    return stored === "float" || stored === "full" ? stored : "side";
+  } catch {
+    return "side";
+  }
 }
 
 function routeOf(event: RunEvent): string | null {

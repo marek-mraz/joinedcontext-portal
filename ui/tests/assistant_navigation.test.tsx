@@ -272,6 +272,33 @@ describe("the assistant dock", () => {
     expect(window.sessionStorage.getItem("jc.assistant.run")).toBeNull();
   });
 
+  it("floats over the page, keeps that layout for the tab, and attaches a file from the composer", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+    await screen.findByRole("heading", { name: RUN.appName });
+    const dock = (await screen.findByRole("button", { name: en.assistant.hide })).closest(
+      "aside",
+    ) as HTMLElement;
+
+    expect(within(dock).getByRole("button", { name: en.assistant.sideView })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(within(dock).getByRole("button", { name: en.assistant.floatView }));
+    expect(dock.dataset.layout).toBe("float");
+    expect(dock.className).toContain("fixed");
+    expect(dock.className).toContain("shadow-xl");
+    expect(within(dock).getByRole("button", { name: en.assistant.floatView })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(window.sessionStorage.getItem("jc.assistant.layout")).toBe("float");
+
+    // The sample file is a paperclip in the composer, not a box of text under the chat.
+    expect(within(dock).getByLabelText(en.assistant.attach)).toHaveAttribute("type", "file");
+    expect(within(dock).queryByText(/Drop a CSV/)).not.toBeInTheDocument();
+  });
+
   it("ignores a navigate frame that is not a path inside the Portal", async () => {
     renderPortal();
     await screen.findByRole("heading", { name: RUN.appName });

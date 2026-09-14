@@ -1305,9 +1305,10 @@
     "open": "Assistent öffnen",
     "hide": "Assistent ausblenden",
     "fullScreen": "Vollbild",
-    "sideView": "Zurück an die Seite",
+    "sideView": "Neben der Seite",
+    "floatView": "Über der Seite schweben",
     "cancel": "Assistent stoppen",
-    "dropHint": "Legen Sie hier eine CSV-, Excel-, JSON- oder PDF-Probe ab, um einen Datenmodell-Entwurf zu erhalten.",
+    "attach": "Eine Probe (CSV, Excel, JSON oder PDF) anhängen und ein Datenmodell entwerfen",
     "empty": {
       "lead": "Fragen Sie nach den Daten des Projekts, teilen Sie sie oder lassen Sie etwas bauen.",
       "examples": {
