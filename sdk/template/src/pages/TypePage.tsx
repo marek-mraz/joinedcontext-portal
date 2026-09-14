@@ -1,23 +1,15 @@
 import { useMemo, useState } from "react";
-import {
-  BarChartCard,
-  DateRangeFilter,
-  EntityDetail,
-  EntityForm,
-  EntityMap,
-  EntityTable,
-  ExportButton,
-  FilterBar,
-  RangeFilter,
-  SearchBox,
-  SelectFilter,
-  StatTiles,
-  TimeSeriesCard,
-  useAccess,
-  useEntities,
-  useFilters,
-} from "@joinedcontext/sdk";
-import type { FilterBinding, StatTile, TypeSchema } from "@joinedcontext/sdk";
+import { useAccess, useEntities, useFilters } from "@joinedcontext/sdk";
+import type { FilterBinding, TypeSchema } from "@joinedcontext/sdk";
+import { BarChartCard, TimeSeriesCard } from "../components/charts";
+import { EntityDetail } from "../components/EntityDetail";
+import { EntityForm } from "../components/EntityForm";
+import { EntityMap } from "../components/EntityMap";
+import { EntityTable } from "../components/EntityTable";
+import { ExportButton } from "../components/ExportButton";
+import { DateRangeFilter, FilterBar, RangeFilter, SearchBox, SelectFilter } from "../components/filters";
+import { StatTiles } from "../components/StatTiles";
+import type { StatTile } from "../components/StatTiles";
 import { filtersOf, shapeOf } from "./shape";
 
 function Filter({ binding }: { binding: FilterBinding }) {

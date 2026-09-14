@@ -1,7 +1,7 @@
-import type { ComponentType } from "react";
-import { StrictMode } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { Component, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { ErrorBoundary, Problem, reportError } from "./components/states";
+import { reportError } from "./report";
 import { createClient, setClient } from "./client";
 import type { Client } from "./client";
 import { ConfigError, readConfig } from "./config";
@@ -11,6 +11,26 @@ import type { DesignTokens } from "./tokens";
 import { transportFor } from "./transport";
 
 let errorListenersRegistered = false;
+
+/**
+ * The last line under the application: a render error no component of the application caught is
+ * reported and shown as its message. The template's own `ErrorBoundary` catches before this one.
+ */
+class RootBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  override state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error };
+  }
+
+  override componentDidCatch(error: Error): void {
+    reportError(error);
+  }
+
+  override render(): ReactNode {
+    return this.state.error ? <p role="alert">{this.state.error.message}</p> : this.props.children;
+  }
+}
 
 export function startApp(
   App: ComponentType,
@@ -25,7 +45,7 @@ export function startApp(
     if (err instanceof ConfigError) {
       const targetRoot = options?.root ?? doc?.getElementById("root");
       if (targetRoot) {
-        createRoot(targetRoot).render(<Problem error={err} />);
+        createRoot(targetRoot).render(<p role="alert">{err.message}</p>);
       }
     }
     throw err;
@@ -44,9 +64,9 @@ export function startApp(
   createRoot(targetRoot).render(
     <StrictMode>
       <JcProvider client={client}>
-        <ErrorBoundary>
+        <RootBoundary>
           <App />
-        </ErrorBoundary>
+        </RootBoundary>
       </JcProvider>
     </StrictMode>,
   );

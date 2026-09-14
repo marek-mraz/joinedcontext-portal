@@ -1,8 +1,6 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import type { Row } from "../../ngsi";
-import { columnKind, format } from "../../ngsi";
-import { compare } from "../../views/Table";
-import type { ProblemError } from "../client";
+import { columnKind, compare, format } from "@joinedcontext/sdk";
+import type { ProblemError, Row } from "@joinedcontext/sdk";
 import { Empty, Loading, Problem } from "./states";
 
 export interface ColumnDef<T extends Row = Row> {

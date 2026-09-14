@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from "react";
-import { ProblemError } from "../client";
+import { ProblemError, reportError } from "@joinedcontext/sdk";
 
 export function Loading({ label }: { label?: string }): React.JSX.Element {
   return (
@@ -44,33 +44,6 @@ export function Problem({
       )}
     </div>
   );
-}
-
-export function reportError(error: unknown): void {
-  try {
-    console.error("jc:", error);
-    if (typeof window !== "undefined" && window.parent && window.parent !== window) {
-      const message = error instanceof Error ? error.message : String(error);
-      let file: string | undefined;
-      let line: number | undefined;
-
-      if (error instanceof Error && typeof error.stack === "string") {
-        const lines = error.stack.split("\n");
-        for (const l of lines) {
-          const match = l.match(/(\S+?):(\d+):\d+\)?$/);
-          if (match) {
-            file = match[1];
-            line = Number(match[2]);
-            break;
-          }
-        }
-      }
-
-      window.parent.postMessage({ kind: "jc-error", message, file, line }, "*");
-    }
-  } catch {
-    // wrapped in try/catch, never throws
-  }
 }
 
 export class ErrorBoundary extends Component<

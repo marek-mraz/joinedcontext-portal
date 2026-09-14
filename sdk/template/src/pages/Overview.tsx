@@ -1,6 +1,10 @@
 import { useMemo } from "react";
-import { BarChartCard, Loading, navigate, Problem, StatTiles, useEntities, useFunction } from "@joinedcontext/sdk";
+import { useEntities, useFunction } from "@joinedcontext/sdk";
 import type { Schema, TypeSchema } from "@joinedcontext/sdk";
+import { navigate } from "../components/AppShell";
+import { BarChartCard } from "../components/charts";
+import { Loading, Problem } from "../components/states";
+import { StatTiles } from "../components/StatTiles";
 import type { Summary } from "../../functions/summary";
 import { shapeOf } from "./shape";
 

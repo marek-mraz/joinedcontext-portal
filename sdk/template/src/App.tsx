@@ -1,6 +1,8 @@
 import { useMemo } from "react";
-import { AppShell, Empty, Loading, Problem, useClient, useSchema } from "@joinedcontext/sdk";
-import type { Page } from "@joinedcontext/sdk";
+import { useClient, useSchema } from "@joinedcontext/sdk";
+import { AppShell } from "./components/AppShell";
+import type { Page } from "./components/AppShell";
+import { Empty, Loading, Problem } from "./components/states";
 import { Overview } from "./pages/Overview";
 import { TypePage } from "./pages/TypePage";
 

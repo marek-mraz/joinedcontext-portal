@@ -1,9 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Row } from "../src/ngsi";
-import { JcProvider } from "../src/sdk/hooks";
-import { stubClient } from "../src/sdk/testing";
-import { DEFAULT_TOKENS } from "../src/sdk/tokens";
+import { DEFAULT_TOKENS, JcProvider, NO_BASEMAP } from "@joinedcontext/sdk";
+import type { Row } from "@joinedcontext/sdk";
+import { stubClient } from "@joinedcontext/sdk/testing";
 
 interface MapOptions {
   container: HTMLElement;
@@ -42,7 +41,6 @@ vi.mock("maplibre-gl", () => {
   }
   return { Map, setWorkerUrl: vi.fn() };
 });
-vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 
 const mockOverlayInstances: any[] = [];
 vi.mock("@deck.gl/mapbox", () => {
@@ -77,8 +75,7 @@ vi.mock("@deck.gl/aggregation-layers", () => {
 });
 
 import { HexagonLayer } from "@deck.gl/aggregation-layers";
-import { colorRamp, EntityMap, renderPath } from "../src/sdk/components/EntityMap";
-import { NO_BASEMAP } from "../src/views/MapView";
+import { colorRamp, EntityMap, renderPath } from "./EntityMap";
 
 const STATIONS: Row[] = [
   {

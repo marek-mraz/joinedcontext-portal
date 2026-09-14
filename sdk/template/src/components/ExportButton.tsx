@@ -1,7 +1,5 @@
-import type { Row } from "../../ngsi";
-import { format, pointOf } from "../../ngsi";
-import { download, toCsv, toGeoJson, toPdf, toPng } from "../../artifact";
-import { useClient } from "../hooks";
+import { download, format, pointOf, toCsv, toGeoJson, toPdf, toPng, useClient } from "@joinedcontext/sdk";
+import type { Row } from "@joinedcontext/sdk";
 import { defaultColumns } from "./EntityTable";
 
 export type ExportFormat = "csv" | "geojson" | "pdf" | "png";

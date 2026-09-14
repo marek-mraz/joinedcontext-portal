@@ -1,12 +1,12 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ProblemError } from "../src/sdk/client";
-import { AppShell, navigate } from "../src/sdk/components/AppShell";
-import { Problem, reportError } from "../src/sdk/components/states";
-import { StatTiles } from "../src/sdk/components/StatTiles";
-import { JcProvider } from "../src/sdk/hooks";
-import { stubClient } from "../src/sdk/testing";
-import type { Row } from "../src/ngsi";
+import { JcProvider, ProblemError } from "@joinedcontext/sdk";
+import type { Row } from "@joinedcontext/sdk";
+import { AppShell, navigate } from "./AppShell";
+import { reportError } from "@joinedcontext/sdk";
+import { Problem } from "./states";
+import { StatTiles } from "./StatTiles";
+import { stubClient } from "@joinedcontext/sdk/testing";
 
 describe("AppShell", () => {
   beforeEach(() => {

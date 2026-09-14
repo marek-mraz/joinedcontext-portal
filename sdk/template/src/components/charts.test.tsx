@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Row } from "../src/ngsi";
-import type { TemporalRow } from "../src/sdk/client";
+import { currentTokens } from "@joinedcontext/sdk";
+import type { Row, TemporalRow } from "@joinedcontext/sdk";
 import {
   BarChartCard,
   barOption,
@@ -10,8 +10,7 @@ import {
   lineOption,
   pieOption,
   timeSeriesOption,
-} from "../src/sdk/components/charts";
-import { currentTokens } from "../src/sdk/tokens";
+} from "./charts";
 
 let clickCallback: ((params: { name: string }) => void) | undefined;
 const mockChartInstance = {

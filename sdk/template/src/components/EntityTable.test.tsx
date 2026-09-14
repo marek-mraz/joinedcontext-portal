@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { Row } from "../src/ngsi";
-import { ProblemError } from "../src/sdk/client";
-import { EntityDetail } from "../src/sdk/components/EntityDetail";
-import { EntityTable, defaultColumns } from "../src/sdk/components/EntityTable";
+import { ProblemError } from "@joinedcontext/sdk";
+import type { Row } from "@joinedcontext/sdk";
+import { EntityDetail } from "./EntityDetail";
+import { EntityTable, defaultColumns } from "./EntityTable";
 
 const STATIONS: Row[] = [
   {

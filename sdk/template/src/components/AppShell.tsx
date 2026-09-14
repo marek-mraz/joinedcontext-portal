@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useMe } from "../hooks";
+import { useMe } from "@joinedcontext/sdk";
 import { Empty, ErrorBoundary } from "./states";
 
 export interface Page {

@@ -1,6 +1,5 @@
-import type { Row } from "../../ngsi";
-import { aggregate } from "../../ngsi";
-import type { Agg } from "../../spec";
+import { aggregate } from "@joinedcontext/sdk";
+import type { Agg, Row } from "@joinedcontext/sdk";
 
 export interface StatTile {
   label: string;

@@ -1,18 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Map as MapLibreMap } from "maplibre-gl";
 import type { GeoJSONSource, IControl } from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import { ScatterplotLayer } from "@deck.gl/layers";
 import { GridLayer, HexagonLayer } from "@deck.gl/aggregation-layers";
 
-import type { Cell, Geo, Row } from "../../ngsi";
-import { extent, format, pointOf } from "../../ngsi";
-import { NO_BASEMAP, styleFor, useInlineWorker } from "../../views/MapView";
-import { toFeatureCollection } from "../helpers";
-import { useClient } from "../hooks";
-import { currentTokens } from "../tokens";
-import type { DesignTokens } from "../tokens";
+import { currentTokens, extent, format, mapWorkerReady, NO_BASEMAP, pointOf, styleFor, toFeatureCollection, useClient } from "@joinedcontext/sdk";
+import type { Cell, DesignTokens, Geo, Row } from "@joinedcontext/sdk";
 
 export const DECK_THRESHOLD = 50_000;
 export type MapMode = "auto" | "points" | "hexbin" | "grid";
@@ -73,7 +67,6 @@ interface PointRow {
   row: Row;
 }
 
-const workerReady = typeof document !== "undefined" ? useInlineWorker() : Promise.resolve(false);
 
 function extractCoordinates(geometry: Geo): Array<[number, number]> {
   const coords: Array<[number, number]> = [];
@@ -176,7 +169,7 @@ export function EntityMap({
     let gone = false;
     let instance: MapLibreMap | null = null;
 
-    void workerReady.then(() => {
+    void mapWorkerReady().then(() => {
       if (gone || !container.current || map.current) return;
       instance = new MapLibreMap({
         container: container.current,

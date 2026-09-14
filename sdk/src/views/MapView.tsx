@@ -1,89 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Map as MapLibreMap, setWorkerUrl } from "maplibre-gl";
-import type { GeoJSONSource, StyleSpecification } from "maplibre-gl";
+import { Map as MapLibreMap } from "maplibre-gl";
+import type { GeoJSONSource } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Row } from "../ngsi";
 import { columnKind, extent, format, pointOf } from "../ngsi";
+import { mapWorkerReady, NO_BASEMAP, styleFor } from "../sdk/map";
+
+export { NO_BASEMAP, styleFor };
 
 const SOURCE = "rows";
 
-export const NO_BASEMAP = "No basemap is configured";
-
-/**
- * Resolves the basemap style: the provided URL if non-empty, or a plain background layer.
- */
-export function styleFor(basemap?: string): string | StyleSpecification {
-  if (basemap && basemap.trim() !== "") {
-    return basemap.trim();
-  }
-  return {
-    version: 8 as const,
-    sources: {},
-    layers: [
-      {
-        id: "background",
-        type: "background",
-        paint: { "background-color": "#cbd5e1" },
-      },
-    ],
-  };
-}
-
-/**
- * The worker the Portal inlined as base64 in `#kit-worker`, handed to the library by URL.
- *
- * The preview frame is sandboxed without an origin, and in Chromium such a document may start
- * a worker from a `data:` URL and from nothing else: not from `blob:`, not from the page's own
- * host. The library, for its part, wraps every URL that is not same-origin in a `blob:` module
- * that imports it, so a `data:` URL alone never reaches `new Worker`. The wrapper below hands
- * the library the `data:` URL at that moment instead. A browser that refuses `data:` workers
- * (the probe says) gets a `blob:` URL, which the library uses as it is. Without the element
- * (vite dev, the published app) the library finds the worker beside its own script. Resolves
- * once the choice is made; the map is built after it.
- */
-export function useInlineWorker(doc: Document = document): Promise<boolean> {
-  const text = doc.getElementById("kit-worker")?.textContent?.trim();
-  if (!text) return Promise.resolve(false);
-  const asData = `data:text/javascript;base64,${text}`;
-  const asBlob = (): string => {
-    const bytes = Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
-    return URL.createObjectURL(new Blob([bytes], { type: "text/javascript" }));
-  };
-  return new Promise((resolve) => {
-    const done = (url: string): void => {
-      if (url.startsWith("data:")) {
-        const Native = window.Worker;
-        window.Worker = class extends Native {
-          constructor(script: string | URL, options?: WorkerOptions) {
-            super(String(script).startsWith("blob:") ? url : script, options);
-          }
-        };
-      }
-      setWorkerUrl(url);
-      resolve(true);
-    };
-    try {
-      const probe = new Worker("data:text/javascript,self.postMessage(1)");
-      const timer = setTimeout(() => {
-        probe.terminate();
-        done(asBlob());
-      }, 1500);
-      probe.onmessage = () => {
-        clearTimeout(timer);
-        probe.terminate();
-        done(asData);
-      };
-      probe.onerror = () => {
-        clearTimeout(timer);
-        probe.terminate();
-        done(asBlob());
-      };
-    } catch {
-      done(asBlob());
-    }
-  });
-}
-const workerReady = useInlineWorker();
+const workerReady = mapWorkerReady();
 
 /** One colour per distinct text value, a warm-to-cool ramp for numbers, the accent otherwise. */
 export function colorOf(value: Row[string], range: [number, number] | null, accent: string): string {

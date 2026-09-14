@@ -1,13 +1,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef } from "react";
 import * as echarts from "echarts";
-import type { Row } from "../../ngsi";
-import { aggregate } from "../../ngsi";
-import type { Agg } from "../../spec";
-import type { ProblemError, TemporalRow } from "../client";
-import type { DesignTokens } from "../tokens";
-import { currentTokens, echartsTheme } from "../tokens";
-import { groupBy } from "../helpers";
+import { aggregate, currentTokens, echartsTheme, groupBy } from "@joinedcontext/sdk";
+import type { Agg, DesignTokens, ProblemError, Row, TemporalRow } from "@joinedcontext/sdk";
 import { Empty, Loading, Problem } from "./states";
 
 export interface ChartSpec {

@@ -13,7 +13,6 @@ vi.mock("maplibre-gl", () => ({
   },
   setWorkerUrl: vi.fn(),
 }));
-vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 vi.mock("@deck.gl/mapbox", () => ({ MapboxOverlay: class {} }));
 vi.mock("@deck.gl/layers", () => ({ ScatterplotLayer: class {} }));
 vi.mock("@deck.gl/aggregation-layers", () => ({ HexagonLayer: class {}, GridLayer: class {} }));

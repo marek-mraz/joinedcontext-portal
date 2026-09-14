@@ -2,7 +2,7 @@
 
 ### How an app is built
 `src/main.tsx` calls `startApp(App, { tokens })`.
-Pages use SDK hooks and UI components inside the application shell.
+Pages compose the template's components with this package's hooks. The components are files of the application in `src/components/` (`AppShell`, `states` with `Problem`, `Loading`, `Empty` and `ErrorBoundary`, `StatTiles`, `EntityTable`, `EntityDetail`, `filters`, `EntityForm`, `ExportButton`, `charts`, `EntityMap`, `components.css`): read them in the pack and change them like any other file. This reference covers the package they stand on.
 Backend functions live in `functions/{name}.ts` using `@joinedcontext/sdk/server`.
 Tests verify behaviors using `@joinedcontext/sdk/testing`.
 `design-tokens.json` re-themes all component styling, chart palettes, and map layers.
@@ -60,127 +60,32 @@ function useFunction<T = unknown>(name: string, body?: unknown, options?: { enab
 ```
 Invokes a backend server function and manages its response lifecycle.
 
-### Components
+### Tables, forms, maps, exports
 ```ts
-function AppShell({ title, pages, actions, initial }: { title: string; pages: Page[]; actions?: ReactNode; initial?: string }): JSX.Element
+function compare(a: Row, b: Row, attr: string, dir: "asc" | "desc"): number
 ```
-Application shell featuring tabbed navigation, user header, error boundaries, and URL hash routing.
+Orders two rows by one attribute: numbers as numbers, text in the document's locale, empty last.
 ```ts
-function navigate(id: string): void
+function fieldOf(name: string, schema: TypeSchema | undefined, kind: Column): Field
 ```
-Programmatically switches the active page tab in the AppShell.
+The form input for one attribute from the endpoint's JSON Schema: number, text, select, date, checkbox or geo.
 ```ts
-function Loading({ label }: { label?: string }): JSX.Element
+const NO_BASEMAP: string
+function styleFor(basemap?: string): string | StyleSpecification
 ```
-Accessible loading indicator with polite ARIA announcement.
+The MapLibre style: the configured basemap URL, or a plain background and `NO_BASEMAP` shown beside it.
 ```ts
-function Empty({ children }: { children?: ReactNode }): JSX.Element
+function mapWorkerReady(doc?: Document): Promise<boolean>
 ```
-Placeholder text displayed when data sets or search results are empty.
+Resolves once MapLibre's worker is set up for the preview frame; create a map only after it.
 ```ts
-function Problem({ error, onRetry }: { error: ProblemError | Error | null | undefined; onRetry?: () => void }): JSX.Element | null
+function toCsv(columns: string[], rows: Row[]): Blob
+function toGeoJson(rows: Row[], locationAttr: string): GeoJsonCollection
+function toPdf(input: { title: string; endpoint: string; filters: string; takenAt: string; attribution?: string; lines: string[] }): Blob
+function toPng(canvas: HTMLCanvasElement): Promise<Blob>
+function download(blob: Blob, filename: string): void
 ```
-Alert banner rendering title, detail, and optional retry action for a ProblemError or Error.
-```ts
-class ErrorBoundary extends Component<{ children?: ReactNode; fallback?: (error: Error, reset: () => void) => ReactNode }, { error: Error | null }>
-```
-React error boundary that catches rendering exceptions, reports them to the host window, and displays fallback UI.
-```ts
-function reportError(error: unknown): void
-```
-Logs an error and posts a `jc-error` message with stack information to the parent window if framed.
-```ts
-function StatTiles({ rows, tiles, loading }: { rows: Row[]; tiles: StatTile[]; loading?: boolean }): JSX.Element
-```
-Renders a grid of aggregated numeric summary cards.
-```ts
-function EntityTable<T extends Row = Row>(props: { rows: T[]; columns?: Array<string | ColumnDef<T>>; pageSize?: number; selected?: string | null; onSelect?: (row: T) => void; initialSort?: { attr: string; dir: "asc" | "desc" }; loading?: boolean; error?: ProblemError | Error | null; empty?: ReactNode; caption?: string }): JSX.Element
-```
-Sortable, paged tabular display with accessible keyboard selection.
-```ts
-function defaultColumns(rows: Row[], max?: number): string[]
-```
-Infers sensible non-geometry attribute columns from entity rows.
-```ts
-function EntityDetail({ row, attrs, title, onClose }: { row: Row | null | undefined; attrs?: string[]; title?: string; onClose?: () => void }): JSX.Element
-```
-Definition list detailing every attribute of a selected entity.
-```ts
-function FilterBar({ children, onReset, shown, total }: { children?: ReactNode; onReset?: () => void; shown?: number; total?: number }): JSX.Element
-```
-Toolbar container for search, select, range, and date-range filter widgets.
-```ts
-function SearchBox({ binding, placeholder }: { binding: FilterBinding; placeholder?: string }): JSX.Element
-```
-Text search input bound to one or more entity attributes.
-```ts
-function SelectFilter({ binding, allLabel }: { binding: FilterBinding; allLabel?: string }): JSX.Element
-```
-Dropdown select filter populated with distinct column values.
-```ts
-function RangeFilter({ binding }: { binding: FilterBinding }): JSX.Element
-```
-Paired number inputs defining a numeric minimum and maximum filter bound.
-```ts
-function DateRangeFilter({ binding }: { binding: FilterBinding }): JSX.Element
-```
-Paired date inputs defining a start date and full-day end timestamp filter.
-```ts
-function EntityForm({ type, row, fields, rows, title, onSaved, onCancel }: { type: string; row?: Row | null; fields?: string[]; rows?: Row[]; title?: string; onSaved?: (id: string) => void; onCancel?: () => void }): JSX.Element
-```
-Schema-driven entity creation and editing form that checks permissions and displays inline errors.
-```ts
-function parseInput(field: Field, text: string): { value: Cell } | { error: string }
-```
-Parses raw text input into a typed Cell value according to field schema rules.
-```ts
-function ExportButton({ rows, columns, filename, formats, location, title, canvas }: { rows: Row[]; columns?: string[]; filename?: string; formats?: ExportFormat[]; location?: string; title?: string; canvas?: () => HTMLCanvasElement | null }): JSX.Element
-```
-Export actions for downloading data as CSV, GeoJSON, PDF, or canvas PNG.
-```ts
-function ChartCard({ title, option, height, loading, error, empty, onSelect, onReady }: { title?: string; option: Record<string, unknown> | null; height?: number; loading?: boolean; error?: ProblemError | Error | null; empty?: ReactNode; onSelect?: (name: string) => void; onReady?: (chart: echarts.ECharts) => void }): JSX.Element
-```
-ECharts container card with automatic resizing and item click callbacks.
-```ts
-function BarChartCard(props: ChartSpec & { rows: Row[]; title?: string; horizontal?: boolean; height?: number; loading?: boolean; error?: ProblemError | Error | null; onSelect?: (name: string) => void }): JSX.Element
-```
-Card displaying an aggregated bar chart.
-```ts
-function LineChartCard(props: ChartSpec & { rows: Row[]; title?: string; height?: number; loading?: boolean; error?: ProblemError | Error | null }): JSX.Element
-```
-Card displaying a sorted line chart.
-```ts
-function PieChartCard(props: ChartSpec & { rows: Row[]; title?: string; height?: number; loading?: boolean; error?: ProblemError | Error | null; onSelect?: (name: string) => void }): JSX.Element
-```
-Card displaying a proportion pie chart with an automatic "Other" slice.
-```ts
-function TimeSeriesCard(props: ({ rows: Row[]; time: string; y?: string; agg?: Agg; bucket?: Bucket } | { series: TemporalRow[]; attr: string }) & { title?: string; height?: number; loading?: boolean; error?: ProblemError | Error | null }): JSX.Element
-```
-Card displaying time-series trends from either rows or temporal entity series.
-```ts
-function barOption(rows: Row[], spec: ChartSpec & { horizontal?: boolean }, tokens?: DesignTokens): Record<string, unknown>
-function lineOption(rows: Row[], spec: ChartSpec, tokens?: DesignTokens): Record<string, unknown>
-function pieOption(rows: Row[], spec: ChartSpec, tokens?: DesignTokens): Record<string, unknown>
-function timeSeriesOption(input: { rows: Row[]; time: string; y?: string; agg?: Agg; bucket?: Bucket } | { series: TemporalRow[]; attr: string }, tokens?: DesignTokens): Record<string, unknown>
-```
-The ECharts options the chart cards draw; pass one, changed, to `ChartCard` for a chart the cards do not cover.
-```ts
-function bucketOf(iso: string, bucket: Bucket): string | null
-```
-Truncates an ISO time to the UTC hour, day, ISO week (Monday) or month; null when unparseable.
-```ts
-function EntityMap({ rows, location, label, color, selected, onSelect, basemap, mode, height, radius }: { rows: Row[]; location?: string; label?: string; color?: string; selected?: string | null; onSelect?: (row: Row) => void; basemap?: string; mode?: MapMode; height?: number; radius?: number }): JSX.Element
-```
-MapLibre geospatial map supporting deck.gl scatter, hexbin, and grid aggregations.
-```ts
-const DECK_THRESHOLD: 50000
-function renderPath(count: number, mode: MapMode): "maplibre" | "deck-points" | "deck-hexbin" | "deck-grid"
-```
-How `EntityMap` draws: MapLibre below `DECK_THRESHOLD` rows, a deck.gl overlay from it and for `hexbin`/`grid`.
-```ts
-function colorRamp(value: Cell, range: [number, number] | null, tokens?: DesignTokens): string
-```
-The map colour of a number between the tokens' `map.low` and `map.high`; `map.point` when not a number.
+Exports of what is shown (AP-66) and the browser download of the result.
 
 ### Filters Logic
 ```ts
@@ -261,6 +166,10 @@ Returns map styling colors for points, highlights, ramps, and strokes.
 function startApp(App: ComponentType, options?: { tokens?: unknown; root?: HTMLElement; doc?: Document }): { client: Client; tokens: DesignTokens }
 ```
 Bootstraps a generated application by reading configuration, applying tokens, and mounting React.
+```ts
+function reportError(error: unknown): void
+```
+Logs an error and, in the preview frame, posts it to the Portal with file and line so the run can fix it.
 
 ### Types
 - `Row`: Entity object `{ id: string, type: string } & Record<string, Cell>`.
@@ -339,11 +248,14 @@ Permissions are evaluated using `useAccess().can(operation, type, attr)`. Recogn
 
 ```tsx
 import { useState } from "react";
-import {
-  useEntities, useFilters, useAccess,
-  FilterBar, SearchBox, SelectFilter, StatTiles,
-  BarChartCard, EntityTable, EntityMap, EntityDetail, EntityForm
-} from "@joinedcontext/sdk";
+import { useAccess, useEntities, useFilters } from "@joinedcontext/sdk";
+import { BarChartCard } from "../components/charts";
+import { EntityDetail } from "../components/EntityDetail";
+import { EntityForm } from "../components/EntityForm";
+import { EntityMap } from "../components/EntityMap";
+import { EntityTable } from "../components/EntityTable";
+import { FilterBar, SearchBox, SelectFilter } from "../components/filters";
+import { StatTiles } from "../components/StatTiles";
 
 export function StationsPage() {
   const { rows, loading, error } = useEntities("BikeHireDockingStation");

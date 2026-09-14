@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react";
-import type { Cell, Row } from "../../ngsi";
-import { columnKind, format, pointOf } from "../../ngsi";
+import { columnKind, format, pointOf } from "@joinedcontext/sdk";
+import type { Cell, Row } from "@joinedcontext/sdk";
 import { Empty } from "./states";
 
 export function EntityDetail({

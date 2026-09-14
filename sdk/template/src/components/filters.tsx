@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { distinct, extent } from "../../ngsi";
-import type { FilterBinding } from "../filters";
+import { distinct, extent } from "@joinedcontext/sdk";
+import type { FilterBinding } from "@joinedcontext/sdk";
 
 export function FilterBar({
   children,

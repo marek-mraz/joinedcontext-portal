@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Cell, Row } from "../../ngsi";
-import { columnKind, format, pointOf } from "../../ngsi";
-import type { Field } from "../../write";
-import { fieldOf } from "../../write";
-import { useAccess, useSave, useSchema } from "../hooks";
+import { columnKind, fieldOf, format, pointOf, useAccess, useSave, useSchema } from "@joinedcontext/sdk";
+import type { Cell, Field, Row } from "@joinedcontext/sdk";
 import { Problem } from "./states";
 
 export function parseInput(field: Field, text: string): { value: Cell } | { error: string } {

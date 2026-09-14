@@ -1,10 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { Row } from "../src/ngsi";
-import { EntityForm, parseInput } from "../src/sdk/components/EntityForm";
-import { JcProvider } from "../src/sdk/hooks";
-import { stubClient } from "../src/sdk/testing";
-import type { Field, Schema } from "../src/write";
+import { JcProvider } from "@joinedcontext/sdk";
+import type { Field, Row, Schema } from "@joinedcontext/sdk";
+import { EntityForm, parseInput } from "./EntityForm";
+import { stubClient } from "@joinedcontext/sdk/testing";
 
 describe("parseInput", () => {
   it("parses every input kind and returns error on invalid input", () => {

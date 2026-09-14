@@ -1,15 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { Row } from "../src/ngsi";
-import type { FilterDef } from "../src/sdk/filters";
-import { useFilters } from "../src/sdk/filters";
+import { useFilters } from "@joinedcontext/sdk";
+import type { FilterDef, Row } from "@joinedcontext/sdk";
 import {
   DateRangeFilter,
   FilterBar,
   RangeFilter,
   SearchBox,
   SelectFilter,
-} from "../src/sdk/components/filters";
+} from "./filters";
 
 const SAMPLE_ROWS: Row[] = [
   { id: "urn:1", type: "Station", name: "Kamppi", bikes: 5, status: "active", registered: "2024-05-09T10:00:00Z" },

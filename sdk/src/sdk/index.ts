@@ -2,6 +2,7 @@
 
 // NGSI-LD & Schema types
 export type { Cell, Column, Geo, Row } from "../ngsi";
+export { fieldOf } from "../write";
 export type { Field, FieldSchema, Schema, TypeSchema } from "../write";
 
 // Client
@@ -32,34 +33,11 @@ export type { FilterBinding, FilterDef, FilterValue } from "./filters";
 export { aggregate, columnKind, distinct, extent, format, groupBy, pointOf, toFeatureCollection } from "./helpers";
 export type { Agg, Group } from "./helpers";
 
+// Tables, maps, exports: what the template's components stand on
+export { compare } from "../views/Table";
+export { mapWorkerReady, NO_BASEMAP, styleFor } from "./map";
+export { download, toCsv, toGeoJson, toPdf, toPng } from "../artifact";
+
 // Application Bootstrap
 export { startApp } from "./start";
-
-// Components
-export { Empty, ErrorBoundary, Loading, Problem, reportError } from "./components/states";
-export { AppShell, navigate } from "./components/AppShell";
-export type { Page } from "./components/AppShell";
-export { StatTiles } from "./components/StatTiles";
-export type { StatTile } from "./components/StatTiles";
-export { defaultColumns, EntityTable } from "./components/EntityTable";
-export type { ColumnDef } from "./components/EntityTable";
-export { EntityDetail } from "./components/EntityDetail";
-export { DateRangeFilter, FilterBar, RangeFilter, SearchBox, SelectFilter } from "./components/filters";
-export { EntityForm, parseInput } from "./components/EntityForm";
-export { ExportButton } from "./components/ExportButton";
-export type { ExportFormat } from "./components/ExportButton";
-export {
-  BarChartCard,
-  barOption,
-  bucketOf,
-  ChartCard,
-  LineChartCard,
-  lineOption,
-  PieChartCard,
-  pieOption,
-  TimeSeriesCard,
-  timeSeriesOption,
-} from "./components/charts";
-export type { Bucket, ChartSpec } from "./components/charts";
-export { colorRamp, DECK_THRESHOLD, EntityMap, renderPath } from "./components/EntityMap";
-export type { MapMode } from "./components/EntityMap";
+export { reportError } from "./report";

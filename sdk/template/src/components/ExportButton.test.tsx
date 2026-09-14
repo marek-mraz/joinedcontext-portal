@@ -1,14 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Row } from "../src/ngsi";
-import { ExportButton } from "../src/sdk/components/ExportButton";
-import { JcProvider } from "../src/sdk/hooks";
-import { stubClient } from "../src/sdk/testing";
+import { JcProvider } from "@joinedcontext/sdk";
+import type { Row } from "@joinedcontext/sdk";
+import { ExportButton } from "./ExportButton";
+import { stubClient } from "@joinedcontext/sdk/testing";
 
 const downloadMock = vi.fn();
 
-vi.mock("../src/artifact", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/artifact")>();
+vi.mock("@joinedcontext/sdk", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@joinedcontext/sdk")>();
   return {
     ...actual,
     download: (...args: unknown[]) => downloadMock(...args),
