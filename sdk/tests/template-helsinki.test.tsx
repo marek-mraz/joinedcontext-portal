@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import * as echarts from "echarts";
 import App from "../template/src/App";
@@ -48,7 +48,8 @@ describe("the template on the helsinki air-quality endpoint", () => {
     expect(within(page).getByTestId("jc-map")).toBeInTheDocument();
     expect(within(page).getByText("pm25 over time")).toBeInTheDocument();
     expect(within(page).getByRole("spinbutton", { name: /pm25 from/i })).toBeInTheDocument();
-    expect(echarts.init).toHaveBeenCalled();
+    // The chart initialises in an effect after the rows render, so it is awaited, not assumed.
+    await waitFor(() => expect(echarts.init).toHaveBeenCalled());
 
     fireEvent.click(within(page).getByText("Leppävaara"));
     expect(within(page).getByRole("heading", { name: "Leppävaara" })).toBeInTheDocument();
