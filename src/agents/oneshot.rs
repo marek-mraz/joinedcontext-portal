@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -228,6 +228,9 @@ struct Driver {
     ttl: Duration,
     /// Passes that produced a preview; the `v` of the preview URL.
     passes: AtomicU32,
+    /// The endpoint's `schema/index.json`, read once before the first pass: which types it
+    /// serves, so a data need naming anything else never reaches the chat or the model.
+    schema_index: OnceLock<Value>,
     /// Where every pass is committed when the Portal has a forge: the run's branch, the
     /// application's folder.
     branch: String,
@@ -272,6 +275,7 @@ pub fn spawn(
         provider: profile.model_provider.clone(),
         ttl: Duration::from_secs(ttl_secs.max(1) as u64),
         passes: AtomicU32::new(0),
+        schema_index: OnceLock::new(),
         branch: run.branch.clone(),
         path_prefix: run.path_prefix.clone(),
         created_by: run.created_by.clone(),
@@ -299,6 +303,10 @@ impl Driver {
 
         if self.kind == "conversation" {
             return self.drive_conversation(&mut inbox, deadline).await;
+        }
+        // Unreadable, the data needs pass as given, less the abstract base class (see `types`).
+        if let Ok(index) = self.schema_index().await {
+            let _ = self.schema_index.set(index);
         }
         // An application is code on the App SDK (ADR-N-022); a dashboard and an analysis stay
         // on the kit until it is retired (T-0681).
@@ -670,7 +678,7 @@ impl Driver {
         pack.push_str(
             "\n## THE DATA\n\nData needs (types and attributes the person asked for):\n```json\n",
         );
-        pack.push_str(&serde_json::to_string_pretty(&self.data_needs).unwrap_or_default());
+        pack.push_str(&serde_json::to_string_pretty(&self.served_needs()).unwrap_or_default());
         pack.push_str("\n```\n\n");
         if self.allows_write {
             let schema = fields::for_endpoint(
@@ -741,9 +749,10 @@ impl Driver {
     /// `src/jc-types.ts` of the run (SDK-10): the LinkML the endpoint projects, read through the
     /// proxy like a sample, rendered by Model Tools.
     async fn jc_types(&self) -> Result<String, String> {
-        let index = self
-            .read_entities(&format!("{}/v1/data/schema/index.json", self.proxy_base))
-            .await?;
+        let index = match self.schema_index.get() {
+            Some(index) => index.clone(),
+            None => self.schema_index().await?,
+        };
         let needed = self.types();
         let models = index
             .get("models")
@@ -1377,7 +1386,7 @@ proposes it.
         }
         pack.push_str("\n\n## THE DATA THE ENDPOINT PUBLISHES\n\n");
         pack.push_str("Data needs (types and attributes the person asked for):\n```json\n");
-        pack.push_str(&serde_json::to_string_pretty(&self.data_needs).unwrap_or_default());
+        pack.push_str(&serde_json::to_string_pretty(&self.served_needs()).unwrap_or_default());
         pack.push_str("\n```\n\nSample entities per type (`options=keyValues`):\n```json\n");
         pack.push_str(&serde_json::to_string_pretty(samples).unwrap_or_default());
         pack.push_str("\n```\n\n## THE FIELDS A FORM MAY EDIT\n\n");
@@ -1651,6 +1660,7 @@ proposes it.
         attrs
     }
 
+    /// The types the data needs name that the endpoint serves, in the order they were named.
     fn types(&self) -> Vec<String> {
         let mut types: Vec<String> = Vec::new();
         for need in self.data_needs.as_array().into_iter().flatten() {
@@ -1666,7 +1676,19 @@ proposes it.
                 }
             }
         }
-        types
+        served_only(types, self.schema_index.get())
+    }
+
+    /// The data needs as the model reads them: every type the endpoint does not serve left out,
+    /// and a need left with no type dropped.
+    fn served_needs(&self) -> Value {
+        needs_served(&self.data_needs, self.schema_index.get())
+    }
+
+    /// The endpoint's schema index, read through the proxy with the run's ticket (EP-46).
+    async fn schema_index(&self) -> Result<Value, String> {
+        self.read_entities(&format!("{}/v1/data/schema/index.json", self.proxy_base))
+            .await
     }
 
     /// Every source's rows, read through the proxy in pages up to the source's limit. A source
@@ -2444,6 +2466,56 @@ fn is_terminal(event: &AgentRunEvent) -> bool {
         .is_some_and(|status| status.is_terminal())
 }
 
+/// The abstract base class of every NGSI-LD model (`ngsi-ld-core`): a JSON Schema carries it as a
+/// definition, but no entity is ever of this type.
+const ABSTRACT_TYPES: [&str; 1] = ["Entity"];
+
+/// `types` less the abstract base class and, when the endpoint's schema index is known and
+/// lists any type, less every type the endpoint does not serve (EP-46, AP-44).
+fn served_only(types: Vec<String>, index: Option<&Value>) -> Vec<String> {
+    let served: Vec<&str> = index
+        .and_then(|index| index.get("models"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| model.get("types").and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    types
+        .into_iter()
+        .filter(|name| !ABSTRACT_TYPES.contains(&name.as_str()))
+        .filter(|name| served.is_empty() || served.contains(&name.as_str()))
+        .collect()
+}
+
+/// `data_needs` with each need's `types` passed through [`served_only`]; a need whose types
+/// all go is dropped.
+fn needs_served(data_needs: &Value, index: Option<&Value>) -> Value {
+    let needs = data_needs
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|need| {
+            let types: Vec<String> = need
+                .get("types")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            let kept = served_only(types, index);
+            if kept.is_empty() {
+                return None;
+            }
+            let mut need = need.clone();
+            need["types"] = json!(kept);
+            Some(need)
+        });
+    Value::Array(needs.collect())
+}
+
 /// The prompt section that teaches each tool, by heading, and the operation behind the tool.
 const TOOL_SECTIONS: [(&str, &str); 4] = [
     (
@@ -2525,6 +2597,47 @@ fn urlencoding(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_type_the_endpoint_does_not_serve_and_the_abstract_base_class_are_left_out() {
+        let index = json!({ "models": [
+            { "name": "bikes", "version": 1, "types": ["BikeHireDockingStation"] },
+            { "name": "weather", "version": 2, "types": ["WeatherObserved"] }
+        ] });
+        let named = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+
+        assert_eq!(
+            served_only(
+                named(&[
+                    "BikeHireDockingStation",
+                    "Entity",
+                    "Alert",
+                    "WeatherObserved"
+                ]),
+                Some(&index)
+            ),
+            named(&["BikeHireDockingStation", "WeatherObserved"])
+        );
+        // Without an index, only the abstract base class goes.
+        assert_eq!(
+            served_only(named(&["BikeHireDockingStation", "Entity"]), None),
+            named(&["BikeHireDockingStation"])
+        );
+        // An index that lists no type narrows nothing more.
+        assert_eq!(
+            served_only(named(&["Alert", "Entity"]), Some(&json!({ "models": [] }))),
+            named(&["Alert"])
+        );
+
+        let needs = json!([
+            { "types": ["BikeHireDockingStation", "Entity"], "attrs": ["name"] },
+            { "types": ["Entity"], "attrs": ["id"] }
+        ]);
+        assert_eq!(
+            needs_served(&needs, Some(&index)),
+            json!([{ "types": ["BikeHireDockingStation"], "attrs": ["name"] }])
+        );
+    }
 
     #[test]
     fn without_section_drops_one_heading_up_to_the_next() {
@@ -2625,6 +2738,7 @@ mod tests {
             provider: "anthropic".into(),
             ttl: Duration::from_secs(60),
             passes: AtomicU32::new(0),
+            schema_index: OnceLock::new(),
             branch: "agent/test".into(),
             path_prefix: "apps/test/".into(),
             created_by: "test-user".into(),

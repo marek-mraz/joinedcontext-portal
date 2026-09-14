@@ -107,8 +107,15 @@ follow-up question and no second call.
 - Everything the request and the data call for, in this one answer: every page, filter, chart,
   map, table, form, export and function they need. A new page is an entry in `pages` in
   `src/App.tsx`.
-- Stand on the template: its components in `src/components/`, its pages, the SDK hooks. Change
-  a component when the request needs it to behave differently; delete nothing that still works.
+- The template is scaffolding, not the design. Give this application its own: a composition
+  that fits the request and the data (what opens first, a summary or a hero, which maps, charts,
+  tables, cards and filters, in what order), its own accent colours, surfaces and type scale in
+  `src/design-tokens.json` and `src/app.css`, its own titles and copy. Two requests over the same
+  endpoint must not look alike.
+- Build with the SDK hooks and the components in `src/components/`, restyled or changed when the
+  design needs it. Rewrite `src/App.tsx` and the pages freely; delete a template page, component
+  or function the application does not use, together with its test.
+- A later instruction may change the design as freely as the first answer did.
 - A test beside every page, component and function you add or change (`*.test.tsx`,
   `*.test.ts`), written like the template's tests: vitest, @testing-library/react,
   `stubClient` or `fakeContext` from `@joinedcontext/sdk/testing`.
@@ -143,7 +150,8 @@ Any other import is refused before a preview exists. Data goes through the SDK, 
    what the application does and what you changed. After the last block, nothing. Do not wrap
    the blocks in a markdown fence.
 5. If something the request asks for is out of reach (a login, a file upload, another data
-   source), say so in those sentences and build the nearest thing.
+   source), say so in those sentences and build the nearest thing. Raw HTML or a static page
+   is a page component with that markup and its own CSS file under `src/`, said in one sentence.
 
 ## THE SYNTAX
 
@@ -217,6 +225,19 @@ mod tests {
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].starts_with("src/pages/Broken.tsx:1:"), "{found:?}");
         assert!(found[0].contains("axios"), "{found:?}");
+    }
+
+    #[test]
+    fn the_prompt_hands_the_design_to_the_model_and_keeps_the_rules() {
+        let system = SYSTEM.as_str();
+        assert!(system.contains("The template is scaffolding, not the design."));
+        assert!(system.contains("`src/design-tokens.json`"));
+        assert!(system.contains("must not look alike"));
+        assert!(system.contains("Raw HTML or a static page"));
+        assert!(!system.contains("delete nothing that still works"));
+        // The rules that keep a project a preview are still there (SDK-11, SDK-12).
+        assert!(system.contains("Never `src/main.tsx`"));
+        assert!(system.contains("A test beside every page"));
     }
 
     #[test]

@@ -1637,6 +1637,11 @@ async fn mount_types(proxy: &MockServer) {
 
 /// A run of the default kind, `application`.
 async fn create_application(app: &axum::Router, cookie: &str) -> String {
+    create_application_of(app, cookie, json!(["BikeHireDockingStation"])).await
+}
+
+/// An `application` run whose data needs name `types`.
+async fn create_application_of(app: &axum::Router, cookie: &str, types: Value) -> String {
     let (status, body) = json(
         app,
         cookie,
@@ -1650,7 +1655,7 @@ async fn create_application(app: &axum::Router, cookie: &str) -> String {
             "prompt": "A page listing the bike stations",
             "dataNeeds": [{
                 "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
-                "types": ["BikeHireDockingStation"],
+                "types": types,
                 "attrs": ["name", "location", "availableBikeNumber"],
                 "operations": ["queryEntity"]
             }]
@@ -1708,6 +1713,61 @@ async fn code_forge() -> MockServer {
         .mount(&forge)
         .await;
     forge
+}
+
+#[tokio::test]
+async fn a_type_the_endpoint_does_not_serve_never_reaches_the_chat_the_samples_or_the_model() {
+    let forge = code_forge().await;
+    let answer = code_answer(
+        "A page listing the stations, with its test.",
+        &stations_app(STATIONS),
+    );
+    let (_state, app, cookie, proxy) =
+        portal_state_with("openai-compatible", &[answer], Some(&forge)).await;
+    mount_types(&proxy).await;
+    // `Entity` is the model's abstract base class: the JSON Schema defines it, the endpoint's
+    // index serves only `BikeHireDockingStation`.
+    let id =
+        create_application_of(&app, &cookie, json!(["BikeHireDockingStation", "Entity"])).await;
+    wait_for_version(&app, &cookie, &id, 2).await;
+
+    let log = events(&app, &cookie, &id).await;
+    let reading: Vec<&str> = log
+        .iter()
+        .filter(|(kind, _)| kind == "thought")
+        .filter_map(|(_, payload)| payload["text"].as_str())
+        .filter(|text| text.starts_with("Reading"))
+        .collect();
+    assert_eq!(
+        reading,
+        ["Reading 5 entities of BikeHireDockingStation through the endpoint."]
+    );
+
+    let samples: Vec<String> = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.url.path() == "/v1/data/ngsi-ld/v1/entities")
+        .map(|r| r.url.query().unwrap_or_default().to_owned())
+        .collect();
+    assert!(!samples.is_empty(), "the served type was sampled");
+    assert!(
+        samples.iter().all(|query| !query.contains("type=Entity")),
+        "{samples:?}"
+    );
+
+    let requests = model_requests(&proxy).await;
+    let user = requests[0]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    let needs = user
+        .split("Data needs (types and attributes the person asked for):")
+        .nth(1)
+        .and_then(|rest| rest.split("```").nth(1))
+        .expect("the data needs block");
+    assert!(needs.contains("\"BikeHireDockingStation\""), "{needs}");
+    assert!(!needs.contains("\"Entity\""), "{needs}");
 }
 
 #[tokio::test]

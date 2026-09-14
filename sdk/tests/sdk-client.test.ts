@@ -233,6 +233,26 @@ describe("temporal, schema, and functions", () => {
     expect(s2).toBe(s1);
   });
 
+  it("schema lists only the types the index serves, never the abstract Entity base class", async () => {
+    const transport: Transport = async (req) => {
+      if (req.path.endsWith("index.json")) {
+        return { status: 200, body: { models: [{ version: 1, types: ["BikeHireDockingStation"] }] } };
+      }
+      return {
+        status: 200,
+        body: { definitions: { BikeHireDockingStation: { properties: {} }, Entity: { properties: {} }, Other: { properties: {} } } },
+      };
+    };
+    expect(Object.keys(await createClient(CONFIG, transport).schema())).toEqual(["BikeHireDockingStation"]);
+
+    // An index that names no types still drops the base class.
+    const untyped: Transport = async (req) =>
+      req.path.endsWith("index.json")
+        ? { status: 200, body: { models: [{ version: 1 }] } }
+        : { status: 200, body: { definitions: { Station: { properties: {} }, Entity: { properties: {} } } } };
+    expect(Object.keys(await createClient(CONFIG, untyped).schema())).toEqual(["Station"]);
+  });
+
   it("functions.call routes to /functions/{name} on bridge and /apps/{appName}/... on origin", async () => {
     const calls: JcRequest[] = [];
     const transport: Transport = async (req) => {

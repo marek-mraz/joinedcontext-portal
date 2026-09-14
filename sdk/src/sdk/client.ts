@@ -363,7 +363,7 @@ export function createClient(config: JcConfig, transport: Transport): Client {
       throw new ProblemError(indexResp.status, indexResp.body);
     }
     const indexBody = (typeof indexResp.body === "object" && indexResp.body !== null ? indexResp.body : {}) as {
-      models?: Array<{ version?: number }>;
+      models?: Array<{ version?: number; types?: unknown }>;
     };
     // An endpoint may expose several models; their types never overlap, so the schemas merge.
     const versions = [...new Set((indexBody.models ?? []).map((m) => m.version).filter((v): v is number => Number.isInteger(v)))];
@@ -381,6 +381,16 @@ export function createClient(config: JcConfig, transport: Transport): Client {
       };
       // Model Tools renders draft-07 (`definitions`); a derived schema may use 2019-09 (`$defs`).
       Object.assign(merged, schemaDoc.$defs, schemaDoc.definitions);
+    }
+    // A schema document also defines the abstract base class and whatever the endpoint does not
+    // serve; the index names the types there are rows of, so only those are the app's types.
+    const served = (indexBody.models ?? []).flatMap((m) =>
+      Array.isArray(m.types) ? m.types.filter((t): t is string => typeof t === "string") : [],
+    );
+    for (const name of Object.keys(merged)) {
+      if (name === "Entity" || (served.length > 0 && !served.includes(name))) {
+        delete merged[name];
+      }
     }
     cachedSchema = merged;
     return cachedSchema;
