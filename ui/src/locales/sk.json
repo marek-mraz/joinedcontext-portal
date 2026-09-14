@@ -1295,7 +1295,7 @@
     "hide": "Skryť asistenta",
     "fullScreen": "Na celú obrazovku",
     "sideView": "Späť do boku",
-    "cancel": "Zastaviť beh"
+    "cancel": "Zastaviť asistenta"
   },
   "permissions": {
     "denied": "Vypnuté: vaša rola nedovoľuje ''{verb}'' na ''{kind}'' v tomto projekte"

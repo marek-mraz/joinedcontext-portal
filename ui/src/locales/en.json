@@ -1295,7 +1295,7 @@
     "hide": "Hide the assistant",
     "fullScreen": "Full screen",
     "sideView": "Back to the side",
-    "cancel": "Stop the run"
+    "cancel": "Stop the assistant"
   },
   "permissions": {
     "denied": "Disabled: your role does not permit ''{verb}'' on ''{kind}'' in this project"

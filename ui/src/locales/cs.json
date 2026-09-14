@@ -1295,7 +1295,7 @@
     "hide": "Skrýt asistenta",
     "fullScreen": "Na celou obrazovku",
     "sideView": "Zpět do strany",
-    "cancel": "Zastavit běh"
+    "cancel": "Zastavit asistenta"
   },
   "permissions": {
     "denied": "Vypnuto: vaše role nedovoluje ''{verb}'' na ''{kind}'' v tomto projektu"

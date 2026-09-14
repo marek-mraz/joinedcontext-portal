@@ -1295,7 +1295,7 @@
     "hide": "Assistent ausblenden",
     "fullScreen": "Vollbild",
     "sideView": "Zurück an die Seite",
-    "cancel": "Lauf stoppen"
+    "cancel": "Assistent stoppen"
   },
   "permissions": {
     "denied": "Deaktiviert: Ihre Rolle erlaubt ''{verb}'' auf ''{kind}'' in diesem Projekt nicht"
