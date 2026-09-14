@@ -290,6 +290,18 @@ enum Worked {
     Again(String),
 }
 
+/// Whether a message asks for an indicator kept up to date rather than one number: a pipeline, a
+/// period, a schedule or recomputing on change.
+fn asks_for_pipeline(text: &str) -> bool {
+    static WORDS: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)\b(pipelines?|periodic(ally)?|schedul\w*|every\s+(\d+\s*)?(second|minute|min|hour|day|week)s?|hourly|daily|keep\w*\b.{0,40}\bupdated|on\s+(every\s+)?change)\b",
+        )
+        .expect("a literal pattern")
+    });
+    WORDS.is_match(text)
+}
+
 /// A draft or a read the model asked for, as the results section names it.
 fn drafted(tool: &str, input: Option<Value>) -> data_query::QueryCall {
     let input = input.unwrap_or(Value::Null);
@@ -1482,6 +1494,20 @@ impl Driver {
                     .as_ref()
                     .ok()
                     .and_then(|c| serde_json::to_value(c).ok());
+                // A person who asked for a pipeline gets one: a single number is sent back once
+                // with the reason, so the model drafts the pipeline of the same indicator (AG-76).
+                if !last && asks_for_pipeline(text) {
+                    drafts += 1;
+                    results.push((
+                        drafted("compute_kpi", input),
+                        "error: the person asked for a pipeline that keeps the indicator updated \
+                         (a period, a schedule or a target space), not one number: answer with \
+                         draft_kpi_pipeline for the same indicator, its sourceEndpoint, a \
+                         targetSpace and `every` (\"15m\" when no period is named)"
+                            .to_owned(),
+                    ));
+                    continue;
+                }
                 match self
                     .kpi(call, &answer, &mut chosen, &mut tools, last)
                     .await?
@@ -1581,7 +1607,9 @@ the person submits.
 ## WHEN THE PERSON ASKS FOR AN INDICATOR, A KPI OR ONE NUMBER OVER THE DATA
 
 "What is the average PM10", "how many stations are closed", "define a KPI for free bikes": the
-platform computes it, not you. Answer with one or two plain sentences and then ONE fenced JSON
+platform computes it once, not you. A request that names a pipeline, a period ("every 15
+minutes", "hourly"), a schedule, a target space or keeping the value updated is never this: it
+is a KPI pipeline (below). Answer with one or two plain sentences and then ONE fenced JSON
 block, nothing else, in this shape:
 
 ```json
@@ -3931,6 +3959,25 @@ fn urlencoding(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_period_a_schedule_or_a_pipeline_asks_for_a_pipeline_and_a_question_does_not() {
+        for yes in [
+            "Create a pipeline from helsinki into helsinki-kpi",
+            "compute the total of available bikes every 15 minutes",
+            "recompute it on every change",
+            "keep the average free slots updated",
+            "an hourly count of alerts",
+        ] {
+            assert!(asks_for_pipeline(yes), "{yes}");
+        }
+        for no in [
+            "how many stations are closed",
+            "what is the average PM10 now",
+        ] {
+            assert!(!asks_for_pipeline(no), "{no}");
+        }
+    }
 
     #[test]
     fn the_types_of_several_models_are_one_file_with_each_name_once() {
