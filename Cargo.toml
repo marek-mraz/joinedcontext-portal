@@ -45,7 +45,8 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 serde_yaml_ng = "0.10"
 utoipa = { version = "5", features = ["axum_extras"] }
-rust-embed = "8"
+# `include-exclude`: the template is embedded without its build output (src/agents/preview.rs).
+rust-embed = { version = "8", features = ["include-exclude"] }
 mime_guess = "2"
 openidconnect = "4"
 jsonwebtoken = "9"
@@ -66,6 +67,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 time = { version = "0.3", features = ["formatting"] }
 url = "2"
 base64 = "0.23"
+# The code preview's transpile (SDK-12, SDK-15): TypeScript and JSX to plain modules in process,
+# with the imports checked on the parsed program rather than by pattern.
+oxc = { version = "0.149", default-features = false, features = ["transformer", "codegen", "semantic", "ast_visit"] }
 hmac = "0.12"
 sha2 = "0.10"
 

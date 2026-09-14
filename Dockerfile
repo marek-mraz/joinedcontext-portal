@@ -21,7 +21,8 @@ WORKDIR /sdk
 COPY sdk/package.json sdk/pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY sdk/ ./
-RUN pnpm build && test -s dist/kit.js && test -s dist/kit.css && test -s dist/kit-worker.js
+RUN pnpm build && test -s dist/kit.js && test -s dist/kit.css && test -s dist/kit-worker.js \
+    && test -s dist/runtime/runtime.json
 
 FROM rust:1.97-slim-bookworm AS build
 WORKDIR /src
@@ -42,6 +43,8 @@ COPY migrations ./migrations
 COPY apps ./apps
 COPY --from=ui /ui/dist ./ui/dist
 COPY --from=sdk /sdk/dist ./sdk/dist
+# The template every code run starts from is compiled into the binary too (src/agents/preview.rs).
+COPY sdk/template ./sdk/template
 # The kit's capabilities file is compiled into the binary (`include_str!` in
 # src/agents/oneshot.rs, AP-65), so it is a build input of the Rust stage too.
 COPY sdk/kit.json ./sdk/kit.json

@@ -37,6 +37,7 @@ pub const TILES: &str = "https://tiles.openfreemap.org";
 /// [`bundle`] is for.
 #[derive(RustEmbed)]
 #[folder = "sdk/dist"]
+#[exclude = "runtime/*"]
 struct Dist;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -479,12 +480,17 @@ pub struct Bundle {
 pub fn bundle() -> Option<Bundle> {
     let js = Dist::get("kit.js")?;
     let css = Dist::get("kit.css")?;
-    let worker = Dist::get("kit-worker.js")?;
     Some(Bundle {
         js: String::from_utf8_lossy(&js.data).into_owned(),
         css: String::from_utf8_lossy(&css.data).into_owned(),
-        worker: base64::engine::general_purpose::STANDARD.encode(&worker.data),
+        worker: worker()?,
     })
+}
+
+/// `kit-worker.js` as base64, for any document that carries the map's worker inline.
+pub fn worker() -> Option<String> {
+    let worker = Dist::get("kit-worker.js")?;
+    Some(base64::engine::general_purpose::STANDARD.encode(&worker.data))
 }
 
 /// The CSP source of one inline script: its SHA-256, so the policy needs no `'unsafe-inline'`.

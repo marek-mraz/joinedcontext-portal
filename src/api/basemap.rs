@@ -114,6 +114,14 @@ pub fn style_url(config: &Config, project: &str) -> Option<String> {
     ))
 }
 
+/// Everything the basemap serves for `project` lives under this prefix: the one address a
+/// preview document may connect to (SDK-16).
+pub fn route_prefix(config: &Config, project: &str) -> Option<String> {
+    config.basemap.as_ref()?;
+    let base = config.public_base_url.as_str().trim_end_matches('/');
+    Some(format!("{base}/api/v1/projects/{project}/basemap/"))
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/projects/{project}/basemap/{style}/style.json",

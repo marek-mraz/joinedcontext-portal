@@ -13,8 +13,8 @@ use axum::body::Body;
 use axum::http::{header, Method, Request, StatusCode};
 use axum_extra::extract::cookie::PrivateCookieJar;
 use http_body_util::BodyExt;
-use joinedcontext_portal::agents::reaper;
 use joinedcontext_portal::agents::run::{digest_prompt, mint_run_id, mint_ticket, AgentRun};
+use joinedcontext_portal::agents::{preview, reaper};
 use joinedcontext_portal::auth::session::{self, Identity, Session};
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
@@ -912,6 +912,86 @@ async fn a_run_with_no_preview_publishes_nothing() {
         problem["detail"]
             .as_str()
             .is_some_and(|detail| detail.contains("AP-46")),
+        "{problem}"
+    );
+}
+
+/// A code run's preview (SDK-12, SDK-16, T-0678): nothing before the run has files; its
+/// `src/**` transpiled into one document with its own policy and the bridge configuration once it
+/// has; every problem with file and line when they do not build.
+#[tokio::test]
+async fn a_code_run_previews_its_files_as_one_document() {
+    let config = config();
+    let (state, app, _) = with_state(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+    let uri = format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview");
+    let get = || async {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&uri)
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let csp = response
+            .headers()
+            .get(header::CONTENT_SECURITY_POLICY)
+            .map(|v| v.to_str().unwrap().to_owned());
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        (status, csp, String::from_utf8_lossy(&bytes).into_owned())
+    };
+
+    assert_eq!(get().await.0, StatusCode::NOT_FOUND);
+
+    let mut files = preview::template_files();
+    files.retain(|path, _| path.starts_with("src/") || path.starts_with("functions/"));
+    state.agents.set_files(&id, json!(files)).await.unwrap();
+    let (status, csp, body) = get().await;
+    match status {
+        StatusCode::OK => {
+            let csp = csp.expect("the document's own policy");
+            assert!(csp.starts_with("default-src 'none';"), "{csp}");
+            assert!(csp.contains("script-src 'sha256-"), "{csp}");
+            assert!(
+                !csp.contains("'unsafe-inline' data:") && !csp.contains("script-src 'self'"),
+                "{csp}"
+            );
+            assert!(body.contains("<script type=\"importmap\">"));
+            assert!(
+                body.contains(&format!("\"slug\":\"{SLUG}\"")),
+                "the endpoint the bridge may reach"
+            );
+            assert!(body.contains("\"transport\":\"bridge\""));
+        }
+        // A Portal built without sdk/dist/runtime says so rather than serving half a document.
+        StatusCode::SERVICE_UNAVAILABLE => assert!(body.contains("SDK runtime"), "{body}"),
+        other => panic!("{other}: {body}"),
+    }
+
+    files.insert(
+        "src/App.tsx".to_owned(),
+        "import chart from \"chart.js\";\nexport default () => chart;\n".to_owned(),
+    );
+    state.agents.set_files(&id, json!(files)).await.unwrap();
+    let (status, _, body) = get().await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let problem: Value = serde_json::from_str(&body).unwrap();
+    let errors = problem["errors"].as_array().expect("every problem listed");
+    assert_eq!(errors.len(), 1, "{problem}");
+    assert!(
+        errors[0]
+            .as_str()
+            .unwrap()
+            .starts_with("src/App.tsx:1:19: 'chart.js' may not be imported here"),
         "{problem}"
     );
 }

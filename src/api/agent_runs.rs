@@ -10,6 +10,7 @@
 //! (`JC_INTERNAL_BIND`) and is authenticated by the proxy's own token: `runId` on an event comes
 //! from the run whose ticket the proxy verified, which is what makes AG-46 hold.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use axum::extract::{Path, Query, State};
@@ -31,7 +32,7 @@ use crate::agents::run::{
     digest_prompt, mint_run_id, mint_ticket, AgentRun, AgentRunEvent, AgentRunStatus,
 };
 use crate::agents::store::{now_rfc3339, StatusChangeError, StoreError};
-use crate::agents::{kit, oneshot};
+use crate::agents::{kit, oneshot, preview};
 use crate::auth::CurrentUser;
 use crate::config::AgentSettings;
 use crate::error::{ApiError, ProblemDetails};
@@ -1318,14 +1319,16 @@ pub fn router() -> Router<AppState> {
         ("id" = String, Path, description = "Run identifier"),
     ),
     responses(
-        (status = 200, description = "The kit rendering the run's specification, one document", content_type = "text/html"),
+        (status = 200, description = "One document: a code run's interface on the SDK runtime, or the kit rendering a kit run's specification", content_type = "text/html"),
+        (status = 400, description = "A code run's files do not build: every problem with file and line", body = ProblemDetails),
         (status = 401, description = "Unauthorized", body = ProblemDetails),
-        (status = 404, description = "No such run, or no pass has written spec.json yet", body = ProblemDetails),
-        (status = 503, description = "This Portal was built without the kit", body = ProblemDetails)
+        (status = 404, description = "No such run, or no pass has written files yet", body = ProblemDetails),
+        (status = 503, description = "This Portal was built without the kit or the SDK runtime", body = ProblemDetails)
     )
 )]
-/// The preview of a kit run: the bundle, the specification and the stylesheet in one document,
-/// because the frame it is shown in has no origin to fetch anything else with (AP-60, UI-41).
+/// The preview of a run in one document, because the frame it is shown in has no origin to
+/// fetch anything else with (AP-50, AP-60, UI-41): a code run's `src/**` transpiled onto the SDK
+/// runtime (SDK-16), else the kit bundle rendering `spec.json`.
 pub async fn preview(
     _user: CurrentUser,
     State(state): State<AppState>,
@@ -1340,6 +1343,17 @@ pub async fn preview(
         .ok_or_else(|| {
             ApiError::NotFound(format!("run '{id}' not found in project '{project}'"))
         })?;
+    let code: BTreeMap<String, String> = run
+        .files
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(path, _)| path.starts_with("src/") || path.starts_with("functions/"))
+        .filter_map(|(path, text)| Some((path.clone(), text.as_str()?.to_owned())))
+        .collect();
+    if !code.is_empty() {
+        return code_preview(&state, &run, &code);
+    }
     let text = run
         .files
         .get(kit::SPEC_FILE)
@@ -1418,6 +1432,58 @@ pub async fn preview(
             (header::CACHE_CONTROL, "no-store".to_owned()),
         ],
         html,
+    )
+        .into_response())
+}
+
+/// A code run's document: the SDK configured for the bridge on the run's endpoint, the
+/// basemap route the one address it may connect to (SDK-16, AP-63, AP-67).
+fn code_preview(
+    state: &AppState,
+    run: &AgentRun,
+    files: &BTreeMap<String, String>,
+) -> Result<Response, ApiError> {
+    let space = state
+        .mirror
+        .get(&run.project, "Endpoint", &run.endpoint_name)
+        .and_then(|env| crate::api::assistant::ref_name(&env.spec["contextSpaceRef"]))
+        .unwrap_or_else(|| run.project.clone());
+    let mut config = serde_json::json!({
+        "slug": run.endpoint_slug,
+        "orgDomain": crate::api::assistant::org_domain(state, &run.project),
+        "space": space,
+        "transport": "bridge",
+        "appName": run.app_name,
+        "endpointName": run.endpoint_name,
+    });
+    if let Some(url) = crate::api::basemap::style_url(&state.config, &run.project) {
+        config["basemap"] = serde_json::Value::String(url);
+    }
+    let route = crate::api::basemap::route_prefix(&state.config, &run.project);
+    let document =
+        preview::document(files, &run.app_name, &config, route.as_deref()).map_err(|refusal| {
+            match refusal {
+                preview::Refusal::NoRuntime => ApiError::Unavailable(
+                    "this Portal was built without the SDK runtime (sdk/dist/runtime is empty)"
+                        .into(),
+                ),
+                preview::Refusal::Problems(problems) => ApiError::Invalid {
+                    detail: format!(
+                        "the run's files do not build a preview: {} problem(s)",
+                        problems.len()
+                    ),
+                    errors: problems.iter().map(ToString::to_string).collect(),
+                },
+            }
+        })?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_owned()),
+            (header::CONTENT_SECURITY_POLICY, document.csp),
+            (header::X_FRAME_OPTIONS, "SAMEORIGIN".to_owned()),
+            (header::CACHE_CONTROL, "no-store".to_owned()),
+        ],
+        document.html,
     )
         .into_response())
 }

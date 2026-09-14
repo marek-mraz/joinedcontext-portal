@@ -254,8 +254,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The preview of a kit run: the bundle, the specification and the stylesheet in one document,
-         *     because the frame it is shown in has no origin to fetch anything else with (AP-60, UI-41).
+         * The preview of a run in one document, because the frame it is shown in has no origin to
+         *     fetch anything else with (AP-50, AP-60, UI-41): a code run's `src/**` transpiled onto the SDK
+         *     runtime (SDK-16), else the kit bundle rendering `spec.json`.
          */
         get: operations["preview"];
         put?: never;
@@ -2579,13 +2580,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The kit rendering the run's specification, one document */
+            /** @description One document: a code run's interface on the SDK runtime, or the kit rendering a kit run's specification */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "text/html": unknown;
+                };
+            };
+            /** @description A code run's files do not build: every problem with file and line */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
             /** @description Unauthorized */
@@ -2597,7 +2607,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
-            /** @description No such run, or no pass has written spec.json yet */
+            /** @description No such run, or no pass has written files yet */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2606,7 +2616,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
-            /** @description This Portal was built without the kit */
+            /** @description This Portal was built without the kit or the SDK runtime */
             503: {
                 headers: {
                     [name: string]: unknown;

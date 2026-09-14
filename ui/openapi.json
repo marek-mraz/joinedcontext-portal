@@ -874,7 +874,7 @@
         "tags": [
           "agents"
         ],
-        "summary": "The preview of a kit run: the bundle, the specification and the stylesheet in one document,\nbecause the frame it is shown in has no origin to fetch anything else with (AP-60, UI-41).",
+        "summary": "The preview of a run in one document, because the frame it is shown in has no origin to\nfetch anything else with (AP-50, AP-60, UI-41): a code run's `src/**` transpiled onto the SDK\nruntime (SDK-16), else the kit bundle rendering `spec.json`.",
         "operationId": "preview",
         "parameters": [
           {
@@ -898,9 +898,19 @@
         ],
         "responses": {
           "200": {
-            "description": "The kit rendering the run's specification, one document",
+            "description": "One document: a code run's interface on the SDK runtime, or the kit rendering a kit run's specification",
             "content": {
               "text/html": {}
+            }
+          },
+          "400": {
+            "description": "A code run's files do not build: every problem with file and line",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
             }
           },
           "401": {
@@ -914,7 +924,7 @@
             }
           },
           "404": {
-            "description": "No such run, or no pass has written spec.json yet",
+            "description": "No such run, or no pass has written files yet",
             "content": {
               "application/json": {
                 "schema": {
@@ -924,7 +934,7 @@
             }
           },
           "503": {
-            "description": "This Portal was built without the kit",
+            "description": "This Portal was built without the kit or the SDK runtime",
             "content": {
               "application/json": {
                 "schema": {
