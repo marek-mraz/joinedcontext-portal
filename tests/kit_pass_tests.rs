@@ -489,6 +489,12 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
 
     let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
     assert_eq!(run["status"], json!("previewing"), "{run}");
+    // The clock AP-57 is measured on: set by the time the first preview is there, and by the
+    // Portal, not the model.
+    let first_frame = run["firstFrameMs"]
+        .as_i64()
+        .expect("firstFrameMs on a previewing run");
+    assert!((0..60_000).contains(&first_frame), "{first_frame}");
     let preview_url = run["previewUrl"]
         .as_str()
         .expect("a preview url")

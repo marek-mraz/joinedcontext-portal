@@ -25,6 +25,8 @@ pub struct StoreError(#[from] sqlx::Error);
 #[derive(Debug, Default)]
 struct Memory {
     runs: HashMap<String, AgentRun>,
+    /// When each run was admitted, for `first_frame_ms` without a clock parser (AP-57).
+    started: HashMap<String, std::time::Instant>,
     events: HashMap<String, Vec<AgentRunEvent>>,
 }
 
@@ -56,6 +58,9 @@ impl AgentStore {
         }
         let mut memory = self.memory.write().await;
         memory.runs.insert(run.id.clone(), run.clone());
+        memory
+            .started
+            .insert(run.id.clone(), std::time::Instant::now());
         Ok(())
     }
 
@@ -221,8 +226,16 @@ impl AgentStore {
             db::set_agent_run_preview_url(pool, run_id, url).await?;
             return Ok(());
         }
-        if let Some(run) = self.memory.write().await.runs.get_mut(run_id) {
+        let mut memory = self.memory.write().await;
+        let elapsed = memory
+            .started
+            .get(run_id)
+            .map(|since| i64::try_from(since.elapsed().as_millis()).unwrap_or(i64::MAX));
+        if let Some(run) = memory.runs.get_mut(run_id) {
             run.preview_url = Some(url.to_owned());
+            if run.first_frame_ms.is_none() {
+                run.first_frame_ms = elapsed;
+            }
         }
         Ok(())
     }
@@ -300,6 +313,7 @@ mod tests {
             workspace: None,
             merge_request: None,
             preview_url: None,
+            first_frame_ms: None,
             files: serde_json::json!({}),
             steps: 0,
             tokens_used: 0,

@@ -309,6 +309,7 @@ pub async fn create_run(
         workspace: None,
         merge_request: None,
         preview_url: None,
+        first_frame_ms: None,
         files: serde_json::Value::Object(serde_json::Map::new()),
         steps: 0,
         tokens_used: 0,
