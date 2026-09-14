@@ -122,6 +122,9 @@ pub struct Artifacts {
     pub owl: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub example: Option<serde_json::Value>,
+    /// `jc-types.ts`: the row types a generated application compiles against (SDK-10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typescript: Option<String>,
     /// The generator version that produced these artifacts, so a preview and a committed
     /// artifact set can be compared (DM-19).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -173,6 +176,29 @@ fn model_tools_url(state: &AppState, route: &str) -> Result<String, ApiError> {
 fn unavailable(route: &str, what: &str, err: &dyn std::fmt::Display) -> ApiError {
     tracing::warn!(route = %route, error = %err, "model tools {what}");
     ApiError::Unavailable("the model tools service did not answer".into())
+}
+
+/// The `jc-types.ts` Model Tools renders for a LinkML source (SDK-10), or why there is none.
+pub async fn typescript(state: &AppState, source: &str) -> Result<String, String> {
+    if source.len() > MAX_REQUEST_BYTES {
+        return Err(format!(
+            "the model is larger than {MAX_REQUEST_BYTES} bytes"
+        ));
+    }
+    let Json(artifacts) = compile(
+        state,
+        "generate",
+        &GenerateRequest {
+            source: source.to_owned(),
+        },
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+    match artifacts.typescript {
+        Some(types) if !types.trim().is_empty() => Ok(types),
+        _ if !artifacts.errors.is_empty() => Err(artifacts.errors.join("; ")),
+        _ => Err("model tools rendered no typescript".to_owned()),
+    }
 }
 
 /// Posts one body to a Model Tools route and reads the artifacts back.
@@ -475,6 +501,7 @@ mod tests {
             shacl: Some("@prefix sh: <> .".into()),
             owl: Some("@prefix owl: <> .".into()),
             example: Some(serde_json::json!({})),
+            typescript: Some("export interface Air { id: string }".into()),
             generator_version: Some("linkml-1.11.1".into()),
             errors: Vec::new(),
         };
@@ -493,6 +520,7 @@ mod tests {
                 "shacl",
                 "owl",
                 "example",
+                "typescript",
                 "generatorVersion",
                 "errors",
             ]

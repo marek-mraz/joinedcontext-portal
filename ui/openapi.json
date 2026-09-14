@@ -5031,6 +5031,13 @@
               "string",
               "null"
             ]
+          },
+          "typescript": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`jc-types.ts`: the row types a generated application compiles against (SDK-10)."
           }
         }
       },

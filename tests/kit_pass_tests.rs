@@ -1,7 +1,8 @@
 //! The kit pass through the real router (T-0571, AP-56…AP-60, AG-53, AG-54, UI-41).
 //!
-//! A `static` run is driven by the Portal itself: samples through the proxy, one model call,
-//! SEARCH/REPLACE blocks applied to `spec.json`, a preview document. The proxy is a wiremock
+//! A `static` dashboard is driven by the Portal itself: samples through the proxy, one model
+//! call, SEARCH/REPLACE blocks applied to `spec.json`, a preview document. An application is
+//! code on the App SDK instead; its cases are at the end of this file (T-0680). The proxy is a wiremock
 //! that answers what the driver asks; the cases are the first pass, a repair, a block for a
 //! path the run may not write, a chat message as a second pass, the preview route's gates and
 //! a proxy that does not answer.
@@ -80,10 +81,13 @@ fn openai_cut(text: &str) -> Value {
 }
 
 fn config(proxy_base: &str) -> Config {
+    // Model Tools answers on the proxy's mock too, under its own prefix (SDK-10).
+    let model_tools = format!("{proxy_base}/model-tools");
     Config::from_vars(|key| {
         match key {
             "JC_AGENTS_NAMESPACE" => Some("agents"),
             "JC_AGENT_PROXY_BASE" => Some(proxy_base),
+            "JC_PORTAL_MODEL_TOOLS_URL" => Some(model_tools.as_str()),
             "JC_AGENT_PROXY_TOKEN" => Some("the-token-only-jc-agent-proxy-has"),
             "JC_PORTAL_BOOTSTRAP_ADMINS" => Some("portal-approver"),
             "JC_PORTAL_PUBLIC_URL" => Some("https://portal.example.com"),
@@ -398,6 +402,7 @@ async fn create_run_with(
             "appName": "city-bikes-overview",
             "endpointName": "helsinki-bikes",
             "appClass": "static",
+            "kind": "dashboard",
             "visibility": "project",
             "prompt": prompt,
             "dataNeeds": [{
@@ -504,8 +509,8 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
     );
     let id = created["id"].as_str().expect("an id").to_owned();
 
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
     // The clock AP-57 is measured on: set by the time the first preview is there, and by the
     // Portal, not the model.
     let first_frame = run["firstFrameMs"]
@@ -579,7 +584,14 @@ async fn the_first_pass_writes_the_spec_and_the_preview_is_one_document() {
         .collect();
     assert_eq!(
         statuses,
-        ["queued", "starting", "building", "testing", "previewing"]
+        [
+            "queued",
+            "starting",
+            "building",
+            "testing",
+            "previewing",
+            "awaiting_approval"
+        ]
     );
     let tool = log
         .iter()
@@ -671,8 +683,8 @@ async fn an_answer_that_does_not_validate_is_repaired_once() {
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
 
     let requests = model_requests(&proxy).await;
     assert_eq!(requests.len(), 2, "one pass, one repair");
@@ -711,10 +723,10 @@ async fn a_block_for_a_foreign_path_is_refused_and_the_spec_still_lands() {
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
     // Refused blocks are not a validation problem: the specification is there and valid, so
     // no repair is asked for and the preview is shown (AP-58).
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
     let log = events(&app, &cookie, &id).await;
     let tool = log
         .iter()
@@ -750,8 +762,8 @@ async fn a_message_is_one_more_pass_over_the_same_file() {
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
     let first = run["previewUrl"].as_str().unwrap().to_owned();
 
     let (status, _) = json(
@@ -785,7 +797,7 @@ async fn a_message_is_one_more_pass_over_the_same_file() {
         json!(first),
         "a second pass moves the preview: {run}"
     );
-    assert_eq!(run["status"], json!("previewing"));
+    assert_eq!(run["status"], json!("awaiting_approval"));
 
     let requests = model_requests(&proxy).await;
     assert_eq!(requests.len(), 2);
@@ -831,8 +843,8 @@ async fn an_empty_answer_is_asked_again_once() {
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
     assert_eq!(model_requests(&proxy).await.len(), 2);
 }
 
@@ -882,7 +894,7 @@ async fn a_proxy_that_does_not_answer_fails_the_run_with_the_reason() {
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["failed", "previewing"]).await;
+    let run = wait_for(&app, &cookie, &id, &["failed", "awaiting_approval"]).await;
     assert_eq!(run["status"], json!("failed"), "{run}");
     assert!(
         run["error"]
@@ -904,7 +916,7 @@ async fn every_pass_is_a_commit_on_the_run_branch_when_there_is_a_forge() {
     .await;
     let created = create_run(&app, &cookie).await;
     let id = created["id"].as_str().expect("id");
-    wait_for(&app, &cookie, id, &["previewing", "failed"]).await;
+    wait_for(&app, &cookie, id, &["awaiting_approval", "failed"]).await;
 
     let events = events(&app, &cookie, id).await;
     let commit = events
@@ -946,8 +958,8 @@ async fn an_answer_that_changes_no_file_is_a_reply_not_a_version() {
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
     let (status, _) = json(
         &app,
         &cookie,
@@ -1006,8 +1018,8 @@ async fn a_page_beside_the_spec_replaces_the_kit_in_the_preview() {
     .await;
     let created = create_run(&app, &cookie).await;
     let id = created["id"].as_str().expect("id");
-    let run = wait_for(&app, &cookie, id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
 
     let (status, headers, body) = call(
         &app,
@@ -1066,7 +1078,7 @@ async fn a_cut_answer_is_refused_whole_and_the_chat_says_so() {
         .await;
     let created = create_run(&app, &cookie).await;
     let id = created["id"].as_str().expect("id");
-    wait_for(&app, &cookie, id, &["previewing", "failed"]).await;
+    wait_for(&app, &cookie, id, &["awaiting_approval", "failed"]).await;
     let (status, _, _) = call(
         &app,
         &cookie,
@@ -1091,7 +1103,7 @@ async fn a_cut_answer_is_refused_whole_and_the_chat_says_so() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(said, "the chat names the cut");
-    let run = wait_for(&app, &cookie, id, &["previewing"]).await;
+    let run = wait_for(&app, &cookie, id, &["awaiting_approval"]).await;
     assert_eq!(
         run["previewUrl"],
         json!(format!(
@@ -1123,8 +1135,8 @@ async fn a_share_request_is_a_proposal_and_a_navigation_not_a_pass() {
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
     let first = run["previewUrl"].as_str().unwrap().to_owned();
 
     let (status, _) = json(
@@ -1199,7 +1211,7 @@ async fn a_share_request_is_a_proposal_and_a_navigation_not_a_pass() {
         json!(first),
         "the dashboard did not move: {run}"
     );
-    assert_eq!(run["status"], json!("previewing"));
+    assert_eq!(run["status"], json!("awaiting_approval"));
     assert_eq!(
         model_requests(&proxy).await.len(),
         2,
@@ -1241,8 +1253,8 @@ async fn an_edit_prompt_gets_a_form_grounded_in_the_field_schema_when_the_app_ma
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
 
     let requests = model_requests(&proxy).await;
     assert_eq!(requests.len(), 1);
@@ -1303,8 +1315,8 @@ async fn a_form_in_an_app_that_may_not_write_is_sent_back_for_repair() {
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
     let requests = model_requests(&proxy).await;
     assert_eq!(requests.len(), 2, "one pass, one repair");
     assert!(requests[0]
@@ -1337,8 +1349,8 @@ async fn a_kpi_request_is_computed_from_the_endpoint_and_handed_to_the_person() 
         .as_str()
         .unwrap()
         .to_owned();
-    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
-    assert_eq!(run["status"], json!("previewing"), "{run}");
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
     let before = events(&app, &cookie, &id).await.len();
 
     let (status, _) = json(
@@ -1546,4 +1558,463 @@ async fn an_unattended_analysis_run_ends_awaiting_approval_with_report_md() {
         Some(REPORT_MD),
         "report.md must be in files"
     );
+}
+
+// ---- An application: code on the App SDK (T-0680, SDK-10…SDK-17) ----
+
+/// The row types Model Tools renders for the `bikes` model in these cases.
+const JC_TYPES: &str = "export interface BikeHireDockingStation { id: string; type: \"BikeHireDockingStation\"; name?: string; availableBikeNumber?: number }\n";
+
+/// A page and its test that build: the SDK hook, the row type as a type-only import.
+const STATIONS: &str = "import { useEntities } from \"@joinedcontext/sdk\";\nimport type { BikeHireDockingStation } from \"../jc-types\";\n\nexport function Stations() {\n  const { rows } = useEntities<BikeHireDockingStation>(\"BikeHireDockingStation\");\n  return <ul>{rows.map((row) => <li key={row.id}>{row.name}</li>)}</ul>;\n}";
+const STATIONS_TEST: &str = "import { render } from \"@testing-library/react\";\nimport { describe, expect, it } from \"vitest\";\nimport { JcProvider } from \"@joinedcontext/sdk\";\nimport { stubClient } from \"@joinedcontext/sdk/testing\";\nimport { Stations } from \"./Stations\";\n\ndescribe(\"Stations\", () => {\n  it(\"lists the stations\", () => {\n    const { container } = render(<JcProvider client={stubClient()}><Stations /></JcProvider>);\n    expect(container).toBeTruthy();\n  });\n});";
+/// The same page reaching for a package SDK-12 does not allow.
+const STATIONS_AXIOS: &str = "import axios from \"axios\";\n\nexport function Stations() {\n  return <p>{String(axios)}</p>;\n}";
+const APP_PAGES: &str = "      { id: \"overview\", label: \"Overview\", render: () => <Overview schema={schema} /> },\n";
+const APP_IMPORTS: &str = "import { TypePage } from \"./pages/TypePage\";\n";
+
+/// The blocks of an application with a Stations page wired into `App.tsx`.
+fn stations_app(page: &str) -> Vec<(&'static str, &'static str, String)> {
+    vec![
+        ("src/pages/Stations.tsx", "", page.to_owned()),
+        ("src/pages/Stations.test.tsx", "", STATIONS_TEST.to_owned()),
+        (
+            "src/App.tsx",
+            APP_IMPORTS,
+            format!(
+                "{}import {{ Stations }} from \"./pages/Stations\";",
+                APP_IMPORTS.trim_end()
+            ),
+        ),
+        (
+            "src/App.tsx",
+            APP_PAGES,
+            format!(
+                "{}      {{ id: \"stations\", label: \"Stations\", render: () => <Stations /> }},",
+                APP_PAGES
+            ),
+        ),
+    ]
+}
+
+fn code_answer(prose: &str, blocks: &[(&str, &str, String)]) -> String {
+    let blocks: Vec<(&str, &str, &str)> = blocks
+        .iter()
+        .map(|(path, search, replace)| (*path, *search, replace.as_str()))
+        .collect();
+    answer(prose, &blocks)
+}
+
+/// The endpoint's schema surface through the proxy and Model Tools' `/generate` (SDK-10).
+async fn mount_types(proxy: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/v1/data/schema/index.json"))
+        .and(header_regex("authorization", "^Bearer jcr_"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "endpoint": SLUG,
+            "models": [{ "name": "bikes", "version": 1, "types": ["BikeHireDockingStation"], "artifacts": {} }]
+        })))
+        .mount(proxy)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/data/schema/v1/model.linkml.yaml"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(BIKES_LINKML))
+        .mount(proxy)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/model-tools/generate"))
+        .and(wiremock::matchers::body_json(
+            json!({ "source": BIKES_LINKML }),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "typescript": JC_TYPES, "errors": [] })),
+        )
+        .mount(proxy)
+        .await;
+}
+
+/// A run of the default kind, `application`.
+async fn create_application(app: &axum::Router, cookie: &str) -> String {
+    let (status, body) = json(
+        app,
+        cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(json!({
+            "appName": "city-bikes-overview",
+            "endpointName": "helsinki-bikes",
+            "appClass": "static",
+            "visibility": "project",
+            "prompt": "A page listing the bike stations",
+            "dataNeeds": [{
+                "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
+                "types": ["BikeHireDockingStation"],
+                "attrs": ["name", "location", "availableBikeNumber"],
+                "operations": ["queryEntity"]
+            }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    body["id"].as_str().expect("a run id").to_owned()
+}
+
+/// The run once its preview is version `v`, or a panic after ten seconds.
+async fn wait_for_version(app: &axum::Router, cookie: &str, id: &str, v: u32) -> Value {
+    let uri = format!("/api/v1/projects/{PROJECT}/agent-runs/{id}");
+    let mut last = Value::Null;
+    for _ in 0..200 {
+        let (_, run) = json(app, cookie, Method::GET, &uri, None).await;
+        if run["previewUrl"]
+            .as_str()
+            .is_some_and(|url| url.ends_with(&format!("?v={v}")))
+            && run["status"] == json!("previewing")
+        {
+            return run;
+        }
+        last = run;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the run never showed version {v}: {last}");
+}
+
+async fn files_of(state: &AppState, id: &str) -> Value {
+    state
+        .agents
+        .get_run(id)
+        .await
+        .expect("the store answers")
+        .expect("the run")
+        .files
+}
+
+fn template_file(path: &str) -> String {
+    joinedcontext_portal::agents::preview::template_files()
+        .remove(path)
+        .unwrap_or_else(|| panic!("{path} is in the template"))
+}
+
+/// A forge that takes one commit of many files (SDK-17).
+async fn code_forge() -> MockServer {
+    let forge = forge().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/org/manifests/contents"))
+        .respond_with(
+            ResponseTemplate::new(201)
+                .set_body_json(json!({ "files": [], "commit": { "sha": "c0de" } })),
+        )
+        .mount(&forge)
+        .await;
+    forge
+}
+
+#[tokio::test]
+async fn an_application_starts_on_the_template_and_one_call_writes_it_with_its_tests() {
+    let forge = code_forge().await;
+    let answer = code_answer(
+        "A page listing the stations, with its test.",
+        &stations_app(STATIONS),
+    );
+    let (state, app, cookie, proxy) =
+        portal_state_with("openai-compatible", &[answer], Some(&forge)).await;
+    mount_types(&proxy).await;
+    let id = create_application(&app, &cookie).await;
+    let run = wait_for_version(&app, &cookie, &id, 2).await;
+    assert!(run["firstVersionMs"].is_i64(), "{run}");
+
+    // The template was on screen before the model was asked (SDK-15).
+    let log = events(&app, &cookie, &id).await;
+    let first_preview = log
+        .iter()
+        .position(|(kind, _)| kind == "preview")
+        .expect("a preview event");
+    let building = log
+        .iter()
+        .position(|(kind, payload)| kind == "status" && payload["status"] == json!("building"))
+        .expect("the building status");
+    assert!(first_preview < building, "{log:?}");
+    assert!(log[first_preview].1["previewUrl"]
+        .as_str()
+        .is_some_and(|url| url.ends_with("?v=1")));
+
+    // One call, on the code prompt, with the SDK, every template file and the endpoint's types.
+    let requests = model_requests(&proxy).await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["max_tokens"], json!(64000));
+    let system = requests[0]["messages"][0]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(system.contains("AN APPLICATION ON THE JOINEDCONTEXT APP SDK"));
+    let user = requests[0]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    for part in [
+        "## THE SDK",
+        "function useEntities",
+        "### src/components/EntityTable.tsx",
+        "### functions/summary.test.ts",
+        "### package.json",
+        JC_TYPES.trim(),
+        "Kaivopuisto",
+        "may NOT write",
+        "A page listing the bike stations",
+    ] {
+        assert!(user.contains(part), "the pack lacks {part}");
+    }
+
+    // The files: the template, the rendered types, the page and its test, the wiring.
+    let files = files_of(&state, &id).await;
+    assert_eq!(files["src/jc-types.ts"], json!(JC_TYPES));
+    assert_eq!(
+        files["src/pages/Stations.tsx"],
+        json!(format!("{STATIONS}\n"))
+    );
+    assert!(files["src/pages/Stations.test.tsx"].is_string());
+    let app_tsx = files["src/App.tsx"].as_str().unwrap_or_default();
+    assert!(
+        app_tsx.contains("import { Stations } from \"./pages/Stations\";"),
+        "{app_tsx}"
+    );
+    assert!(app_tsx.contains("<Stations />"), "{app_tsx}");
+    assert_eq!(files["package.json"], json!(template_file("package.json")));
+    let tool = log
+        .iter()
+        .find(|(kind, payload)| kind == "tool" && payload["tool"] == json!("apply_patch"))
+        .expect("the apply_patch event");
+    assert_eq!(
+        tool.1["applied"].as_array().map(Vec::len),
+        Some(4),
+        "{tool:?}"
+    );
+
+    // One commit on the run branch with the whole project under the application's folder.
+    let commits: Vec<Value> = forge
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| {
+            r.method.as_str() == "POST" && r.url.path() == "/api/v1/repos/org/manifests/contents"
+        })
+        .map(|r| serde_json::from_slice(&r.body).unwrap_or(Value::Null))
+        .collect();
+    assert_eq!(commits.len(), 1, "{commits:?}");
+    let paths: Vec<&str> = commits[0]["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f["path"].as_str())
+        .collect();
+    for path in [
+        "projects/helsinki/apps/city-bikes-overview/src/pages/Stations.tsx",
+        "projects/helsinki/apps/city-bikes-overview/src/jc-types.ts",
+        "projects/helsinki/apps/city-bikes-overview/package.json",
+    ] {
+        assert!(paths.contains(&path), "{path} not in {paths:?}");
+    }
+    assert!(log
+        .iter()
+        .any(|(kind, payload)| kind == "commit" && payload["sha"] == json!("c0de")));
+
+    // The preview is the code document, or 503 in a build without the SDK runtime.
+    let (status, headers, body) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        run["previewUrl"].as_str().expect("a preview url"),
+        None,
+    )
+    .await;
+    match status {
+        StatusCode::OK => {
+            assert!(String::from_utf8_lossy(&body).contains("importmap"));
+            assert!(headers.contains_key(header::CONTENT_SECURITY_POLICY));
+        }
+        StatusCode::SERVICE_UNAVAILABLE => {}
+        other => panic!(
+            "the preview answered {other}: {}",
+            String::from_utf8_lossy(&body)
+        ),
+    }
+}
+
+#[tokio::test]
+async fn a_block_outside_the_writable_paths_is_refused_and_the_rest_lands() {
+    let mut blocks = stations_app(STATIONS);
+    blocks.push(("src/main.tsx", "", "console.log(\"mine\");".to_owned()));
+    blocks.push(("package.json", "", "{}".to_owned()));
+    let (state, app, cookie, proxy) = portal_state_with(
+        "openai-compatible",
+        &[code_answer("Stations.", &blocks)],
+        None,
+    )
+    .await;
+    mount_types(&proxy).await;
+    let id = create_application(&app, &cookie).await;
+    wait_for_version(&app, &cookie, &id, 2).await;
+
+    let log = events(&app, &cookie, &id).await;
+    let tool = log
+        .iter()
+        .find(|(kind, payload)| kind == "tool" && payload["tool"] == json!("apply_patch"))
+        .expect("the apply_patch event");
+    assert_eq!(tool.1["exitCode"], json!(1));
+    let refused: Vec<&str> = tool.1["refused"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r["path"].as_str())
+        .collect();
+    assert_eq!(refused, ["src/main.tsx", "package.json"]);
+    assert!(tool.1["refused"][0]["reason"]
+        .as_str()
+        .is_some_and(|reason| reason.contains("never src/main.tsx")));
+    // A refusal alone is on the log, not a repair (SDK-11).
+    assert_eq!(model_requests(&proxy).await.len(), 1);
+    let files = files_of(&state, &id).await;
+    assert_eq!(files["src/main.tsx"], json!(template_file("src/main.tsx")));
+    assert_eq!(files["package.json"], json!(template_file("package.json")));
+    assert!(files["src/pages/Stations.tsx"].is_string());
+}
+
+#[tokio::test]
+async fn a_refused_import_goes_back_once_with_its_file_and_line_and_the_repair_lands() {
+    let (state, app, cookie, proxy) = portal_state_with(
+        "openai-compatible",
+        &[
+            code_answer("Stations.", &stations_app(STATIONS_AXIOS)),
+            code_answer(
+                "Stations without axios.",
+                &[("src/pages/Stations.tsx", "", STATIONS.to_owned())],
+            ),
+        ],
+        None,
+    )
+    .await;
+    mount_types(&proxy).await;
+    let id = create_application(&app, &cookie).await;
+    wait_for_version(&app, &cookie, &id, 2).await;
+
+    let requests = model_requests(&proxy).await;
+    assert_eq!(requests.len(), 2);
+    let repair = requests[1]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(repair.contains("does not build"), "{repair}");
+    assert!(
+        repair.contains("- src/pages/Stations.tsx:1:"),
+        "the repair names file and line"
+    );
+    assert!(repair.contains("axios"));
+    let files = files_of(&state, &id).await;
+    assert_eq!(
+        files["src/pages/Stations.tsx"],
+        json!(format!("{STATIONS}\n"))
+    );
+    let log = events(&app, &cookie, &id).await;
+    assert!(log.iter().any(|(kind, payload)| {
+        kind == "thought"
+            && payload["text"].as_str().is_some_and(|t| {
+                t.starts_with("The application does not build; asking for a repair")
+            })
+    }));
+}
+
+#[tokio::test]
+async fn a_second_failure_ends_the_first_run_and_the_frame_keeps_the_template() {
+    let (state, app, cookie, proxy) = portal_state_with(
+        "openai-compatible",
+        &[
+            code_answer("Stations.", &stations_app(STATIONS_AXIOS)),
+            code_answer("Still axios.", &stations_app(STATIONS_AXIOS)),
+        ],
+        None,
+    )
+    .await;
+    mount_types(&proxy).await;
+    let id = create_application(&app, &cookie).await;
+    let run = wait_for(&app, &cookie, &id, &["previewing", "failed"]).await;
+    assert_eq!(run["status"], json!("previewing"), "{run}");
+    assert!(
+        run["previewUrl"]
+            .as_str()
+            .is_some_and(|url| url.ends_with("?v=1")),
+        "{run}"
+    );
+    assert!(run.get("firstVersionMs").is_none(), "{run}");
+
+    assert_eq!(model_requests(&proxy).await.len(), 2);
+    let files = files_of(&state, &id).await;
+    assert!(files.get("src/pages/Stations.tsx").is_none());
+    assert_eq!(files["src/App.tsx"], json!(template_file("src/App.tsx")));
+    assert_eq!(files["src/jc-types.ts"], json!(JC_TYPES));
+    let log = events(&app, &cookie, &id).await;
+    assert!(log.iter().any(|(kind, payload)| kind == "thought"
+        && payload["text"].as_str().is_some_and(|t| t
+            .starts_with("The application still does not build")
+            && t.contains("axios"))));
+}
+
+#[tokio::test]
+async fn the_first_runtime_error_goes_back_once_and_the_next_brings_the_template_back() {
+    let repaired = STATIONS.replace("{rows.map", "{(rows ?? []).map");
+    let (state, app, cookie, proxy) = portal_state_with(
+        "openai-compatible",
+        &[
+            code_answer("Stations.", &stations_app(STATIONS)),
+            code_answer(
+                "Rows may be absent.",
+                &[("src/pages/Stations.tsx", "", repaired.clone())],
+            ),
+        ],
+        None,
+    )
+    .await;
+    mount_types(&proxy).await;
+    let id = create_application(&app, &cookie).await;
+    wait_for_version(&app, &cookie, &id, 2).await;
+
+    let report =
+        |message: &str| json!({ "message": message, "file": "src/pages/Stations.tsx", "line": 6 });
+    let uri = format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview-errors");
+    let (status, _, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &uri,
+        Some(report("rows is undefined")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    wait_for_version(&app, &cookie, &id, 3).await;
+    let requests = model_requests(&proxy).await;
+    assert_eq!(requests.len(), 2);
+    let repair = requests[1]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        repair.contains("- src/pages/Stations.tsx:6: rows is undefined"),
+        "{repair}"
+    );
+    assert_eq!(
+        files_of(&state, &id).await["src/pages/Stations.tsx"],
+        json!(format!("{repaired}\n"))
+    );
+
+    // The repair was the one; the next error ends the first run on the template (SDK-14).
+    let (status, _, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &uri,
+        Some(report("still broken")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    wait_for_version(&app, &cookie, &id, 4).await;
+    assert_eq!(model_requests(&proxy).await.len(), 2);
+    let files = files_of(&state, &id).await;
+    assert!(files.get("src/pages/Stations.tsx").is_none());
+    assert_eq!(files["src/App.tsx"], json!(template_file("src/App.tsx")));
 }

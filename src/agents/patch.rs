@@ -92,6 +92,25 @@ pub fn apply(
     blocks: &[Block],
     allowed: &[&str],
 ) -> (Vec<Applied>, Vec<Refused>) {
+    apply_where(
+        files,
+        blocks,
+        |path| allowed.contains(&path),
+        &format!(
+            "not a file this run may write; the files are: {}",
+            allowed.join(", ")
+        ),
+    )
+}
+
+/// [`apply`] for a run whose writable files are a rule rather than a list (SDK-11): `allowed`
+/// says whether a path may be written, `refusal` is what a refused path is told.
+pub fn apply_where(
+    files: &mut BTreeMap<String, String>,
+    blocks: &[Block],
+    allowed: impl Fn(&str) -> bool,
+    refusal: &str,
+) -> (Vec<Applied>, Vec<Refused>) {
     let mut applied = Vec::new();
     let mut refused = Vec::new();
     for block in blocks {
@@ -99,14 +118,11 @@ pub fn apply(
         if path.is_empty()
             || path.starts_with('/')
             || path.split('/').any(|part| part == "..")
-            || !allowed.contains(&path)
+            || !allowed(path)
         {
             refused.push(Refused {
                 path: block.path.clone(),
-                reason: format!(
-                    "not a file this run may write; the files are: {}",
-                    allowed.join(", ")
-                ),
+                reason: refusal.to_owned(),
             });
             continue;
         }

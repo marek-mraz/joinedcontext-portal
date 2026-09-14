@@ -476,3 +476,53 @@ fn git_error_converts_to_api_error() {
     };
     assert!(matches!(ApiError::from(api), ApiError::Internal(_)));
 }
+
+#[tokio::test]
+async fn change_files_uploads_and_deletes_in_one_commit() {
+    let server = MockServer::start().await;
+    let client = GiteaClient::new(
+        server.uri().parse().unwrap(),
+        "test-owner",
+        "test-repo",
+        "secret-token",
+    )
+    .unwrap();
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/contents"))
+        .and(header("authorization", "token secret-token"))
+        .and(body_json(json!({
+            "files": [
+                { "operation": "upload", "path": "apps/a/src/App.tsx", "content": "aGVsbG8=" },
+                { "operation": "upload", "path": "apps/a/package.json", "content": "e30=" },
+                { "operation": "delete", "path": "apps/a/src/Old.tsx", "sha": "blob-old" }
+            ],
+            "message": "first run",
+            "branch": "agent/a",
+            "author": { "name": "Alice", "email": "alice@example.com" },
+            "committer": { "name": "Alice", "email": "alice@example.com" }
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "files": [], "commit": { "sha": "commit-of-both" }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let sha = client
+        .change_files(
+            "agent/a",
+            "first run",
+            Author {
+                name: "Alice",
+                email: "alice@example.com",
+            },
+            &[
+                ("/apps/a/src/App.tsx".to_owned(), "hello".to_owned()),
+                ("apps/a/package.json".to_owned(), "{}".to_owned()),
+            ],
+            &[("apps/a/src/Old.tsx".to_owned(), "blob-old".to_owned())],
+        )
+        .await
+        .unwrap();
+    assert_eq!(sha, "commit-of-both");
+}

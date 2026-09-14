@@ -17,8 +17,10 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast;
 
 use crate::agents::access::Access;
+use crate::agents::code;
 use crate::agents::kit;
 use crate::agents::patch;
+use crate::agents::preview;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
@@ -32,6 +34,9 @@ const SAMPLES_PER_TYPE: u32 = 5;
 /// Output tokens one pass may spend: a specification is a few hundred, a page of the model's
 /// own (the escape hatch) ten thousand and more. A cut answer is refused whole, below.
 const OUTPUT_BUDGET: u32 = 24000;
+/// Output tokens one call of a code run may spend: a whole application with its tests is tens
+/// of thousands, and a cut answer is refused whole all the same.
+const CODE_OUTPUT_BUDGET: u32 = 64000;
 /// One model call, wall clock: the budget above at a hundred tokens a second, with room.
 const CALL_TIMEOUT: Duration = Duration::from_secs(480);
 /// The name the driver signs its own chat lines with; a message by anyone else is a pass.
@@ -298,6 +303,11 @@ impl Driver {
         if self.kind == "conversation" {
             return self.drive_conversation(&mut inbox, deadline).await;
         }
+        // An application is code on the App SDK (ADR-N-022); a dashboard and an analysis stay
+        // on the kit until it is retired (T-0681).
+        if self.kind == "application" {
+            return self.drive_code(&mut inbox, deadline).await;
+        }
 
         self.status(AgentRunStatus::Starting).await?;
         let types = self.types();
@@ -373,6 +383,519 @@ impl Driver {
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// A code run (Architecture/20 §4.1): the template on screen at once, one call writes the
+    /// application over it, what does not build goes back once, and every message after the
+    /// first run is one more pass over the same files.
+    async fn drive_code(
+        &self,
+        inbox: &mut broadcast::Receiver<AgentRunEvent>,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), String> {
+        self.status(AgentRunStatus::Starting).await?;
+        let mut files = preview::template_files();
+        match self.jc_types().await {
+            Ok(types) => {
+                files.insert(code::TYPES.to_owned(), types);
+            }
+            Err(reason) => {
+                self.thought(&format!(
+                    "The row types of the endpoint were not rendered, so the template's \
+                     placeholder types stand: {reason}"
+                ))
+                .await?
+            }
+        }
+        let template = files.clone();
+        // What the run branch holds, so every commit carries what changed since the last one.
+        let mut committed = BTreeMap::new();
+        let mut versioned = false;
+        self.publish_code(
+            &files,
+            "The template is on screen; writing the application for your request.",
+            None,
+            false,
+        )
+        .await?;
+
+        let types = self.types();
+        if !types.is_empty() {
+            self.thought(&format!(
+                "Reading {SAMPLES_PER_TYPE} entities of {} through the endpoint.",
+                types.join(", ")
+            ))
+            .await?;
+        }
+        let samples = self.samples(&types).await;
+        self.status(AgentRunStatus::Building).await?;
+        self.thought(&self.model_line()).await?;
+
+        let mut conversation: Vec<(String, String)> = Vec::new();
+        // SDK-14: the first run sends one problem back, a runtime error of its preview included.
+        // `first_run` holds while its preview may still report one; `may_repair` says whether
+        // that report gets the repair or brings the template back.
+        let (mut first_run, mut may_repair) = (false, false);
+        match self
+            .code_pass(&samples, &mut files, &conversation, &self.prompt)
+            .await?
+        {
+            CodePass::Built { prose, repaired } => {
+                self.publish_code(&files, &prose, Some(&mut committed), true)
+                    .await?;
+                versioned = true;
+                conversation.push((self.prompt.clone(), prose));
+                (first_run, may_repair) = (true, !repaired);
+            }
+            CodePass::Unchanged(prose) => {
+                self.thought(&prose).await?;
+                conversation.push((self.prompt.clone(), prose));
+            }
+            CodePass::Failed => {}
+        }
+        self.status(AgentRunStatus::Testing).await?;
+        self.status(AgentRunStatus::Previewing).await?;
+        if self.unattended {
+            self.status(AgentRunStatus::AwaitingApproval).await?;
+        }
+
+        loop {
+            let event = tokio::select! {
+                event = inbox.recv() => event,
+                () = tokio::time::sleep_until(deadline) => {
+                    self.expire().await;
+                    return Ok(());
+                }
+            };
+            let event = match event {
+                Ok(event) => event,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return Ok(()),
+            };
+            match event.kind.as_str() {
+                "status" if is_terminal(&event) => return Ok(()),
+                // ponytail: a report names no preview version, so one posted by a frame the run
+                // has replaced counts too; a version in the report is the upgrade.
+                "preview_error" if first_run => {
+                    let error = preview_error_line(&event.payload);
+                    let mut failure = error.clone();
+                    if std::mem::take(&mut may_repair) {
+                        self.thought(&format!(
+                            "The preview reported an error; asking for a repair:\n{error}"
+                        ))
+                        .await?;
+                        let before = files.clone();
+                        let (prose, errors) = self
+                            .code_step(
+                                &samples,
+                                &mut files,
+                                &[],
+                                &self.prompt,
+                                Some(std::slice::from_ref(&error)),
+                            )
+                            .await?;
+                        if errors.is_empty() && files != before {
+                            let prose = or_else(prose, "The error is repaired.");
+                            self.publish_code(&files, &prose, Some(&mut committed), false)
+                                .await?;
+                            continue;
+                        }
+                        if !errors.is_empty() {
+                            failure = errors.join("\n");
+                        }
+                    }
+                    first_run = false;
+                    files = template.clone();
+                    self.publish_code(
+                        &files,
+                        &format!(
+                            "The application did not recover, so the frame shows the template \
+                             again:\n{failure}"
+                        ),
+                        Some(&mut committed),
+                        false,
+                    )
+                    .await?;
+                }
+                "message" if sent_by_person(&event) => {
+                    first_run = false;
+                    let text = event
+                        .payload
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    self.thought("Working on your message…").await?;
+                    match self
+                        .code_pass(&samples, &mut files, &conversation, &text)
+                        .await
+                    {
+                        Ok(CodePass::Built { prose, .. }) => {
+                            self.publish_code(&files, &prose, Some(&mut committed), !versioned)
+                                .await?;
+                            versioned = true;
+                            conversation.push((text, prose));
+                        }
+                        Ok(CodePass::Unchanged(prose)) => {
+                            self.thought(&prose).await?;
+                            conversation.push((text, prose));
+                        }
+                        Ok(CodePass::Failed) => {}
+                        Err(message) => {
+                            self.thought(&format!("The pass failed: {message}")).await?
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// One pass of a code run: a call, its blocks applied, the project checked, and one repair
+    /// call when it does not build (SDK-13, SDK-14). A pass that still does not build leaves the
+    /// files as they were and says why.
+    async fn code_pass(
+        &self,
+        samples: &Value,
+        files: &mut BTreeMap<String, String>,
+        conversation: &[(String, String)],
+        instruction: &str,
+    ) -> Result<CodePass, String> {
+        let before = files.clone();
+        let (mut prose, mut errors) = self
+            .code_step(samples, files, conversation, instruction, None)
+            .await?;
+        let repaired = !errors.is_empty();
+        if repaired {
+            self.thought(&format!(
+                "The application does not build; asking for a repair:\n{}",
+                errors.join("\n")
+            ))
+            .await?;
+            (prose, errors) = self
+                .code_step(samples, files, conversation, instruction, Some(&errors))
+                .await?;
+        }
+        if !errors.is_empty() {
+            *files = before;
+            self.thought(&format!(
+                "The application still does not build, so the preview keeps the version before \
+                 this request:\n{}",
+                errors.join("\n")
+            ))
+            .await?;
+            return Ok(CodePass::Failed);
+        }
+        if *files == before {
+            return Ok(CodePass::Unchanged(or_else(
+                prose,
+                "The application is unchanged.",
+            )));
+        }
+        Ok(CodePass::Built {
+            prose: or_else(prose, "The application is ready."),
+            repaired,
+        })
+    }
+
+    /// One call over the project: the blocks applied where SDK-11 allows, then what keeps the
+    /// files from building. A refused block goes back only beside a problem, so a stray path
+    /// never costs a second call.
+    async fn code_step(
+        &self,
+        samples: &Value,
+        files: &mut BTreeMap<String, String>,
+        conversation: &[(String, String)],
+        instruction: &str,
+        errors: Option<&[String]>,
+    ) -> Result<(String, Vec<String>), String> {
+        let user = self
+            .code_pack(samples, files, conversation, instruction, errors)
+            .await;
+        let answer = self
+            .complete_within(&code::SYSTEM, &user, CODE_OUTPUT_BUDGET)
+            .await?;
+        let (blocks, prose) = patch::parse(&answer);
+        let (applied, refused) = patch::apply_where(files, &blocks, code::writable, code::REFUSAL);
+        self.event(
+            "tool",
+            json!({
+                "tool": "apply_patch",
+                "command": format!("{} block(s)", blocks.len()),
+                "exitCode": if refused.is_empty() { 0 } else { 1 },
+                "applied": applied,
+                "refused": refused,
+            }),
+        )
+        .await?;
+        let mut problems = code::problems(files);
+        if blocks.is_empty() && conversation.is_empty() {
+            problems.push(
+                "the answer carried no SEARCH/REPLACE block; write the application as blocks"
+                    .to_owned(),
+            );
+        }
+        if !problems.is_empty() {
+            problems.extend(
+                refused
+                    .iter()
+                    .map(|refused| format!("{}: {}", refused.path, refused.reason)),
+            );
+        }
+        Ok((prose, problems))
+    }
+
+    /// The user message of one code call (SDK-13): what every run of this Portal shares comes
+    /// first, so the provider's prompt cache pays for it, then the endpoint's types and data,
+    /// then the request.
+    async fn code_pack(
+        &self,
+        samples: &Value,
+        files: &BTreeMap<String, String>,
+        conversation: &[(String, String)],
+        instruction: &str,
+        errors: Option<&[String]>,
+    ) -> String {
+        let mut pack = String::from("## THE SDK\n\n");
+        pack.push_str(code::SDK_API.trim());
+        pack.push_str("\n\nWhat `@joinedcontext/sdk` exports:\n```ts\n");
+        pack.push_str(code::SDK_EXPORTS.trim());
+        pack.push_str("\n```\n\n## THE FILES OF THE PROJECT\n\n");
+        let types = files.get_key_value(code::TYPES);
+        for (path, content) in files
+            .iter()
+            .filter(|(path, _)| path.as_str() != code::TYPES)
+            .chain(types)
+        {
+            let fence = path.rsplit('.').next().unwrap_or("text");
+            pack.push_str(&format!("### {path}\n```{fence}\n{content}\n```\n"));
+        }
+        pack.push_str(
+            "\n## THE DATA\n\nData needs (types and attributes the person asked for):\n```json\n",
+        );
+        pack.push_str(&serde_json::to_string_pretty(&self.data_needs).unwrap_or_default());
+        pack.push_str("\n```\n\n");
+        if self.allows_write {
+            let schema = fields::for_endpoint(
+                &self.state,
+                &self.project,
+                &self.endpoint_slug,
+                &self.types(),
+            )
+            .await;
+            pack.push_str(
+                "The application MAY write: its data needs carry a write operation, so a form \
+                 saves through the endpoint with the person's own access. The attributes per \
+                 type as the space's DataModel declares them (JSON Schema properties):\n```json\n",
+            );
+            match schema {
+                Some(schema) => {
+                    pack.push_str(&serde_json::to_string_pretty(&schema).unwrap_or_default())
+                }
+                None => pack.push_str("{}"),
+            }
+            pack.push_str("\n```\n");
+        } else {
+            pack.push_str(
+                "The application may NOT write: its data needs carry no write operation. Add no \
+                 form and no save; when the request asks to edit, say that editing needs write \
+                 access in the data needs.\n",
+            );
+        }
+        pack.push_str(
+            "\nFive entities per type, as the SDK's rows (`options=keyValues`):\n```json\n",
+        );
+        pack.push_str(&serde_json::to_string_pretty(samples).unwrap_or_default());
+        pack.push_str("\n```\n");
+        if !conversation.is_empty() {
+            pack.push_str("\n## THE CONVERSATION SO FAR\n\n");
+            for (asked, answered) in conversation {
+                pack.push_str(&format!("Person: {asked}\nYou: {answered}\n\n"));
+            }
+        }
+        pack.push_str(&format!(
+            "\n## THE REQUEST\n\n{}\n\n## THIS CALL\n\n",
+            self.prompt
+        ));
+        match errors {
+            Some(errors) => {
+                pack.push_str(
+                    "The last answer was applied and the project does not build. Fix every \
+                     problem below, each named with its file and line, and answer with the blocks \
+                     that fix them:\n",
+                );
+                for error in errors {
+                    pack.push_str(&format!("- {error}\n"));
+                }
+                pack.push_str(&format!("\nThe request being fulfilled: {instruction}\n"));
+            }
+            None if conversation.is_empty() && instruction == self.prompt => pack.push_str(
+                "Write the whole application for the request above, with its tests, as \
+                 SEARCH/REPLACE blocks over the files of the project.\n",
+            ),
+            None => pack.push_str(&format!(
+                "The person says: {instruction}\n\nChange the application accordingly, with tests \
+                 for what you change.\n"
+            )),
+        }
+        pack
+    }
+
+    /// `src/jc-types.ts` of the run (SDK-10): the LinkML the endpoint projects, read through the
+    /// proxy like a sample, rendered by Model Tools.
+    async fn jc_types(&self) -> Result<String, String> {
+        let index = self
+            .read_entities(&format!("{}/v1/data/schema/index.json", self.proxy_base))
+            .await?;
+        let needed = self.types();
+        let models = index
+            .get("models")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        // ponytail: the first model publishing a needed type; an endpoint over two models whose
+        // types the application both needs gets the other model's types as the placeholder's.
+        let model = models
+            .iter()
+            .find(|model| {
+                model["types"].as_array().is_some_and(|types| {
+                    types
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .any(|t| needed.iter().any(|n| n == t))
+                })
+            })
+            .or(models.first())
+            .ok_or("the endpoint publishes no model")?;
+        let major = model["version"]
+            .as_u64()
+            .ok_or("the endpoint's model has no version")?;
+        let source = self
+            .read_text(&format!(
+                "{}/v1/data/schema/v{major}/model.linkml.yaml",
+                self.proxy_base
+            ))
+            .await?;
+        crate::tools::model_tools::typescript(&self.state, &source).await
+    }
+
+    /// Stores the files, says `prose`, commits what changed since `committed` when given, and
+    /// points the frame at the new version (SDK-15, SDK-17).
+    async fn publish_code(
+        &self,
+        files: &BTreeMap<String, String>,
+        prose: &str,
+        committed: Option<&mut BTreeMap<String, String>>,
+        first_version: bool,
+    ) -> Result<(), String> {
+        let stored: serde_json::Map<String, Value> = files
+            .iter()
+            .map(|(path, content)| (path.clone(), Value::String(content.clone())))
+            .collect();
+        self.state
+            .agents
+            .set_files(&self.run_id, Value::Object(stored))
+            .await
+            .map_err(|err| err.to_string())?;
+        self.thought(prose).await?;
+        if let Some(committed) = committed {
+            self.commit_files(files, committed, prose).await?;
+        }
+        let pass = self.passes.fetch_add(1, Ordering::SeqCst) + 1;
+        let url = format!(
+            "/api/v1/projects/{}/agent-runs/{}/preview?v={pass}",
+            self.project, self.run_id
+        );
+        self.state
+            .agents
+            .set_preview_url(&self.run_id, &url)
+            .await
+            .map_err(|err| err.to_string())?;
+        if first_version {
+            self.first_version().await;
+        }
+        self.event("preview", json!({ "previewUrl": url })).await
+    }
+
+    /// What changed since `committed`, as one commit on the run's branch (SDK-17, AP-24). A
+    /// Portal without a forge keeps the run in its store alone; a forge that refuses is said in
+    /// the chat and the version stands.
+    async fn commit_files(
+        &self,
+        files: &BTreeMap<String, String>,
+        committed: &mut BTreeMap<String, String>,
+        message: &str,
+    ) -> Result<(), String> {
+        let Some(gitea) = self.state.gitea.clone() else {
+            return Ok(());
+        };
+        if self.branch.is_empty() {
+            return Ok(());
+        }
+        let uploads: Vec<(String, String)> = files
+            .iter()
+            .filter(|(path, content)| committed.get(*path) != Some(*content))
+            .map(|(path, content)| (format!("{}{path}", self.path_prefix), content.clone()))
+            .collect();
+        let gone: Vec<String> = committed
+            .keys()
+            .filter(|path| !files.contains_key(*path))
+            .map(|path| format!("{}{path}", self.path_prefix))
+            .collect();
+        if uploads.is_empty() && gone.is_empty() {
+            return Ok(());
+        }
+        let outcome: Result<String, GitError> = async {
+            if gitea.branch_head(&self.branch).await.is_err() {
+                let base = gitea.default_branch().await?;
+                gitea.create_branch(&self.branch, &base).await?;
+            }
+            let mut deletes = Vec::new();
+            for path in gone {
+                if let Some(file) = gitea.get_file(&path, &self.branch).await? {
+                    deletes.push((path, file.sha));
+                }
+            }
+            gitea
+                .change_files(
+                    &self.branch,
+                    message,
+                    Author {
+                        name: &self.created_by,
+                        email: "agent@joinedcontext.local",
+                    },
+                    &uploads,
+                    &deletes,
+                )
+                .await
+        }
+        .await;
+        match outcome {
+            Ok(sha) => {
+                *committed = files.clone();
+                self.event("commit", json!({ "sha": sha, "message": message }))
+                    .await
+            }
+            Err(err) => {
+                self.thought(&format!("The commit did not land in the forge: {err}"))
+                    .await
+            }
+        }
+    }
+
+    /// The run's first version and the timings it closes (AG-66).
+    async fn first_version(&self) {
+        if let Err(err) = self.state.agents.record_first_version(&self.run_id).await {
+            tracing::warn!(run = %self.run_id, error = %err, "first version not recorded");
+        }
+        if let Ok(Some(r)) = self.state.agents.get_run(&self.run_id).await {
+            if let Some(ms) = r.first_frame_ms {
+                crate::telemetry::record_run_timing("first_frame", &r.profile, ms);
+            }
+            if let Some(ms) = r.first_version_ms {
+                crate::telemetry::record_run_timing("first_version", &r.profile, ms);
             }
         }
     }
@@ -737,17 +1260,7 @@ To build an application or a dashboard, explain in one or two plain sentences th
             .await
             .map_err(|err| err.to_string())?;
         if pass == 1 {
-            if let Err(err) = self.state.agents.record_first_version(&self.run_id).await {
-                tracing::warn!(run = %self.run_id, error = %err, "first version not recorded");
-            }
-            if let Ok(Some(r)) = self.state.agents.get_run(&self.run_id).await {
-                if let Some(ms) = r.first_frame_ms {
-                    crate::telemetry::record_run_timing("first_frame", &r.profile, ms);
-                }
-                if let Some(ms) = r.first_version_ms {
-                    crate::telemetry::record_run_timing("first_version", &r.profile, ms);
-                }
-            }
+            self.first_version().await;
         }
         self.event("preview", json!({ "previewUrl": url })).await?;
         Ok(Some(prose))
@@ -938,20 +1451,29 @@ To build an application or a dashboard, explain in one or two plain sentences th
     }
 
     async fn complete_with_system(&self, system: &str, user: &str) -> Result<String, String> {
-        match self.complete_once(system, user).await {
-            Err(reason) if reason == EMPTY_ANSWER => self.complete_once(system, user).await,
+        self.complete_within(system, user, OUTPUT_BUDGET).await
+    }
+
+    async fn complete_within(
+        &self,
+        system: &str,
+        user: &str,
+        budget: u32,
+    ) -> Result<String, String> {
+        match self.complete_once(system, user, budget).await {
+            Err(reason) if reason == EMPTY_ANSWER => self.complete_once(system, user, budget).await,
             other => other,
         }
     }
 
     /// One call through the proxy, in the body the profile's provider reads (AG-53).
-    async fn complete_once(&self, system: &str, user: &str) -> Result<String, String> {
+    async fn complete_once(&self, system: &str, user: &str, budget: u32) -> Result<String, String> {
         let (path, body) = if self.provider == "anthropic" {
             (
                 "/v1/llm/messages",
                 json!({
                     "model": self.model,
-                    "max_tokens": OUTPUT_BUDGET,
+                    "max_tokens": budget,
                     "system": system,
                     "messages": [{ "role": "user", "content": user }],
                 }),
@@ -961,7 +1483,7 @@ To build an application or a dashboard, explain in one or two plain sentences th
                 "/v1/llm/chat/completions",
                 json!({
                     "model": self.model,
-                    "max_tokens": OUTPUT_BUDGET,
+                    "max_tokens": budget,
                     "messages": [
                         { "role": "system", "content": system },
                         { "role": "user", "content": user },
@@ -998,7 +1520,7 @@ To build an application or a dashboard, explain in one or two plain sentences th
                 .is_some_and(|reason| reason == "max_tokens");
         if cut {
             return Err(format!(
-                "the answer was cut at the output budget of {OUTPUT_BUDGET} tokens and nothing \
+                "the answer was cut at the output budget of {budget} tokens and nothing \
                  was applied; ask for less at once"
             ));
         }
@@ -1168,6 +1690,12 @@ To build an application or a dashboard, explain in one or two plain sentences th
 
     /// One GET through the proxy with the run's ticket, as JSON.
     async fn read_entities(&self, url: &str) -> Result<Value, String> {
+        let body = self.read_text(url).await?;
+        serde_json::from_str::<Value>(&body).map_err(|err| err.to_string())
+    }
+
+    /// One GET through the proxy with the run's ticket, as text.
+    async fn read_text(&self, url: &str) -> Result<String, String> {
         let response = self
             .http
             .get(url)
@@ -1184,7 +1712,7 @@ To build an application or a dashboard, explain in one or two plain sentences th
                 body.chars().take(200).collect::<String>()
             ));
         }
-        serde_json::from_str::<Value>(&body).map_err(|err| err.to_string())
+        Ok(body)
     }
 
     /// A few entities per type, read through the proxy like the application will (AP-57). A
@@ -1727,6 +2255,40 @@ To build an application or a dashboard, explain in one or two plain sentences th
                 json!({ "status": AgentRunStatus::Expired.as_str(), "timestamp": now_rfc3339() }),
             )
             .await;
+    }
+}
+
+/// What one pass of a code run came to.
+enum CodePass {
+    /// The files changed and build; `repaired` when a problem went back first.
+    Built { prose: String, repaired: bool },
+    /// The answer changed no file: a turn of the conversation, not a version.
+    Unchanged(String),
+    /// Still not building after the repair: the files are as they were and the chat says why.
+    Failed,
+}
+
+/// `prose` trimmed, or `fallback` when the model wrote none.
+fn or_else(prose: String, fallback: &str) -> String {
+    match prose.trim() {
+        "" => fallback.to_owned(),
+        text => text.to_owned(),
+    }
+}
+
+/// A `preview_error` event as the line the model gets back: `file:line: message`.
+fn preview_error_line(payload: &Value) -> String {
+    let message = payload
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("the preview reported an error");
+    match (
+        payload.get("file").and_then(Value::as_str),
+        payload.get("line").and_then(Value::as_u64),
+    ) {
+        (Some(file), Some(line)) => format!("{file}:{line}: {message}"),
+        (Some(file), None) => format!("{file}: {message}"),
+        _ => message.to_owned(),
     }
 }
 

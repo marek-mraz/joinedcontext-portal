@@ -1019,6 +1019,8 @@ export interface components {
             linkml?: string | null;
             owl?: string | null;
             shacl?: string | null;
+            /** @description `jc-types.ts`: the row types a generated application compiles against (SDK-10). */
+            typescript?: string | null;
         };
         /** @description Everything the Portal shows that names or themes an installation. */
         Branding: {

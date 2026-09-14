@@ -191,6 +191,25 @@ struct PutFilePayload<'a> {
 }
 
 #[derive(Serialize)]
+struct ChangeFilesPayload<'a> {
+    files: Vec<ChangeFileDto>,
+    message: &'a str,
+    branch: &'a str,
+    author: Author<'a>,
+    committer: Author<'a>,
+}
+
+#[derive(Serialize)]
+struct ChangeFileDto {
+    operation: &'static str,
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sha: Option<String>,
+}
+
+#[derive(Serialize)]
 struct DeleteFilePayload<'a> {
     message: &'a str,
     branch: &'a str,
@@ -572,6 +591,51 @@ impl GiteaClient {
             .or(body.sha)
             .ok_or_else(|| GitError::Transport("missing commit sha in response".to_string()))?;
         Ok(commit_sha)
+    }
+
+    /// `POST /contents` — one commit on `branch` that creates or replaces every
+    /// `(path, content)` of `uploads` and deletes every `(path, blob sha)` of `deletes`, with
+    /// human commit attribution. `upload` needs no blob sha, so a run commits what it changed
+    /// without reading each file first; only a deletion names the blob it removes.
+    pub async fn change_files(
+        &self,
+        branch: &str,
+        message: &str,
+        author: Author<'_>,
+        uploads: &[(String, String)],
+        deletes: &[(String, String)],
+    ) -> Result<String, GitError> {
+        let url = self.repo_url("contents")?;
+        let payload = ChangeFilesPayload {
+            files: uploads
+                .iter()
+                .map(|(path, content)| ChangeFileDto {
+                    operation: "upload",
+                    path: path.trim_start_matches('/').to_owned(),
+                    content: Some(STANDARD.encode(content.as_bytes())),
+                    sha: None,
+                })
+                .chain(deletes.iter().map(|(path, sha)| ChangeFileDto {
+                    operation: "delete",
+                    path: path.trim_start_matches('/').to_owned(),
+                    content: None,
+                    sha: Some(sha.clone()),
+                }))
+                .collect(),
+            message,
+            branch,
+            author,
+            committer: author,
+        };
+        let res = self.send(self.http.post(url).json(&payload)).await?;
+        let res = Self::check_status(res).await?;
+        let body: FileCommitResponse = res
+            .json()
+            .await
+            .map_err(|e| GitError::Transport(format!("failed to parse commit response: {e}")))?;
+        body.commit
+            .map(|c| c.sha)
+            .ok_or_else(|| GitError::Transport("missing commit sha in response".to_string()))
     }
 
     /// `DELETE /contents/{path}` — deletes a file with human commit attribution.
