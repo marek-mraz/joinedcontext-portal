@@ -2019,10 +2019,18 @@ async fn an_application_is_written_in_one_call_and_the_template_never_reaches_th
         .as_str()
         .is_some_and(|t| t.contains("template"))));
 
-    // One call, on the code prompt, with the SDK, every template file and the endpoint's types.
+    // A small first version on the code prompt, with the SDK, every template file and the
+    // endpoint's types, then the call that completes it (SDK-13).
     let requests = model_requests(&proxy).await;
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0]["max_tokens"], json!(64000));
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["max_tokens"], json!(20000));
+    assert!(requests[0]["messages"][1]["content"]
+        .as_str()
+        .is_some_and(|user| user.contains("FIRST VERSION")));
+    assert_eq!(requests[1]["max_tokens"], json!(64000));
+    assert!(requests[1]["messages"][1]["content"]
+        .as_str()
+        .is_some_and(|user| user.contains("Complete the application for the request")));
     let system = requests[0]["messages"][0]["content"]
         .as_str()
         .unwrap_or_default();
@@ -2152,7 +2160,7 @@ async fn a_block_outside_the_writable_paths_is_refused_and_the_rest_lands() {
         .as_str()
         .is_some_and(|reason| reason.contains("never src/main.tsx")));
     // A refusal alone is on the log, not a repair (SDK-11).
-    assert_eq!(model_requests(&proxy).await.len(), 1);
+    assert_eq!(model_requests(&proxy).await.len(), 2);
     let files = files_of(&state, &id).await;
     assert_eq!(files["src/main.tsx"], json!(template_file("src/main.tsx")));
     assert_eq!(files["package.json"], json!(template_file("package.json")));
@@ -2178,7 +2186,7 @@ async fn a_refused_import_goes_back_once_with_its_file_and_line_and_the_repair_l
     wait_for_version(&app, &cookie, &id, 1).await;
 
     let requests = model_requests(&proxy).await;
-    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.len(), 3);
     let repair = requests[1]["messages"][1]["content"]
         .as_str()
         .unwrap_or_default();
@@ -2295,7 +2303,7 @@ async fn a_version_whose_pages_show_the_sampled_entities_is_checked_without_a_mo
         said,
         "Checked 2 pages: 3 of 5 sampled entities shown, no errors."
     );
-    assert_eq!(model_requests(&proxy).await.len(), 1);
+    assert_eq!(model_requests(&proxy).await.len(), 2);
 }
 
 #[tokio::test]
@@ -2305,6 +2313,7 @@ async fn what_the_preview_shows_wrong_goes_back_as_a_verification_pass_and_a_new
         "openai-compatible",
         &[
             code_answer("Stations.", &stations_app(STATIONS)),
+            code_answer("Nothing to add.", &[]),
             code_answer(
                 "Rows may be absent.",
                 &[("src/pages/Stations.tsx", "", repaired.clone())],
@@ -2341,8 +2350,8 @@ async fn what_the_preview_shows_wrong_goes_back_as_a_verification_pass_and_a_new
     wait_for_version(&app, &cookie, &id, 2).await;
 
     let requests = model_requests(&proxy).await;
-    assert_eq!(requests.len(), 2);
-    let pass = requests[1]["messages"][1]["content"]
+    assert_eq!(requests.len(), 3);
+    let pass = requests[2]["messages"][1]["content"]
         .as_str()
         .unwrap_or_default();
     for part in [
@@ -2369,6 +2378,7 @@ async fn verification_stops_after_three_passes_and_says_what_is_left() {
         "openai-compatible",
         &[
             code_answer("Stations.", &stations_app(STATIONS)),
+            code_answer("Nothing to add.", &[]),
             code_answer("One.", &[("src/pages/Stations.tsx", "", page(1))]),
             code_answer("Two.", &[("src/pages/Stations.tsx", "", page(2))]),
             code_answer("Three.", &[("src/pages/Stations.tsx", "", page(3))]),
@@ -2394,5 +2404,5 @@ async fn verification_stops_after_three_passes_and_says_what_is_left() {
     let left = wait_for_thought(&app, &cookie, &id, "The preview still shows problems").await;
     assert!(left.contains("after 3 verification passes"), "{left}");
     assert!(left.contains("shows undefined"), "{left}");
-    assert_eq!(model_requests(&proxy).await.len(), 4);
+    assert_eq!(model_requests(&proxy).await.len(), 5);
 }

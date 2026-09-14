@@ -38,6 +38,14 @@ const OUTPUT_BUDGET: u32 = 24000;
 /// Output tokens one call of a code run may spend: a whole application with its tests is tens
 /// of thousands, and a cut answer is refused whole all the same.
 const CODE_OUTPUT_BUDGET: u32 = 64000;
+
+/// What the conversation records as the instruction of the completing call.
+const COMPLETE_TURN: &str = "Complete the application.";
+
+/// The output ceiling of a code run's first version (SDK-13): the answer is asked to stay near
+/// 6,000 tokens, which a model writes in about 35 seconds; the ceiling leaves room for its
+/// reasoning so a slightly longer answer is not cut.
+const FIRST_VERSION_BUDGET: u32 = 20000;
 /// One model call, wall clock: the budget above at a hundred tokens a second, with room.
 const CALL_TIMEOUT: Duration = Duration::from_secs(480);
 /// The name the driver signs its own chat lines with; a message by anyone else is a pass.
@@ -526,6 +534,37 @@ impl Driver {
                         .await?,
                 );
                 conversation.push((instruction.clone(), prose));
+                // The first version is small so it is on screen fast; the rest follows while the
+                // person looks at it (SDK-13).
+                self.thought("Completing the application: the other pages, functions and tests.")
+                    .await?;
+                match self
+                    .code_pass(
+                        &samples,
+                        &mut files,
+                        &conversation,
+                        &instruction,
+                        Some(Fix::Complete),
+                        true,
+                    )
+                    .await
+                {
+                    Ok(CodePass::Built { prose }) => {
+                        shown = Some(
+                            self.publish_code(&files, &prose, Some(&mut committed), false)
+                                .await?,
+                        );
+                        conversation.push((COMPLETE_TURN.to_owned(), prose));
+                    }
+                    Ok(CodePass::Unchanged(prose)) => self.thought(&prose).await?,
+                    Ok(CodePass::Failed) => {}
+                    Err(reason) => {
+                        self.thought(&format!(
+                            "The first version stays on screen; completing it failed: {reason}"
+                        ))
+                        .await?
+                    }
+                }
             }
             CodePass::Unchanged(prose) => {
                 self.thought(&prose).await?;
@@ -752,7 +791,7 @@ impl Driver {
                 files,
                 check.conversation,
                 check.instruction,
-                Some(&asked),
+                Some(Fix::Preview(&asked)),
                 true,
             )
             .await
@@ -788,18 +827,12 @@ impl Driver {
         files: &mut BTreeMap<String, String>,
         conversation: &[(String, String)],
         instruction: &str,
-        found: Option<&[String]>,
+        ask: Option<Fix<'_>>,
         on_screen: bool,
     ) -> Result<CodePass, String> {
         let before = files.clone();
         let (mut prose, mut errors) = self
-            .code_step(
-                samples,
-                files,
-                conversation,
-                instruction,
-                found.map(Fix::Preview),
-            )
+            .code_step(samples, files, conversation, instruction, ask)
             .await?;
         if !errors.is_empty() {
             self.thought(&format!(
@@ -856,12 +889,16 @@ impl Driver {
         instruction: &str,
         fix: Option<Fix<'_>>,
     ) -> Result<(String, Vec<String>), String> {
+        let first = fix.is_none() && conversation.is_empty() && instruction == self.prompt;
         let user = self
             .code_pack(samples, files, conversation, instruction, fix)
             .await;
-        let answer = self
-            .complete_within(&code::SYSTEM, &user, CODE_OUTPUT_BUDGET)
-            .await?;
+        let budget = if first {
+            FIRST_VERSION_BUDGET
+        } else {
+            CODE_OUTPUT_BUDGET
+        };
+        let answer = self.complete_within(&code::SYSTEM, &user, budget).await?;
         let (blocks, prose, unread) = patch::parse(&answer);
         let (applied, refused) = patch::apply_where(files, &blocks, code::writable, code::REFUSAL);
         self.event(
@@ -993,9 +1030,21 @@ impl Driver {
                 }
                 pack.push_str(&format!("\nThe request being fulfilled: {instruction}\n"));
             }
+            Some(Fix::Complete) => pack.push_str(
+                "The first version of the application is on screen: the files above are it. \
+                 Complete the application for the request: the other pages, filters, charts, \
+                 maps, exports and functions the request and the data call for, and a test \
+                 beside every page, component and function the application has. Keep the design \
+                 and the page of the first version; change them only where completing needs it. \
+                 Answer with SEARCH/REPLACE blocks over the files above.\n",
+            ),
             None if conversation.is_empty() && instruction == self.prompt => pack.push_str(
-                "Write the whole application for the request above, with its tests, as \
-                 SEARCH/REPLACE blocks over the files of the project.\n",
+                "Write the FIRST VERSION of the application for the request above, which goes on \
+                 screen at once: `src/App.tsx`, the design (`src/design-tokens.json`, \
+                 `src/app.css`) and the one page the request is most about, complete and working \
+                 with the real data. No tests, no other page and no function unless that page \
+                 needs it: a second call adds them while the person already looks at this \
+                 version. Keep the whole answer under 6,000 tokens.\n",
             ),
             None => pack.push_str(&format!(
                 "The person says: {instruction}\n\nChange the application accordingly, with tests \
@@ -3098,6 +3147,8 @@ enum Fix<'a> {
     Build(&'a [String]),
     /// The project builds and its preview's check found these (SDK-28).
     Preview(&'a [String]),
+    /// The first version is on screen; the rest of the application follows (SDK-13).
+    Complete,
 }
 
 /// A generated version in the frame: its `v`, the sequence number of its `preview` event, so
