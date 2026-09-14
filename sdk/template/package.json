@@ -1,19 +1,11 @@
 {
-  "name": "@joinedcontext/sdk",
+  "name": "jc-app",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.20.0",
-  "exports": {
-    ".": "./src/sdk/index.ts",
-    "./server": "./src/sdk/server.ts",
-    "./testing": "./src/sdk/testing.ts",
-    "./style.css": "./src/sdk/style.css",
-    "./tokens.json": "./src/sdk/tokens.json"
-  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && vite build --config vite.worker.config.ts && vite build --config vite.template.config.ts",
-    "typecheck": "tsc -b --noEmit",
+    "build": "tsc -b && vite build",
     "test": "vitest run"
   },
   "dependencies": {
@@ -21,6 +13,7 @@
     "@deck.gl/core": "^9.4.0",
     "@deck.gl/layers": "^9.4.0",
     "@deck.gl/mapbox": "^9.4.0",
+    "@joinedcontext/sdk": "0.1.0",
     "echarts": "^6.1.0",
     "maplibre-gl": "^6.7.0",
     "react": "^19.2.8",
@@ -28,7 +21,6 @@
     "recharts": "^3.10.1"
   },
   "devDependencies": {
-    "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.2.0",

@@ -1,0 +1,39 @@
+/* The application's own layout, over the token variables the SDK sets from design-tokens.json. */
+
+.app-page {
+  display: grid;
+  gap: var(--jc-space-4, 1rem);
+}
+
+.app-grid {
+  display: grid;
+  gap: var(--jc-space-4, 1rem);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+}
+
+.app-card {
+  display: grid;
+  gap: var(--jc-space-3, 0.75rem);
+  padding: var(--jc-space-4, 1rem);
+  background: var(--jc-color-card, #f8fafc);
+  border: 1px solid var(--jc-color-line, #e2e8f0);
+  border-radius: var(--jc-radius-lg, 10px);
+}
+
+.app-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jc-space-2, 0.5rem);
+}
+
+.app-card h2 {
+  margin: 0;
+  font-size: var(--jc-font-size-lg, 1rem);
+}
+
+.app-detail {
+  display: grid;
+  gap: var(--jc-space-2, 0.5rem);
+  justify-items: start;
+}

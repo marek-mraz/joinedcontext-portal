@@ -9,7 +9,10 @@ import type { Cell, Column } from "./ngsi";
 
 /** One attribute as the endpoint's schema describes it: a JSON Schema property, trimmed. */
 export interface FieldSchema {
-  type?: string;
+  /** A draft-07 type, or a list of them: Model Tools writes `["number", "null"]` for an optional slot. */
+  type?: string | string[];
+  /** The NGSI-LD kind Model Tools annotates every property with (DM-05). */
+  "x-ngsi-ld-kind"?: string;
   enum?: string[];
   minimum?: number;
   maximum?: number;
@@ -47,13 +50,16 @@ export function fieldOf(name: string, schema: TypeSchema | undefined, kind: Colu
   if (Array.isArray(property.enum) && property.enum.length > 0) {
     return { name, input: "select", options: property.enum.map(String), required };
   }
-  if (property.type === "number" || property.type === "integer") {
+  const types = Array.isArray(property.type) ? property.type : property.type ? [property.type] : [];
+  const ngsiKind = property["x-ngsi-ld-kind"];
+  if (types.includes("number") || types.includes("integer")) {
     return { name, input: "number", min: property.minimum, max: property.maximum, required };
   }
-  if (property.type === "boolean") {
+  if (types.includes("boolean")) {
     return { name, input: "checkbox", required };
   }
-  if (property.type === "object" || kind === "geo") {
+  // A LanguageProperty is an object in the schema too, and its row cell is text.
+  if (ngsiKind === "GeoProperty" || (ngsiKind === undefined && types.includes("object")) || kind === "geo") {
     return { name, input: "geo", required };
   }
   if (property.format === "date-time" || property.format === "date" || kind === "date") {
