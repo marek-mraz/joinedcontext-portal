@@ -7,7 +7,7 @@
  * approval, excluding the wait for the platform to merge and reconcile.
  */
 import { expect, test, type Page } from "@playwright/test";
-import { APPROVER, STEWARD, approve, proposedChange, signIn } from "./portal";
+import { APPROVER, STEWARD, approve, listedNames, proposeDelete, proposedChange, signIn } from "./portal";
 
 const PROJECT = "helsinki";
 const SUFFIX = process.env.E2E_SUFFIX ?? new Date().toISOString().slice(11, 16).replace(":", "");
@@ -18,7 +18,7 @@ const VIEWER = { user: "demo.viewer@hel.fi", password: process.env.VIEWER_PASSWO
 // grant on the space is refused there (PF-50, EP-14).
 const ORGANIZATION_SLUG = "ydp6nddchg4sewmylsiclg4377mlldrj";
 
-test.setTimeout(420_000);
+test.setTimeout(720_000);
 
 async function read(page: Page, url: string): Promise<{ status: number; entity: Record<string, unknown> | null }> {
   return page.evaluate(async (target) => {
@@ -88,4 +88,11 @@ test("an endpoint proposed and approved through the UI: Live, the hidden attribu
   expect(viewerPublic.entity).not.toHaveProperty(HIDDEN);
   const viewerOrganization = await read(viewer.page, `${new URL(link).origin}/api/endpoint/${ORGANIZATION_SLUG}/ngsi-ld/v1/entities`);
   expect(viewerOrganization.status).toBe(403);
+
+  // The take leaves the project as it found it (T-0667): the endpoint is deleted through the
+  // same review, and the list no longer names it once the reconciler has read the merge.
+  await approve(approver.page, PROJECT, await proposeDelete(page, PROJECT, "endpoints", ENDPOINT), ENDPOINT);
+  await expect
+    .poll(async () => (await listedNames(page, PROJECT, "endpoints")).includes(ENDPOINT), { timeout: 180_000, intervals: [10_000] })
+    .toBe(false);
 });
