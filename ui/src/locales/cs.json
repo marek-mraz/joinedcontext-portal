@@ -1147,7 +1147,7 @@
       "published": "Publikováno",
       "failed": "Spuštění selhalo.",
       "cancelled": "Spuštění bylo zastaveno.",
-      "expired": "Spuštění vyčerpalo svůj čas."
+      "expired": "Spuštění skončilo; náhled zůstává tak, jak byl postaven."
     },
     "timeline": {
       "title": "Průběh",

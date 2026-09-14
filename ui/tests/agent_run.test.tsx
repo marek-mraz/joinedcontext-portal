@@ -189,6 +189,18 @@ describe("watching a run", () => {
     ).toBeInTheDocument();
   });
 
+  it("says an expired run has ended and keeps its preview, with no failure line (T-0669)", async () => {
+    renderRun({ run: { ...RUN, status: "expired", previewUrl: "/api/v1/projects/helsinki/agent-runs/run-1/preview?v=1" } });
+    await screen.findByRole("heading", { name: RUN.appName });
+
+    const timeline = screen.getByRole("region", { name: en.agentRun.timeline.title });
+    const ended = within(timeline).getByRole("status");
+    expect(ended).toHaveTextContent(en.agentRun.states.expired);
+    expect(ended.className).not.toContain("text-danger");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(en.agentRun.states.expired).not.toMatch(/out of time|failed/i);
+  });
+
   it("renders the agent's lines as they arrive", async () => {
     renderRun();
     await screen.findByRole("heading", { name: RUN.appName });

@@ -1147,7 +1147,7 @@
       "published": "Published",
       "failed": "The run failed.",
       "cancelled": "The run was stopped.",
-      "expired": "The run ran out of time."
+      "expired": "The run has ended; the preview stays as it was built."
     },
     "timeline": {
       "title": "Progress",

@@ -1147,7 +1147,7 @@
       "published": "Veröffentlicht",
       "failed": "Der Lauf ist gescheitert.",
       "cancelled": "Der Lauf wurde gestoppt.",
-      "expired": "Dem Lauf ist die Zeit ausgegangen."
+      "expired": "Der Lauf ist beendet; die Vorschau bleibt, wie sie gebaut wurde."
     },
     "timeline": {
       "title": "Fortschritt",

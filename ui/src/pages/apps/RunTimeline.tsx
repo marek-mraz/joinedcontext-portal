@@ -47,7 +47,16 @@ export function RunTimeline({
         })}
       </ol>
       {stopped && (
-        <p role="status" className="mt-2 text-sm font-medium text-danger">
+        // An expired run has ended with its preview intact (T-0669): the ordinary tone, not
+        // the failure's.
+        <p
+          role="status"
+          className={
+            status === "expired"
+              ? "mt-2 text-sm font-medium text-fg-muted"
+              : "mt-2 text-sm font-medium text-danger"
+          }
+        >
           {t(`agentRun.states.${status}`, { defaultValue: status })}
         </p>
       )}

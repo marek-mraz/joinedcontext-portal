@@ -1317,17 +1317,19 @@ impl Driver {
             .await;
     }
 
+    /// The wall clock ran out while the run was previewing: the run has ended, the preview
+    /// stays as built (AP-60). Not a failure, so no `error` travels with the status and the
+    /// page shows the state's own words (T-0669).
     async fn expire(&self) {
-        let message = "the run's wall clock ran out";
         let _ = self
             .state
             .agents
-            .set_status(&self.run_id, AgentRunStatus::Expired, Some(message))
+            .set_status(&self.run_id, AgentRunStatus::Expired, None)
             .await;
         let _ = self
             .event(
                 "status",
-                json!({ "status": AgentRunStatus::Expired.as_str(), "error": message, "timestamp": now_rfc3339() }),
+                json!({ "status": AgentRunStatus::Expired.as_str(), "timestamp": now_rfc3339() }),
             )
             .await;
     }
