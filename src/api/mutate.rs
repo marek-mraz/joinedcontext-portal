@@ -141,14 +141,19 @@ pub(crate) fn resolve_repo_path(
     kind_info: &resource::KindInfo,
     project: &str,
 ) -> Result<String, ApiError> {
-    // A space-scoped kind (Endpoint, DataModel) names its space in `contextSpaceRef`, which is
-    // what jc-core files it under; the project's name only stands in when nothing else says.
+    // An Endpoint and a DataModel are filed under the space their `contextSpaceRef` names, as
+    // jc-core's `context_space` says; every other kind under the project's own space.
+    let by_reference = matches!(kind_info.kind, "Endpoint" | "DataModel");
     let space = envelope
         .metadata
         .labels
         .get("joinedcontext.com/space")
         .cloned()
-        .or_else(|| crate::api::assistant::ref_name(&envelope.spec["contextSpaceRef"]))
+        .or_else(|| {
+            by_reference
+                .then(|| crate::api::assistant::ref_name(&envelope.spec["contextSpaceRef"]))
+                .flatten()
+        })
         .or_else(|| envelope.metadata.namespace.clone());
 
     resource::repository_path(
