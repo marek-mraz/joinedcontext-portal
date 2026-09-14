@@ -103,6 +103,31 @@ function renderPortal() {
     if (path.endsWith(`/agent-runs/${RUN_ID}`)) {
       return json(RUN);
     }
+    if (path.endsWith("/agent-runs/new-conv-run-id")) {
+      return json({
+        ...RUN,
+        id: "new-conv-run-id",
+        appName: "",
+        kind: "conversation",
+        status: "interviewing",
+        prompt: "Which datasets say anything about bikes?",
+      });
+    }
+    if (path.endsWith("/assistant/conversations") && request.method === "POST") {
+      return json(
+        {
+          ...RUN,
+          id: "new-conv-run-id",
+          appName: "",
+          kind: "conversation",
+          status: "interviewing",
+        },
+        202,
+      );
+    }
+    if (path.endsWith("/agent-runs") && request.method === "GET") {
+      return json({ items: [] });
+    }
     if (path.endsWith("/spaces")) {
       return json(SPACES);
     }
@@ -242,7 +267,8 @@ describe("the assistant dock", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: en.assistant.hide })).not.toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: en.assistant.open })).not.toBeInTheDocument();
+    // Closing forgets the run; the bubble stays so the person can always ask again (UI-51).
+    expect(screen.getByRole("button", { name: en.assistant.open })).toBeInTheDocument();
     expect(window.sessionStorage.getItem("jc.assistant.run")).toBeNull();
   });
 
@@ -259,5 +285,95 @@ describe("the assistant dock", () => {
 
     expect(window.location.pathname).toBe(before);
     expect(screen.queryByText(/opened/)).not.toBeInTheDocument();
+  });
+
+  it("renders bubble on page without a run, opens empty state and starts conversation on example click", async () => {
+    window.sessionStorage.clear();
+    window.history.pushState({}, "", `/projects/${PROJECT}/spaces`);
+    renderPortal();
+
+    const bubble = await screen.findByRole("button", { name: en.assistant.open });
+    expect(bubble).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(bubble);
+
+    const emptyState = await screen.findByTestId("assistant-empty");
+    expect(emptyState).toBeInTheDocument();
+    expect(screen.getByText(i18n.t("assistant.empty.lead"))).toBeInTheDocument();
+
+    const exampleButton = screen.getByRole("button", {
+      name: i18n.t("assistant.empty.examples.find"),
+    });
+    await user.click(exampleButton);
+
+    await waitFor(() => {
+      expect(
+        fetchCalls().some(
+          (req) =>
+            req.method === "POST" &&
+            req.url.includes(`/projects/${PROJECT}/assistant/conversations`),
+        ),
+      ).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("assistant-empty")).toBeNull();
+    });
+    expect(screen.getByRole("heading", { name: en.assistant.title })).toBeInTheDocument();
+  });
+
+  it("leaves full screen on Escape key", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+    await screen.findByRole("heading", { name: RUN.appName });
+    const dock = (await screen.findByRole("button", { name: en.assistant.hide })).closest(
+      "aside",
+    ) as HTMLElement;
+
+    await user.click(within(dock).getByRole("button", { name: en.assistant.fullScreen }));
+    expect(dock.className).toContain("fixed");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(dock.className).not.toContain("fixed");
+    });
+  });
+
+  it("shows busy dot on bubble while newest event is a person message", async () => {
+    renderPortal();
+    await screen.findByRole("heading", { name: RUN.appName });
+    await waitFor(() => {
+      expect(StubEventSource.opened.length).toBeGreaterThan(0);
+    });
+
+    const dock = (await screen.findByRole("button", { name: en.assistant.hide })).closest(
+      "aside",
+    ) as HTMLElement;
+    const user = userEvent.setup();
+    await user.click(within(dock).getByRole("button", { name: en.assistant.hide }));
+
+    const bubble = screen.getByRole("button", { name: en.assistant.open });
+    expect(within(bubble).queryByTestId("assistant-busy")).toBeNull();
+
+    await emitToEveryStream("message", {
+      seq: 2,
+      kind: "message",
+      payload: { text: "Can you change the colors?", sentBy: "jana.kovacova" },
+    });
+
+    await waitFor(() => {
+      expect(within(bubble).getByTestId("assistant-busy")).toBeInTheDocument();
+    });
+
+    await emitToEveryStream("thought", {
+      seq: 3,
+      kind: "thought",
+      payload: { text: "Adjusting color scheme..." },
+    });
+
+    await waitFor(() => {
+      expect(within(bubble).queryByTestId("assistant-busy")).toBeNull();
+    });
   });
 });

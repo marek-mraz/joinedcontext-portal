@@ -6,16 +6,26 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use jc_core::kinds::Verb;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::ToSchema;
 
+use crate::agents::oneshot;
+use crate::agents::profile::Profile;
+use crate::agents::run::{digest_prompt, mint_run_id, mint_ticket, AgentRun, AgentRunStatus};
 use crate::agents::share;
+use crate::agents::store::now_rfc3339;
+use crate::api::agent_runs::{
+    agent_settings, default_profile, expiry, publish_event, status_payload, unavailable,
+    CreatedRun, MAX_PROMPT_CHARS,
+};
 use crate::api::pipelines::metrics_for;
 use crate::auth::CurrentUser;
-use crate::error::ApiError;
+use crate::error::{ApiError, ProblemDetails};
 use crate::resource::{is_dns1123, ResourceEnvelope};
 use crate::state::AppState;
 use crate::store::ListOptions;
@@ -455,12 +465,165 @@ pub async fn propose_endpoint(
         .map(Json)
 }
 
+/// Request payload for starting or continuing an assistant conversation.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartConversation {
+    pub message: String,
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
+    pub continues: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/projects/{project}/assistant/conversations",
+    tag = "agents",
+    params(("project" = String, Path, description = "Project name")),
+    request_body = StartConversation,
+    responses(
+        (status = 202, description = "The conversation run, queued", body = CreatedRun),
+        (status = 400, description = "Invalid request or invalid continuation", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "No role grants proposing an App here", body = ProblemDetails),
+        (status = 503, description = "No agent runner, or no such profile", body = ProblemDetails)
+    )
+)]
+pub async fn start_conversation(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(project): Path<String>,
+    Json(request): Json<StartConversation>,
+) -> Result<(StatusCode, Json<CreatedRun>), ApiError> {
+    let settings = agent_settings(&state)?;
+
+    crate::permissions::for_request(&state, &user.0.identity, &project).check(
+        "App",
+        Verb::Propose,
+        None,
+    )?;
+
+    if request.message.trim().is_empty() {
+        return Err(ApiError::BadRequest("message must not be empty".into()));
+    }
+    if request.message.chars().count() > MAX_PROMPT_CHARS {
+        return Err(ApiError::BadRequest(format!(
+            "message is longer than {MAX_PROMPT_CHARS} characters"
+        )));
+    }
+
+    let profile_name = request.profile.clone().unwrap_or_else(default_profile);
+    let profile = Profile::load(&state.mirror, &profile_name)?;
+
+    if let Some(parent_id) = &request.continues {
+        let parent = state
+            .agents
+            .get_run(parent_id)
+            .await
+            .map_err(unavailable)?
+            .ok_or_else(|| ApiError::BadRequest(format!("run '{parent_id}' does not exist")))?;
+        if parent.project != project {
+            return Err(ApiError::BadRequest(format!(
+                "run '{parent_id}' does not belong to project '{project}'"
+            )));
+        }
+        if parent.kind != "conversation" {
+            return Err(ApiError::BadRequest(format!(
+                "run '{parent_id}' is not a conversation run"
+            )));
+        }
+        let is_approver =
+            crate::api::changes::may_approve_anything(&state, &user.0.identity, &project).is_ok();
+        if !is_approver && parent.created_by != user.0.identity.username {
+            return Err(ApiError::BadRequest(format!(
+                "run '{parent_id}' is not visible to you"
+            )));
+        }
+    }
+
+    let id = mint_run_id();
+    let (ticket, ticket_hash) = mint_ticket();
+    let created_at = now_rfc3339();
+    let expires_at = expiry(settings.run_ttl_secs);
+
+    let run = AgentRun {
+        id: id.clone(),
+        project: project.clone(),
+        app_name: String::new(),
+        endpoint_name: String::new(),
+        endpoint_slug: String::new(),
+        profile: profile.name.clone(),
+        kind: "conversation".to_owned(),
+        unattended: false,
+        continues: request.continues.clone(),
+        app_class: "static".to_owned(),
+        visibility: "private".to_owned(),
+        prompt: request.message.clone(),
+        prompt_digest: digest_prompt(&request.message),
+        data_needs: serde_json::json!([]),
+        allows_write: false,
+        branch: String::new(),
+        path_prefix: String::new(),
+        status: AgentRunStatus::Queued.as_str().to_owned(),
+        ticket_hash,
+        workspace: None,
+        merge_request: None,
+        preview_url: None,
+        first_frame_ms: None,
+        first_version_ms: None,
+        files: serde_json::json!({}),
+        steps: 0,
+        tokens_used: 0,
+        created_by: user.0.identity.username.clone(),
+        created_at,
+        started_at: None,
+        finished_at: None,
+        expires_at,
+        error: None,
+    };
+
+    state.agents.create_run(&run).await.map_err(unavailable)?;
+    publish_event(
+        &state,
+        &id,
+        "status",
+        status_payload(AgentRunStatus::Queued),
+    )
+    .await?;
+    // The first question is a line of the chat like every later one, so the panel shows it and
+    // a continuation reads it back (AG-68). The driver subscribes after this, so it answers the
+    // prompt once, not this event as well.
+    publish_event(
+        &state,
+        &id,
+        "message",
+        serde_json::json!({ "text": run.prompt, "sentBy": run.created_by }),
+    )
+    .await?;
+
+    oneshot::spawn(
+        state.clone(),
+        &run,
+        &ticket,
+        &profile,
+        &settings.proxy_base,
+        settings.run_ttl_secs,
+    );
+
+    Ok((StatusCode::ACCEPTED, Json(CreatedRun { run, ticket: None })))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/projects/{project}/assistant/catalog", get(get_catalog))
         .route(
             "/projects/{project}/assistant/propose-endpoint",
             post(propose_endpoint),
+        )
+        .route(
+            "/projects/{project}/assistant/conversations",
+            post(start_conversation),
         )
 }
 

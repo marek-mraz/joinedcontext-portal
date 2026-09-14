@@ -26,6 +26,7 @@ export const NAV_SECTIONS = [
   { plural: "pipelines", labelKey: "nav.pipelines", icon: "pipelines" },
   { plural: "dashboards", labelKey: "nav.dashboards", icon: "dashboards" },
   { plural: "apps", labelKey: "nav.apps", icon: "apps" },
+  { plural: "assistant", labelKey: "nav.assistant", icon: "chat" },
   { plural: "approvals", labelKey: "nav.approvals", icon: "approvals" },
   { plural: "access", labelKey: "nav.access", icon: "access" },
 ] as const satisfies ReadonlyArray<{ plural: string; labelKey: string; icon: IconName }>;
@@ -171,6 +172,9 @@ export function Shell({
   // Approvals has its own routes, so the generic `$plural` match never fires for it.
   const approvalDetail = matchRoute({ to: "/projects/$project/approvals/$id" });
   const onApprovals = Boolean(approvalDetail || matchRoute({ to: "/projects/$project/approvals" }));
+  const onAssistant = Boolean(
+    matchRoute({ to: "/projects/$project/assistant", params: { project } }),
+  );
 
   const playgroundActive = Boolean(matchRoute({ to: "/playground" }));
   const allEndpointsActive = Boolean(matchRoute({ to: "/endpoints" }));
@@ -184,12 +188,14 @@ export function Shell({
   const activeSection = NAV_SECTIONS.find((section) =>
     section.plural === "approvals"
       ? onApprovals
-      : Boolean(
-          matchRoute({
-            to: "/projects/$project/$plural",
-            params: { project, plural: section.plural },
-          }),
-        ),
+      : section.plural === "assistant"
+        ? onAssistant
+        : Boolean(
+            matchRoute({
+              to: "/projects/$project/$plural",
+              params: { project, plural: section.plural },
+            }),
+          ),
   );
 
   return (
@@ -258,11 +264,21 @@ export function Shell({
               const body = <NavLabel icon={section.icon} label={t(section.labelKey)} />;
               return (
                 <li key={section.plural}>
-                  {/* Approvals has a route of its own; linking it through the generic
+                  {/* Approvals and Assistant have routes of their own; linking them through the generic
                       template would resolve to that route anyway, with a router warning. */}
                   {section.plural === "approvals" ? (
                     <Link
                       to="/projects/$project/approvals"
+                      params={{ project }}
+                      onClick={closeNav}
+                      aria-current={isActive ? "page" : undefined}
+                      className={navLinkClass(isActive)}
+                    >
+                      {body}
+                    </Link>
+                  ) : section.plural === "assistant" ? (
+                    <Link
+                      to="/projects/$project/assistant"
                       params={{ project }}
                       onClick={closeNav}
                       aria-current={isActive ? "page" : undefined}
@@ -399,7 +415,7 @@ export function Shell({
         </main>
         {/* The assistant is on the right of every page a run is remembered: a column beside
             the page, or a bubble at the bottom right when hidden (UI-45). */}
-        <AssistantDock />
+        <AssistantDock project={project} />
       </div>
 
       {branding.organisation || branding.contactEmail ? (

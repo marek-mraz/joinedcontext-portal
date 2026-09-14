@@ -28,7 +28,8 @@
     "federation": "Federácia",
     "allEndpoints": "Všetky koncové body",
     "shared": "Zdieľané odkazy",
-    "explore": "Prehliadať dáta"
+    "explore": "Prehliadať dáta",
+    "assistant": "Asistent"
   },
   "auth": {
     "lead": "Prihláste sa účtom svojej organizácie a spravujte túto platformu.",
@@ -1295,7 +1296,21 @@
     "hide": "Skryť asistenta",
     "fullScreen": "Na celú obrazovku",
     "sideView": "Späť do boku",
-    "cancel": "Zastaviť asistenta"
+    "cancel": "Zastaviť asistenta",
+    "dropHint": "Pustite sem vzorku CSV, Excel, JSON alebo PDF a dostanete návrh dátového modelu.",
+    "empty": {
+      "lead": "Pýtajte sa na dáta projektu, zdieľajte ich alebo si nechajte niečo postaviť.",
+      "examples": {
+        "find": "Ktoré datasety hovoria niečo o bicykloch?",
+        "share": "Zdieľaj bicyklové stanice s odborom dopravy.",
+        "build": "Postav dashboard dnešnej kvality ovzdušia."
+      },
+      "composer": "Opýtajte sa asistenta",
+      "send": "Odoslať",
+      "resume": "Pokračovať: {title}",
+      "recent": "Nedávne konverzácie",
+      "failed": "Konverzácia sa nezačala. Skontrolujte správu a skúste to znova."
+    }
   },
   "permissions": {
     "denied": "Vypnuté: vaša rola nedovoľuje ''{verb}'' na ''{kind}'' v tomto projekte"
@@ -1317,5 +1332,40 @@
     "laxWarning": "Mierne overenie: kontrola neprebehla alebo neuspela.",
     "findings": "Zistenia",
     "strict": "prísne overenie"
+  },
+  "assistantPage": {
+    "title": "Asistent",
+    "lead": "Vaše konverzácie a práca, ktorú pre vás urobili agenti.",
+    "filters": {
+      "kind": "Druh",
+      "status": "Stav",
+      "all": "Všetko",
+      "live": "Bežiace",
+      "ended": "Skončené",
+      "mine": "Iba moje"
+    },
+    "kinds": {
+      "conversation": "Konverzácia",
+      "application": "Aplikácia",
+      "dashboard": "Dashboard",
+      "analysis": "Analýza"
+    },
+    "open": "Otvoriť",
+    "continue": "Pokračovať",
+    "continueMessage": "Pokračujme tam, kde sme skončili.",
+    "continues": "pokračuje v staršej konverzácii",
+    "empty": "Zatiaľ nič. Opýtajte sa asistenta alebo začnite prácu nižšie.",
+    "newWork": {
+      "title": "Nová práca",
+      "kind": "Čo vytvoriť",
+      "name": "Názov",
+      "nameHint": "Malé písmená, číslice a pomlčky.",
+      "endpoint": "Endpoint",
+      "prompt": "Čo to má robiť?",
+      "start": "Spustiť",
+      "unattended": "Beží bez otázok a na konci čaká na vaše schválenie."
+    },
+    "started": "Začiatok",
+    "actions": "Akcie"
   }
 }

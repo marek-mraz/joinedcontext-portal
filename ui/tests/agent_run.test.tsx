@@ -122,7 +122,7 @@ function renderRun(options: Options = {}) {
     component: () => (
       <>
         <AgentRunPage project={PROJECT} runId={RUN_ID} onClose={() => {}} />
-        <AssistantDock />
+        <AssistantDock project={PROJECT} />
       </>
     ),
   });

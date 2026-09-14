@@ -28,7 +28,8 @@
     "federation": "Federation",
     "allEndpoints": "All endpoints",
     "shared": "Shared references",
-    "explore": "Explore data"
+    "explore": "Explore data",
+    "assistant": "Assistant"
   },
   "auth": {
     "lead": "Sign in with your organisation account to manage this platform.",
@@ -1295,7 +1296,21 @@
     "hide": "Hide the assistant",
     "fullScreen": "Full screen",
     "sideView": "Back to the side",
-    "cancel": "Stop the assistant"
+    "cancel": "Stop the assistant",
+    "dropHint": "Drop a CSV, Excel, JSON or PDF sample here to get a draft data model.",
+    "empty": {
+      "lead": "Ask about the project's data, share it, or have something built.",
+      "examples": {
+        "find": "Which datasets say anything about bikes?",
+        "share": "Share the bike stations with the transport department.",
+        "build": "Build a dashboard of today's air quality."
+      },
+      "composer": "Ask the assistant",
+      "send": "Send",
+      "resume": "Resume: {title}",
+      "recent": "Recent conversations",
+      "failed": "The conversation did not start. Check the message and try again."
+    }
   },
   "permissions": {
     "denied": "Disabled: your role does not permit ''{verb}'' on ''{kind}'' in this project"
@@ -1317,5 +1332,40 @@
     "laxWarning": "Lax validation: check has not run or passed.",
     "findings": "Findings",
     "strict": "strict validation"
+  },
+  "assistantPage": {
+    "title": "Assistant",
+    "lead": "Your conversations and the work agents did for you.",
+    "filters": {
+      "kind": "Kind",
+      "status": "State",
+      "all": "All",
+      "live": "Running",
+      "ended": "Ended",
+      "mine": "Only mine"
+    },
+    "kinds": {
+      "conversation": "Conversation",
+      "application": "Application",
+      "dashboard": "Dashboard",
+      "analysis": "Analysis"
+    },
+    "open": "Open",
+    "continue": "Continue",
+    "continueMessage": "Let's continue where we left off.",
+    "continues": "continues an earlier conversation",
+    "empty": "Nothing yet. Ask the assistant or start work below.",
+    "newWork": {
+      "title": "New work",
+      "kind": "What to make",
+      "name": "Name",
+      "nameHint": "Lowercase letters, digits and dashes.",
+      "endpoint": "Endpoint",
+      "prompt": "What should it do?",
+      "start": "Start",
+      "unattended": "It runs without asking you and waits for your approval at the end."
+    },
+    "started": "Started",
+    "actions": "Actions"
   }
 }

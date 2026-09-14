@@ -199,7 +199,15 @@ fn mirror(provider: &str) -> Arc<Mirror> {
 /// A Portal and its stub proxy. The proxy answers the sample read with five stations and the
 /// model route with the canned answers, in order.
 async fn portal(provider: &str, answers: &[String]) -> (axum::Router, String, MockServer) {
-    portal_with(provider, answers, None).await
+    let (_, app, cookie, proxy) = portal_state(provider, answers).await;
+    (app, cookie, proxy)
+}
+
+async fn portal_state(
+    provider: &str,
+    answers: &[String],
+) -> (AppState, axum::Router, String, MockServer) {
+    portal_state_with(provider, answers, None).await
 }
 
 /// A forge that has no branch and no file for this run yet, and takes the commit; it serves
@@ -251,6 +259,15 @@ async fn portal_with(
     answers: &[String],
     forge: Option<&MockServer>,
 ) -> (axum::Router, String, MockServer) {
+    let (_, app, cookie, proxy) = portal_state_with(provider, answers, forge).await;
+    (app, cookie, proxy)
+}
+
+async fn portal_state_with(
+    provider: &str,
+    answers: &[String],
+    forge: Option<&MockServer>,
+) -> (AppState, axum::Router, String, MockServer) {
     let proxy = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/v1/data/ngsi-ld/v1/entities"))
@@ -302,9 +319,9 @@ async fn portal_with(
             .expect("a forge client");
         state = state.with_gitea(Arc::new(client));
     }
-    let app = server::app(state);
+    let app = server::app(state.clone());
     let cookie = session_cookie(&config, STEWARD);
-    (app, cookie, proxy)
+    (state, app, cookie, proxy)
 }
 
 async fn call(
@@ -1326,4 +1343,142 @@ async fn a_kpi_request_is_computed_from_the_endpoint_and_handed_to_the_person() 
         && payload["text"]
             .as_str()
             .is_some_and(|t| t.contains("Average free bikes"))));
+}
+
+#[tokio::test]
+async fn a_conversation_answers_prose_stays_interviewing_and_answers_second_message() {
+    let (app, cookie, _proxy) = portal(
+        "anthropic",
+        &[
+            "You can find bike stations using the catalog search or explore view.".to_owned(),
+            "Station Kaivopuisto currently has 7 available bikes.".to_owned(),
+        ],
+    )
+    .await;
+
+    let (status, created) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({
+            "message": "Where are the bike stations?"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    assert_eq!(created["kind"], json!("conversation"));
+    assert_eq!(created["status"], json!("queued"));
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    let run = wait_for(&app, &cookie, &id, &["interviewing", "failed"]).await;
+    assert_eq!(run["status"], json!("interviewing"), "{run}");
+    assert!(
+        run["previewUrl"].is_null(),
+        "conversation runs have no preview"
+    );
+
+    let log = events(&app, &cookie, &id).await;
+    assert!(
+        log.iter().any(|(kind, payload)| kind == "thought"
+            && payload["text"]
+                .as_str()
+                .is_some_and(|t| t.contains("You can find bike stations"))),
+        "the model answer was published as a thought: {log:?}"
+    );
+
+    let (status, _) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": "How many bikes at Kaivopuisto?" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let mut said_second = false;
+    for _ in 0..100 {
+        let log = events(&app, &cookie, &id).await;
+        said_second = log.iter().any(|(kind, payload)| {
+            kind == "thought"
+                && payload["text"]
+                    .as_str()
+                    .is_some_and(|t| t.contains("Station Kaivopuisto currently has 7"))
+        });
+        if said_second {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(said_second, "second message received second thought answer");
+
+    let run_after = wait_for(&app, &cookie, &id, &["interviewing"]).await;
+    assert_eq!(run_after["status"], json!("interviewing"));
+    assert!(run_after["previewUrl"].is_null());
+}
+
+#[tokio::test]
+async fn an_unattended_analysis_run_ends_awaiting_approval_with_report_md() {
+    const REPORT_MD: &str =
+        "# Station Bike Analysis\n\nOverall bike availability across stations is 4.8.";
+    let (state, app, cookie, _proxy) = portal_state(
+        "anthropic",
+        &[answer(
+            "Analysis complete with visual dashboard and report.",
+            &[("spec.json", "", VALID_SPEC), ("report.md", "", REPORT_MD)],
+        )],
+    )
+    .await;
+
+    let (status, body) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(json!({
+            "appName": "city-bikes-analysis",
+            "endpointName": "helsinki-bikes",
+            "appClass": "static",
+            "visibility": "project",
+            "kind": "analysis",
+            "unattended": true,
+            "prompt": "Analyze station bike availability",
+            "dataNeeds": [{
+                "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
+                "types": ["BikeHireDockingStation"],
+                "attrs": ["name", "location", "availableBikeNumber"],
+                "operations": ["queryEntity"]
+            }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(body["kind"], json!("analysis"));
+    assert_eq!(body["unattended"], json!(true));
+    let id = body["id"].as_str().expect("an id").to_owned();
+
+    let run = wait_for(&app, &cookie, &id, &["awaiting_approval", "failed"]).await;
+    assert_eq!(run["status"], json!("awaiting_approval"), "{run}");
+
+    let stored = state
+        .agents
+        .get_run(&id)
+        .await
+        .expect("get_run")
+        .expect("run exists in store");
+    assert_eq!(stored.status, "awaiting_approval");
+    assert!(
+        stored.files.get("spec.json").is_some(),
+        "spec.json must be in files"
+    );
+    assert_eq!(
+        stored
+            .files
+            .get("report.md")
+            .and_then(Value::as_str)
+            .map(str::trim_end),
+        Some(REPORT_MD),
+        "report.md must be in files"
+    );
 }

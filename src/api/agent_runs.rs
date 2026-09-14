@@ -43,7 +43,7 @@ const MAX_LIST_LIMIT: i64 = 100;
 const DEFAULT_LIST_LIMIT: i64 = 20;
 /// Longest prompt a run is started from. A prompt is a paragraph, not a corpus; the brief the
 /// agent works from is the manifests and the model, not this field.
-const MAX_PROMPT_CHARS: usize = 4_000;
+pub(crate) const MAX_PROMPT_CHARS: usize = 4_000;
 /// Longest instruction a person may send into a live run. Same ceiling as the prompt: it is a
 /// sentence of steering, and a workspace reads it with the same budget as everything else.
 const MAX_MESSAGE_CHARS: usize = 4_000;
@@ -82,6 +82,12 @@ pub struct CreateRunRequest {
     /// Who may reach the published application. `public` is refused (AP-42).
     #[serde(default = "default_visibility")]
     pub visibility: String,
+    /// What kind of run to execute: application, dashboard, analysis.
+    #[serde(default = "default_kind")]
+    pub kind: String,
+    /// Whether the run executes unattended without interactive questions.
+    #[serde(default)]
+    pub unattended: bool,
     /// What the application should do, in the person's own words.
     pub prompt: String,
     /// The types, attributes and operations the application needs. Checked against what the
@@ -89,12 +95,16 @@ pub struct CreateRunRequest {
     pub data_needs: Vec<serde_json::Value>,
 }
 
-fn default_profile() -> String {
+pub(crate) fn default_profile() -> String {
     "app-builder".to_owned()
 }
 
 fn default_visibility() -> String {
     "project".to_owned()
+}
+
+fn default_kind() -> String {
+    "application".to_owned()
 }
 
 /// Query parameters for listing runs.
@@ -103,6 +113,9 @@ fn default_visibility() -> String {
 pub struct ListRunsQuery {
     pub limit: Option<i64>,
     pub app: Option<String>,
+    pub kind: Option<String>,
+    pub status: Option<String>,
+    pub mine: Option<bool>,
 }
 
 /// One page of runs, newest first.
@@ -274,6 +287,24 @@ pub async fn create_run(
         )));
     }
 
+    if request.kind == "conversation" {
+        return Err(ApiError::BadRequest(
+            "a conversation starts at /assistant/conversations".into(),
+        ));
+    }
+    if !crate::agents::run::RUN_KINDS.contains(&request.kind.as_str()) {
+        return Err(ApiError::BadRequest(format!(
+            "kind '{}' is not one of {}",
+            request.kind,
+            crate::agents::run::RUN_KINDS.join(", ")
+        )));
+    }
+    let unattended = if request.kind == "dashboard" || request.kind == "analysis" {
+        true
+    } else {
+        request.unattended
+    };
+
     // AP-42 and AP-44 in one place: public is refused, and every violation of what the
     // endpoint publishes is named at once.
     let allows_write = validate_data_needs(
@@ -287,16 +318,18 @@ pub async fn create_run(
 
     let endpoint_slug = endpoint_slug(&state, &project, &request.endpoint_name)?;
 
-    if let Some(live) = state
-        .agents
-        .live_run_for_app(&project, &request.app_name)
-        .await
-        .map_err(unavailable)?
-    {
-        return Err(ApiError::Conflict(format!(
-            "application '{}' already has a live run: {}",
-            request.app_name, live.id
-        )));
+    if request.kind != "conversation" {
+        if let Some(live) = state
+            .agents
+            .live_run_for_app(&project, &request.app_name)
+            .await
+            .map_err(unavailable)?
+        {
+            return Err(ApiError::Conflict(format!(
+                "application '{}' already has a live run: {}",
+                request.app_name, live.id
+            )));
+        }
     }
 
     let id = mint_run_id();
@@ -310,6 +343,9 @@ pub async fn create_run(
         endpoint_name: request.endpoint_name.clone(),
         endpoint_slug,
         profile: profile.name.clone(),
+        kind: request.kind.clone(),
+        unattended,
+        continues: None,
         app_class: request.app_class.clone(),
         visibility: request.visibility.clone(),
         prompt: request.prompt.clone(),
@@ -440,7 +476,7 @@ pub async fn create_run(
     )
 )]
 pub async fn list_runs(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path(project): Path<String>,
     Query(query): Query<ListRunsQuery>,
@@ -450,18 +486,24 @@ pub async fn list_runs(
         Some(n) => n.min(MAX_LIST_LIMIT),
         None => DEFAULT_LIST_LIMIT,
     };
-    let items = match query.app {
-        Some(app_name) => state
-            .agents
-            .list_runs_for_app(&project, &app_name, limit)
-            .await
-            .map_err(unavailable)?,
-        None => state
-            .agents
-            .list_runs(&project, limit)
-            .await
-            .map_err(unavailable)?,
+    let is_approver =
+        crate::api::changes::may_approve_anything(&state, &user.0.identity, &project).is_ok();
+    let created_by = if !is_approver || query.mine == Some(true) {
+        Some(user.0.identity.username.clone())
+    } else {
+        None
     };
+    let filter = crate::agents::store::RunFilter {
+        app: query.app,
+        kind: query.kind,
+        status: query.status,
+        created_by,
+    };
+    let items = state
+        .agents
+        .list_runs_filtered(&project, &filter, limit)
+        .await
+        .map_err(unavailable)?;
     Ok(Json(RunList { items }))
 }
 
@@ -741,8 +783,19 @@ pub async fn publish_run(
     Path((project, id)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
     let run = run_of(&state, &project, &id).await?;
+    if run.kind == "dashboard" {
+        return Err(ApiError::Conflict(
+            "publishing a dashboard run is not available yet".into(),
+        ));
+    }
+    if run.kind == "analysis" {
+        return Err(ApiError::Conflict("an analysis is never published".into()));
+    }
     let status = AgentRunStatus::parse(&run.status);
-    if status != Some(AgentRunStatus::Previewing) {
+    // An unattended run ends waiting for approval with its preview built, so it is published
+    // from there (AG-69).
+    let waiting = run.unattended && status == Some(AgentRunStatus::AwaitingApproval);
+    if status != Some(AgentRunStatus::Previewing) && !waiting {
         return Err(ApiError::Conflict(format!(
             "run '{id}' is '{}'; only a run that has a preview is published (AP-46)",
             run.status
@@ -768,18 +821,20 @@ pub async fn publish_run(
     )
     .await?;
 
-    state
-        .agents
-        .set_status(&id, AgentRunStatus::AwaitingApproval, None)
-        .await
-        .map_err(status_error)?;
-    publish_event(
-        &state,
-        &id,
-        "status",
-        status_payload(AgentRunStatus::AwaitingApproval),
-    )
-    .await?;
+    if !waiting {
+        state
+            .agents
+            .set_status(&id, AgentRunStatus::AwaitingApproval, None)
+            .await
+            .map_err(status_error)?;
+        publish_event(
+            &state,
+            &id,
+            "status",
+            status_payload(AgentRunStatus::AwaitingApproval),
+        )
+        .await?;
+    }
     Ok(response)
 }
 
@@ -1126,7 +1181,7 @@ async fn run_of(state: &AppState, project: &str, id: &str) -> Result<AgentRun, A
 }
 
 /// Records one event and hands it to every connected stream.
-async fn publish_event(
+pub(crate) async fn publish_event(
     state: &AppState,
     run_id: &str,
     kind: &str,
@@ -1154,7 +1209,7 @@ fn sse(event: &AgentRunEvent) -> Event {
         .data(data.to_string())
 }
 
-fn status_payload(status: AgentRunStatus) -> serde_json::Value {
+pub(crate) fn status_payload(status: AgentRunStatus) -> serde_json::Value {
     serde_json::json!({ "status": status.as_str(), "timestamp": now_rfc3339() })
 }
 
@@ -1162,7 +1217,7 @@ fn terminal(run: &AgentRun) -> bool {
     AgentRunStatus::parse(&run.status).is_some_and(|status| status.is_terminal())
 }
 
-fn agent_settings(state: &AppState) -> Result<&AgentSettings, ApiError> {
+pub(crate) fn agent_settings(state: &AppState) -> Result<&AgentSettings, ApiError> {
     state.config.agent_settings.as_ref().ok_or_else(|| {
         ApiError::Unavailable("this Portal has no agent runner configured (AG-33)".into())
     })
@@ -1187,13 +1242,13 @@ fn endpoint_slug(state: &AppState, project: &str, endpoint: &str) -> Result<Stri
         .ok_or_else(|| ApiError::BadRequest(format!("endpoint '{endpoint}' has no slug (EP-02)")))
 }
 
-fn expiry(ttl_secs: i64) -> String {
+pub(crate) fn expiry(ttl_secs: i64) -> String {
     (time::OffsetDateTime::now_utc() + time::Duration::seconds(ttl_secs))
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default()
 }
 
-fn unavailable(err: StoreError) -> ApiError {
+pub(crate) fn unavailable(err: StoreError) -> ApiError {
     ApiError::Unavailable(err.to_string())
 }
 

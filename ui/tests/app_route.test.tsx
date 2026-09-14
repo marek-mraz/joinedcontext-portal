@@ -171,7 +171,7 @@ function renderAppRoute(name: string, options: { runs?: (typeof RUN)[]; runDetai
       return (
         <>
           <AppPage project={project} name={appName} />
-          <AssistantDock />
+          <AssistantDock project={project} />
         </>
       );
     },

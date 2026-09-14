@@ -8,6 +8,9 @@ use utoipa::ToSchema;
 
 const SLUG_ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
 
+/// The four kinds of builder runs (AG-67..AG-71).
+pub const RUN_KINDS: [&str; 4] = ["conversation", "application", "dashboard", "analysis"];
+
 /// Where one builder run stands (Architecture/19 §5). The wire name of every variant is the
 /// name of the state in that chapter, which is why the rename is `snake_case` and not
 /// `lowercase`: `awaiting_approval` is one state, not one word.
@@ -107,6 +110,10 @@ pub struct AgentRun {
     pub endpoint_name: String,
     pub endpoint_slug: String,
     pub profile: String,
+    pub kind: String,
+    pub unattended: bool,
+    #[serde(default)]
+    pub continues: Option<String>,
     pub app_class: String,
     pub visibility: String,
     pub prompt: String,

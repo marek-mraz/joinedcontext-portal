@@ -359,6 +359,39 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "mine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -972,6 +1005,87 @@
           },
           "503": {
             "description": "Git forge unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/assistant/conversations": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "start_conversation",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartConversation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "The conversation run, queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or invalid continuation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No role grants proposing an App here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No agent runner, or no such profile",
             "content": {
               "application/json": {
                 "schema": {
@@ -4312,6 +4426,8 @@
           "endpointName",
           "endpointSlug",
           "profile",
+          "kind",
+          "unattended",
           "appClass",
           "visibility",
           "prompt",
@@ -4339,6 +4455,12 @@
           },
           "branch": {
             "type": "string"
+          },
+          "continues": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "createdAt": {
             "type": "string"
@@ -4387,6 +4509,9 @@
           "id": {
             "type": "string"
           },
+          "kind": {
+            "type": "string"
+          },
           "mergeRequest": {
             "type": [
               "integer",
@@ -4431,6 +4556,9 @@
           "tokensUsed": {
             "type": "integer",
             "format": "int64"
+          },
+          "unattended": {
+            "type": "boolean"
           },
           "visibility": {
             "type": "string"
@@ -5066,6 +5194,10 @@
             "type": "string",
             "description": "The `Endpoint` the application reads through. Nothing else is reachable."
           },
+          "kind": {
+            "type": "string",
+            "description": "What kind of run to execute: application, dashboard, analysis."
+          },
           "profile": {
             "type": "string",
             "description": "Which `AgentProfile` runs. Defaults to the builder profile the platform ships."
@@ -5073,6 +5205,10 @@
           "prompt": {
             "type": "string",
             "description": "What the application should do, in the person's own words."
+          },
+          "unattended": {
+            "type": "boolean",
+            "description": "Whether the run executes unattended without interactive questions."
           },
           "visibility": {
             "type": "string",
@@ -6700,6 +6836,31 @@
             "type": "string"
           }
         }
+      },
+      "StartConversation": {
+        "type": "object",
+        "description": "Request payload for starting or continuing an assistant conversation.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "continues": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "Status": {
         "type": "object",

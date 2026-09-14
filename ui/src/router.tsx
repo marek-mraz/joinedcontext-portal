@@ -22,6 +22,7 @@ import { CkanPage } from "./pages/ckan/CkanPage";
 import { FederationPage } from "./pages/federation/FederationPage";
 import { SpaceInside } from "./pages/spaces/SpaceInside";
 import { AppPage } from "./pages/apps/AppPage";
+import { AssistantPage } from "./pages/assistant/AssistantPage";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -257,6 +258,20 @@ const appRoute = createRoute({
   },
 });
 
+/** The assistant workbench (UI-54). */
+const assistantRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/assistant",
+  component: function AssistantRoute() {
+    const { project } = assistantRoute.useParams();
+    return (
+      <Shell project={project}>
+        <AssistantPage project={project} />
+      </Shell>
+    );
+  },
+});
+
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
@@ -285,6 +300,7 @@ export const routeTree = rootRoute.addChildren([
     spaceCompleteRoute,
     spaceInsideRoute,
     appRoute,
+    assistantRoute,
     resourceListRoute,
   ]),
 ]);

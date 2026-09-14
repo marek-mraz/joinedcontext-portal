@@ -173,7 +173,7 @@ pub fn parse_branch_name(branch: &str) -> Option<BranchInfo> {
 
 /// A caller with no `approve` grant in the project is refused before the forge is asked
 /// anything: the cheap answer first, the kind-precise one once the change is loaded (PF-50).
-fn may_approve_anything(
+pub(crate) fn may_approve_anything(
     state: &AppState,
     identity: &crate::auth::session::Identity,
     project: &str,

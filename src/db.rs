@@ -246,6 +246,7 @@ pub async fn save_sync_state(pool: &PgPool, row: &SyncStateRow) -> Result<(), sq
 /// reading a `timestamptz` into the struct would need one. `to_char` of a NULL column is NULL, so
 /// the three optional timestamps stay optional.
 const AGENT_RUN_COLUMNS: &str = "id, project, app_name, endpoint_name, endpoint_slug, profile, \
+     kind, unattended, continues, \
      app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, path_prefix, \
      status, ticket_hash, workspace, merge_request, preview_url, first_frame_ms, first_version_ms, files, steps, tokens_used, created_by, \
      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, \
@@ -265,10 +266,11 @@ const AGENT_EVENT_COLUMNS: &str = "run_id, seq, kind, payload, \
 pub async fn insert_agent_run(pool: &PgPool, run: &AgentRun) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO agent_runs (id, project, app_name, endpoint_name, endpoint_slug, profile, \
+         kind, unattended, continues, \
          app_class, visibility, prompt, prompt_digest, data_needs, allows_write, branch, \
          path_prefix, status, ticket_hash, steps, tokens_used, created_by, created_at, expires_at) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, \
-         $19, $20::text::timestamptz, $21::text::timestamptz)",
+         $19, $20, $21, $22, $23::text::timestamptz, $24::text::timestamptz)",
     )
     .bind(&run.id)
     .bind(&run.project)
@@ -276,6 +278,9 @@ pub async fn insert_agent_run(pool: &PgPool, run: &AgentRun) -> Result<(), sqlx:
     .bind(&run.endpoint_name)
     .bind(&run.endpoint_slug)
     .bind(&run.profile)
+    .bind(&run.kind)
+    .bind(run.unattended)
+    .bind(&run.continues)
     .bind(&run.app_class)
     .bind(&run.visibility)
     .bind(&run.prompt)
@@ -320,6 +325,51 @@ pub async fn list_agent_runs(
     .bind(limit)
     .fetch_all(pool)
     .await
+}
+
+/// Lists runs for a project matching filter criteria, newest first.
+pub async fn list_agent_runs_filtered(
+    pool: &PgPool,
+    project: &str,
+    filter: &crate::agents::store::RunFilter,
+    limit: i64,
+) -> Result<Vec<AgentRun>, sqlx::Error> {
+    let mut sql = format!("SELECT {AGENT_RUN_COLUMNS} FROM agent_runs WHERE project = $1");
+    let mut param_idx = 2;
+    if filter.app.is_some() {
+        sql.push_str(&format!(" AND app_name = ${param_idx}"));
+        param_idx += 1;
+    }
+    if filter.kind.is_some() {
+        sql.push_str(&format!(" AND kind = ${param_idx}"));
+        param_idx += 1;
+    }
+    if filter.status.is_some() {
+        sql.push_str(&format!(" AND status = ${param_idx}"));
+        param_idx += 1;
+    }
+    if filter.created_by.is_some() {
+        sql.push_str(&format!(" AND created_by = ${param_idx}"));
+        param_idx += 1;
+    }
+    sql.push_str(&format!(" ORDER BY created_at DESC LIMIT ${param_idx}"));
+
+    let mut query = sqlx::query_as::<_, AgentRun>(AssertSqlSafe(sql)).bind(project);
+    if let Some(app) = &filter.app {
+        query = query.bind(app);
+    }
+    if let Some(kind) = &filter.kind {
+        query = query.bind(kind);
+    }
+    if let Some(status) = &filter.status {
+        query = query.bind(status);
+    }
+    if let Some(created_by) = &filter.created_by {
+        query = query.bind(created_by);
+    }
+    query = query.bind(limit);
+
+    query.fetch_all(pool).await
 }
 
 /// Loads the active (non-terminal) run for an application in a project, if any.

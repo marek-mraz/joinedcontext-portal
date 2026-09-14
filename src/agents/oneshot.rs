@@ -39,6 +39,12 @@ const EMPTY_ANSWER: &str = "the model's answer carried no text";
 /// Kit capabilities JSON loaded directly from kit/kit.json (AP-65).
 pub static KIT_CAPABILITIES: &str = include_str!("../../kit/kit.json");
 
+/// The system prompt of a conversation turn: prose or one tool call, never a file (AG-67).
+const CONVERSATION_SYSTEM: &str =
+    "You are the joinedcontext Portal assistant. Answer the person in \
+     plain prose, or with exactly one tool call when the user message describes it. Never write \
+     files or SEARCH/REPLACE blocks.";
+
 static SYSTEM: LazyLock<String> = LazyLock::new(|| {
     format!(
         r#"# SYSTEM INSTRUCTION: ONE-SHOT DASHBOARD SPECIFICATION — SEARCH/REPLACE FORMAT
@@ -220,6 +226,9 @@ struct Driver {
     branch: String,
     path_prefix: String,
     created_by: String,
+    kind: String,
+    unattended: bool,
+    continues: Option<String>,
 }
 
 /// Starts the pass in the background. Returns at once; the run's stream is where the outcome
@@ -254,6 +263,9 @@ pub fn spawn(
         branch: run.branch.clone(),
         path_prefix: run.path_prefix.clone(),
         created_by: run.created_by.clone(),
+        kind: run.kind.clone(),
+        unattended: run.unattended,
+        continues: run.continues.clone(),
     };
     tokio::spawn(async move {
         let run_id = driver.run_id.clone();
@@ -271,13 +283,19 @@ impl Driver {
         let mut inbox = self.state.agent_events.subscribe(&self.run_id).await;
         let deadline = tokio::time::Instant::now() + self.ttl;
 
+        if self.kind == "conversation" {
+            return self.drive_conversation(&mut inbox, deadline).await;
+        }
+
         self.status(AgentRunStatus::Starting).await?;
         let types = self.types();
-        self.thought(&format!(
-            "Reading {SAMPLES_PER_TYPE} entities of {} through the endpoint.",
-            types.join(", ")
-        ))
-        .await?;
+        if !types.is_empty() {
+            self.thought(&format!(
+                "Reading {SAMPLES_PER_TYPE} entities of {} through the endpoint.",
+                types.join(", ")
+            ))
+            .await?;
+        }
         let samples = self.samples(&types).await;
         let catalog = self.find(&self.prompt).await?;
         self.status(AgentRunStatus::Building).await?;
@@ -301,6 +319,9 @@ impl Driver {
         // specification is the run's test, and it says so.
         self.status(AgentRunStatus::Testing).await?;
         self.status(AgentRunStatus::Previewing).await?;
+        if self.unattended {
+            self.status(AgentRunStatus::AwaitingApproval).await?;
+        }
 
         // Every message is one more pass; the run stays `previewing` throughout (AP-60).
         loop {
@@ -341,6 +362,253 @@ impl Driver {
                 _ => {}
             }
         }
+    }
+
+    async fn drive_conversation(
+        &self,
+        inbox: &mut broadcast::Receiver<AgentRunEvent>,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), String> {
+        self.status(AgentRunStatus::Starting).await?;
+        self.status(AgentRunStatus::Interviewing).await?;
+
+        let mut prior_events = Vec::new();
+        if let Some(ref prior_id) = self.continues {
+            if let Ok(evts) = self.state.agents.events_since(prior_id, 0).await {
+                prior_events = evts
+                    .into_iter()
+                    .filter(|e| e.kind == "message" || e.kind == "thought")
+                    .collect();
+                if prior_events.len() > 40 {
+                    prior_events = prior_events.split_off(prior_events.len() - 40);
+                }
+            }
+        }
+
+        let mut conversation: Vec<(String, String)> = Vec::new();
+        let mut current_person = String::new();
+        let mut current_assistant = String::new();
+        for e in prior_events {
+            if e.kind == "message" {
+                if !current_person.is_empty() || !current_assistant.is_empty() {
+                    conversation.push((
+                        std::mem::take(&mut current_person),
+                        std::mem::take(&mut current_assistant),
+                    ));
+                }
+                current_person = e
+                    .payload
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+            } else if e.kind == "thought" {
+                let text = e
+                    .payload
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !current_assistant.is_empty() {
+                    current_assistant.push_str("\n\n");
+                }
+                current_assistant.push_str(text);
+            }
+        }
+        if !current_person.is_empty() || !current_assistant.is_empty() {
+            conversation.push((current_person, current_assistant));
+        }
+
+        if !self.prompt.trim().is_empty() {
+            match self.converse(&conversation, &self.prompt).await {
+                Ok(prose) => conversation.push((self.prompt.clone(), prose)),
+                Err(reason) => {
+                    let _ = self.thought(&format!("The answer failed: {reason}")).await;
+                }
+            }
+        }
+
+        loop {
+            let event = tokio::select! {
+                event = inbox.recv() => event,
+                () = tokio::time::sleep_until(deadline) => {
+                    self.expire().await;
+                    return Ok(());
+                }
+            };
+            let event = match event {
+                Ok(event) => event,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return Ok(()),
+            };
+            match event.kind.as_str() {
+                "status" if is_terminal(&event) => return Ok(()),
+                "message" if sent_by_person(&event) => {
+                    let text = event
+                        .payload
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    match self.converse(&conversation, &text).await {
+                        Ok(prose) => conversation.push((text, prose)),
+                        Err(reason) => {
+                            let _ = self.thought(&format!("The answer failed: {reason}")).await;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub(crate) async fn converse(
+        &self,
+        conversation: &[(String, String)],
+        text: &str,
+    ) -> Result<String, String> {
+        let catalog = self.find(text).await?;
+        let user = self.conversation_pack(conversation, text, catalog.as_ref());
+        let answer = self
+            .complete_with_system(CONVERSATION_SYSTEM, &user)
+            .await?;
+
+        if let Some(call) = share::tool_call(&answer) {
+            return self.share(call, &answer).await;
+        }
+        if let Some(call) = kpi::tool_call(&answer) {
+            return self.kpi(call, &answer).await;
+        }
+        if let Some(call) = space_complete_tool_call(&answer) {
+            return self.space_complete(call, &answer).await;
+        }
+        if let Some(route) = navigate_tool_call(&answer) {
+            let mut prose = share::prose_of(&answer);
+            if prose.is_empty() {
+                prose = "You can start that work from the Assistant page.".to_owned();
+            }
+            self.thought(&prose).await?;
+            if route.starts_with('/') && !route.starts_with("//") {
+                self.event(
+                    "navigate",
+                    json!({
+                        "route": route,
+                    }),
+                )
+                .await?;
+            }
+            return Ok(prose);
+        }
+
+        let prose = if answer.trim().is_empty() {
+            "I am ready to help.".to_owned()
+        } else {
+            answer.trim().to_owned()
+        };
+        self.thought(&prose).await?;
+        Ok(prose)
+    }
+
+    fn conversation_pack(
+        &self,
+        conversation: &[(String, String)],
+        text: &str,
+        catalog: Option<&Value>,
+    ) -> String {
+        let mut pack = String::new();
+        pack.push_str(
+            "You are the joinedcontext Portal assistant. Answer in plain prose, or answer with \
+             exactly one of the tool calls below. Never write files or SEARCH/REPLACE blocks.\n\n",
+        );
+        if let Some(catalog) = catalog {
+            pack.push_str(
+                "## WHAT THE CATALOG SEARCH FOUND\n\nThe project's endpoints, spaces and \
+                 data models matching the person's words, with the caller's access verdict and \
+                 the freshness of the pipeline feeding each, read from the platform. Name them by \
+                 their `name`; invent no other.\n```json\n",
+            );
+            pack.push_str(&serde_json::to_string_pretty(catalog).unwrap_or_default());
+            pack.push_str("\n```\n\n");
+        }
+        pack.push_str(&format!(
+            r#"## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA
+
+A request to share, publish, open or expose data with somebody (a team, a project, a partner,
+the public). Answer with one or two plain sentences and then ONE fenced JSON block, nothing else, in this shape:
+
+```json
+{{
+  "tool": "propose_endpoint",
+  "contextSpace": "<the space the data lives in>",
+  "name": "<a short lowercase dns-1123 name for the endpoint>",
+  "title": "<a title in the language of the request>",
+  "audience": "project-list",
+  "allowedProjects": ["<the project or team named, as a lowercase dns-1123 name>"],
+  "representations": ["ngsi-ld", "geojson"],
+  "hiddenAttributes": ["<attributes the person wants hidden>"],
+  "entityTypes": ["<the types shared>"]
+}}
+```
+
+`audience` is "project-list" unless the person says the whole organization ("organization") or
+everyone ("public"). The platform mints the slug, renders the manifests and opens the form;
+the person submits.
+
+## WHEN THE PERSON ASKS FOR AN INDICATOR, A KPI OR ONE NUMBER OVER THE DATA
+
+"What is the average PM10", "how many stations are closed", "define a KPI for free bikes": the
+platform computes it, not you. Answer with one or two plain sentences and then ONE fenced JSON
+block, nothing else, in this shape:
+
+```json
+{{
+  "tool": "compute_kpi",
+  "name": "<a short lowercase name with dashes, e.g. average-pm10>",
+  "title": "<a title in the language of the request>",
+  "type": "<the entity type>",
+  "attribute": "<the attribute folded; empty for count>",
+  "agg": "avg | sum | count | min | max",
+  "unit": "<a UN/CEFACT common code when the value has a unit, e.g. GQ for µg/m³, C62 for a count>",
+  "q": "<an NGSI-LD filter narrowing the entities, or omit it>"
+}}
+```
+
+The platform reads the entities through the endpoint, computes the value, renders the
+`KeyPerformanceIndicator` entity with its formula and provenance, and shows it to the person.
+
+## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE
+
+A request to complete, draft or fill out a context space's drafts. Answer with one or two plain sentences and then ONE fenced JSON block:
+
+```json
+{{
+  "tool": "space_complete",
+  "space": "<context space name>"
+}}
+```
+
+## WHEN THE PERSON ASKS TO BUILD AN APPLICATION OR A DASHBOARD
+
+To build an application or a dashboard, explain in one or two plain sentences that they can start it from the Assistant page, and navigate them there with ONE fenced JSON block:
+
+```json
+{{
+  "tool": "navigate",
+  "route": "/projects/{project}/assistant"
+}}
+```
+"#,
+            project = self.project
+        ));
+
+        if !conversation.is_empty() {
+            pack.push_str("\n## THE CONVERSATION SO FAR\n\n");
+            for (asked, answered) in conversation {
+                pack.push_str(&format!("Person: {asked}\nYou: {answered}\n\n"));
+            }
+        }
+
+        pack.push_str(&format!("\n## THIS TURN\n\nPerson: {text}\n"));
+        pack
     }
 
     /// One model call, its blocks applied, the specification checked, the preview refreshed.
@@ -466,7 +734,11 @@ impl Driver {
         answer: &str,
     ) -> Result<(String, Vec<String>), String> {
         let (blocks, prose) = patch::parse(answer);
-        let (applied, refused) = patch::apply(files, &blocks, &[kit::SPEC_FILE, kit::PAGE_FILE]);
+        let mut allowed = vec![kit::SPEC_FILE, kit::PAGE_FILE];
+        if self.kind == "analysis" {
+            allowed.push("report.md");
+        }
+        let (applied, refused) = patch::apply(files, &blocks, &allowed);
         self.event(
             "tool",
             json!({
@@ -567,6 +839,13 @@ impl Driver {
         pack.push_str("\n\n## KIT CAPABILITIES\n\nThe views, options and export formats supported by the kit (name only what is here):\n```json\n");
         pack.push_str(KIT_CAPABILITIES.trim());
         pack.push_str("\n```\n");
+        if self.kind == "analysis" {
+            pack.push_str(
+                "\n\n## ANALYSIS REPORT\n\nBeside `spec.json`, also write `report.md` as a SEARCH/REPLACE block. \
+                 `report.md` is an in-depth markdown summary of what the data shows, including key metrics, \
+                 distributions, and statistical findings using the numbers from the rows.\n",
+            );
+        }
 
         pack.push_str("\n\n## THE CURRENT FILES\n\n");
         // Only what the model may write. The rows of the preview live beside the specification
@@ -581,6 +860,8 @@ impl Driver {
         for (path, content) in visible {
             let fence = if path.ends_with(".html") {
                 "html"
+            } else if path.ends_with(".md") {
+                "markdown"
             } else {
                 "json"
             };
@@ -626,21 +907,25 @@ impl Driver {
     /// One call through the proxy, asked twice when the first answer carries no text: a
     /// provider answers empty now and then, and a second call is cheaper than a failed run.
     async fn complete(&self, user: &str) -> Result<String, String> {
-        match self.complete_once(user).await {
-            Err(reason) if reason == EMPTY_ANSWER => self.complete_once(user).await,
+        self.complete_with_system(&SYSTEM, user).await
+    }
+
+    async fn complete_with_system(&self, system: &str, user: &str) -> Result<String, String> {
+        match self.complete_once(system, user).await {
+            Err(reason) if reason == EMPTY_ANSWER => self.complete_once(system, user).await,
             other => other,
         }
     }
 
     /// One call through the proxy, in the body the profile's provider reads (AG-53).
-    async fn complete_once(&self, user: &str) -> Result<String, String> {
+    async fn complete_once(&self, system: &str, user: &str) -> Result<String, String> {
         let (path, body) = if self.provider == "anthropic" {
             (
                 "/v1/llm/messages",
                 json!({
                     "model": self.model,
                     "max_tokens": OUTPUT_BUDGET,
-                    "system": *SYSTEM,
+                    "system": system,
                     "messages": [{ "role": "user", "content": user }],
                 }),
             )
@@ -651,7 +936,7 @@ impl Driver {
                     "model": self.model,
                     "max_tokens": OUTPUT_BUDGET,
                     "messages": [
-                        { "role": "system", "content": *SYSTEM },
+                        { "role": "system", "content": system },
                         { "role": "user", "content": user },
                     ],
                 }),
@@ -924,6 +1209,9 @@ impl Driver {
         let Some(gitea) = self.state.gitea.clone() else {
             return Ok(());
         };
+        if self.branch.is_empty() {
+            return Ok(());
+        }
         let Some(spec) = self
             .state
             .agents
@@ -1376,6 +1664,21 @@ pub(crate) fn space_complete_tool_call(answer: &str) -> Option<Value> {
     None
 }
 
+pub(crate) fn navigate_tool_call(answer: &str) -> Option<String> {
+    for fence in share::TOOL_FENCE.captures_iter(answer) {
+        let Ok(value) = serde_json::from_str::<Value>(&fence[1]) else {
+            continue;
+        };
+        if value.get("tool").and_then(Value::as_str) == Some("navigate") {
+            return value
+                .get("route")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+        }
+    }
+    None
+}
+
 fn sent_by_person(event: &AgentRunEvent) -> bool {
     event
         .payload
@@ -1401,6 +1704,16 @@ fn urlencoding(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn navigate_tool_call_extracts_route() {
+        let text = "I will open the Assistant.\n\n```json\n{\"tool\":\"navigate\",\"route\":\"/projects/helsinki/assistant\"}\n```\n";
+        assert_eq!(
+            navigate_tool_call(text),
+            Some("/projects/helsinki/assistant".to_owned())
+        );
+        assert_eq!(navigate_tool_call("plain response"), None);
+    }
 
     #[test]
     fn the_system_prompt_carries_the_schema_and_the_one_allowed_path() {
@@ -1483,6 +1796,9 @@ mod tests {
             branch: "agent/test".into(),
             path_prefix: "apps/test/".into(),
             created_by: "test-user".into(),
+            kind: "application".into(),
+            unattended: false,
+            continues: None,
         };
         let pack = driver
             .pack(&json!({}), &BTreeMap::new(), &[], "instruction", None, None)

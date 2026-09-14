@@ -1342,6 +1342,9 @@ async fn expired_runs_are_reaped_and_ticket_invalidated_while_live_runs_remain()
         endpoint_name: "helsinki-bikes".to_owned(),
         endpoint_slug: SLUG.to_owned(),
         profile: "app-builder".to_owned(),
+        kind: "application".to_owned(),
+        unattended: false,
+        continues: None,
         app_class: "fullstack".to_owned(),
         visibility: "project".to_owned(),
         prompt: "Expired prompt".to_owned(),
@@ -1480,5 +1483,426 @@ async fn a_run_that_never_renders_records_neither_first_frame_nor_first_version(
     assert!(
         run.get("firstVersionMs").is_none(),
         "firstVersionMs must be omitted when None: {run}"
+    );
+}
+
+#[tokio::test]
+async fn conversation_starts_with_only_a_message_and_has_kind_conversation() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let (status, created) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({ "message": "Find datasets about bikes" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    assert_eq!(created["kind"], json!("conversation"));
+    assert_eq!(created["appName"], json!(""));
+    assert_eq!(created["endpointName"], json!(""));
+    assert_eq!(created["endpointSlug"], json!(""));
+    assert_eq!(created["appClass"], json!("static"));
+    assert_eq!(created["visibility"], json!("private"));
+    assert_eq!(created["unattended"], json!(false));
+    assert!(created["continues"].is_null());
+    assert_eq!(created["prompt"], json!("Find datasets about bikes"));
+    assert_eq!(created["status"], json!("queued"));
+
+    let id = created["id"].as_str().expect("id");
+
+    let (status, filtered) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs?app=city-bikes-overview"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items = filtered["items"].as_array().expect("items");
+    assert!(!items.iter().any(|item| item["id"] == id));
+
+    let (status, single) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(single["kind"], json!("conversation"));
+}
+
+#[tokio::test]
+async fn conversation_needs_propose_permission_on_app() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, "curious.reader", &[]);
+
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({ "message": "Hello" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+}
+
+#[tokio::test]
+async fn continues_validations_reject_invalid_runs() {
+    let config = config();
+    let (state, app, _) = with_state(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    // 1. Missing run id -> 400
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({
+            "message": "Continue please",
+            "continues": "00000000-0000-0000-0000-000000000000"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+
+    // 2. Application run (kind is not conversation) -> 400
+    let app_run = create_run(&app, &cookie).await;
+    let app_run_id = app_run["id"].as_str().expect("id");
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({
+            "message": "Continue please",
+            "continues": app_run_id
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+
+    // 3. Conversation run of another project -> 400
+    let other_run_id = mint_run_id();
+    let (_, ticket_hash) = mint_ticket();
+    let other_project_run = AgentRun {
+        id: other_run_id.clone(),
+        project: "espoo".to_owned(),
+        app_name: "".to_owned(),
+        endpoint_name: "".to_owned(),
+        endpoint_slug: "".to_owned(),
+        profile: "app-builder".to_owned(),
+        kind: "conversation".to_owned(),
+        unattended: false,
+        continues: None,
+        app_class: "static".to_owned(),
+        visibility: "private".to_owned(),
+        prompt: "Earlier conversation".to_owned(),
+        prompt_digest: digest_prompt("Earlier conversation"),
+        data_needs: json!([]),
+        allows_write: false,
+        branch: "".to_owned(),
+        path_prefix: "".to_owned(),
+        status: "interviewing".to_owned(),
+        ticket_hash,
+        workspace: None,
+        merge_request: None,
+        preview_url: None,
+        first_frame_ms: None,
+        first_version_ms: None,
+        files: json!({}),
+        steps: 0,
+        tokens_used: 0,
+        created_by: STEWARD.to_owned(),
+        created_at: "2026-09-12T08:00:00Z".to_owned(),
+        started_at: None,
+        finished_at: None,
+        expires_at: "2026-09-12T08:30:00Z".to_owned(),
+        error: None,
+    };
+    state
+        .agents
+        .create_run(&other_project_run)
+        .await
+        .expect("create run");
+
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({
+            "message": "Continue please",
+            "continues": other_run_id
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+}
+
+#[tokio::test]
+async fn kind_filter_in_list_runs() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let app_run = create_run(&app, &cookie).await;
+    let app_id = app_run["id"].as_str().expect("id");
+
+    let (status, conv_run) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({ "message": "List test conversation" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let conv_id = conv_run["id"].as_str().expect("id");
+
+    let (status, list) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs?kind=conversation"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items = list["items"].as_array().expect("items");
+    assert!(items.iter().any(|item| item["id"] == conv_id));
+    assert!(!items.iter().any(|item| item["id"] == app_id));
+    assert!(items.iter().all(|item| item["kind"] == "conversation"));
+
+    let (status, list_app) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs?kind=application"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items_app = list_app["items"].as_array().expect("items");
+    assert!(items_app.iter().any(|item| item["id"] == app_id));
+    assert!(!items_app.iter().any(|item| item["id"] == conv_id));
+    assert!(items_app.iter().all(|item| item["kind"] == "application"));
+}
+
+#[tokio::test]
+async fn caller_without_portal_approver_sees_only_own_runs_while_approver_sees_both() {
+    let config = config();
+    let (state, app, _) = with_state(mirror(Some(builder_profile_spec())), &config);
+    let approver_cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let viewer_cookie = session_cookie(&config, "viewer.user", &["viewer"]);
+
+    let approver_run = create_run(&app, &approver_cookie).await;
+    let approver_run_id = approver_run["id"].as_str().expect("id");
+
+    let viewer_run_id = mint_run_id();
+    let (_, ticket_hash) = mint_ticket();
+    let viewer_run = AgentRun {
+        id: viewer_run_id.clone(),
+        project: PROJECT.to_owned(),
+        app_name: "viewer-app".to_owned(),
+        endpoint_name: "helsinki-bikes".to_owned(),
+        endpoint_slug: SLUG.to_owned(),
+        profile: "app-builder".to_owned(),
+        kind: "application".to_owned(),
+        unattended: false,
+        continues: None,
+        app_class: "static".to_owned(),
+        visibility: "project".to_owned(),
+        prompt: "Viewer app".to_owned(),
+        prompt_digest: digest_prompt("Viewer app"),
+        data_needs: json!([]),
+        allows_write: false,
+        branch: format!("agent/app-viewer-app/{viewer_run_id}"),
+        path_prefix: format!("projects/{PROJECT}/apps/viewer-app/"),
+        status: "building".to_owned(),
+        ticket_hash,
+        workspace: None,
+        merge_request: None,
+        preview_url: None,
+        first_frame_ms: None,
+        first_version_ms: None,
+        files: json!({}),
+        steps: 0,
+        tokens_used: 0,
+        created_by: "viewer.user".to_owned(),
+        created_at: "2026-09-12T09:00:00Z".to_owned(),
+        started_at: None,
+        finished_at: None,
+        expires_at: "2026-09-12T09:30:00Z".to_owned(),
+        error: None,
+    };
+    state
+        .agents
+        .create_run(&viewer_run)
+        .await
+        .expect("create viewer run");
+
+    let (status, list) = call(
+        &app,
+        &approver_cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items = list["items"].as_array().expect("items");
+    assert!(items.iter().any(|item| item["id"] == approver_run_id));
+    assert!(items.iter().any(|item| item["id"] == viewer_run_id));
+
+    let (status, list_mine) = call(
+        &app,
+        &approver_cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs?mine=true"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items_mine = list_mine["items"].as_array().expect("items");
+    assert!(items_mine.iter().any(|item| item["id"] == approver_run_id));
+    assert!(!items_mine.iter().any(|item| item["id"] == viewer_run_id));
+
+    let (status, list_viewer) = call(
+        &app,
+        &viewer_cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items_viewer = list_viewer["items"].as_array().expect("items");
+    assert!(items_viewer.iter().any(|item| item["id"] == viewer_run_id));
+    assert!(!items_viewer
+        .iter()
+        .any(|item| item["id"] == approver_run_id));
+}
+
+#[tokio::test]
+async fn create_run_refuses_kind_conversation() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let mut body = create_body();
+    body["kind"] = json!("conversation");
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{problem}");
+    assert!(
+        problem["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("/assistant/conversations")),
+        "{problem}"
+    );
+}
+
+#[tokio::test]
+async fn analysis_run_is_unattended_and_publish_answers_409() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let mut body = create_body();
+    body["kind"] = json!("analysis");
+    body["unattended"] = json!(false);
+    let (status, created) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    assert_eq!(created["kind"], json!("analysis"));
+    assert_eq!(created["unattended"], json!(true));
+
+    let id = created["id"].as_str().expect("id");
+    let (status, run) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(run["kind"], json!("analysis"));
+    assert_eq!(run["unattended"], json!(true));
+
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/publish"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{problem}");
+    assert!(
+        problem["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("an analysis is never published")),
+        "{problem}"
+    );
+}
+
+#[tokio::test]
+async fn dashboard_run_is_unattended_and_publish_answers_409() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    let mut body = create_body();
+    body["kind"] = json!("dashboard");
+    let (status, created) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    assert_eq!(created["kind"], json!("dashboard"));
+    assert_eq!(created["unattended"], json!(true));
+
+    let id = created["id"].as_str().expect("id");
+    let (status, problem) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/publish"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{problem}");
+    assert!(
+        problem["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("publishing a dashboard run is not available yet")),
+        "{problem}"
     );
 }

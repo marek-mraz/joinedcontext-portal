@@ -282,6 +282,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/assistant/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["start_conversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/changes": {
         parameters: {
             query?: never;
@@ -819,6 +835,7 @@ export interface components {
             appClass: string;
             appName: string;
             branch: string;
+            continues?: string | null;
             createdAt: string;
             createdBy: string;
             dataNeeds: unknown;
@@ -838,6 +855,7 @@ export interface components {
              */
             firstVersionMs?: number | null;
             id: string;
+            kind: string;
             /** Format: int32 */
             mergeRequest?: number | null;
             pathPrefix: string;
@@ -852,6 +870,7 @@ export interface components {
             steps: number;
             /** Format: int64 */
             tokensUsed: number;
+            unattended: boolean;
             visibility: string;
             workspace?: string | null;
         };
@@ -1156,10 +1175,14 @@ export interface components {
             dataNeeds: unknown[];
             /** @description The `Endpoint` the application reads through. Nothing else is reachable. */
             endpointName: string;
+            /** @description What kind of run to execute: application, dashboard, analysis. */
+            kind?: string;
             /** @description Which `AgentProfile` runs. Defaults to the builder profile the platform ships. */
             profile?: string;
             /** @description What the application should do, in the person's own words. */
             prompt: string;
+            /** @description Whether the run executes unattended without interactive questions. */
+            unattended?: boolean;
             /** @description Who may reach the published application. `public` is refused (AP-42). */
             visibility?: string;
         };
@@ -1726,6 +1749,12 @@ export interface components {
             severity: string;
             version: string;
         };
+        /** @description Request payload for starting or continuing an assistant conversation. */
+        StartConversation: {
+            continues?: string | null;
+            message: string;
+            profile?: string | null;
+        };
         /**
          * @description The status the Portal API reports (MF-04). It is `jc_core::Status` plus `sourceUrl` and a phase
          *     that is always known; it stays a Portal type until jc-core carries `sourceUrl` too (docs API/01
@@ -2106,6 +2135,9 @@ export interface operations {
             query?: {
                 limit?: number | null;
                 app?: string | null;
+                kind?: string | null;
+                status?: string | null;
+                mine?: boolean | null;
             };
             header?: never;
             path: {
@@ -2576,6 +2608,69 @@ export interface operations {
                 };
             };
             /** @description Git forge unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    start_conversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartConversation"];
+            };
+        };
+        responses: {
+            /** @description The conversation run, queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRun"];
+                };
+            };
+            /** @description Invalid request or invalid continuation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No role grants proposing an App here */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No agent runner, or no such profile */
             503: {
                 headers: {
                     [name: string]: unknown;

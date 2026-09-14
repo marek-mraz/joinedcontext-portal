@@ -22,6 +22,15 @@ use crate::db;
 #[error("the agent run store did not answer: {0}")]
 pub struct StoreError(#[from] sqlx::Error);
 
+/// Filter criteria for querying agent runs (AG-71).
+#[derive(Debug, Clone, Default)]
+pub struct RunFilter {
+    pub app: Option<String>,
+    pub kind: Option<String>,
+    pub status: Option<String>,
+    pub created_by: Option<String>,
+}
+
 #[derive(Debug, Default)]
 struct Memory {
     runs: HashMap<String, AgentRun>,
@@ -72,14 +81,50 @@ impl AgentStore {
     }
 
     pub async fn list_runs(&self, project: &str, limit: i64) -> Result<Vec<AgentRun>, StoreError> {
+        self.list_runs_filtered(project, &RunFilter::default(), limit)
+            .await
+    }
+
+    /// Lists runs in a project matching the filter criteria, newest first (AG-71).
+    pub async fn list_runs_filtered(
+        &self,
+        project: &str,
+        filter: &RunFilter,
+        limit: i64,
+    ) -> Result<Vec<AgentRun>, StoreError> {
         if let Some(pool) = &self.db {
-            return Ok(db::list_agent_runs(pool, project, limit).await?);
+            return Ok(db::list_agent_runs_filtered(pool, project, filter, limit).await?);
         }
         let memory = self.memory.read().await;
         let mut runs: Vec<AgentRun> = memory
             .runs
             .values()
-            .filter(|run| run.project == project)
+            .filter(|run| {
+                if run.project != project {
+                    return false;
+                }
+                if let Some(app) = &filter.app {
+                    if &run.app_name != app {
+                        return false;
+                    }
+                }
+                if let Some(kind) = &filter.kind {
+                    if &run.kind != kind {
+                        return false;
+                    }
+                }
+                if let Some(status) = &filter.status {
+                    if &run.status != status {
+                        return false;
+                    }
+                }
+                if let Some(created_by) = &filter.created_by {
+                    if &run.created_by != created_by {
+                        return false;
+                    }
+                }
+                true
+            })
             .cloned()
             .collect();
         // Created in the same second sorts by id, so a page is stable between two calls.
@@ -127,23 +172,15 @@ impl AgentStore {
         app_name: &str,
         limit: i64,
     ) -> Result<Vec<AgentRun>, StoreError> {
-        if let Some(pool) = &self.db {
-            return Ok(db::list_agent_runs_for_app(pool, project, app_name, limit).await?);
-        }
-        let memory = self.memory.read().await;
-        let mut runs: Vec<AgentRun> = memory
-            .runs
-            .values()
-            .filter(|run| run.project == project && run.app_name == app_name)
-            .cloned()
-            .collect();
-        runs.sort_by(|a, b| {
-            b.created_at
-                .cmp(&a.created_at)
-                .then_with(|| a.id.cmp(&b.id))
-        });
-        runs.truncate(limit.max(0) as usize);
-        Ok(runs)
+        self.list_runs_filtered(
+            project,
+            &RunFilter {
+                app: Some(app_name.to_owned()),
+                ..Default::default()
+            },
+            limit,
+        )
+        .await
     }
 
     /// Lists non-terminal runs whose expiration time is before `now_rfc3339`.
@@ -392,6 +429,9 @@ mod tests {
             endpoint_name: "helsinki-bikes".to_owned(),
             endpoint_slug: "si6epqkx364lprho5uaigutk274r5grb".to_owned(),
             profile: "app-builder".to_owned(),
+            kind: "application".to_owned(),
+            unattended: false,
+            continues: None,
             app_class: "static".to_owned(),
             visibility: "project".to_owned(),
             prompt: "a live bike availability dashboard".to_owned(),
@@ -594,5 +634,46 @@ mod tests {
             .expect("record_first_version");
         let after_v1 = store.get_run("run-1").await.expect("get").expect("exists");
         assert!(after_v1.first_version_ms.is_some());
+    }
+
+    #[tokio::test]
+    async fn filtered_runs_filter_by_kind_and_creator() {
+        let store = AgentStore::new(None);
+        let mut r1 = run("run-1", "helsinki", "2026-09-12T10:15:30Z");
+        r1.kind = "conversation".to_owned();
+        r1.created_by = "alice".to_owned();
+        let mut r2 = run("run-2", "helsinki", "2026-09-12T10:16:30Z");
+        r2.kind = "application".to_owned();
+        r2.created_by = "bob".to_owned();
+        store.create_run(&r1).await.expect("create r1");
+        store.create_run(&r2).await.expect("create r2");
+
+        let convos = store
+            .list_runs_filtered(
+                "helsinki",
+                &RunFilter {
+                    kind: Some("conversation".into()),
+                    ..Default::default()
+                },
+                10,
+            )
+            .await
+            .expect("filter kind");
+        assert_eq!(convos.len(), 1);
+        assert_eq!(convos[0].id, "run-1");
+
+        let alice_runs = store
+            .list_runs_filtered(
+                "helsinki",
+                &RunFilter {
+                    created_by: Some("alice".into()),
+                    ..Default::default()
+                },
+                10,
+            )
+            .await
+            .expect("filter creator");
+        assert_eq!(alice_runs.len(), 1);
+        assert_eq!(alice_runs[0].id, "run-1");
     }
 }

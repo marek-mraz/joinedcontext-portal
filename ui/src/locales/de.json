@@ -28,7 +28,8 @@
     "federation": "Föderation",
     "allEndpoints": "Alle Endpunkte",
     "shared": "Geteilte Referenzen",
-    "explore": "Daten erkunden"
+    "explore": "Daten erkunden",
+    "assistant": "Assistent"
   },
   "auth": {
     "lead": "Melden Sie sich mit dem Konto Ihrer Organisation an, um diese Plattform zu verwalten.",
@@ -1295,7 +1296,21 @@
     "hide": "Assistent ausblenden",
     "fullScreen": "Vollbild",
     "sideView": "Zurück an die Seite",
-    "cancel": "Assistent stoppen"
+    "cancel": "Assistent stoppen",
+    "dropHint": "Legen Sie hier eine CSV-, Excel-, JSON- oder PDF-Probe ab, um einen Datenmodell-Entwurf zu erhalten.",
+    "empty": {
+      "lead": "Fragen Sie nach den Daten des Projekts, teilen Sie sie oder lassen Sie etwas bauen.",
+      "examples": {
+        "find": "Welche Datensätze sagen etwas über Fahrräder?",
+        "share": "Teile die Fahrradstationen mit dem Verkehrsamt.",
+        "build": "Baue ein Dashboard der heutigen Luftqualität."
+      },
+      "composer": "Den Assistenten fragen",
+      "send": "Senden",
+      "resume": "Fortsetzen: {title}",
+      "recent": "Letzte Unterhaltungen",
+      "failed": "Die Unterhaltung hat nicht begonnen. Prüfen Sie die Nachricht und versuchen Sie es erneut."
+    }
   },
   "permissions": {
     "denied": "Deaktiviert: Ihre Rolle erlaubt ''{verb}'' auf ''{kind}'' in diesem Projekt nicht"
@@ -1317,5 +1332,40 @@
     "laxWarning": "Verhaltene Validierung: Prüfung wurde nicht ausgeführt oder ist fehlgeschlagen.",
     "findings": "Befunde",
     "strict": "strikte Validierung"
+  },
+  "assistantPage": {
+    "title": "Assistent",
+    "lead": "Ihre Unterhaltungen und die Arbeit, die Agenten für Sie erledigt haben.",
+    "filters": {
+      "kind": "Art",
+      "status": "Status",
+      "all": "Alle",
+      "live": "Laufend",
+      "ended": "Beendet",
+      "mine": "Nur meine"
+    },
+    "kinds": {
+      "conversation": "Unterhaltung",
+      "application": "Anwendung",
+      "dashboard": "Dashboard",
+      "analysis": "Analyse"
+    },
+    "open": "Öffnen",
+    "continue": "Fortsetzen",
+    "continueMessage": "Machen wir dort weiter, wo wir aufgehört haben.",
+    "continues": "setzt eine frühere Unterhaltung fort",
+    "empty": "Noch nichts. Fragen Sie den Assistenten oder beginnen Sie unten eine Arbeit.",
+    "newWork": {
+      "title": "Neue Arbeit",
+      "kind": "Was entstehen soll",
+      "name": "Name",
+      "nameHint": "Kleinbuchstaben, Ziffern und Bindestriche.",
+      "endpoint": "Endpunkt",
+      "prompt": "Was soll es tun?",
+      "start": "Starten",
+      "unattended": "Es läuft ohne Rückfragen und wartet am Ende auf Ihre Freigabe."
+    },
+    "started": "Gestartet",
+    "actions": "Aktionen"
   }
 }
