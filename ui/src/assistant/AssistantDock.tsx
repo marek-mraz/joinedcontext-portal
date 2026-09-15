@@ -146,7 +146,9 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
         ? `${route}${route.includes("?") ? "&" : "?"}draft=${encodeURIComponent(draft.name)}`
         : route;
     rememberPrefill(route, prefillOf(next));
-    void navigate({ to: targetRoute as "/" });
+    // An `href` is parsed into the path and the search: a query inside `to` reaches the address
+    // bar but not the router's search, so a page already open is not remounted for it (T-0770).
+    void navigate({ href: targetRoute });
   }, [events, navigate, runId]);
 
   const recentQuery = useQuery({

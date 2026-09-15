@@ -267,6 +267,35 @@ describe("the assistant dock", () => {
     });
   });
 
+  it("opens the grant it drafts on the access page the person is already on (T-0770)", async () => {
+    renderPortal();
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
+    await act(async () => {
+      window.history.pushState({}, "", `/projects/${PROJECT}/access`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await screen.findByRole("button", { name: en.access.roles.grant });
+    await waitFor(() => {
+      expect(StubEventSource.opened.length).toBeGreaterThan(0);
+    });
+
+    const name = "jana-kovacova-steward-banskabystrica";
+    await emitToEveryStream("navigate", {
+      seq: 11,
+      route: `/projects/${PROJECT}/access?grant=${name}`,
+      draft: { kind: "RoleBinding", name },
+      prefill: {
+        apiVersion: "joinedcontext.com/v1alpha1",
+        kind: "RoleBinding",
+        metadata: { name, project: "org" },
+        spec: { subjects: [{ user: "jana.kovacova" }], roleRef: "steward", scope: { project: PROJECT } },
+      },
+    });
+
+    const dialog = await screen.findByRole("dialog", { name: en.access.roles.grantTitle });
+    expect(within(dialog).getByLabelText(new RegExp(en.access.roles.personLabel))).toHaveValue("jana.kovacova");
+  });
+
   it("hides to a bubble at the bottom right, opens full screen, stops the run and closes", async () => {
     const user = userEvent.setup();
     renderPortal();
