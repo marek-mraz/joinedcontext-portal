@@ -3607,8 +3607,10 @@ a removal of its binding with change_resource.
                     .await;
             }
         };
+        // A pipeline change the test does not exercise opens untested: a pause is not a mapping.
+        let untested = info.kind == "Pipeline" && !change::reaches_the_test(&current, &manifest);
         self.open_change(
-            info, name, manifest, answer, TOOL, input, started, last, route, draft,
+            info, name, manifest, answer, TOOL, input, started, last, route, draft, untested,
         )
         .await
     }
@@ -4043,7 +4045,7 @@ a removal of its binding with change_resource.
         let route = format!("/projects/{}/access?grant={name}", self.project);
         let draft = json!({ "kind": "RoleBinding", "name": name });
         self.open_change(
-            info, &name, manifest, answer, TOOL, input, started, last, route, draft,
+            info, &name, manifest, answer, TOOL, input, started, last, route, draft, false,
         )
         .await
     }
@@ -4063,6 +4065,7 @@ a removal of its binding with change_resource.
         last: bool,
         route: String,
         draft: Value,
+        untested: bool,
     ) -> Result<Worked, String> {
         let millis = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let home = self.home(info.kind);
@@ -4106,7 +4109,17 @@ a removal of its binding with change_resource.
         }
         // A changed pipeline runs on a page of its source and a changed data source fetches its
         // URL before the form opens (AG-77, PL-45, MF-39); a red test goes back to the model.
-        let tested = match self.tested(info.kind, &manifest, probe).await {
+        let tested = if untested {
+            Ok(Tested {
+                card: Some(
+                    json!({ "untested": "the change does not touch what the pipeline reads, maps or writes" }),
+                ),
+                verdict: None,
+            })
+        } else {
+            self.tested(info.kind, &manifest, probe).await
+        };
+        let tested = match tested {
             Ok(tested) => tested,
             Err((findings, card)) => {
                 self.event(
@@ -4410,6 +4423,7 @@ a removal of its binding with change_resource.
                 true,
                 route,
                 draft,
+                false,
             )
             .await?
         {

@@ -1755,6 +1755,51 @@ async fn a_changed_pipeline_is_tested_on_its_source_and_a_red_test_is_redrafted_
     assert!(verdict.is_fresh_for(&draft.manifest));
 }
 
+/// A paused pipeline opens its editor untested (T-0776, PL-45): a pause does not touch what the
+/// pipeline reads, maps or writes, so the runner is never asked to test it.
+#[tokio::test]
+async fn a_paused_pipeline_opens_its_editor_without_running_its_test() {
+    let pause = "Pausing hel-bikes.\n```json\n{\"tool\":\"change_resource\",\"kind\":\"Pipeline\",\"name\":\"hel-bikes\",\"patch\":{\"spec\":{\"enabled\":false}}}\n```";
+    let (state, events, _, harnesses) = change_on_the_runner(
+        pipeline_access(),
+        "Pause the hel-bikes pipeline",
+        &[pause],
+        Vec::new(),
+        "navigate",
+    )
+    .await;
+
+    assert!(
+        harnesses.is_empty(),
+        "the runner tests nothing: {harnesses:?}"
+    );
+    let step = events
+        .iter()
+        .find(|e| e.kind == "tool" && e.payload["tool"] == "change_resource")
+        .map(|e| &e.payload)
+        .expect("the change step");
+    assert_eq!(step["status"], "ok", "{step}");
+    assert_eq!(
+        step["output"]["test"],
+        json!({ "untested": "the change does not touch what the pipeline reads, maps or writes" })
+    );
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the editor opens");
+    assert_eq!(navigate.payload["prefill"]["spec"]["enabled"], false);
+    let draft = state
+        .drafts
+        .get("helsinki", "Pipeline", "hel-bikes")
+        .await
+        .expect("drafts")
+        .expect("the paused pipeline is the person's draft");
+    assert!(draft
+        .verdict
+        .as_ref()
+        .is_some_and(|verdict| verdict.is_fresh_for(&draft.manifest)));
+}
+
 /// A data source changed to another URL fetches it once before its form opens (T-0737, MF-39):
 /// a URL that answers 404 goes back to the model, and nothing opens.
 #[tokio::test]

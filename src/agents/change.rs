@@ -149,6 +149,17 @@ pub fn patched(current: &Value, patch: &Value) -> Result<Value, String> {
     Ok(after)
 }
 
+/// What a pipeline's test exercises: what it reads, how it maps and where it writes.
+const TESTED: [&str; 5] = ["source", "compute", "output", "targetEndpoint", "class"];
+
+/// Whether a pipeline change reaches what its test exercises; a pause, a period, a schedule or a
+/// quota does not (PL-45).
+pub fn reaches_the_test(before: &Value, after: &Value) -> bool {
+    TESTED
+        .iter()
+        .any(|field| before["spec"].get(field) != after["spec"].get(field))
+}
+
 /// The Portal page a kind is changed on: its own section where it has one, else its list.
 fn page<'a>(kind: &str, plural: &'a str) -> &'a str {
     match kind {
@@ -230,6 +241,25 @@ mod tests {
             moved["spec"]["http"],
             json!({ "url": "https://feeds.example/b.json", "timeout": "10s" })
         );
+    }
+
+    #[test]
+    fn a_pause_or_a_schedule_does_not_reach_the_test_and_a_mapping_does() {
+        let paused =
+            patched(&pipeline(), &json!({ "spec": { "enabled": false } })).expect("paused");
+        assert!(!reaches_the_test(&pipeline(), &paused));
+        let every = patched(
+            &pipeline(),
+            &json!({ "spec": { "schedule": { "every": "5m" } } }),
+        )
+        .expect("rescheduled");
+        assert!(!reaches_the_test(&pipeline(), &every));
+        let mapped = patched(
+            &pipeline(),
+            &json!({ "spec": { "compute": { "bloblang": "root = this" } } }),
+        )
+        .expect("mapped");
+        assert!(reaches_the_test(&pipeline(), &mapped));
     }
 
     #[test]
