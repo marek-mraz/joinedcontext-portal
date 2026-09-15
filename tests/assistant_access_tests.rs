@@ -484,15 +484,19 @@ async fn pausing_a_pipeline_opens_its_editor_with_the_patched_manifest_and_propo
     assert_eq!(prefill["spec"]["enabled"], false);
     assert_eq!(prefill["spec"]["class"], "resident");
     assert!(prefill.get("status").is_none(), "{prefill}");
-    assert_eq!(
-        state
-            .drafts
-            .get("helsinki", "Pipeline", "hel-news")
-            .await
-            .expect("drafts")
-            .expect("the change is the person's draft")
-            .manifest["spec"]["enabled"],
-        false
+    let draft = state
+        .drafts
+        .get("helsinki", "Pipeline", "hel-news")
+        .await
+        .expect("drafts")
+        .expect("the change is the person's draft");
+    assert_eq!(draft.manifest["spec"]["enabled"], false);
+    assert!(
+        draft
+            .verdict
+            .as_ref()
+            .is_some_and(|verdict| verdict.is_fresh_for(&draft.manifest)),
+        "the draft carries the check it passed"
     );
     // The pipeline itself is untouched: only the person's proposal changes it.
     let stored = state

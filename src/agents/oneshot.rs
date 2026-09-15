@@ -3540,6 +3540,17 @@ anything yourself.
         {
             tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change draft not kept");
         }
+        // The draft carries the check it passed, so the form proposes it without a second one
+        // while the person leaves it as it is (AG-77).
+        let verdict = crate::ops::verdict::Verdict::green(&manifest, None);
+        if let Err(err) = self
+            .state
+            .drafts
+            .set_verdict(&self.project, info.kind, name, verdict)
+            .await
+        {
+            tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change verdict not kept");
+        }
         self.event(
             "tool",
             json!({

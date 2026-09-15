@@ -68,6 +68,15 @@ export async function approve(page: Page, project: string, change: string, confi
   await expect(page.getByText(/Deploying|Merged|Applied|Live/).first()).toBeVisible({ timeout: 90_000 });
 }
 
+/** Rejects one change as the approver, so a proposal a spec made leaves dev as it was. */
+export async function reject(page: Page, project: string, change: string): Promise<void> {
+  await page.goto(`/projects/${project}/approvals/${change}?lang=en`, { waitUntil: "networkidle" });
+  const button = page.getByRole("button", { name: "Reject", exact: true });
+  await expect(button).toBeEnabled({ timeout: 60_000 });
+  await button.click();
+  await expect(page.getByText(/Rejected/).first()).toBeVisible({ timeout: 60_000 });
+}
+
 /**
  * Proposes the deletion of one resource the way a person does (a Red Change, CC-19): its row's
  * Delete on the kind's list, the name typed back, Propose removal; returns the change's id.
