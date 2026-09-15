@@ -1,14 +1,17 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import i18n from "../src/i18n";
 import { SpaceComplete } from "../src/pages/spaces/SpaceComplete";
-import { rememberPrefill } from "../src/assistant/state";
+import { rememberPrefill, takePrefill } from "../src/assistant/state";
+import en from "../src/locales/en.json";
+
+const navigate = vi.fn();
 
 vi.mock("@tanstack/react-router", () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigate,
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
 }));
 
@@ -165,5 +168,50 @@ describe("SpaceComplete page", () => {
     expect(screen.getByLabelText(/Endpoint URL/i)).toHaveValue("https://example.com/free_bike_status.json");
     expect(screen.getByRole("button", { name: /Propose all/i })).toBeEnabled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("opens each draft on its kind's page with the draft in hand (T-0771)", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn());
+    navigate.mockClear();
+    const source = "id: https://example.com/bikes\nname: bikes\n";
+    const draft = (kind: string, name: string, spec: Record<string, unknown> = {}) => ({
+      kind,
+      name,
+      inferred: true,
+      manifest: { kind, metadata: { name }, spec },
+      verdict: { ok: true, findings: [], inputDigest: "abc" },
+    });
+    window.history.replaceState(null, "", "/projects/helsinki/spaces/complete?space=city-bikes");
+    rememberPrefill("/projects/helsinki/spaces/complete?space=city-bikes", {
+      url: "https://example.com/free_bike_status.json",
+      result: {
+        space: "city-bikes",
+        found: [],
+        drafts: [
+          draft("DataModel", "city-bikes", { source }),
+          draft("DataSource", "city-bikes-feed"),
+          draft("Pipeline", "city-bikes-load"),
+          draft("Endpoint", "city-bikes-public"),
+        ],
+        proposeReady: true,
+        lane: "yellow",
+        change: null,
+      },
+    });
+    renderComponent();
+
+    const open = async (kind: string) =>
+      user.click(within(await screen.findByTestId(`complete-draft-${kind}`)).getByRole("button", { name: en.spaces.complete.open }));
+
+    await open("DataModel");
+    expect(navigate).toHaveBeenLastCalledWith({ href: "/projects/helsinki/models" });
+    expect(takePrefill("/projects/helsinki/models")).toEqual({ source });
+    await open("DataSource");
+    expect(navigate).toHaveBeenLastCalledWith({ href: "/projects/helsinki/datasources?draft=city-bikes-feed" });
+    await open("Pipeline");
+    expect(navigate).toHaveBeenLastCalledWith({ href: "/projects/helsinki/pipelines?draft=city-bikes-load" });
+    await open("Endpoint");
+    expect(navigate).toHaveBeenLastCalledWith({ href: "/projects/helsinki/endpoints?draft=city-bikes-public" });
   });
 });

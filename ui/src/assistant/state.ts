@@ -99,10 +99,15 @@ export function onAssistantChange(listener: () => void): () => void {
  * live in its state.
  */
 export function rememberPrefill(route: string, prefill: Record<string, unknown>): void {
-  write(PREFILL_KEY, { route: route.split("?")[0], prefill });
+  handPrefill(route, prefill);
   write(NOTICE_KEY, route);
   write(NOTICE_SEEN_KEY, null);
   window.dispatchEvent(new Event(CHANGED));
+}
+
+/** The form values `route`'s page takes once as it mounts, left by a page that opens it. */
+export function handPrefill(route: string, prefill: Record<string, unknown>): void {
+  write(PREFILL_KEY, { route: route.split("?")[0], prefill });
 }
 
 /**

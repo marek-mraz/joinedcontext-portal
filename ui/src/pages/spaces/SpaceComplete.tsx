@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import { readCsrfToken } from "../../api/client";
-import { takePrefill } from "../../assistant/state";
+import { handPrefill, takePrefill } from "../../assistant/state";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import type { Change } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
@@ -167,23 +167,27 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
     }
   };
 
+  // Each draft opens on its kind's page the way the assistant hands one over (AG-73).
   const openDraft = (d: CompletedDraft) => {
+    const base = `/projects/${project}`;
+    const draft = `?draft=${encodeURIComponent(d.name)}`;
     if (d.kind === "DataSource") {
-      void navigate({ to: `/projects/${project}/datasources?draft=${encodeURIComponent(d.name)}` });
+      void navigate({ href: `${base}/datasources${draft}` });
     } else if (d.kind === "Pipeline") {
-      void navigate({ to: `/projects/${project}/pipelines?draft=${encodeURIComponent(d.name)}` });
+      void navigate({ href: `${base}/pipelines${draft}` });
     } else if (d.kind === "Endpoint") {
-      void navigate({ to: `/projects/${project}/endpoints` });
+      void navigate({ href: `${base}/endpoints${draft}` });
     } else if (d.kind === "DataModel") {
-      const linkmlSource = (d.manifest.spec as { source?: string })?.source;
-      if (linkmlSource) {
-        sessionStorage.setItem(`jc_prefill:/projects/${project}/models`, JSON.stringify({ source: linkmlSource }));
+      const source = (d.manifest.spec as { source?: unknown } | undefined)?.source;
+      if (typeof source === "string") {
+        handPrefill(`${base}/models`, { source });
       }
-      void navigate({ to: `/projects/${project}/models` });
+      void navigate({ href: `${base}/models` });
     } else {
-      void navigate({ to: `/projects/${project}/spaces` });
+      void navigate({ href: `${base}/spaces` });
     }
   };
+
 
   return (
     <div className="flex flex-col gap-section">
