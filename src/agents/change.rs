@@ -148,6 +148,37 @@ mod tests {
     }
 
     #[test]
+    fn a_schedule_a_mapping_and_a_source_address_are_patched_in_place() {
+        let mapped = patched(
+            &pipeline(),
+            &json!({ "spec": { "period": "5m", "compute": { "bloblang": "root.availableBikeNumber = this.num_bikes_available" } } }),
+        )
+        .expect("patched");
+        assert_eq!(mapped["spec"]["period"], "5m");
+        // A merge patch keeps the compute's kind beside the new mapping.
+        assert_eq!(
+            mapped["spec"]["compute"],
+            json!({ "kind": "bloblang", "bloblang": "root.availableBikeNumber = this.num_bikes_available" })
+        );
+
+        let source = json!({
+            "apiVersion": "joinedcontext.com/v1alpha1",
+            "kind": "DataSource",
+            "metadata": { "name": "hsl-bikes", "namespace": "helsinki" },
+            "spec": { "type": "http", "http": { "url": "https://feeds.example/a.json", "timeout": "10s" } }
+        });
+        let moved = patched(
+            &source,
+            &json!({ "spec": { "http": { "url": "https://feeds.example/b.json" } } }),
+        )
+        .expect("patched");
+        assert_eq!(
+            moved["spec"]["http"],
+            json!({ "url": "https://feeds.example/b.json", "timeout": "10s" })
+        );
+    }
+
+    #[test]
     fn a_patch_that_renames_changes_nothing_or_is_no_object_is_refused() {
         let renamed = patched(&pipeline(), &json!({ "metadata": { "name": "other" } }));
         assert!(renamed.is_err_and(|e| e.contains("/metadata/name")));

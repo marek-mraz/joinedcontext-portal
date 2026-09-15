@@ -1293,6 +1293,16 @@
       "keepEveryMessage": "Halte den Indikator {name} aktuell: {over}, alle {minutes}m, in den Raum {space}.",
       "keepOnChangeMessage": "Halte den Indikator {name} aktuell: {over}, bei jeder Änderung, in den Raum {space}."
     },
+    "changeTest": {
+      "title": "Test der Änderung",
+      "passed": "Getestet",
+      "failed": "Test nicht bestanden",
+      "untested": "Nicht getestet",
+      "dataSource": "Ausgeführt auf einem Abruf der Datenquelle {name}",
+      "endpoint": "Ausgeführt auf einer Seite des Endpunkts {name}",
+      "url": "{url} einmal abgerufen",
+      "records": "{count, plural, one {# Datensatz} other {# Datensätze}}"
+    },
     "kpiPipeline": {
       "title": "Indikator-Pipeline",
       "badge": "Pipeline",

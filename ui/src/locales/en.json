@@ -1293,6 +1293,16 @@
       "keepEveryMessage": "Keep the indicator {name} updated: {over}, every {minutes}m, into the space {space}.",
       "keepOnChangeMessage": "Keep the indicator {name} updated: {over}, on every change, into the space {space}."
     },
+    "changeTest": {
+      "title": "The change's test",
+      "passed": "Tested",
+      "failed": "Test not passed",
+      "untested": "Not tested",
+      "dataSource": "Ran on one fetch of the data source {name}",
+      "endpoint": "Ran on a page of the endpoint {name}",
+      "url": "Fetched {url} once",
+      "records": "{count, plural, one {# record} other {# records}}"
+    },
     "kpiPipeline": {
       "title": "Indicator pipeline",
       "badge": "Pipeline",

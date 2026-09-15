@@ -1810,9 +1810,14 @@ answers with the manifest as it is, and you send the patch next. A removal:
 {{ "tool": "change_resource", "kind": "<a kind from the list>", "name": "<its name>", "delete": true }}
 ```
 
-The platform checks the change and opens the resource's form with it filled in, or its removal
-dialog; the person reviews it there and proposes it. You never propose, approve or remove
-anything yourself.
+A pipeline's schedule is `spec.period` ("run it every 5 minutes": `"5m"`), its mapping the Bloblang
+of `spec.compute.bloblang` ("map num_bikes_available to availableBikeNumber": the whole mapping
+with that line changed), and a data source's address `spec.http.url` ("use this URL instead").
+
+The platform checks the change, runs a changed pipeline on a page of its source and fetches a
+changed data source's URL once, and opens the resource's form with it filled in, or its removal
+dialog; the person reviews it there and proposes it. A test that is not green comes back to you
+with what it saw: fix the patch. You never propose, approve or remove anything yourself.
 "#,
                 changeable = serde_json::to_string_pretty(&changeable).unwrap_or_default(),
             ));
@@ -3124,22 +3129,7 @@ a removal of its binding with change_resource.
         let red = verdict.get("ok").and_then(Value::as_bool) == Some(false)
             && verdict.get("untested").is_none();
         if red {
-            let findings = verdict
-                .get("findings")
-                .and_then(Value::as_array)
-                .map(|all| {
-                    all.iter()
-                        .map(|f| {
-                            format!(
-                                "{} {}",
-                                f.get("path").and_then(Value::as_str).unwrap_or(""),
-                                f.get("message").and_then(Value::as_str).unwrap_or("")
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                })
-                .unwrap_or_default();
+            let findings = findings_of(&verdict);
             let reason = format!(
                 "the pipeline's test on {} is not green: {findings}. The page it ran on ({} characters): {}",
                 if sampled { "a page of the source" } else { "an empty page" },
@@ -3633,7 +3623,7 @@ a removal of its binding with change_resource.
     ) -> Result<Worked, String> {
         let millis = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let home = self.home(info.kind);
-        let refused = match crate::api::dry_run::execute_dry_run(
+        let (refused, probe) = match crate::api::dry_run::execute_dry_run(
             &self.identity,
             &self.state,
             home,
@@ -3641,12 +3631,15 @@ a removal of its binding with change_resource.
         )
         .await
         {
-            Ok(result) if result.valid => None,
-            Ok(result) => Some(format!(
-                "the plan does not validate: {}",
-                serde_json::to_string(&result.plan).unwrap_or_default()
-            )),
-            Err(err) => Some(err.to_string()),
+            Ok(result) if result.valid => (None, result.probe),
+            Ok(result) => (
+                Some(format!(
+                    "the plan does not validate: {}",
+                    serde_json::to_string(&result.plan).unwrap_or_default()
+                )),
+                None,
+            ),
+            Err(err) => (Some(err.to_string()), None),
         };
         if let Some(findings) = refused {
             self.event(
@@ -3668,6 +3661,32 @@ a removal of its binding with change_resource.
                 )
                 .await;
         }
+        // A changed pipeline runs on a page of its source and a changed data source fetches its
+        // URL before the form opens (AG-77, PL-45, MF-39); a red test goes back to the model.
+        let tested = match self.tested(info.kind, &manifest, probe).await {
+            Ok(tested) => tested,
+            Err((findings, card)) => {
+                self.event(
+                    "tool",
+                    json!({
+                        "tool": tool,
+                        "status": "failed",
+                        "durationMs": millis(),
+                        "input": input,
+                        "error": format!("the test is not green: {findings}"),
+                        "output": { "kind": info.kind, "name": name, "test": card },
+                    }),
+                )
+                .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: the change's test is not green: {findings}; what it ran on: {card}; the changed manifest was {manifest}"),
+                        format!("The change to '{name}' does not pass its test: {findings}"),
+                    )
+                    .await;
+            }
+        };
         if let Err(err) = self
             .state
             .drafts
@@ -3686,7 +3705,9 @@ a removal of its binding with change_resource.
         }
         // The draft carries the check it passed, so the form proposes it without a second one
         // while the person leaves it as it is (AG-77).
-        let verdict = crate::ops::verdict::Verdict::green(&manifest, None);
+        let verdict = tested
+            .verdict
+            .unwrap_or_else(|| crate::ops::verdict::Verdict::green(&manifest, None));
         if let Err(err) = self
             .state
             .drafts
@@ -3702,7 +3723,7 @@ a removal of its binding with change_resource.
                 "status": "ok",
                 "durationMs": millis(),
                 "input": input,
-                "output": { "kind": info.kind, "name": name, "checked": true },
+                "output": { "kind": info.kind, "name": name, "checked": true, "test": tested.card },
             }),
         )
         .await?;
@@ -3723,6 +3744,143 @@ a removal of its binding with change_resource.
         )
         .await?;
         Ok(Worked::Done(prose))
+    }
+
+    /// The test of a changed Pipeline or DataSource; every other kind has none. `Err` carries the
+    /// findings and the card of what the test ran on; a test that could not run (no runner, a
+    /// credential, a source without a page) is a card that says why, never a refusal.
+    async fn tested(
+        &self,
+        kind: &str,
+        manifest: &Value,
+        probe: Option<crate::api::dry_run::Probe>,
+    ) -> Result<Tested, (String, Value)> {
+        match kind {
+            "DataSource" => {
+                let Some(probe) = probe else {
+                    return Ok(Tested::default());
+                };
+                let failed = crate::api::pipeline_test::feed_failed(&probe).map(str::to_owned);
+                let card =
+                    json!({ "source": { "url": manifest["spec"]["http"]["url"] }, "probe": probe });
+                match failed {
+                    Some(reason) => Err((reason, card)),
+                    None => Ok(Tested {
+                        card: Some(card),
+                        verdict: None,
+                    }),
+                }
+            }
+            "Pipeline" => {
+                let (sample, source) = match self.page_of(manifest).await {
+                    Ok(page) => page,
+                    Err(untested) => {
+                        return Ok(Tested {
+                            card: Some(json!({ "untested": untested })),
+                            verdict: None,
+                        })
+                    }
+                };
+                let Some(op) = crate::ops::find("jc_pipeline_test") else {
+                    return Ok(Tested::default());
+                };
+                let caller = crate::ops::Caller {
+                    identity: self.identity.clone(),
+                    via: crate::ops::Via::Agent,
+                };
+                let test = json!({ "pipeline": manifest, "sample": sample });
+                let out = match crate::ops::call(op, &caller, &self.state, &self.project, test)
+                    .await
+                {
+                    Ok(out) => out,
+                    Err(err) => {
+                        return Ok(Tested {
+                            card: Some(json!({ "source": source, "untested": err.to_string() })),
+                            verdict: None,
+                        })
+                    }
+                };
+                let verdict = out.get("verdict").cloned().unwrap_or(Value::Null);
+                let card = json!({
+                    "source": source,
+                    "verdict": { "ok": verdict["ok"], "findings": verdict["findings"] },
+                    "records": out.pointer("/input/events"),
+                    "sample": out.get("mapping").and_then(Value::as_array).map(|m| m.iter().take(3).cloned().collect::<Vec<_>>()),
+                });
+                if verdict["ok"].as_bool() == Some(true) {
+                    Ok(Tested {
+                        card: Some(card),
+                        verdict: serde_json::from_value(verdict).ok(),
+                    })
+                } else {
+                    Err((findings_of(&verdict), card))
+                }
+            }
+            _ => Ok(Tested::default()),
+        }
+    }
+
+    /// What a pipeline is tested on (PL-43): one fetch of its `http` data source, or a page of the
+    /// endpoint it reads when this conversation reads that endpoint, with the source it came from.
+    /// `Err` says why there is none.
+    async fn page_of(&self, manifest: &Value) -> Result<(Value, Value), String> {
+        let source = &manifest["spec"]["source"];
+        if let Some(name) = source["dataSourceRef"]["name"].as_str() {
+            let Some(data_source) = self.state.mirror.get(&self.project, "DataSource", name) else {
+                return Err(format!("its data source '{name}' does not exist"));
+            };
+            return match crate::api::pipeline_test::probe_plan(&data_source.spec) {
+                Some(Ok(url)) => Ok((
+                    json!({ "url": url, "format": "json" }),
+                    json!({ "dataSource": name }),
+                )),
+                Some(Err(skipped)) => Err(skipped.skipped.unwrap_or_default()),
+                None => Err(format!(
+                    "its data source '{name}' is not fetched over http, so it has no page to test on"
+                )),
+            };
+        }
+        let Some(endpoint) = source["endpointRef"]["name"].as_str() else {
+            return Err("it names no source to test on".to_owned());
+        };
+        let chosen = match self.state.agents.get_run(&self.run_id).await {
+            Ok(Some(run)) => endpoints::of_run(&run),
+            _ => self.endpoints.clone(),
+        };
+        let Some(index) = chosen.iter().position(|e| e.name == endpoint) else {
+            return Err(format!(
+                "this conversation does not read its endpoint '{endpoint}'"
+            ));
+        };
+        let query = &source["query"];
+        let mut url = format!(
+            "{}/ngsi-ld/v1/entities?limit=100",
+            endpoints::data_base(&self.proxy_base, &chosen, index)
+        );
+        for (parameter, value) in [
+            ("type", query["type"].as_str().map(str::to_owned)),
+            ("q", query["q"].as_str().map(str::to_owned)),
+            (
+                "attrs",
+                query["attrs"].as_array().map(|attrs| {
+                    attrs
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                }),
+            ),
+        ] {
+            if let Some(value) = value.filter(|v| !v.is_empty()) {
+                url.push_str(&format!("&{parameter}={}", urlencoding(&value)));
+            }
+        }
+        let page = self.read_text(&url).await?;
+        Ok((
+            // The runner reads an endpoint's page as one message, as the KPI pipeline test does.
+            json!({ "text": page, "format": "text" }),
+            json!({ "endpoint": endpoint }),
+        ))
     }
 
     /// What goes back to the model while drafts are left, or the person's answer on the last one.
@@ -4406,6 +4564,32 @@ fn needs_served(data_needs: &Value, index: Option<&Value>) -> Value {
 }
 
 /// The `tool` event of a call that did not run, with why.
+/// A verdict's findings on one line, for the model and the step: `path message; …`.
+fn findings_of(verdict: &Value) -> String {
+    verdict
+        .get("findings")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|f| {
+            format!(
+                "{} {}",
+                f.get("path").and_then(Value::as_str).unwrap_or(""),
+                f.get("message").and_then(Value::as_str).unwrap_or("")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// What a changed pipeline's or data source's test showed: the card beside the chat, and the
+/// verdict the draft carries when the test gave one.
+#[derive(Default)]
+struct Tested {
+    card: Option<Value>,
+    verdict: Option<crate::ops::verdict::Verdict>,
+}
+
 fn failed_step(tool: &str, started: std::time::Instant, input: &Value, reason: &str) -> Value {
     json!({
         "tool": tool,

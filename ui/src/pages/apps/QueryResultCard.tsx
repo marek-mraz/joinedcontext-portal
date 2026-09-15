@@ -156,8 +156,6 @@ export function queryResultOf(payload: Record<string, unknown>): QueryResult | n
 }
 
 export function QueryResultCard({ result }: { result: QueryResult }): JSX.Element {
-  const { t } = useTranslation();
-  const { view } = result;
   return (
     <div
       data-testid="query-result"
@@ -171,52 +169,58 @@ export function QueryResultCard({ result }: { result: QueryResult }): JSX.Elemen
           <span className="font-mono text-fg-muted">{result.argument}</span>
         ) : null}
       </p>
-      {view.kind === "table" ? (
-        <>
-          <div className="mt-1 overflow-x-auto">
-            <table className="min-w-full text-left">
-              <thead className="text-fg-muted">
-                <tr>
-                  <th className="py-0.5 pr-2 font-medium">{t("assistant.query.id")}</th>
-                  {view.columns.map((column) => (
-                    <th key={column} className="py-0.5 pr-2 font-medium">
-                      {column}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {view.rows.map((row, index) => (
-                  <tr key={`${row.id}-${index}`} className="border-t border-border">
-                    <td className="py-0.5 pr-2 font-mono">{row.id}</td>
-                    {row.cells.map((cell, cellIndex) => (
-                      <td key={view.columns[cellIndex]} className="max-w-[12rem] truncate py-0.5 pr-2" title={cell}>
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-1 text-fg-muted">
-            {view.total > view.rows.length
-              ? t("assistant.query.someRows", { shown: view.rows.length, total: view.total })
-              : t("assistant.query.rows", { count: view.total })}
-          </p>
-        </>
-      ) : view.kind === "fields" ? (
-        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-          {view.fields.map(([key, value]) => (
-            <div key={key} className="contents">
-              <dt className="font-mono text-fg-muted">{key}</dt>
-              <dd className="min-w-0 break-words">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono">{view.text}</pre>
-      )}
+      <QueryAnswer view={result.view} />
     </div>
+  );
+}
+
+/** An answer as a small table of entities, a list of fields or the text itself. */
+export function QueryAnswer({ view }: { view: QueryView }): JSX.Element {
+  const { t } = useTranslation();
+  return view.kind === "table" ? (
+    <>
+      <div className="mt-1 overflow-x-auto">
+        <table className="min-w-full text-left">
+          <thead className="text-fg-muted">
+            <tr>
+              <th className="py-0.5 pr-2 font-medium">{t("assistant.query.id")}</th>
+              {view.columns.map((column) => (
+                <th key={column} className="py-0.5 pr-2 font-medium">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {view.rows.map((row, index) => (
+              <tr key={`${row.id}-${index}`} className="border-t border-border">
+                <td className="py-0.5 pr-2 font-mono">{row.id}</td>
+                {row.cells.map((cell, cellIndex) => (
+                  <td key={view.columns[cellIndex]} className="max-w-[12rem] truncate py-0.5 pr-2" title={cell}>
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-1 text-fg-muted">
+        {view.total > view.rows.length
+          ? t("assistant.query.someRows", { shown: view.rows.length, total: view.total })
+          : t("assistant.query.rows", { count: view.total })}
+      </p>
+    </>
+  ) : view.kind === "fields" ? (
+    <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+      {view.fields.map(([key, value]) => (
+        <div key={key} className="contents">
+          <dt className="font-mono text-fg-muted">{key}</dt>
+          <dd className="min-w-0 break-words">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  ) : (
+    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono">{view.text}</pre>
   );
 }

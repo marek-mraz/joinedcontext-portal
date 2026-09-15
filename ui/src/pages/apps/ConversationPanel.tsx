@@ -6,6 +6,7 @@ import type { JsonSchema } from "../../components/forms/types";
 import { openQuestions } from "./useAgentRun";
 import { ActionStep } from "./ActionStep";
 import { CatalogCards, catalogItemsOf } from "./CatalogCards";
+import { ChangeTestCard, changeTestOf } from "./ChangeTestCard";
 import { EndpointProposalCard, proposalOf } from "./EndpointProposalCard";
 import { KpiCard, kpiOf } from "./KpiCard";
 import { KpiPipelineCard, kpiPipelineOf } from "./KpiPipelineCard";
@@ -225,6 +226,7 @@ export function ConversationPanel({
               const queried = queryResultOf(event.payload);
               const kpiPipeline =
                 event.payload.tool === "draft_kpi_pipeline" ? kpiPipelineOf(event.payload.output) : null;
+              const tested = changeTestOf(event.payload);
               return (
                 <li key={event.seq} className="space-y-2">
                   {found !== null ? (
@@ -240,6 +242,7 @@ export function ConversationPanel({
                   ) : null}
                   {kpi !== null ? <KpiCard project={project} kpi={kpi} onSend={live ? onSend : undefined} /> : null}
                   {kpiPipeline !== null ? <KpiPipelineCard project={project} pipeline={kpiPipeline} /> : null}
+                  {tested !== null ? <ChangeTestCard test={tested} /> : null}
                   {queried !== null ? <QueryResultCard result={queried} /> : null}
                   <ActionStep event={event} live={live} onSend={onSend} count={count} />
                 </li>

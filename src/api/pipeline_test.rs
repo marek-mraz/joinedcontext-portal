@@ -322,6 +322,16 @@ fn answer_of(trace: TestTrace) -> Probe {
     }
 }
 
+/// The reason a probe that ran gives for a feed that failed it, as opposed to a probe that did not
+/// run at all (a credential, no runner, a test already running): every answer `answer_of` words
+/// about the feed itself names the feed first.
+pub(crate) fn feed_failed(probe: &Probe) -> Option<&str> {
+    probe
+        .skipped
+        .as_deref()
+        .filter(|reason| reason.starts_with("the feed "))
+}
+
 /// A failed fetch or parse in plain words: the HTTP status, a timeout, an empty body, or the
 /// last clause of the transport or JSON error (`connection refused`, `no such host`).
 fn outcome_of(error: &str) -> String {
@@ -546,12 +556,20 @@ mod tests {
             ("fetch: failed assignment (line 1): the feed answered an empty body", EMPTY_BODY),
             ("failed to parse message into JSON array: invalid character '<' looking for beginning of value", "the feed is not JSON: invalid character '<' looking for beginning of value"),
         ] {
-            assert_eq!(answer_of(trace_with(1, &[("mapping", error), kept])).skipped.as_deref(), Some(said));
+            let answer = answer_of(trace_with(1, &[("mapping", error), kept]));
+            assert_eq!(answer.skipped.as_deref(), Some(said));
+            assert_eq!(feed_failed(&answer), Some(said));
         }
         assert_eq!(
             answer_of(trace_with(0, &[kept])).skipped.as_deref(),
             Some("the feed answered nothing within the test's three seconds")
         );
+        assert!(feed_failed(&answer_of(trace_with(0, &[kept]))).is_some());
+        assert!(feed_failed(&records).is_none());
+        assert!(feed_failed(&Probe::skipped(
+            "the source declares a credential; a dry run resolves none (MF-38)"
+        ))
+        .is_none());
     }
 
     #[test]

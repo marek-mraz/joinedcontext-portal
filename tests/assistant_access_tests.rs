@@ -30,6 +30,12 @@ const SHARE_SECTION: &str = "## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA";
 const KPI_SECTION: &str = "## WHEN THE PERSON ASKS FOR AN INDICATOR";
 
 fn config(proxy_base: &str) -> Config {
+    config_with(proxy_base, None)
+}
+
+/// [`config`] with the project's pipeline runner at `runner`, when a test runs one.
+fn config_with(proxy_base: &str, runner: Option<&str>) -> Config {
+    let runner = runner.map(|base| format!("{base}/{{project}}"));
     Config::from_vars(|key| {
         match key {
             "JC_AGENTS_NAMESPACE" => Some("agents"),
@@ -37,6 +43,10 @@ fn config(proxy_base: &str) -> Config {
             "JC_AGENT_PROXY_TOKEN" => Some("the-token-only-jc-agent-proxy-has"),
             "JC_PORTAL_BOOTSTRAP_ADMINS" => Some("portal-approver"),
             "JC_PORTAL_PUBLIC_URL" => Some("https://portal.example.com"),
+            "JC_PORTAL_PIPELINE_RUNNER_URL" => runner.as_deref(),
+            "JC_PORTAL_PIPELINE_TEST_CAPTURE_URL" => {
+                runner.as_ref().map(|_| "http://portal-internal:9090")
+            }
             _ => None,
         }
         .map(str::to_owned)
@@ -1496,4 +1506,278 @@ async fn an_upstream_that_echoes_the_bearer_puts_it_in_no_event_and_no_prompt() 
             "the model saw the ticket"
         );
     }
+}
+
+/// A bikes pipeline reading the HSL feed through its data source, and that data source.
+fn bikes_pipeline() -> Vec<ResourceEnvelope> {
+    let mut seeded = bikes_space();
+    seeded.push(envelope(
+        "DataSource",
+        "hsl-bikes",
+        "helsinki",
+        json!({ "type": "http", "http": { "url": "https://feeds.example/hsl/stations.json" } }),
+    ));
+    seeded.push(envelope(
+        "Pipeline",
+        "hel-bikes",
+        "helsinki",
+        json!({
+            "class": "auto",
+            "period": "15m",
+            "source": { "dataSourceRef": { "kind": "DataSource", "name": "hsl-bikes" } },
+            "compute": { "kind": "bloblang", "bloblang": "root = this" },
+            "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:helsinki-all"
+        }),
+    ));
+    seeded
+}
+
+/// A change conversation against a runner: the model's answers in order, and what the harness
+/// posts back for each test the runner is given, in order. Answers the run's events once the model
+/// has given its last answer and the run's last event is `until`, the model's requests, and the
+/// harnesses the runner received.
+async fn change_on_the_runner(
+    access: Value,
+    message: &str,
+    answers: &[&str],
+    captures: Vec<Vec<Value>>,
+    until: &str,
+) -> (AppState, Vec<AgentRunEvent>, Vec<String>, Vec<Value>) {
+    let proxy = MockServer::start().await;
+    for answer in answers {
+        Mock::given(method("POST"))
+            .and(path("/v1/llm/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "chatcmpl-1", "object": "chat.completion",
+                "choices": [{ "index": 0, "message": { "role": "assistant", "content": answer }, "finish_reason": "stop" }],
+                "usage": { "total_tokens": 900 }
+            })))
+            .up_to_n_times(1)
+            .mount(&proxy)
+            .await;
+    }
+    let runner = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(wiremock::matchers::path_regex(
+            r"^/helsinki/streams/pipeline-test-[a-z2-7]{26}$",
+        ))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&runner)
+        .await;
+    Mock::given(method("DELETE"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&runner)
+        .await;
+    let config = config_with(&proxy.uri(), Some(&runner.uri()));
+    let mirror = mirror(Some(access));
+    for envelope in bikes_pipeline() {
+        mirror.upsert(envelope);
+    }
+    let state = AppState::new(config.clone(), None).with_mirror(mirror);
+
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/assistant/conversations")
+                .header(
+                    header::COOKIE,
+                    cookie(&config, person("admin@hel.fi", &["portal-approver"])),
+                )
+                .header(CSRF_HEADER, CSRF)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({ "message": message }).to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let created: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    let id = created["id"].as_str().expect("run id").to_owned();
+
+    // The runner's side: each harness it is given is answered with the next captured messages,
+    // until the model has given its last answer and the run has said or opened something.
+    let mut answered = 0;
+    let mut events = Vec::new();
+    for _ in 0..300 {
+        let tests: Vec<Value> = runner
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| r.method == wiremock::http::Method::POST)
+            .map(|r| serde_json::from_slice(&r.body).unwrap_or(Value::Null))
+            .collect();
+        for harness in tests.iter().skip(answered) {
+            let capture = harness["output"]["http_client"]["url"]
+                .as_str()
+                .unwrap_or_default();
+            let at = capture.find("/internal/").expect("the capture route");
+            for message in captures.get(answered).into_iter().flatten() {
+                let status = server::internal_app(state.clone())
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri(&capture[at..])
+                            .body(Body::from(message.to_string()))
+                            .expect("request"),
+                    )
+                    .await
+                    .expect("response")
+                    .status();
+                assert_eq!(status, StatusCode::NO_CONTENT);
+            }
+            answered += 1;
+        }
+        events = state.agents.events_since(&id, 0).await.expect("events");
+        let asked = proxy
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| r.url.path() == "/v1/llm/chat/completions")
+            .count();
+        if asked == answers.len() && events.last().is_some_and(|e| e.kind == until) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    let prompts = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.url.path() == "/v1/llm/chat/completions")
+        .map(|r| String::from_utf8_lossy(&r.body).into_owned())
+        .collect();
+    let harnesses = runner
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.method == wiremock::http::Method::POST)
+        .map(|r| serde_json::from_slice(&r.body).unwrap_or(Value::Null))
+        .collect();
+    (state, events, prompts, harnesses)
+}
+
+const BAD_MAPPING: &str = "```json\n{\"tool\":\"change_resource\",\"kind\":\"Pipeline\",\"name\":\"hel-bikes\",\"patch\":{\"spec\":{\"compute\":{\"bloblang\":\"root.availableBikeNumber = this.num_bikes.number()\"}}}}\n```";
+const GOOD_MAPPING: &str = "The feed names it num_bikes_available.\n```json\n{\"tool\":\"change_resource\",\"kind\":\"Pipeline\",\"name\":\"hel-bikes\",\"patch\":{\"spec\":{\"period\":\"5m\",\"compute\":{\"bloblang\":\"root.id = \\\"urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:\\\" + this.station_id\\nroot.type = \\\"BikeHireDockingStation\\\"\\nroot.availableBikeNumber = this.num_bikes_available\"}}}}\n```";
+
+/// A changed pipeline runs on a fetch of its data source before its editor opens (T-0737,
+/// AG-77, PL-45): a red test goes back to the model with what it saw, the corrected change is
+/// tested green, and only then does the editor open on the draft with the test's own verdict.
+#[tokio::test]
+async fn a_changed_pipeline_is_tested_on_its_source_and_a_red_test_is_redrafted_before_the_editor_opens(
+) {
+    let station = "{\"station_id\":\"001\",\"num_bikes_available\":3}";
+    let (state, events, prompts, harnesses) = change_on_the_runner(
+        pipeline_access(),
+        "Map num_bikes_available to availableBikeNumber in hel-bikes and run it every 5 minutes",
+        &[BAD_MAPPING, GOOD_MAPPING],
+        vec![
+            vec![json!({ "input": station, "output": null, "error": "failed assignment (line 1): expected number value, got null" })],
+            vec![json!({ "input": station, "output": {
+                "id": "urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:001",
+                "type": "BikeHireDockingStation",
+                "availableBikeNumber": 3
+            }, "error": null })],
+        ],
+        "navigate",
+    )
+    .await;
+
+    let steps: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.kind == "tool" && e.payload["tool"] == "change_resource")
+        .map(|e| &e.payload)
+        .collect();
+    assert_eq!(steps.len(), 2, "{events:?}");
+    assert_eq!(steps[0]["status"], "failed");
+    assert!(steps[0]["error"]
+        .as_str()
+        .is_some_and(|e| e.contains("expected number value")));
+    assert_eq!(steps[1]["status"], "ok", "{}", steps[1]);
+    let test = &steps[1]["output"]["test"];
+    assert_eq!(test["verdict"]["ok"], true, "{test}");
+    assert_eq!(test["source"], json!({ "dataSource": "hsl-bikes" }));
+    assert_eq!(test["sample"][0]["availableBikeNumber"], 3);
+
+    // Both tests fetched the data source's URL once, never anything else.
+    assert_eq!(harnesses.len(), 2);
+    for harness in &harnesses {
+        assert_eq!(
+            harness["pipeline"]["processors"][0]["http"]["url"],
+            "https://feeds.example/hsl/stations.json"
+        );
+    }
+    assert!(prompts[1].contains("the change's test is not green"));
+    assert!(prompts[1].contains("expected number value"));
+
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the editor opens after the green test");
+    assert_eq!(
+        navigate.payload["route"],
+        "/projects/helsinki/pipelines?edit=hel-bikes"
+    );
+    assert_eq!(navigate.payload["prefill"]["spec"]["period"], "5m");
+    let draft = state
+        .drafts
+        .get("helsinki", "Pipeline", "hel-bikes")
+        .await
+        .expect("drafts")
+        .expect("the tested change is the person's draft");
+    let verdict = draft
+        .verdict
+        .as_ref()
+        .expect("the draft carries the test's verdict");
+    assert!(verdict.is_fresh_for(&draft.manifest));
+}
+
+/// A data source changed to another URL fetches it once before its form opens (T-0737, MF-39):
+/// a URL that answers 404 goes back to the model, and nothing opens.
+#[tokio::test]
+async fn a_data_source_moved_to_a_url_that_does_not_answer_goes_back_to_the_model() {
+    let access = json!({
+        "operations": ["jc_catalog_search", "jc_resource_propose"],
+        "kinds": [{ "kind": "DataSource", "verbs": ["read", "propose"] }]
+    });
+    let moved = "```json\n{\"tool\":\"change_resource\",\"kind\":\"DataSource\",\"name\":\"hsl-bikes\",\"patch\":{\"spec\":{\"http\":{\"url\":\"https://feeds.example/moved.json\"}}}}\n```";
+    let (state, events, prompts, harnesses) = change_on_the_runner(
+        access,
+        "Use https://feeds.example/moved.json for hsl-bikes instead",
+        &[moved, "That address answers 404 Not Found, so I left hsl-bikes as it is."],
+        vec![vec![json!({
+            "input": null,
+            "output": null,
+            "error": "fetch: https://feeds.example/moved.json: HTTP request returned unexpected response code (404): 404 Not Found, Error: gone"
+        })]],
+        "thought",
+    )
+    .await;
+
+    let step = events
+        .iter()
+        .find(|e| e.kind == "tool" && e.payload["tool"] == "change_resource")
+        .map(|e| &e.payload)
+        .expect("the change step");
+    assert_eq!(step["status"], "failed", "{step}");
+    assert!(step["error"]
+        .as_str()
+        .is_some_and(|e| e.contains("the feed answered 404 Not Found")));
+    assert_eq!(
+        harnesses[0]["pipeline"]["processors"][0]["http"]["url"],
+        "https://feeds.example/moved.json"
+    );
+    assert!(prompts[1].contains("the feed answered 404 Not Found"));
+    assert!(events.iter().all(|e| e.kind != "navigate"));
+    assert!(state
+        .drafts
+        .get("helsinki", "DataSource", "hsl-bikes")
+        .await
+        .expect("drafts")
+        .is_none());
 }

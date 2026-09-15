@@ -1293,6 +1293,16 @@
       "keepEveryMessage": "Priebežne aktualizuj ukazovateľ {name}: {over}, každých {minutes}m, do priestoru {space}.",
       "keepOnChangeMessage": "Priebežne aktualizuj ukazovateľ {name}: {over}, pri každej zmene, do priestoru {space}."
     },
+    "changeTest": {
+      "title": "Test zmeny",
+      "passed": "Otestované",
+      "failed": "Test neprešiel",
+      "untested": "Neotestované",
+      "dataSource": "Spustené na jednom načítaní zdroja dát {name}",
+      "endpoint": "Spustené na stránke endpointu {name}",
+      "url": "{url} načítané raz",
+      "records": "{count, plural, one {# záznam} few {# záznamy} other {# záznamov}}"
+    },
     "kpiPipeline": {
       "title": "Pipeline ukazovateľa",
       "badge": "Pipeline",
