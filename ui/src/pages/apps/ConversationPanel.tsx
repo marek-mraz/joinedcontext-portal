@@ -3,6 +3,7 @@ import type { JSX, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { SchemaForm } from "../../components/forms/SchemaForm";
 import type { JsonSchema } from "../../components/forms/types";
+import { Button, Textarea } from "../../components/ui";
 import { openQuestions, TERMINAL_STATES } from "./useAgentRun";
 import { ActionStep } from "./ActionStep";
 import { CatalogCards, catalogItemsOf } from "./CatalogCards";
@@ -421,7 +422,7 @@ export function ConversationPanel({
             <label className="sr-only" htmlFor="run-message">
               {t("agentRun.conversation.placeholder")}
             </label>
-            <textarea
+            <Textarea
               id="run-message"
               rows={2}
               value={draft}
@@ -436,15 +437,15 @@ export function ConversationPanel({
                   send();
                 }
               }}
-              className="block min-w-0 flex-1 resize-none rounded border border-border bg-surface px-3 py-1.5 text-sm"
+              className="min-h-0 flex-1 resize-none"
             />
-            <button
+            <Button
               type="submit"
+              variant="primary"
               disabled={draft.trim() === "" || sending}
-              className="rounded bg-primary px-3 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t("agentRun.conversation.send")}
-            </button>
+            </Button>
           </div>
         </form>
       ) : (

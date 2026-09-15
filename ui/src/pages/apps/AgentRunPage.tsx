@@ -12,7 +12,7 @@ import { TERMINAL_STATES, useAgentRun } from "./useAgentRun";
 import type { RunEvent } from "./useAgentRun";
 import { rememberRun } from "../../assistant/state";
 import { appDisplayName, useEndpointTitles } from "./appTitle";
-import { PageHeader } from "../../components/ui/PageHeader";
+import { Button, PageHeader } from "../../components/ui";
 
 /**
  * One builder run, live (UI-34…UI-40).
@@ -80,13 +80,9 @@ export function AgentRunPage({
             </>
           }
         />
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
+        <Button onClick={onClose}>
           {t("agentRun.back")}
-        </button>
+        </Button>
       </div>
 
       {change && !record.changeId && <ChangeNotice change={change} project={project} />}
@@ -117,96 +113,90 @@ export function AgentRunPage({
         the preview, so the frame never shows a dashboard every run would share (SDK-14).
       */}
       <div className="space-y-4">
-        <div className="space-y-4">
-          <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-2">
-            <h2 id="run-preview" className="text-base font-semibold">
-              {t("agentRun.preview.title")}
-            </h2>
-            {record.previewUrl !== undefined && record.previewUrl !== "" ? (
-              <>
-                <p className="text-sm text-fg-muted">{t("agentRun.preview.hint")}</p>
-                {/*
-                  No `allow-same-origin`: the app is served from the Portal's own origin, and
-                  that pair beside `allow-scripts` is not a sandbox at all — the frame could
-                  read the deliberately readable CSRF cookie and write as the signed-in
-                  reviewer (AP-19). The URL carries the pass number, so a new pass is a new
-                  frame rather than a stale one.
-                */}
-                <iframe
-                  ref={frame}
-                  key={record.previewUrl}
-                  title={t("agentRun.preview.frameTitle", { app: displayName })}
-                  src={record.previewUrl}
-                  sandbox="allow-scripts"
-                  className="h-[82vh] min-h-[28rem] w-full rounded border border-border bg-surface"
-                />
-                <a
-                  href={record.previewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-block text-sm text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
-                >
-                  {t("agentRun.preview.open")}
-                </a>
-              </>
-            ) : (
-              <Building
-                createdAt={record.createdAt}
-                status={record.status}
-                over={over}
-                events={events}
-                dataNeeds={record.dataNeeds}
+        <section aria-labelledby="run-preview" className="space-y-2 rounded border border-border p-2">
+          <h2 id="run-preview" className="text-base font-semibold">
+            {t("agentRun.preview.title")}
+          </h2>
+          {record.previewUrl !== undefined && record.previewUrl !== "" ? (
+            <>
+              <p className="text-sm text-fg-muted">{t("agentRun.preview.hint")}</p>
+              {/*
+                No `allow-same-origin`: the app is served from the Portal's own origin, and
+                that pair beside `allow-scripts` is not a sandbox at all — the frame could
+                read the deliberately readable CSRF cookie and write as the signed-in
+                reviewer (AP-19). The URL carries the pass number, so a new pass is a new
+                frame rather than a stale one.
+              */}
+              <iframe
+                ref={frame}
+                key={record.previewUrl}
+                title={t("agentRun.preview.frameTitle", { app: displayName })}
+                src={record.previewUrl}
+                sandbox="allow-scripts"
+                className="h-[82vh] min-h-[28rem] w-full rounded border border-border bg-surface"
               />
-            )}
-          </section>
-
-          <RunTimeline status={record.status} steps={record.steps} tokensUsed={record.tokensUsed} />
-
-          {(record.firstFrameMs != null || record.firstVersionMs != null) && (
-            <div className="flex flex-wrap gap-4 text-xs text-fg-muted" data-testid="run-timings">
-              {record.firstFrameMs != null ? (
-                <span>
-                  <span className="font-medium text-fg">{t("agentRun.timing.firstFrame")}</span>{" "}
-                  {t("agentRun.timing.seconds", {
-                    seconds: (record.firstFrameMs / 1000).toFixed(1),
-                  })}
-                </span>
-              ) : null}
-              {record.firstVersionMs != null ? (
-                <span>
-                  <span className="font-medium text-fg">{t("agentRun.timing.firstVersion")}</span>{" "}
-                  {t("agentRun.timing.seconds", {
-                    seconds: (record.firstVersionMs / 1000).toFixed(1),
-                  })}
-                </span>
-              ) : null}
-            </div>
+              <a
+                href={record.previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-block text-sm text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+              >
+                {t("agentRun.preview.open")}
+              </a>
+            </>
+          ) : (
+            <Building
+              createdAt={record.createdAt}
+              status={record.status}
+              over={over}
+              events={events}
+              dataNeeds={record.dataNeeds}
+            />
           )}
+        </section>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={over || cancel.isPending}
-              onClick={() => {
-                cancel.mutate();
-              }}
-              className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t("agentRun.cancel")}
-            </button>
-            <button
-              type="button"
-              disabled={!publishable || publish.isPending}
-              onClick={() => {
-                publish.mutate();
-              }}
-              className="rounded bg-primary px-4 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t("agentRun.publish")}
-            </button>
+        <RunTimeline status={record.status} steps={record.steps} tokensUsed={record.tokensUsed} />
+
+        {(record.firstFrameMs != null || record.firstVersionMs != null) && (
+          <div className="flex flex-wrap gap-4 text-xs text-fg-muted" data-testid="run-timings">
+            {record.firstFrameMs != null ? (
+              <span>
+                <span className="font-medium text-fg">{t("agentRun.timing.firstFrame")}</span>{" "}
+                {t("agentRun.timing.seconds", {
+                  seconds: (record.firstFrameMs / 1000).toFixed(1),
+                })}
+              </span>
+            ) : null}
+            {record.firstVersionMs != null ? (
+              <span>
+                <span className="font-medium text-fg">{t("agentRun.timing.firstVersion")}</span>{" "}
+                {t("agentRun.timing.seconds", {
+                  seconds: (record.firstVersionMs / 1000).toFixed(1),
+                })}
+              </span>
+            ) : null}
           </div>
-        </div>
+        )}
 
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={over || cancel.isPending}
+            onClick={() => {
+              cancel.mutate();
+            }}
+          >
+            {t("agentRun.cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!publishable || publish.isPending}
+            onClick={() => {
+              publish.mutate();
+            }}
+          >
+            {t("agentRun.publish")}
+          </Button>
+        </div>
       </div>
     </div>
   );

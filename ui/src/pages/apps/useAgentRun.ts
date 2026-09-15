@@ -13,7 +13,6 @@ export const RUN_STATES = [
   "awaiting_approval",
   "published",
 ] as const;
-export type RunState = (typeof RUN_STATES)[number];
 
 /** A run that ended, whichever way. Nothing more arrives on its stream. */
 export const TERMINAL_STATES = ["published", "failed", "cancelled", "expired"];

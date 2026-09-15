@@ -1,4 +1,4 @@
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
@@ -14,7 +14,17 @@ import {
   REPRESENTATION_PATHS,
 } from "../../components/endpoints/links";
 import { SharedWithBadge } from "../../components/endpoints/sharing";
-import { PageHeader } from "../../components/ui/PageHeader";
+import {
+  Badge,
+  Button,
+  PageHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui";
 
 const SPACE_LABEL = "joinedcontext.com/space";
 const RESULTS_COUNT_HEADER = "NGSILD-Results-Count";
@@ -143,10 +153,10 @@ function TypeRow({ slug, type }: { slug?: string; type: string }): JSX.Element {
   }
 
   return (
-    <tr className="hover:bg-surface-subtle/50">
-      <td className="px-4 py-3 font-mono">{type}</td>
-      <td className="px-4 py-3 text-right font-mono">{count}</td>
-      <td className="px-4 py-3">
+    <TableRow>
+      <TableCell className="font-mono">{type}</TableCell>
+      <TableCell align="right" className="font-mono">{count}</TableCell>
+      <TableCell>
         {inside.isSuccess && inside.data.samples.length > 0 ? (
           <ul className="space-y-1">
             {inside.data.samples.map((entity) => (
@@ -161,8 +171,8 @@ function TypeRow({ slug, type }: { slug?: string; type: string }): JSX.Element {
         ) : inside.isSuccess ? (
           <span className="text-xs text-surface-fg/60">{t("spaces.inside.noEntities")}</span>
         ) : null}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -179,7 +189,7 @@ function useProjectList(project: string, plural: string) {
   });
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
   return (
     <section className="space-y-2">
       <h2 className="text-base font-semibold">{title}</h2>
@@ -218,15 +228,15 @@ export function SpaceInside({ project, name }: { project: string; name: string }
     return (
       <div role="alert">
         <p className="text-danger">{message}</p>
-        <button
-          type="button"
+        <Button
+          size="sm"
           onClick={() => {
             void space.refetch();
           }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+          className="mt-2"
         >
           {t("app.error.retry")}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -291,29 +301,18 @@ export function SpaceInside({ project, name }: { project: string; name: string }
                 </>
               )}
             </p>
-            <div className="overflow-x-auto rounded border border-border">
-              <table className="w-full border-collapse text-left text-sm">
-                <caption className="sr-only">{t("spaces.inside.types")}</caption>
-                <thead>
-                  <tr className="border-b border-border bg-surface-subtle">
-                    <th scope="col" className="px-4 py-2 font-medium">
-                      {t("spaces.inside.type")}
-                    </th>
-                    <th scope="col" className="px-4 py-2 font-medium text-right">
-                      {t("spaces.inside.count")}
-                    </th>
-                    <th scope="col" className="px-4 py-2 font-medium">
-                      {t("spaces.inside.samples")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {types.map((type) => (
-                    <TypeRow key={type} slug={slug} type={type} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table caption={t("spaces.inside.types")}>
+              <TableHead>
+                <TableHeaderCell>{t("spaces.inside.type")}</TableHeaderCell>
+                <TableHeaderCell align="right">{t("spaces.inside.count")}</TableHeaderCell>
+                <TableHeaderCell>{t("spaces.inside.samples")}</TableHeaderCell>
+              </TableHead>
+              <TableBody>
+                {types.map((type) => (
+                  <TypeRow key={type} slug={slug} type={type} />
+                ))}
+              </TableBody>
+            </Table>
           </>
         )}
       </Section>
@@ -324,91 +323,76 @@ export function SpaceInside({ project, name }: { project: string; name: string }
             {endpoints.isPending ? t("app.loading") : t("spaces.inside.noEndpoints")}
           </p>
         ) : (
-          <div className="overflow-x-auto rounded border border-border">
-            <table className="w-full border-collapse text-left text-sm">
-              <caption className="sr-only">{t("endpoints.title")}</caption>
-              <thead>
-                <tr className="border-b border-border bg-surface-subtle">
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    {t("endpoints.field.name")}
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    {t("endpoints.field.audience")}
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    {t("endpoints.field.representations")}
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    {t("spaces.inside.catalogue")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {spaceEndpoints.map((endpoint) => {
-                  const spec = endpoint.spec as {
-                    slug?: string;
-                    audience?: string;
-                    enabledRepresentations?: string[];
-                    policyRef?: string;
-                  };
-                  const endpointSlug = spec.slug ?? "";
-                  return (
-                    <tr key={endpoint.metadata.name} className="hover:bg-surface-subtle/50">
-                      <td className="px-4 py-3">
-                        <div className="font-medium">
-                          {localized(endpoint.metadata.title, locale, endpoint.metadata.name)}
-                        </div>
-                        <div className="font-mono text-xs text-surface-fg/60">
-                          {endpoint.metadata.title ? endpoint.metadata.name : null}
-                          {spec.policyRef
-                            ? `${endpoint.metadata.title ? " · " : ""}${refName(spec.policyRef)}`
-                            : ""}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <SharedWithBadge endpoint={endpoint} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <ul className="flex flex-wrap gap-1">
-                          {(spec.enabledRepresentations ?? []).map((rep) => (
-                            <li key={rep}>
-                              {endpointSlug && REPRESENTATION_PATHS[rep] ? (
-                                <EndpointLink
-                                  href={endpointUrl(endpointSlug, REPRESENTATION_PATHS[rep])}
-                                >
-                                  {rep}
-                                </EndpointLink>
-                              ) : (
-                                <span className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs">
-                                  {rep}
-                                </span>
-                              )}
+          <Table caption={t("endpoints.title")}>
+            <TableHead>
+              <TableHeaderCell>{t("endpoints.field.name")}</TableHeaderCell>
+              <TableHeaderCell>{t("endpoints.field.audience")}</TableHeaderCell>
+              <TableHeaderCell>{t("endpoints.field.representations")}</TableHeaderCell>
+              <TableHeaderCell>{t("spaces.inside.catalogue")}</TableHeaderCell>
+            </TableHead>
+            <TableBody>
+              {spaceEndpoints.map((endpoint) => {
+                const spec = endpoint.spec as {
+                  slug?: string;
+                  audience?: string;
+                  enabledRepresentations?: string[];
+                  policyRef?: string;
+                };
+                const endpointSlug = spec.slug ?? "";
+                return (
+                  <TableRow key={endpoint.metadata.name}>
+                    <TableCell>
+                      <div className="font-medium">
+                        {localized(endpoint.metadata.title, locale, endpoint.metadata.name)}
+                      </div>
+                      <div className="font-mono text-xs text-surface-fg/60">
+                        {endpoint.metadata.title ? endpoint.metadata.name : null}
+                        {spec.policyRef
+                          ? `${endpoint.metadata.title ? " · " : ""}${refName(spec.policyRef)}`
+                          : ""}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <SharedWithBadge endpoint={endpoint} />
+                    </TableCell>
+                    <TableCell>
+                      <ul className="flex flex-wrap gap-1">
+                        {(spec.enabledRepresentations ?? []).map((rep) => (
+                          <li key={rep}>
+                            {endpointSlug && REPRESENTATION_PATHS[rep] ? (
+                              <EndpointLink
+                                href={endpointUrl(endpointSlug, REPRESENTATION_PATHS[rep])}
+                              >
+                                {rep}
+                              </EndpointLink>
+                            ) : (
+                              <Badge mono>{rep}</Badge>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      {endpointSlug ? (
+                        <ul className="mt-1 flex flex-wrap gap-1">
+                          {ENDPOINT_LINKS.map((link) => (
+                            <li key={link.key}>
+                              <EndpointLink href={endpointUrl(endpointSlug, link.path)}>
+                                {t(`endpoints.link.${link.key}`)}
+                              </EndpointLink>
                             </li>
                           ))}
                         </ul>
-                        {endpointSlug ? (
-                          <ul className="mt-1 flex flex-wrap gap-1">
-                            {ENDPOINT_LINKS.map((link) => (
-                              <li key={link.key}>
-                                <EndpointLink href={endpointUrl(endpointSlug, link.path)}>
-                                  {t(`endpoints.link.${link.key}`)}
-                                </EndpointLink>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3">
-                        <EndpointLink href={catalogueUrl(endpoint.metadata.name)}>
-                          {t("spaces.inside.catalogueLink")}
-                        </EndpointLink>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      <EndpointLink href={catalogueUrl(endpoint.metadata.name)}>
+                        {t("spaces.inside.catalogueLink")}
+                      </EndpointLink>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
       </Section>
 
@@ -418,65 +402,52 @@ export function SpaceInside({ project, name }: { project: string; name: string }
             {policies.isPending ? t("app.loading") : t("spaces.inside.noPolicies")}
           </p>
         ) : (
-          <div className="overflow-x-auto rounded border border-border">
-            <table className="w-full border-collapse text-left text-sm">
-              <caption className="sr-only">{t("spaces.inside.policies")}</caption>
-              <thead>
-                <tr className="border-b border-border bg-surface-subtle">
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    {t("spaces.field.name")}
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    {t("spaces.inside.assignee")}
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    {t("spaces.inside.operations")}
-                  </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    {t("spaces.inside.type")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {spacePolicies.map((policy) => {
-                  const spec = policy.spec as {
-                    assignee?: { kind?: string; id?: string };
-                    operations?: string[];
-                    information?: Array<{ entities?: Array<{ type?: string }> }>;
-                  };
-                  const policyTypes = (spec.information ?? [])
-                    .flatMap((info) => info.entities ?? [])
-                    .map((entity) => entity.type)
-                    .filter((type): type is string => typeof type === "string");
-                  return (
-                    <tr key={policy.metadata.name} className="hover:bg-surface-subtle/50">
-                      <td className="px-4 py-3">
-                        <div className="font-medium">
-                          {localized(policy.metadata.title, locale, policy.metadata.name)}
+          <Table caption={t("spaces.inside.policies")}>
+            <TableHead>
+              <TableHeaderCell>{t("spaces.field.name")}</TableHeaderCell>
+              <TableHeaderCell>{t("spaces.inside.assignee")}</TableHeaderCell>
+              <TableHeaderCell>{t("spaces.inside.operations")}</TableHeaderCell>
+              <TableHeaderCell>{t("spaces.inside.type")}</TableHeaderCell>
+            </TableHead>
+            <TableBody>
+              {spacePolicies.map((policy) => {
+                const spec = policy.spec as {
+                  assignee?: { kind?: string; id?: string };
+                  operations?: string[];
+                  information?: Array<{ entities?: Array<{ type?: string }> }>;
+                };
+                const policyTypes = (spec.information ?? [])
+                  .flatMap((info) => info.entities ?? [])
+                  .map((entity) => entity.type)
+                  .filter((type): type is string => typeof type === "string");
+                return (
+                  <TableRow key={policy.metadata.name}>
+                    <TableCell>
+                      <div className="font-medium">
+                        {localized(policy.metadata.title, locale, policy.metadata.name)}
+                      </div>
+                      {policy.metadata.title ? (
+                        <div className="font-mono text-xs text-surface-fg/60">
+                          {policy.metadata.name}
                         </div>
-                        {policy.metadata.title ? (
-                          <div className="font-mono text-xs text-surface-fg/60">
-                            {policy.metadata.name}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs">
-                        {spec.assignee
-                          ? `${spec.assignee.kind ?? ""}${spec.assignee.kind ? ":" : ""}${spec.assignee.id ?? ""}`
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs">
-                        {(spec.operations ?? []).join(", ") || "—"}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs">
-                        {policyTypes.join(", ") || "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {spec.assignee
+                        ? `${spec.assignee.kind ?? ""}${spec.assignee.kind ? ":" : ""}${spec.assignee.id ?? ""}`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {(spec.operations ?? []).join(", ") || "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {policyTypes.join(", ") || "—"}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
       </Section>
     </div>

@@ -9,7 +9,21 @@ import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
 import type { components } from "../../api/schema";
-import { PageHeader } from "../../components/ui/PageHeader";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Field,
+  Input,
+  PageHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui";
 
 type CkanStatus = components["schemas"]["CkanStatus"];
 type PublicationStatus = components["schemas"]["PublicationStatus"];
@@ -77,9 +91,9 @@ export function CkanPage({ project }: { project: string }): JSX.Element {
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
       {create.error ? (
-        <p role="alert" className="text-sm text-danger">
+        <Alert role="alert" tone="danger">
           {create.error instanceof ApiError ? create.error.message : t("app.error.generic")}
-        </p>
+        </Alert>
       ) : null}
 
       <Instances
@@ -137,23 +151,21 @@ function Instances({
       {loading ? <p role="status">{t("app.loading")}</p> : null}
       {!loading && instances.length === 0 ? <p>{t("ckan.instances.empty")}</p> : null}
       {instances.length > 0 ? (
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <th scope="col" className="py-1">{t("ckan.instances.name")}</th>
-              <th scope="col" className="py-1">{t("ckan.instances.url")}</th>
-              <th scope="col" className="py-1">{t("ckan.instances.organization")}</th>
-              <th scope="col" className="py-1">{t("ckan.instances.tokenRef")}</th>
-              <th scope="col" className="py-1 text-right">
-                <span className="sr-only">{t("approvals.actions")}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table caption={t("ckan.instances.title")}>
+          <TableHead>
+            <TableHeaderCell>{t("ckan.instances.name")}</TableHeaderCell>
+            <TableHeaderCell>{t("ckan.instances.url")}</TableHeaderCell>
+            <TableHeaderCell>{t("ckan.instances.organization")}</TableHeaderCell>
+            <TableHeaderCell>{t("ckan.instances.tokenRef")}</TableHeaderCell>
+            <TableHeaderCell align="right">
+              <span className="sr-only">{t("approvals.actions")}</span>
+            </TableHeaderCell>
+          </TableHead>
+          <TableBody>
             {instances.map((instance) => (
-              <tr key={instance.name} className="border-b border-border">
-                <td className="py-1 font-mono">{instance.name}</td>
-                <td className="py-1">
+              <TableRow key={instance.name}>
+                <TableCell className="font-mono">{instance.name}</TableCell>
+                <TableCell>
                   <a
                     href={instance.url}
                     className="underline hover:no-underline"
@@ -162,10 +174,10 @@ function Instances({
                   >
                     {instance.url}
                   </a>
-                </td>
-                <td className="py-1">{instance.organizationDefault ?? "—"}</td>
-                <td className="py-1 font-mono">{instance.apiTokenRef}</td>
-                <td className="py-1 text-right">
+                </TableCell>
+                <TableCell>{instance.organizationDefault ?? "—"}</TableCell>
+                <TableCell className="font-mono">{instance.apiTokenRef}</TableCell>
+                <TableCell align="right">
                   <span className="inline-flex items-center gap-1.5">
                     <EditResourceAction
                       target={{ project, kind: "CkanInstance", plural: "ckaninstances", name: instance.name }}
@@ -174,11 +186,11 @@ function Instances({
                       target={{ project, kind: "CkanInstance", plural: "ckaninstances", name: instance.name }}
                     />
                   </span>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       ) : null}
 
       <form
@@ -189,76 +201,44 @@ function Instances({
           setDraft(EMPTY_DRAFT);
         }}
       >
-        <Field
-          id="ckan-instance-name"
-          label={t("ckan.instances.name")}
-          value={draft.name}
-          onChange={(name) => setDraft({ ...draft, name })}
-          required
-        />
-        <Field
-          id="ckan-instance-url"
-          label={t("ckan.instances.url")}
-          value={draft.url}
-          onChange={(url) => setDraft({ ...draft, url })}
-          type="url"
-          required
-        />
-        <Field
-          id="ckan-instance-org"
-          label={t("ckan.instances.organization")}
-          value={draft.organizationDefault}
-          onChange={(organizationDefault) => setDraft({ ...draft, organizationDefault })}
-        />
-        <Field
-          id="ckan-instance-secret"
-          label={t("ckan.instances.tokenRef")}
-          value={draft.secretName}
-          onChange={(secretName) => setDraft({ ...draft, secretName })}
-          required
-        />
+        <Field id="ckan-instance-name" label={t("ckan.instances.name")}>
+          <Input
+            id="ckan-instance-name"
+            value={draft.name}
+            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            required
+          />
+        </Field>
+        <Field id="ckan-instance-url" label={t("ckan.instances.url")}>
+          <Input
+            id="ckan-instance-url"
+            type="url"
+            value={draft.url}
+            onChange={(event) => setDraft({ ...draft, url: event.target.value })}
+            required
+          />
+        </Field>
+        <Field id="ckan-instance-org" label={t("ckan.instances.organization")}>
+          <Input
+            id="ckan-instance-org"
+            value={draft.organizationDefault}
+            onChange={(event) => setDraft({ ...draft, organizationDefault: event.target.value })}
+          />
+        </Field>
+        <Field id="ckan-instance-secret" label={t("ckan.instances.tokenRef")}>
+          <Input
+            id="ckan-instance-secret"
+            value={draft.secretName}
+            onChange={(event) => setDraft({ ...draft, secretName: event.target.value })}
+            required
+          />
+        </Field>
         <p className="text-sm">{t("ckan.instances.tokenHelp")}</p>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-60"
-        >
+        <Button type="submit" variant="primary" disabled={submitting}>
           {t("ckan.instances.propose")}
-        </button>
+        </Button>
       </form>
     </section>
-  );
-}
-
-function Field({
-  id,
-  label,
-  value,
-  onChange,
-  type = "text",
-  required = false,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  required?: boolean;
-}): JSX.Element {
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </label>
-      <input
-        id={id}
-        type={type}
-        value={value}
-        required={required}
-        onChange={(event) => onChange(event.target.value)}
-        className="rounded border border-border bg-surface px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
-      />
-    </div>
   );
 }
 
@@ -279,45 +259,47 @@ function Publications({
       {!loading && publications.length === 0 ? <p>{t("ckan.publications.empty")}</p> : null}
       <ul className="space-y-4">
         {publications.map((publication) => (
-          <li key={publication.endpoint} className="rounded border border-border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono font-semibold">{publication.endpoint}</span>
-              <StatusChip publication={publication} />
-              {publication.datasetUrl ? (
-                <a
-                  href={publication.datasetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline hover:no-underline"
-                >
-                  {publication.dataset}
-                </a>
-              ) : (
-                <span className="font-mono">{publication.dataset}</span>
-              )}
-            </div>
-            {publication.datastore ? (
-              <p className="mt-1 text-sm">
-                {t("ckan.publications.datastore", {
-                  representation: publication.datastore.representation,
-                  refresh: publication.datastore.refresh,
-                })}
-              </p>
-            ) : null}
-            <ul className="mt-2 flex flex-wrap gap-2">
-              {publication.resources.map((resource) => (
-                <li key={resource.url}>
+          <li key={publication.endpoint}>
+            <Card className="p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono font-semibold">{publication.endpoint}</span>
+                <StatusChip publication={publication} />
+                {publication.datasetUrl ? (
                   <a
-                    href={resource.url}
+                    href={publication.datasetUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded border border-border px-2 py-1 text-sm underline hover:no-underline"
+                    className="underline hover:no-underline"
                   >
-                    {resource.format}
+                    {publication.dataset}
                   </a>
-                </li>
-              ))}
-            </ul>
+                ) : (
+                  <span className="font-mono">{publication.dataset}</span>
+                )}
+              </div>
+              {publication.datastore ? (
+                <p className="mt-1 text-sm">
+                  {t("ckan.publications.datastore", {
+                    representation: publication.datastore.representation,
+                    refresh: publication.datastore.refresh,
+                  })}
+                </p>
+              ) : null}
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {publication.resources.map((resource) => (
+                  <li key={resource.url}>
+                    <a
+                      href={resource.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded border border-border px-2 py-1 text-sm underline hover:no-underline"
+                    >
+                      {resource.format}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </Card>
           </li>
         ))}
       </ul>
@@ -330,16 +312,10 @@ function StatusChip({ publication }: { publication: PublicationStatus }): JSX.El
   const { t } = useTranslation();
   const missing = publication.instanceMissing;
   return (
-    <span
-      className={
-        missing
-          ? "rounded border border-danger px-2 py-0.5 text-xs font-medium text-danger"
-          : "rounded border border-border px-2 py-0.5 text-xs font-medium"
-      }
-    >
+    <Badge tone={missing ? "danger" : "neutral"}>
       {missing
         ? t("ckan.publications.missingInstance", { instance: publication.instance })
         : t("ckan.publications.publishedTo", { instance: publication.instance })}
-    </span>
+    </Badge>
   );
 }

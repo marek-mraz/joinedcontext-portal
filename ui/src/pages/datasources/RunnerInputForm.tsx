@@ -83,5 +83,3 @@ export function RunnerInputForm({
     </SecretRefContext.Provider>
   );
 }
-
-export default RunnerInputForm;

@@ -164,43 +164,6 @@ export async function putDraft(
   return asDraft(await res.json());
 }
 
-export async function listDrafts(project: string): Promise<Draft[]> {
-  const res = await fetch(
-    new Request(
-      absolute(`/api/v1/projects/${encodeURIComponent(project)}/drafts`),
-      {
-        credentials: "same-origin",
-      },
-    ),
-  );
-  if (!res.ok) {
-    throw new Error(`failed to list drafts: ${res.status}`);
-  }
-  const data = (await res.json()) as { items?: Draft[] } | Draft[];
-  return Array.isArray(data) ? data : (data.items ?? []);
-}
-
-export async function dropDraft(
-  project: string,
-  kind: string,
-  name: string,
-): Promise<boolean> {
-  const headers: Record<string, string> = {};
-  const csrf = readCsrfToken();
-  if (csrf) {
-    headers["x-csrf-token"] = csrf;
-  }
-  const res = await fetch(
-    new Request(
-      absolute(
-        `/api/v1/projects/${encodeURIComponent(project)}/drafts/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`,
-      ),
-      { method: "DELETE", credentials: "same-origin", headers },
-    ),
-  );
-  return res.ok;
-}
-
 export function subscribeDrafts(
   project: string,
   onEvent: (event: DraftEvent) => void,

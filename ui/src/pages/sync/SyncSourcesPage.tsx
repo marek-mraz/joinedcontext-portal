@@ -295,5 +295,3 @@ function scheduleOf(
   }
   return "";
 }
-
-export default SyncSourcesPage;

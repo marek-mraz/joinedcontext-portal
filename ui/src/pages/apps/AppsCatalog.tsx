@@ -16,7 +16,7 @@ import { requestOpen } from "../../assistant/state";
 import { AgentRunPage } from "./AgentRunPage";
 import { appDisplayName, useEndpointTitles } from "./appTitle";
 import { runInUrl, setRunInUrl } from "./useAgentRun";
-import { PageHeader } from "../../components/ui/PageHeader";
+import { Button, buttonClass, PageHeader } from "../../components/ui";
 
 interface DataNeed {
   contextSpaceRef?: string | { name?: string };
@@ -112,13 +112,9 @@ export function AppPreview({ app, onClose }: { app: Manifest; onClose: () => voi
 
   return (
     <div className="space-y-3">
-      <button
-        type="button"
-        onClick={onClose}
-        className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-      >
+      <Button onClick={onClose}>
         {t("apps.back")}
-      </button>
+      </Button>
 
       <PageHeader title={t("apps.preview.title", { name: title })} description={t("apps.preview.sandboxSpace")} />
 
@@ -223,15 +219,15 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
     return (
       <div role="alert">
         <p className="text-danger">{message}</p>
-        <button
-          type="button"
+        <Button
+          size="sm"
           onClick={() => {
             void list.refetch();
           }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+          className="mt-2"
         >
           {t("app.error.retry")}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -284,16 +280,13 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <PageHeader title={t("apps.title")} description={t("apps.subtitle")} />
         <PermissionGuard project={project} kind="App" verb="propose">
-          <button
-            type="button"
-            // The builder lives in the assistant: the same panel on every page (UI-45).
+          <Button
             onClick={() => {
               requestOpen("build");
             }}
-            className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
           >
             {t("apps.newAction")}
-          </button>
+          </Button>
         </PermissionGuard>
       </div>
 
@@ -339,26 +332,24 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
                 {/* Only a preview is framed here: a published app is reached by its own
                     audience, and a draft has nothing deployed yet (AP-18, AP-19). */}
                 {spec.lifecycle === "preview" && (
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
                     onClick={() => {
                       setPreviewing(app);
                     }}
-                    className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
                   >
                     {t("apps.previewAction")}
-                  </button>
+                  </Button>
                 )}
                 {spec.lifecycle === "preview" && (
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
                     onClick={() => {
                       setConfirming(app);
                     }}
-                    className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
                   >
                     {t("apps.publishAction")}
-                  </button>
+                  </Button>
                 )}
                 {/* AP-24: every iteration with the agent is a commit, and the prompt history
                     lives with the source. The forge shows both; the Portal does not keep a
@@ -368,7 +359,7 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
                     href={app.status.sourceUrl}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+                    className={buttonClass("secondary", "sm")}
                   >
                     {t("apps.history")}
                   </a>
@@ -407,7 +398,7 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
                 <Link
                   to="/projects/$project/apps/$name"
                   params={{ project, name: draft.appName }}
-                  className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+                  className={buttonClass("secondary", "sm")}
                 >
                   {t("apps.drafts.open")}
                 </Link>
@@ -475,21 +466,16 @@ function PublishDialog({
       </p>
       <p className="mt-1 text-sm text-muted">{t("apps.publish.hint")}</p>
       <div className="mt-3 flex gap-2">
-        <button
-          type="button"
+        <Button
+          variant="primary"
           disabled={pending}
           onClick={onConfirm}
-          className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {t("apps.publish.confirm")}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
+        </Button>
+        <Button onClick={onCancel}>
           {t("apps.publish.cancel")}
-        </button>
+        </Button>
       </div>
     </div>
   );

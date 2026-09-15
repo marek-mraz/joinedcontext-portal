@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, unwrap } from "../../api/client";
+import { Button } from "../../components/ui";
 import { AgentRunPage } from "./AgentRunPage";
 import { AppGenerator } from "./AppGenerator";
 import type { AgentRun } from "./useAgentRun";
@@ -56,15 +57,13 @@ export function AppPage({ project, name }: { project: string; name: string }): J
 
   return (
     <div className="space-y-3">
-      <button
-        type="button"
+      <Button
         onClick={() => {
           void navigate({ to: "/projects/$project/$plural", params: { project, plural: "apps" } });
         }}
-        className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
       >
         {t("apps.back")}
-      </button>
+      </Button>
       <AppGenerator project={project} initialName={name} />
     </div>
   );

@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../../api/client";
-import { asManifests, overlay, plainTitle, prune } from "../../api/manifest";
+import { asManifests, overlay, plainTitle, prune, refName } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
 import { useBranding } from "../../branding";
 import { ResourceFormDialog } from "../../components/ResourceFormDialog";
@@ -43,15 +43,6 @@ export interface PipelineForm {
 }
 
 const PLURAL = "pipelines";
-
-/** A `Ref` is a bare name or `{ kind, name }` (MF-07); the form keeps the name. */
-function refName(ref: unknown): string | undefined {
-  if (typeof ref === "string") {
-    return ref;
-  }
-  const typed = (ref ?? {}) as { name?: unknown };
-  return typeof typed.name === "string" ? typed.name : undefined;
-}
 
 function typedRef(kind: string, name: string | undefined) {
   return name ? { kind, name } : undefined;
@@ -148,11 +139,11 @@ export function toForm(pipeline: Manifest): PipelineForm {
     source: source
       ? {
           ...source,
-          dataSourceRef: refName(source.dataSourceRef),
-          endpointRef: refName(source.endpointRef),
+          dataSourceRef: refName(source.dataSourceRef) || undefined,
+          endpointRef: refName(source.endpointRef) || undefined,
         }
       : undefined,
-    compute: compute ? { ...compute, mappingRef: refName(compute.mappingRef) } : undefined,
+    compute: compute ? { ...compute, mappingRef: refName(compute.mappingRef) || undefined } : undefined,
   }) as PipelineForm;
 }
 

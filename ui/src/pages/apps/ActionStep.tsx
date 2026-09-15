@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "../../components/ui";
 import type { RunEvent } from "./useAgentRun";
 
 /**
@@ -166,18 +167,17 @@ export function ActionStep({
           ),
         )}
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
+          <Button
+            size="sm"
             onClick={() => {
               void copy();
             }}
-            className="rounded border border-border bg-surface px-2 py-0.5 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
           >
             {copied ? t("agentRun.step.copied") : t("agentRun.step.copy")}
-          </button>
+          </Button>
           {failed && live ? (
-            <button
-              type="button"
+            <Button
+              size="sm"
               onClick={() => {
                 onSend(
                   t("agentRun.step.fixMessage", {
@@ -186,10 +186,9 @@ export function ActionStep({
                   }),
                 );
               }}
-              className="rounded border border-border bg-surface px-2 py-0.5 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
             >
               {t("agentRun.step.fix")}
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>

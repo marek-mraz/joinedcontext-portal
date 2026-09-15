@@ -7,7 +7,7 @@ import { approvalStanding, changedKind } from "../../api/approval";
 import { usePermissions } from "../../api/permissions";
 import { useIdentity } from "../../auth/AuthProvider";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
-import { buttonClass, SourceLink } from "../../components/ui";
+import { Button, buttonClass, SourceLink } from "../../components/ui";
 
 /**
  * Where an application lives and how it goes live (AP-71): its source in Git, and after Publish
@@ -96,14 +96,14 @@ export function RunPublication({
       {changeId && pending && standing ? (
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           {standing.block === null && !red ? (
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               disabled={approve.isPending}
               onClick={() => approve.mutate()}
-              className={buttonClass("primary", "sm")}
             >
               {approve.isPending ? t("approvals.approving") : t("agentRun.publication.approve")}
-            </button>
+            </Button>
           ) : null}
           <Link
             to="/projects/$project/approvals/$id"

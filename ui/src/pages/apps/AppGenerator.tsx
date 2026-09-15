@@ -11,7 +11,7 @@ import { fetchJson, publishedTypes } from "../endpoints/SchemaProjectionPanel";
 import type { PublishedType } from "../endpoints/SchemaProjectionPanel";
 import { EndpointPreview, accessWords } from "./EndpointPreview";
 import { useAccess } from "../../components/entities/AccessPanel";
-import { PageHeader } from "../../components/ui/PageHeader";
+import { Button, Input, PageHeader, Select, Textarea } from "../../components/ui";
 
 /** The blueprint that turns a description into an app (AP-22, Architecture/16 §3). */
 export const BLUEPRINT = "app-from-prompt";
@@ -346,7 +346,7 @@ export function AppGenerator({
         <label className="block text-sm font-medium" htmlFor="generator-endpoint">
           {t("apps.generate.endpoint")}
         </label>
-        <select
+        <Select
           id="generator-endpoint"
           value={endpointName}
           onChange={(event) => {
@@ -354,7 +354,7 @@ export function AppGenerator({
             setExtra((current) => current.filter((name) => name !== event.target.value));
             setDropped([]);
           }}
-          className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
+          className="mt-1"
         >
           <option value="">{t("apps.generate.pickEndpoint")}</option>
           {choices.map((candidate) => (
@@ -362,7 +362,7 @@ export function AppGenerator({
               {localized(candidate.metadata.title, i18n.language, candidate.metadata.name)}
             </option>
           ))}
-        </select>
+        </Select>
         <p className="mt-1 text-xs text-muted">{t("apps.generate.endpointHint")}</p>
         {endpointName !== "" && choices.length > 1 && (
           <div className="mt-2">
@@ -423,7 +423,7 @@ export function AppGenerator({
         <label className="block text-sm font-medium" htmlFor="generator-prompt">
           {t("apps.generate.prompt")}
         </label>
-        <textarea
+        <Textarea
           id="generator-prompt"
           rows={5}
           value={prompt}
@@ -431,7 +431,7 @@ export function AppGenerator({
           onChange={(event) => {
             setPrompt(event.target.value);
           }}
-          className="mt-1 block w-full rounded border border-border bg-surface px-3 py-2 text-base"
+          className="mt-1"
         />
         <p className="mt-1 text-xs text-muted">{t("apps.generate.promptHint")}</p>
       </div>
@@ -446,14 +446,14 @@ export function AppGenerator({
             <label className="block text-sm font-medium" htmlFor="generator-name">
               {t("apps.generate.name")}
             </label>
-            <input
+            <Input
               id="generator-name"
               value={name}
               placeholder={slugOf(prompt, endpointName)}
               onChange={(event) => {
                 setName(event.target.value);
               }}
-              className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
+              className="mt-1"
             />
           </div>
 
@@ -461,20 +461,20 @@ export function AppGenerator({
             <label className="block text-sm font-medium" htmlFor="generator-kind">
               {t("apps.generate.kind")}
             </label>
-            <select
+            <Select
               id="generator-kind"
               value={kind}
               onChange={(event) => {
                 setKind(event.target.value as AppKind);
               }}
-              className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
+              className="mt-1"
             >
               {APP_KINDS.map((value) => (
                 <option key={value} value={value}>
                   {t(`apps.generate.kinds.${value}`)}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
 
           {endpointName !== "" && (
@@ -498,13 +498,13 @@ export function AppGenerator({
         </div>
       </details>
 
-      <button
+      <Button
         type="submit"
+        variant="primary"
         disabled={!ready || generate.isPending}
-        className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {t("apps.generate.submit")}
-      </button>
+      </Button>
     </form>
   );
 }

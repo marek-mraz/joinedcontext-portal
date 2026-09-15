@@ -222,8 +222,6 @@ export function generateSlug(): string {
 /** The four feeds a `DataSource` connects to, in the order the wizard offers them (MF-35). */
 export const DATA_SOURCE_TYPES = ["mqtt", "http", "websocket", "gtfs-rt"] as const;
 
-export const TYPED_SOURCE_TYPES = DATA_SOURCE_TYPES;
-
 export type TypedDataSourceType = (typeof DATA_SOURCE_TYPES)[number];
 
 export type DataSourceType = TypedDataSourceType | string;

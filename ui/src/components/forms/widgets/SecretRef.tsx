@@ -173,5 +173,4 @@ export function SecretRefWidget(props: WidgetProps): JSX.Element {
   );
 }
 
-export const SecretRef = SecretRefWidget;
 export default SecretRefWidget;

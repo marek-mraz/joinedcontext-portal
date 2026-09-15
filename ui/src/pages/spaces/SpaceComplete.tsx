@@ -5,6 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { readCsrfToken } from "../../api/client";
 import { handPrefill, takePrefill } from "../../assistant/state";
 import { ChangeNotice } from "../../components/ChangeNotice";
+import { refName } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
 import { parse as parseYaml } from "yaml";
@@ -62,7 +63,7 @@ function summaryOf(draft: CompletedDraft, t: Translate): string | null {
       return t("spaces.complete.summary.DataModel", { type, count: attributes });
     }
     case "ContextSpace": {
-      const model = text((spec.dataModelRef as { name?: unknown } | undefined)?.name);
+      const model = refName(spec.dataModelRef) || undefined;
       return model === undefined ? null : t("spaces.complete.summary.ContextSpace", { model });
     }
     case "DataSource": {
@@ -216,7 +217,7 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
         description={t("spaces.complete.lead")}
       />
 
-      <div className="flex flex-col gap-4 rounded-md border border-border bg-surface p-4">
+      <Card className="flex flex-col gap-4">
         <Field id="complete-space" label={t("spaces.complete.space")}>
           <Input
             id="complete-space"
@@ -269,7 +270,7 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
             </Button>
           ) : null}
         </div>
-      </div>
+      </Card>
 
       {error ? (
         <Alert role="alert" tone="danger">
