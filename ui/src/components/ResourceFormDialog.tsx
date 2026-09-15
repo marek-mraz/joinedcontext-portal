@@ -451,12 +451,20 @@ export function ResourceFormDialog<T>({
     const digest = digestOf(manifest);
     const loaded = !draftName || loadedName === draftName;
     if (project && loaded && digest !== syncedDigestRef.current) {
-      const saved = await putDraft(project, draftKind, active, manifest, lastVersionRef.current);
-      syncedDigestRef.current = digest;
-      lastVersionRef.current = saved.version;
-      setCurrentDraft(saved);
-      if (saved.verdict !== undefined) {
-        updateVerdict(saved.verdict ?? null);
+      try {
+        const saved = await putDraft(project, draftKind, active, manifest, lastVersionRef.current);
+        syncedDigestRef.current = digest;
+        lastVersionRef.current = saved.version;
+        setCurrentDraft(saved);
+        if (saved.verdict !== undefined) {
+          updateVerdict(saved.verdict ?? null);
+        }
+      } catch (err) {
+        // Another window changed the draft: the person sees it before anything is proposed. Any
+        // other failure leaves the proposal to the server's check, which says what to do.
+        if ((err as { status?: number }).status === 409) {
+          throw err;
+        }
       }
     }
     return { kind: draftKind, name: active };

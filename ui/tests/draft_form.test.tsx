@@ -682,6 +682,69 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
     expect(order).toHaveLength(2);
   });
 
+  it("proposes nothing when another window changed the draft Propose would save (T-0769)", async () => {
+    const manifestOf = (url: string) => ({
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "DataSource",
+      metadata: { name: "contested", namespace: "banskabystrica" },
+      spec: { type: "http", http: { url } },
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.includes("/api/v1/branding")) {
+        return new Response(JSON.stringify({ validation: "strict" }), { status: 200 });
+      }
+      if (request.method === "PUT") {
+        return new Response(JSON.stringify({ current: 3 }), { status: 409 });
+      }
+      return new Response(
+        JSON.stringify({
+          project: "banskabystrica",
+          kind: "DataSource",
+          name: "contested",
+          manifest: manifestOf("https://typed.example.com"),
+          verdict: { ok: true, findings: [], checkedAt: "2026-09-13T12:00:00Z", inputDigest: digestOf(manifestOf("https://checked.example.com")) },
+          touchedBy: "demo.steward",
+          touchedKind: "person",
+          version: 2,
+          updatedAt: "2026-09-13T12:00:00Z",
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSubmit = vi.fn();
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Contested Draft"
+            description="Conflict before propose"
+            project="banskabystrica"
+            draftKind="DataSource"
+            draftName="contested"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={onSubmit}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    const submitBtn = await screen.findByRole("button", { name: "Propose change" });
+    await waitFor(() => expect(submitBtn).toBeDisabled());
+    fireEvent.change(screen.getByLabelText(/URL/i), { target: { value: "https://checked.example.com" } });
+    await waitFor(() => expect(submitBtn).toBeEnabled());
+    fireEvent.click(submitBtn);
+
+    expect(await screen.findByText(en.drafts.conflict)).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("marks verdict as stale and disables Propose when form is changed after check", async () => {
     const manifest = {
       apiVersion: "joinedcontext.com/v1alpha1",
