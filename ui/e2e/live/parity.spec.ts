@@ -210,15 +210,11 @@ async function viaForm(page: Page, c: Case, manifest: Manifest): Promise<string>
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   const yamlTab = dialog.getByRole("tab", { name: "YAML" });
-  const viaTabs = (await yamlTab.count()) > 0;
-  if (viaTabs) {
+  if (await yamlTab.count()) {
     await yamlTab.click();
   }
   await replaceYaml(dialog, stringifyYaml(manifest));
-  if (viaTabs) {
-    // Back to the form, which reads the YAML: the Check that a proposal needs lives there (T-0884).
-    await dialog.getByRole("tab", { name: "Form" }).click();
-  }
+  // The dialog's own Check runs on the YAML typed (T-0884), then Propose.
   await proposeFrom(dialog);
   const inDialog = dialog.getByText(/^chg-[0-9a-f]{8}$/);
   if (await inDialog.count()) {
