@@ -682,6 +682,75 @@ fn administers(
         .all(|verb| effective.check(&data.kind, verb, target.as_ref()).is_ok())
 }
 
+/// The approval checks of every file the merge request changes, and the strictest lane among
+/// them (T-0832). The headline manifest is among them and passes the same checks twice, which
+/// costs nothing and keeps this loop free of a special case.
+/// ponytail: one `get_file` per changed file; a bundle is a handful, the tree diff is the upgrade.
+async fn approve_every_file(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    gitea: &GiteaClient,
+    pr: &PullRequest,
+) -> Result<Lane, ApiError> {
+    let effective = crate::permissions::for_request(state, identity, project);
+    let mut lane = Lane::Green;
+    for file in gitea.pull_request_files(pr.number).await? {
+        let git_ref = if file.deleted {
+            &pr.base_branch
+        } else {
+            &pr.head_branch
+        };
+        let content = gitea
+            .get_file(&file.path, git_ref)
+            .await?
+            .ok_or_else(|| {
+                ApiError::Internal(format!(
+                    "'{}' is in change proposal {} but not on {git_ref}",
+                    file.path, pr.number
+                ))
+            })?
+            .content;
+        let Ok(envelope) = serde_yaml_ng::from_str::<ResourceEnvelope>(&content) else {
+            let kind = crate::api::import::native_kind(&file.path).ok_or_else(|| {
+                ApiError::Denied(format!(
+                    "'{}' belongs to no kind this platform serves, so no role grants approving \
+                     it (PF-50)",
+                    file.path
+                ))
+            })?;
+            effective.check(kind, jc_core::kinds::Verb::Approve, None)?;
+            continue;
+        };
+        let manifest =
+            serde_json::to_value(&envelope).map_err(|e| ApiError::Internal(e.to_string()))?;
+        effective.check(
+            &envelope.kind,
+            jc_core::kinds::Verb::Approve,
+            Some(&manifest),
+        )?;
+        let access = matches!(
+            envelope.kind.as_str(),
+            "Role" | "RoleBinding" | "ServiceAccount"
+        );
+        if file.deleted {
+            if access {
+                effective.check(&envelope.kind, jc_core::kinds::Verb::Delete, None)?;
+            }
+            lane = Lane::Red;
+            continue;
+        }
+        if access {
+            crate::permissions::within_own_rights(state, identity, &manifest, "approver")?;
+        }
+        lane = crate::api::import::riskiest(
+            lane,
+            change::classify(&envelope.kind, Operation::Create, &envelope.spec),
+        );
+    }
+    Ok(lane)
+}
+
 /// Core approval function factored out for reuse by both the REST route and the operations registry.
 pub async fn approve_change_for(
     state: &AppState,
@@ -724,6 +793,11 @@ pub async fn approve_change_for(
         }
     }
 
+    // Every file of the merge request, not only the headline (T-0832, MF-21, CC-63): each
+    // manifest needs approve on its kind, the PF-52 hold when it grants access, and its own
+    // lane; a native file approves under the kind its directory names.
+    let bundle_lane = approve_every_file(state, identity, project, gitea, &pr).await?;
+
     let author = human_author(gitea, &pr).await;
     let is_author = match (&author.email, &identity.email) {
         (Some(pr_email), Some(user_email)) if !pr_email.trim().is_empty() => {
@@ -751,6 +825,7 @@ pub async fn approve_change_for(
     } else {
         Lane::Yellow
     };
+    let lane = crate::api::import::riskiest(lane, bundle_lane);
 
     if lane == Lane::Red && confirm != Some(&data.name) {
         return Err(ApiError::BadRequest(format!(

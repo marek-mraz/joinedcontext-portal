@@ -153,6 +153,18 @@ async fn pull(gitea: &MockServer, number: u64, branch: &str, file: &str, manifes
     } else {
         branch
     };
+    let status = if git_ref == "main" {
+        "deleted"
+    } else {
+        "added"
+    };
+    Mock::given(method("GET"))
+        .and(path(format!("{REPO}/pulls/{number}/files")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "filename": file, "status": status }
+        ])))
+        .mount(gitea)
+        .await;
     let yaml = serde_yaml_ng::to_string(manifest).expect("yaml");
     Mock::given(method("GET"))
         .and(path(format!("{REPO}/contents/{file}")))

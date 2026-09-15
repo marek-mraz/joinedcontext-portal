@@ -534,3 +534,36 @@ async fn change_files_uploads_and_deletes_in_one_commit() {
         .unwrap();
     assert_eq!(sha, "commit-of-both");
 }
+
+#[tokio::test]
+async fn pull_request_files_lists_every_page_and_marks_deletions() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().unwrap();
+    let client = GiteaClient::new(base_url, "test-owner", "test-repo", "secret-token").unwrap();
+
+    let page = |n: usize| -> Vec<serde_json::Value> {
+        (0..n)
+            .map(|i| json!({ "filename": format!("projects/p/pipelines/{i}/pipeline.yaml"), "status": "added" }))
+            .collect()
+    };
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/9/files"))
+        .and(query_param("page", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(page(50)))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/9/files"))
+        .and(query_param("page", "2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "filename": "users/assignments/gone.yaml", "status": "deleted" }
+        ])))
+        .mount(&server)
+        .await;
+
+    let files = client.pull_request_files(9).await.unwrap();
+    assert_eq!(files.len(), 51);
+    assert!(files[..50].iter().all(|f| !f.deleted));
+    assert_eq!(files[50].path, "users/assignments/gone.yaml");
+    assert!(files[50].deleted);
+}

@@ -81,6 +81,20 @@ pub struct RepoFile {
     pub content: String,
 }
 
+/// One file a pull request changes; `deleted` when it is gone from the head branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedFile {
+    pub path: String,
+    pub deleted: bool,
+}
+
+#[derive(Deserialize)]
+struct ChangedFileDto {
+    filename: String,
+    #[serde(default)]
+    status: String,
+}
+
 /// File write specification.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileWrite<'a> {
@@ -772,6 +786,32 @@ impl GiteaClient {
             .await
             .map_err(|e| GitError::Transport(format!("failed to parse pull request: {e}")))?;
         Ok(self.pull(raw))
+    }
+
+    /// `GET /pulls/{number}/files` — every file the pull request changes, all pages.
+    pub async fn pull_request_files(&self, number: u64) -> Result<Vec<ChangedFile>, GitError> {
+        const PAGE: usize = 50;
+        let mut files = Vec::new();
+        for page in 1.. {
+            let mut url = self.repo_url(&format!("pulls/{number}/files"))?;
+            url.query_pairs_mut()
+                .append_pair("page", &page.to_string())
+                .append_pair("limit", &PAGE.to_string());
+            let res = self.send(self.http.get(url)).await?;
+            let res = Self::check_status(res).await?;
+            let raw: Vec<ChangedFileDto> = res.json().await.map_err(|e| {
+                GitError::Transport(format!("failed to parse pull request files: {e}"))
+            })?;
+            let count = raw.len();
+            files.extend(raw.into_iter().map(|dto| ChangedFile {
+                deleted: dto.status == "deleted",
+                path: dto.filename,
+            }));
+            if count < PAGE {
+                break;
+            }
+        }
+        Ok(files)
     }
 
     /// `GET /pulls/{number}` — retrieves an existing pull request.

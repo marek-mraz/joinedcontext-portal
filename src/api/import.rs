@@ -935,7 +935,7 @@ fn authorize(
 
 /// The kind a native file belongs to: the plural directory after `projects/{project}/`, or
 /// after `spaces/{space}/` for the kinds that live under a space.
-fn native_kind(path: &str) -> Option<&'static str> {
+pub(crate) fn native_kind(path: &str) -> Option<&'static str> {
     let mut segments = path.split('/').skip(2);
     let first = segments.next()?;
     let plural = if first == "spaces" {
@@ -968,7 +968,7 @@ fn space_of(envelope: &ResourceEnvelope) -> Option<&str> {
 
 /// The riskier of two lanes. One merge request carries the whole bundle, so it has to be
 /// reviewed at the level of the riskiest thing in it (CC-63).
-fn riskiest(left: Lane, right: Lane) -> Lane {
+pub(crate) fn riskiest(left: Lane, right: Lane) -> Lane {
     let rank = |lane: Lane| match lane {
         Lane::Green => 0,
         Lane::Yellow => 1,

@@ -15,7 +15,7 @@ use joinedcontext_portal::error::ProblemDetails;
 use joinedcontext_portal::git::GiteaClient;
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
-use serde_json::json;
+use serde_json::{json, Value};
 use tower::ServiceExt;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -81,6 +81,21 @@ fn approver_cookies(config: &Config) -> String {
 
 fn encode_b64(content: &str) -> String {
     STANDARD.encode(content.as_bytes())
+}
+
+/// The files a merge request changes, as the forge lists them (T-0832).
+async fn pr_files(server: &MockServer, number: u64, files: &[(&str, &str)]) {
+    let listed: Vec<Value> = files
+        .iter()
+        .map(|(filename, status)| json!({ "filename": filename, "status": status }))
+        .collect();
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/repos/test-owner/test-repo/pulls/{number}/files"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(listed))
+        .mount(server)
+        .await;
 }
 
 #[tokio::test]
@@ -586,6 +601,12 @@ spec:
         })))
         .mount(&server)
         .await;
+    pr_files(
+        &server,
+        1,
+        &[("projects/ovzdusie/spaces/mobility/space.yaml", "added")],
+    )
+    .await;
 
     // Caller is the author and also has portal-approver role
     let author_approver_cookies = session_and_csrf_cookies(
@@ -812,6 +833,12 @@ spec:
         })))
         .mount(&server)
         .await;
+    pr_files(
+        &server,
+        2,
+        &[("projects/ovzdusie/spaces/mobility/space.yaml", "deleted")],
+    )
+    .await;
 
     // 1. Missing confirm body -> 400 Bad Request
     let resp_no_confirm = app
@@ -1011,6 +1038,12 @@ spec:
         })))
         .mount(&server)
         .await;
+    pr_files(
+        &server,
+        3,
+        &[("projects/ovzdusie/spaces/sandbox-space/space.yaml", "added")],
+    )
+    .await;
 
     Mock::given(method("POST"))
         .and(path("/api/v1/repos/test-owner/test-repo/pulls/3/reviews"))
@@ -1325,6 +1358,12 @@ async fn own_change_of(verbs: &[&str]) -> (MockServer, AppState) {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .mount(&server)
         .await;
+    pr_files(
+        &server,
+        1,
+        &[("projects/ovzdusie/spaces/mobility/space.yaml", "added")],
+    )
+    .await;
     (server, state)
 }
 
@@ -1410,4 +1449,191 @@ async fn an_operation_never_approves_its_callers_own_change_even_for_an_administ
     ));
     let requests = server.received_requests().await.expect("requests");
     assert!(!requests.iter().any(|r| r.url.path().ends_with("/merge")));
+}
+
+// --- a merge request is approved whole, not by its headline (T-0832, MF-21, CC-63) ----------
+
+const BUNDLE_BRANCH: &str = "portal/create-pipeline-aq-77777777";
+const PIPELINE_PATH: &str = "projects/ovzdusie/pipelines/aq/pipeline.yaml";
+const PIPELINE_YAML: &str = "apiVersion: joinedcontext.com/v1alpha1\nkind: Pipeline\nmetadata:\n  name: aq\n  namespace: ovzdusie\nspec:\n  class: resident\n  targetEndpoint: urn:ngsi-ld:Endpoint:bb.sk:ovzdusie:air\n";
+
+/// A merge request by somebody else, headed by the Pipeline `aq` and carrying `extra` files
+/// beside it, and an approver whose only rights are `rules` over the organization.
+async fn bundle_of(rules: Value, extra: &[(&str, &str)]) -> (MockServer, AppState) {
+    use joinedcontext_portal::permissions::ORG_NAMESPACE;
+    use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+
+    let server = MockServer::start().await;
+    let client = GiteaClient::new(
+        server.uri().parse().expect("url"),
+        "test-owner",
+        "test-repo",
+        "token-xyz",
+    )
+    .expect("client");
+    let state = AppState::new(Config::for_tests(), None).with_gitea(Arc::new(client));
+    let org = |kind: &str, name: &str, spec: Value| ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: kind.to_owned(),
+        metadata: ObjectMeta::new(name, ORG_NAMESPACE),
+        spec,
+        status: None,
+    };
+    state
+        .mirror
+        .upsert(org("Role", "reviewer", json!({ "rules": rules })));
+    // The role the smuggled binding grants: more than the reviewer holds.
+    state.mirror.upsert(org(
+        "Role",
+        "org-admin",
+        json!({ "rules": [{ "kinds": ["ContextSpace"], "verbs": ["propose", "approve", "delete"] }] }),
+    ));
+    state.mirror.upsert(org(
+        "RoleBinding",
+        "reviewer-binding",
+        json!({
+            "subjects": [{ "user": "jana.approver@banskabystrica.sk" }],
+            "role": "reviewer",
+            "scope": { "organization": "bb" }
+        }),
+    ));
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 7,
+            "html_url": "https://gitea.example.sk/pulls/7",
+            "state": "open",
+            "title": "import bundle",
+            "head": { "ref": BUNDLE_BRANCH },
+            "base": { "ref": "main" },
+            "created_at": "2026-09-15T09:14:22Z",
+            "user": { "login": "someone", "full_name": "Someone Else", "email": "someone@banskabystrica.sk" },
+            "mergeable": true,
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+    let mut files = vec![(PIPELINE_PATH, "added")];
+    files.extend(extra.iter().map(|(file, _)| (*file, "added")));
+    pr_files(&server, 7, &files).await;
+    for (file, content) in std::iter::once(&(PIPELINE_PATH, PIPELINE_YAML)).chain(extra) {
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/api/v1/repos/test-owner/test-repo/contents/{file}"
+            )))
+            .and(query_param("ref", BUNDLE_BRANCH))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sha": format!("blob-{}", file.len()),
+                "content": encode_b64(content)
+            })))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/7/merge"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    (server, state)
+}
+
+/// The reviewer approves change 7, with `confirm` when given.
+async fn approve_bundle(state: AppState, confirm: Option<&str>) -> (StatusCode, String) {
+    let config = state.config.clone();
+    let cookies = session_and_csrf_cookies(
+        &config,
+        "jana.approver",
+        Some("jana.approver@banskabystrica.sk"),
+        Some("Jana Approver"),
+        vec![],
+    );
+    let body = match confirm {
+        Some(name) => Body::from(json!({ "confirm": name }).to_string()),
+        None => Body::empty(),
+    };
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/changes/chg-00000007/approve")
+                .header(header::COOKIE, cookies)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bytes")
+        .to_bytes();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+async fn merged(server: &MockServer) -> bool {
+    server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .any(|r| r.url.path().ends_with("/pulls/7/merge"))
+}
+
+const SMUGGLED_BINDING: &str = "apiVersion: joinedcontext.com/v1alpha1\nkind: RoleBinding\nmetadata:\n  name: mallory-admin\n  namespace: org\nspec:\n  subjects:\n    - user: mallory@banskabystrica.sk\n  role: org-admin\n  scope:\n    organization: bb\n";
+
+#[tokio::test]
+async fn a_bundle_headed_by_a_pipeline_cannot_smuggle_a_rolebinding_past_a_pipeline_approver() {
+    let (server, state) = bundle_of(
+        json!([{ "kinds": ["Pipeline"], "verbs": ["approve"] }]),
+        &[("users/assignments/mallory-admin.yaml", SMUGGLED_BINDING)],
+    )
+    .await;
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("RoleBinding"), "{body}");
+    assert!(!merged(&server).await);
+}
+
+#[tokio::test]
+async fn an_approver_of_bindings_still_may_not_approve_one_that_grants_more_than_they_hold() {
+    let (server, state) = bundle_of(
+        json!([{ "kinds": ["Pipeline", "RoleBinding"], "verbs": ["approve"] }]),
+        &[("users/assignments/mallory-admin.yaml", SMUGGLED_BINDING)],
+    )
+    .await;
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("PF-52"), "{body}");
+    assert!(!merged(&server).await);
+}
+
+#[tokio::test]
+async fn a_red_lane_manifest_inside_a_yellow_bundle_needs_the_confirmation() {
+    let policy = "apiVersion: joinedcontext.com/v1alpha1\nkind: Policy\nmetadata:\n  name: open\n  namespace: ovzdusie\nspec:\n  contextSpaceRef: mobility\n";
+    let rules = json!([{ "kinds": ["Pipeline", "Policy"], "verbs": ["approve"] }]);
+    let extra = [(
+        "projects/ovzdusie/spaces/mobility/policies/open.yaml",
+        policy,
+    )];
+
+    let (server, state) = bundle_of(rules.clone(), &extra).await;
+    let (status, body) = approve_bundle(state, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body.contains("red lane change requires confirm to be 'aq'"),
+        "{body}"
+    );
+    assert!(!merged(&server).await);
+
+    let (server, state) = bundle_of(rules, &extra).await;
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(merged(&server).await);
 }

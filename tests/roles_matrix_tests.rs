@@ -246,6 +246,14 @@ async fn forge() -> MockServer {
                 })))
                 .mount(&gitea)
                 .await;
+            Mock::given(method("GET"))
+                .and(path(format!("{REPO}/pulls/{number}/files")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+                    "filename": format!("projects/helsinki/{}/proposed.yaml", family.plural),
+                    "status": "added"
+                }])))
+                .mount(&gitea)
+                .await;
             let file = serde_yaml_ng::to_string(&manifest(family, "proposed")).expect("yaml");
             Mock::given(method("GET"))
                 .and(path_regex(format!("^{REPO}/contents/.*")))
