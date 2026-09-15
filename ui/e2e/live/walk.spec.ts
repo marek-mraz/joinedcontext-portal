@@ -96,3 +96,49 @@ for (const [who, person] of [
     expect(findings).toEqual([]);
   });
 }
+
+/** The list pages and the plural each lists (T-0742). */
+const LISTS: [string, string][] = [
+  ["spaces", "spaces"],
+  ["endpoints", "endpoints"],
+  ["shared", "shared"],
+  ["datasources", "datasources"],
+  ["pipelines", "pipelines"],
+  ["dashboards", "dashboards"],
+  ["apps", "apps"],
+  ["syncsources", "syncsources"],
+  ["csrs", "csrs"],
+  ["ckan", "ckaninstances"],
+  ["access", "serviceaccounts"],
+];
+
+for (const [who, person] of [
+  ["steward", STEWARD],
+  ["viewer", VIEWER],
+] as const) {
+  test(`every resource list offers Edit and Delete to the ${who} exactly as the role allows`, async ({ browser }) => {
+    test.setTimeout(600_000);
+    const { context, page } = await signIn(browser, person, "/projects/helsinki/spaces?lang=en");
+    const missing: string[] = [];
+    for (const project of PROJECTS) {
+      for (const [route, plural] of LISTS) {
+        const listed = await page.request.get(`/api/v1/projects/${project}/${plural}`);
+        const items = listed.ok() ? (((await listed.json()) as { items?: unknown[] }).items ?? []) : [];
+        if (items.length === 0) {
+          continue;
+        }
+        await page.goto(`/projects/${project}/${route}?lang=en`, { waitUntil: "networkidle" });
+        const main = page.locator("main");
+        const edits = await main.getByRole("button", { name: /^Edit\b/ }).count();
+        const deletes = await main.getByRole("button", { name: /^Delete\b/ }).count();
+        const offered = edits > 0 && deletes > 0;
+        const none = edits === 0 && deletes === 0;
+        if (who === "steward" ? !offered : !none) {
+          missing.push(`${project}/${route}: ${edits} Edit, ${deletes} Delete for ${items.length} listed`);
+        }
+      }
+    }
+    await context.close();
+    expect(missing).toEqual([]);
+  });
+}
