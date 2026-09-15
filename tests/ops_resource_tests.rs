@@ -277,6 +277,13 @@ async fn an_endpoint_a_pipeline_a_policy_and_a_role_binding_are_proposed_at_thei
     ));
     let mut changed = endpoint();
     changed["spec"]["enabledRepresentations"] = json!(["ngsi-ld", "geojson", "csv"]);
+    // A binding names a role the organization has (PF-52).
+    state.mirror.upsert(envelope(
+        "Role",
+        "pipeline-developer",
+        "org",
+        json!({ "rules": [{ "kinds": ["Pipeline"], "verbs": ["propose"] }] }),
+    ));
 
     for (project, manifest) in [
         ("ovzdusie", changed),
