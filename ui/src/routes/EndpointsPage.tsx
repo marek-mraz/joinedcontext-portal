@@ -676,7 +676,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
           ),
         ]
       : [];
-  const baseSchema = endpointSchema(t, spaceNames, pickable);
+  const baseSchema = endpointSchema(t, spaceNames, pickable, editing?.rateLimits?.requestsPerMinute);
   const schema =
     editing?.audience === "project-list" ? baseSchema : withoutAllowedProjects(baseSchema);
   const uiSchema = {

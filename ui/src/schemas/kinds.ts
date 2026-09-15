@@ -95,7 +95,15 @@ export function endpointSchema(
   t: (key: string) => string,
   spaces: string[],
   projects: string[] = [],
+  perMinute?: number,
 ): JsonSchema {
+  // A limit set outside the form (YAML, the API, the assistant) is valid on the wire, so it
+  // stays a choice of its own instead of an invalid field nobody can propose past.
+  const classes: [string, number][] = Object.entries(RATE_LIMIT_CLASSES);
+  const own =
+    Number.isInteger(perMinute) && perMinute !== undefined && perMinute > 0 && !classes.some(([, value]) => value === perMinute)
+      ? [["custom", perMinute] as [string, number]]
+      : [];
   return {
     type: "object",
     required: ["name", "contextSpaceRef", "audience", "enabledRepresentations"],
@@ -160,10 +168,12 @@ export function endpointSchema(
             type: "integer",
             title: t("endpoints.field.requestsPerMinute"),
             default: RATE_LIMIT_CLASSES.standard,
-            oneOf: Object.entries(RATE_LIMIT_CLASSES).map(([name, perMinute]) => ({
-              const: perMinute,
-              title: `${t(`endpoints.rateClass.${name}`)} (${perMinute}/min)`,
-            })),
+            oneOf: [...classes, ...own]
+              .sort(([, a], [, b]) => a - b)
+              .map(([name, value]) => ({
+                const: value,
+                title: `${t(`endpoints.rateClass.${name}`)} (${value}/min)`,
+              })),
           },
           burst: {
             type: "integer",

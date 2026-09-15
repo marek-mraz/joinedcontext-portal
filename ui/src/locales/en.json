@@ -282,7 +282,8 @@
     "rateClass": {
       "strict": "Strict",
       "standard": "Standard",
-      "open": "Open"
+      "open": "Open",
+      "custom": "Custom"
     },
     "publicNotice": "An endpoint with a public audience answers anonymous callers, and an anonymous caller may only read. Writes and subscriptions still need a login, whichever representations are enabled.",
     "projection": {

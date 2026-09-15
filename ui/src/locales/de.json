@@ -263,7 +263,8 @@
     "rateClass": {
       "strict": "Streng",
       "standard": "Standard",
-      "open": "Offen"
+      "open": "Offen",
+      "custom": "Eigene"
     },
     "publicNotice": "Ein Endpunkt mit öffentlichem Publikum antwortet anonymen Aufrufern, und ein anonymer Aufrufer darf nur lesen. Schreibzugriffe und Abonnements verlangen weiterhin eine Anmeldung, welche Repräsentationen auch aktiviert sind.",
     "projection": {

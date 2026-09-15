@@ -282,7 +282,8 @@
     "rateClass": {
       "strict": "Přísná",
       "standard": "Standardní",
-      "open": "Otevřená"
+      "open": "Otevřená",
+      "custom": "Vlastní"
     },
     "publicNotice": "Endpoint s veřejným publikem odpovídá anonymnímu volajícímu a ten smí pouze číst. Zápisy a odběry stále vyžadují přihlášení, ať jsou zapnuté kterékoli reprezentace.",
     "projection": {

@@ -69,7 +69,7 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { update: 1 } },
 };
 
-function renderEndpoints() {
+function renderEndpoints(endpoints: typeof ENDPOINTS = ENDPOINTS) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const url = typeof input === "string" ? new URL(input) : new URL(request.url);
@@ -96,7 +96,7 @@ function renderEndpoints() {
       return json(SPACES);
     }
     if (url.pathname.endsWith("/endpoints")) {
-      return json(ENDPOINTS);
+      return json(endpoints);
     }
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
@@ -192,6 +192,28 @@ describe("endpoint editor toggles", () => {
     expect(body.spec.rateLimits.requestsPerMinute).toBe(RATE_LIMIT_CLASSES.strict);
     expect(body.spec.rateLimits.burst).toBe(60);
     expect(body.spec.caching.maxAgeSeconds).toBe(120);
+  });
+
+  it("keeps a limit that is none of the classes as a choice of its own and proposes it unchanged", async () => {
+    const own = structuredClone(ENDPOINTS);
+    own.items[0].spec.rateLimits = { requestsPerMinute: 300, burst: 60 };
+    const fetchMock = renderEndpoints(own);
+    const dialog = await openEditor();
+
+    const rateClass = within(dialog).getByLabelText(
+      new RegExp(en.endpoints.field.requestsPerMinute),
+    ) as HTMLSelectElement;
+    expect(rateClass.selectedOptions[0].textContent).toBe(`${en.endpoints.rateClass.custom} (300/min)`);
+    expect(Array.from(rateClass.options, (option) => option.textContent)).toContain(
+      `${en.endpoints.rateClass.standard} (600/min)`,
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const body = (await writes(fetchMock)[0].clone().json()) as {
+      spec: { rateLimits: { requestsPerMinute: number } };
+    };
+    expect(body.spec.rateLimits.requestsPerMinute).toBe(300);
   });
 
   it("never sends allowedProjects on a public endpoint (EP-14, EP-15)", async () => {
