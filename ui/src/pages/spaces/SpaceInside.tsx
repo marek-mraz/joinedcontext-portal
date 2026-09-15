@@ -14,6 +14,7 @@ import {
   REPRESENTATION_PATHS,
 } from "../../components/endpoints/links";
 import { SharedWithBadge } from "../../components/endpoints/sharing";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 const SPACE_LABEL = "joinedcontext.com/space";
 const RESULTS_COUNT_HEADER = "NGSILD-Results-Count";
@@ -257,10 +258,10 @@ export function SpaceInside({ project, name }: { project: string; name: string }
           >
             {t("spaces.inside.back")}
           </Link>
-          <h1 className="text-xl font-bold">
-            {localized(manifest.metadata.title, locale, manifest.metadata.name)}
-          </h1>
-          <div className="font-mono text-xs text-surface-fg/60">{manifest.metadata.name}</div>
+          <PageHeader
+            title={localized(manifest.metadata.title, locale, manifest.metadata.name)}
+            description={<span className="font-mono">{manifest.metadata.name}</span>}
+          />
         </div>
         <LifecycleBadge kind="phase" value={manifest.status?.phase} />
       </div>

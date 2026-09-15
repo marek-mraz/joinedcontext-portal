@@ -9,6 +9,7 @@ import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
 import type { components } from "../../api/schema";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 type CkanStatus = components["schemas"]["CkanStatus"];
 type PublicationStatus = components["schemas"]["PublicationStatus"];
@@ -71,11 +72,8 @@ export function CkanPage({ project }: { project: string }): JSX.Element {
   });
 
   return (
-    <section aria-labelledby="ckan-heading" className="space-y-8">
-      <h2 id="ckan-heading" className="text-xl font-bold">
-        {t("ckan.title")}
-      </h2>
-      <p className="max-w-2xl text-sm">{t("ckan.intro")}</p>
+    <section aria-label={t("ckan.title")} className="space-y-8">
+      <PageHeader title={t("ckan.title")} description={t("ckan.intro")} />
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
       {create.error ? (

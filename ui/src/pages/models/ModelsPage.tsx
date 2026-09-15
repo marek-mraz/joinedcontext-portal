@@ -27,6 +27,7 @@ import {
   severityOf,
 } from "./breaking_detector";
 import type { Lifecycle } from "./breaking_detector";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 /**
  * The models page: import a model, edit it, map it (DM-07, DM-13, DM-17, DM-23, DM-33).
@@ -293,7 +294,7 @@ export function ModelsPage({
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-xl font-semibold">{t("models.title")}</h2>
+        <PageHeader title={t("models.title")} />
         <div className="flex items-center gap-3">
           {activeModelName ? (
             <div className="flex items-center gap-2">

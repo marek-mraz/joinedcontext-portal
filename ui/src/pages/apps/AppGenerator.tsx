@@ -11,6 +11,7 @@ import { fetchJson, publishedTypes } from "../endpoints/SchemaProjectionPanel";
 import type { PublishedType } from "../endpoints/SchemaProjectionPanel";
 import { EndpointPreview, accessWords } from "./EndpointPreview";
 import { useAccess } from "../../components/entities/AccessPanel";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 /** The blueprint that turns a description into an app (AP-22, Architecture/16 §3). */
 export const BLUEPRINT = "app-from-prompt";
@@ -314,10 +315,7 @@ export function AppGenerator({
         generate.mutate();
       }}
     >
-      <div>
-        <h1 className="text-xl font-bold">{t("apps.generate.title")}</h1>
-        <p className="mt-1 text-sm text-muted">{t("apps.generate.subtitle")}</p>
-      </div>
+      <PageHeader title={t("apps.generate.title")} description={t("apps.generate.subtitle")} />
 
       {change && <ChangeNotice change={change} project={project} />}
       {error && (
@@ -596,7 +594,7 @@ function NoBuilder(): JSX.Element {
   const { t } = useTranslation();
   return (
     <div className="space-y-3">
-      <h1 className="text-xl font-bold">{t("apps.generate.title")}</h1>
+      <PageHeader title={t("apps.generate.title")} />
       <p role="note" className="rounded border border-border bg-surface-subtle p-3 text-sm">
         {t("apps.generate.noBuilder")}
       </p>

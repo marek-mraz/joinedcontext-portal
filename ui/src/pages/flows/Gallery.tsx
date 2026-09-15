@@ -6,6 +6,7 @@ import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
 import { Instantiate } from "./Instantiate";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 /** The three review lanes a blueprint declares (CC-59, CC-63). */
 const RISK_STYLES: Record<string, string> = {
@@ -114,10 +115,7 @@ export function FlowGallery({ project }: { project: string }): JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold">{t("flows.title")}</h1>
-        <p className="mt-1 text-sm text-muted">{t("flows.subtitle")}</p>
-      </div>
+      <PageHeader title={t("flows.title")} description={t("flows.subtitle")} />
 
       {categories.length > 1 && (
         <div className="flex flex-wrap gap-2" role="group" aria-label={t("flows.title")}>

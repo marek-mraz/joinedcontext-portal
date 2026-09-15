@@ -16,6 +16,7 @@ import { requestOpen } from "../../assistant/state";
 import { AgentRunPage } from "./AgentRunPage";
 import { appDisplayName, useEndpointTitles } from "./appTitle";
 import { runInUrl, setRunInUrl } from "./useAgentRun";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 interface DataNeed {
   contextSpaceRef?: string | { name?: string };
@@ -119,8 +120,7 @@ export function AppPreview({ app, onClose }: { app: Manifest; onClose: () => voi
         {t("apps.back")}
       </button>
 
-      <h1 className="text-xl font-bold">{t("apps.preview.title", { name: title })}</h1>
-      <p className="text-sm text-muted">{t("apps.preview.sandboxSpace")}</p>
+      <PageHeader title={t("apps.preview.title", { name: title })} description={t("apps.preview.sandboxSpace")} />
 
       {spec.embeddable ? (
         <iframe
@@ -282,10 +282,7 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-bold">{t("apps.title")}</h1>
-          <p className="mt-1 text-sm text-muted">{t("apps.subtitle")}</p>
-        </div>
+        <PageHeader title={t("apps.title")} description={t("apps.subtitle")} />
         <PermissionGuard project={project} kind="App" verb="propose">
           <button
             type="button"

@@ -32,6 +32,7 @@ import type { CatalogInput, DataSourceType, TypedDataSourceType } from "../../sc
 import { useBentoInputs } from "./RunnerInputForm";
 import { SecretRefContext } from "../../components/forms/widgets/SecretRef";
 import type { SecretRefValue } from "../../components/forms/widgets/SecretRef";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 /** The form of one source: the metadata a manifest carries plus the block its type names. */
 export interface DataSourceForm {
@@ -458,10 +459,7 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold">{t("datasources.title")}</h1>
-          <p className="mt-1 max-w-2xl text-sm text-surface-fg/70">{t("datasources.lead")}</p>
-        </div>
+        <PageHeader title={t("datasources.title")} description={t("datasources.lead")} />
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col text-sm">
             <span className="mb-1 font-medium">{t("datasources.field.type")}</span>

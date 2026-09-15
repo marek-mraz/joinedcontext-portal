@@ -7,6 +7,7 @@ import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
 import type { components } from "../../api/schema";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 export function syncStatusKey(project: string, name: string) {
   return ["projects", project, "syncsources", name, "status"] as const;
@@ -48,11 +49,8 @@ export function SyncSourcesPage({ project }: { project: string }): JSX.Element {
   const items = list.data?.items ?? [];
 
   return (
-    <section aria-labelledby="syncsources-heading" className="space-y-6">
-      <h2 id="syncsources-heading" className="text-xl font-bold">
-        {t("syncSources.title")}
-      </h2>
-      <p className="max-w-2xl text-sm">{t("syncSources.intro")}</p>
+    <section aria-label={t("syncSources.title")} className="space-y-6">
+      <PageHeader title={t("syncSources.title")} description={t("syncSources.intro")} />
 
       {list.isPending ? <p role="status">{t("app.loading")}</p> : null}
       {list.isError ? (

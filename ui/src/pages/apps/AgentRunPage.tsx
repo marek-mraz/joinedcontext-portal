@@ -12,6 +12,7 @@ import { TERMINAL_STATES, useAgentRun } from "./useAgentRun";
 import type { RunEvent } from "./useAgentRun";
 import { rememberRun } from "../../assistant/state";
 import { appDisplayName, useEndpointTitles } from "./appTitle";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 /**
  * One builder run, live (UI-34…UI-40).
@@ -67,16 +68,18 @@ export function AgentRunPage({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-bold">{displayName}</h1>
-          <p className="mt-1 text-sm text-fg-muted">
-            {t("agentRun.subtitle", {
-              endpoint: endpointTitle ?? record.endpointName,
-              appClass: record.appClass,
-            })}
-          </p>
-          <p className="mt-0.5 font-mono text-xs text-fg-muted">{record.appName}</p>
-        </div>
+        <PageHeader
+          title={displayName}
+          description={
+            <>
+              {t("agentRun.subtitle", {
+                endpoint: endpointTitle ?? record.endpointName,
+                appClass: record.appClass,
+              })}{" "}
+              <span className="font-mono text-caption">{record.appName}</span>
+            </>
+          }
+        />
         <button
           type="button"
           onClick={onClose}

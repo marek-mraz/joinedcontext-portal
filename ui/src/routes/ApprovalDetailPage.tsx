@@ -9,6 +9,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { PlanDiffViewer } from "../components/diff/PlanDiffViewer";
 import type { components } from "../api/schema";
+import { PageHeader } from "../components/ui/PageHeader";
 
 type ChangeProposal = components["schemas"]["ChangeProposal"];
 
@@ -160,14 +161,16 @@ export function ApprovalDetailPage({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-bold">{summaryText}</h1>
-          <LifecycleBadge kind="lane" value={proposal.status.lane} />
-          <LifecycleBadge kind="phase" value={proposal.status.phase} />
-        </div>
-        <p className="font-mono text-sm text-surface-fg/60">{proposal.metadata.name}</p>
-      </div>
+      <PageHeader
+        title={summaryText}
+        description={<span className="font-mono">{proposal.metadata.name}</span>}
+        aside={
+          <div className="flex flex-wrap items-center gap-2">
+            <LifecycleBadge kind="lane" value={proposal.status.lane} />
+            <LifecycleBadge kind="phase" value={proposal.status.phase} />
+          </div>
+        }
+      />
 
       <dl className="grid grid-cols-1 gap-4 rounded border border-border bg-surface-subtle p-4 sm:grid-cols-2">
         <div>

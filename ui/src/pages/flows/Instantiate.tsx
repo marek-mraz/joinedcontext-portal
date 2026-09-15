@@ -9,6 +9,7 @@ import { ChangeNotice } from "../../components/ChangeNotice";
 import { SchemaForm } from "../../components/forms/SchemaForm";
 import type { JsonSchema } from "../../components/forms/types";
 import { blueprintSpec } from "./Gallery";
+import { PageHeader } from "../../components/ui/PageHeader";
 
 type Parameters = Record<string, unknown>;
 
@@ -83,10 +84,10 @@ export function Instantiate({
         {t("flows.back")}
       </button>
 
-      <h1 className="text-xl font-bold">{t("flows.instantiate.title", { name })}</h1>
-      <p className="text-sm text-muted">
-        {localized(blueprint.metadata.description, i18n.language, "")}
-      </p>
+      <PageHeader
+        title={t("flows.instantiate.title", { name })}
+        description={localized(blueprint.metadata.description, i18n.language, "")}
+      />
 
       {change && <ChangeNotice change={change} project={project} />}
       {error && (
