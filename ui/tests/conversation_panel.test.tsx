@@ -11,7 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
-import { ConversationPanel } from "../src/pages/apps/ConversationPanel";
+import { ConversationPanel, answeredSearches } from "../src/pages/apps/ConversationPanel";
 import { openQuestions } from "../src/pages/apps/useAgentRun";
 import type { RunEvent } from "../src/pages/apps/useAgentRun";
 
@@ -100,6 +100,66 @@ describe("the conversation panel", () => {
     // A tool line is an inspectable step named after its tool, with no speaker at all (AG-56).
     expect(rows[1]).toHaveTextContent("bash");
     expect(rows[1]).not.toHaveTextContent(en.agentRun.conversation.agent);
+  });
+
+  it("draws the run's status changes as one progress line, never as lines of their own", () => {
+    const { unmount } = panel([
+      { seq: 1, kind: "status", payload: { status: "queued" } },
+      { seq: 2, kind: "status", payload: { status: "starting" } },
+      { seq: 3, kind: "status", payload: { status: "interviewing" } },
+      { seq: 4, kind: "thought", payload: { text: "Which feed?" } },
+    ]);
+    expect(screen.queryByText(/^Now /)).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("run-progress")).toHaveLength(1);
+    expect(screen.getByTestId("run-progress")).toHaveTextContent(en.agentRun.progress.waiting);
+    unmount();
+
+    panel([
+      { seq: 3, kind: "status", payload: { status: "interviewing" } },
+      { seq: 4, kind: "message", payload: { text: "The HSL one" } },
+    ]);
+    expect(screen.getByTestId("run-progress")).toHaveTextContent(en.agentRun.progress.working);
+  });
+
+  it("keeps tokens, commits and preview addresses behind Details", async () => {
+    const user = userEvent.setup();
+    panel([
+      { seq: 1, kind: "thought", payload: { text: "Building the map." } },
+      { seq: 2, kind: "usage", payload: { tokensThisStep: 57285 } },
+      { seq: 3, kind: "commit", payload: { sha: "3e26835f00", message: "map" } },
+      { seq: 4, kind: "preview", payload: { previewUrl: "/api/v1/projects/helsinki/apps/x/preview" } },
+    ]);
+    const usage = screen.getByText("57285 tokens this step.");
+    expect(usage).not.toBeVisible();
+    await user.click(screen.getByText("Details (3 lines)"));
+    expect(usage).toBeVisible();
+    expect(screen.getByText(/Preview at/)).toBeVisible();
+  });
+
+  it("names the assistant's own steps by what they did", () => {
+    panel([
+      { seq: 1, kind: "tool", payload: { tool: "query_endpoint", status: "ok", input: { endpoint: "helsinki-all" } } },
+      { seq: 2, kind: "tool", payload: { tool: "change_resource", status: "ok", input: { kind: "Pipeline" } } },
+    ]);
+    expect(screen.getByText("Read helsinki-all")).toBeInTheDocument();
+    expect(screen.getByText(en.agentRun.step.label.change_resource)).toBeInTheDocument();
+  });
+
+  it("shows what the catalog search found only when the answer was about it", () => {
+    const search = (seq: number): RunEvent => ({ seq, kind: "tool", payload: { tool: "search_catalog", status: "ok", output: { items: [] } } });
+    const integrate: RunEvent[] = [
+      { seq: 1, kind: "message", payload: { text: "Integrate the HSL feed" } },
+      search(2),
+      { seq: 3, kind: "tool", payload: { tool: "space_complete", status: "ok" } },
+      { seq: 4, kind: "thought", payload: { text: "Drafted the space." } },
+    ];
+    expect([...answeredSearches(integrate)]).toEqual([]);
+    panel(integrate);
+    expect(screen.queryByText(en.agentRun.catalog.none)).not.toBeInTheDocument();
+
+    expect([...answeredSearches([search(2), { seq: 3, kind: "thought", payload: { text: "Yes." } }])]).toEqual([2]);
+    // A search nothing has followed yet is still what the conversation is about.
+    expect([...answeredSearches([search(5)])]).toEqual([5]);
   });
 
   it("says whether the stream is live, so a stalled run is not read as a quiet one", () => {

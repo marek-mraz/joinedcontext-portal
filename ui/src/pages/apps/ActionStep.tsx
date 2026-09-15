@@ -36,6 +36,33 @@ export function errorText(
   return "";
 }
 
+/** The assistant's own tools, named as what they did; a shell step keeps its tool's name. */
+const LABELLED = new Set([
+  "search_catalog",
+  "query_endpoint",
+  "change_resource",
+  "grant_role",
+  "propose_endpoint",
+  "edit_endpoint",
+  "space_complete",
+  "compute_kpi",
+  "draft_kpi_pipeline",
+]);
+
+function labelOf(
+  tool: string,
+  input: unknown,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string | null {
+  if (!LABELLED.has(tool)) {
+    return null;
+  }
+  const endpoint = (input as { endpoint?: unknown } | null | undefined)?.endpoint;
+  return tool === "query_endpoint" && typeof endpoint === "string" && endpoint !== ""
+    ? t("agentRun.step.label.readEndpoint", { endpoint })
+    : t(`agentRun.step.label.${tool}`);
+}
+
 /**
  * One step the assistant took, inspectable (AG-56, OPS-50).
  *
@@ -67,6 +94,7 @@ export function ActionStep({
     payload.error !== undefined ||
     (exitCode !== undefined && exitCode !== 0);
   const duration = typeof payload.durationMs === "number" ? payload.durationMs : undefined;
+  const label = labelOf(tool, payload.input, t);
   const reason = failed ? errorText(payload, t) : "";
   const refused = Array.isArray(payload.refused) && payload.refused.length > 0 ? payload.refused : undefined;
   const sections: Array<[string, unknown]> = [
@@ -106,7 +134,11 @@ export function ActionStep({
         >
           {failed ? "✗" : "✓"}
         </span>
-        <span className="min-w-0 break-words">{tool}</span>
+        {label !== null ? (
+          <span className="min-w-0 break-words font-sans">{label}</span>
+        ) : (
+          <span className="min-w-0 break-words">{tool}</span>
+        )}
         {count > 1 ? (
           <span data-testid="step-count" className="rounded bg-surface px-1 text-fg-muted">
             ×{count}

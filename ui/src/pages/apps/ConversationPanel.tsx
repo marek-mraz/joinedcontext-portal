@@ -3,7 +3,7 @@ import type { JSX, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { SchemaForm } from "../../components/forms/SchemaForm";
 import type { JsonSchema } from "../../components/forms/types";
-import { openQuestions } from "./useAgentRun";
+import { openQuestions, TERMINAL_STATES } from "./useAgentRun";
 import { ActionStep } from "./ActionStep";
 import { CatalogCards, catalogItemsOf } from "./CatalogCards";
 import { ChangeTestCard, changeTestOf } from "./ChangeTestCard";
@@ -24,6 +24,70 @@ export function speakerOf(kind: string): Speaker {
     return "person";
   }
   return "activity";
+}
+
+/** Lines about the machinery of a run rather than the conversation, kept behind Details. */
+const DETAIL_KINDS = new Set(["usage", "commit", "preview", "lag"]);
+
+/** Where a run stands, as the one line a person reads instead of every status change. */
+export type Progress = "working" | "waiting" | "done" | "stopped";
+
+export function progressOf(events: RunEvent[]): Progress | null {
+  const status = events.filter((event) => event.kind === "status").at(-1)?.payload.status;
+  if (typeof status !== "string") {
+    return null;
+  }
+  if (status === "published") {
+    return "done";
+  }
+  if (TERMINAL_STATES.includes(status)) {
+    return "stopped";
+  }
+  const lastTurn = events.filter((event) => speakerOf(event.kind) !== "activity").at(-1);
+  if (lastTurn !== undefined && speakerOf(lastTurn.kind) === "person") {
+    return "working";
+  }
+  return ["interviewing", "previewing", "awaiting_approval"].includes(status) ? "waiting" : "working";
+}
+
+/**
+ * The catalog searches whose cards stay in the conversation: those the agent's next words were
+ * about with no other step between, and the latest one while nothing has followed it yet. A
+ * search on the way to integrating a feed is only a step.
+ */
+export function answeredSearches(events: RunEvent[]): Set<number> {
+  const answered = new Set<number>();
+  let search: number | null = null;
+  for (const event of events) {
+    if (event.kind === "tool") {
+      search = event.payload.tool === "search_catalog" ? event.seq : null;
+    } else if (speakerOf(event.kind) === "agent" && search !== null) {
+      answered.add(search);
+      search = null;
+    }
+  }
+  if (search !== null) {
+    answered.add(search);
+  }
+  return answered;
+}
+
+/** A row of the transcript: one event, or the machinery lines between two of them. */
+type Row = { event: RunEvent; count: number } | { details: RunEvent[] };
+
+function rowsOf(events: RunEvent[]): Row[] {
+  const rows: Row[] = [];
+  for (const folded of foldRepeats(events.filter((event) => event.kind !== "status"))) {
+    const last = rows.at(-1);
+    if (!DETAIL_KINDS.has(folded.event.kind)) {
+      rows.push(folded);
+    } else if (last !== undefined && "details" in last) {
+      last.details.push(folded.event);
+    } else {
+      rows.push({ details: [folded.event] });
+    }
+  }
+  return rows;
 }
 
 /** What makes two tool steps the same step: the tool, how it ended and why. */
@@ -174,6 +238,8 @@ export function ConversationPanel({
 }): JSX.Element {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
+  const progress = progressOf(events);
+  const answered = answeredSearches(events);
   const questions = openQuestions(events);
   const foot = useRef<HTMLDivElement>(null);
 
@@ -213,12 +279,34 @@ export function ConversationPanel({
         )}
 
         <ol className="space-y-2 text-sm" aria-label={t("agentRun.conversation.title")}>
-          {foldRepeats(events).map(({ event, count }) => {
+          {rowsOf(events).map((row) => {
+            if ("details" in row) {
+              return (
+                <li key={`details-${row.details[0].seq}`} className="text-xs text-fg-muted">
+                  <details>
+                    <summary className="cursor-pointer">
+                      {t("agentRun.conversation.details", { count: row.details.length })}
+                    </summary>
+                    <div className="mt-1 space-y-0.5 font-mono">
+                      {row.details.map((event) => (
+                        <p key={event.seq} className="break-words">
+                          {line(event, t)}
+                        </p>
+                      ))}
+                    </div>
+                  </details>
+                </li>
+              );
+            }
+            const { event, count } = row;
             const speaker = speakerOf(event.kind);
             if (event.kind === "tool") {
-              // What the assistant found is drawn as cards above the step itself (UI-46).
+              // What the assistant found is drawn as cards above the step itself (UI-46), when
+              // its answer was about what it found.
               const found =
-                event.payload.tool === "search_catalog" ? catalogItemsOf(event.payload.output) : null;
+                event.payload.tool === "search_catalog" && answered.has(event.seq)
+                  ? catalogItemsOf(event.payload.output)
+                  : null;
               const proposal =
                 event.payload.tool === "propose_endpoint" ? proposalOf(event.payload.output) : null;
               const kpi =
@@ -286,6 +374,11 @@ export function ConversationPanel({
             );
           })}
         </ol>
+        {progress !== null ? (
+          <p data-testid="run-progress" role="status" className="mt-2 text-xs text-fg-muted">
+            {t(`agentRun.progress.${progress}`)}
+          </p>
+        ) : null}
 
         {questions.map((question) => (
           <div

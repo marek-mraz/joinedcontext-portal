@@ -11,6 +11,7 @@ const RUN_KEY = "jc.assistant.run";
 const PREFILL_KEY = "jc.assistant.prefill";
 const NOTICE_KEY = "jc.assistant.notice";
 const NAVIGATED_KEY = "jc.assistant.navigated";
+const NOTICE_SEEN_KEY = "jc.assistant.noticeSeen";
 const CHANGED = "jc:assistant";
 const OPEN_REQUEST = "jc:assistant-open";
 
@@ -93,13 +94,32 @@ export function onAssistantChange(listener: () => void): () => void {
 
 /**
  * The form values a `navigate` event carries for `route`, kept until the page takes them, and
- * the notice that the assistant navigated, kept until the person dismisses it: the dock is
- * remounted by the route change that delivers the event, so neither can live in its state.
+ * the notice that the assistant navigated, kept until the person dismisses it or leaves the page
+ * it names: the dock is remounted by the route change that delivers the event, so neither can
+ * live in its state.
  */
 export function rememberPrefill(route: string, prefill: Record<string, unknown>): void {
   write(PREFILL_KEY, { route: route.split("?")[0], prefill });
   write(NOTICE_KEY, route);
+  write(NOTICE_SEEN_KEY, null);
   window.dispatchEvent(new Event(CHANGED));
+}
+
+/**
+ * The notice against the page the person is on: on the page it names it has been seen, and on
+ * any other page after that it is gone. Before it has been seen, the page that is still open
+ * while the assistant's navigation happens leaves it alone.
+ */
+export function settleNotice(pathname: string): void {
+  const route = noticeSnapshot();
+  if (route === null) {
+    return;
+  }
+  if (route.split("?")[0] === pathname) {
+    write(NOTICE_SEEN_KEY, route);
+  } else if (read(NOTICE_SEEN_KEY) === route) {
+    dismissNotice();
+  }
 }
 
 /**
@@ -124,6 +144,7 @@ export function noticeSnapshot(): string | null {
 
 export function dismissNotice(): void {
   write(NOTICE_KEY, null);
+  write(NOTICE_SEEN_KEY, null);
   window.dispatchEvent(new Event(CHANGED));
 }
 

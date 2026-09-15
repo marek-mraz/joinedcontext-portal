@@ -309,7 +309,7 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
 
       {apps.length === 0 && draftRuns.length === 0 && <p>{t("apps.empty")}</p>}
 
-      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-3">
         {apps.map((app) => {
           const spec = appSpec(app);
           const title =

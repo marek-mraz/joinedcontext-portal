@@ -1,0 +1,20 @@
+import type { IconName } from "../ui";
+
+/** The plural segments of `/api/v1/projects/{project}/{plural}`, in sidebar order. */
+export const NAV_SECTIONS = [
+  // The gallery is the primary model of the application, so it is the first thing in the
+  // sidebar; everything below it is the expert view of what a flow produced (CC-30).
+  { plural: "flows", labelKey: "nav.flows", icon: "flows" },
+  { plural: "spaces", labelKey: "nav.spaces", icon: "spaces" },
+  { plural: "endpoints", labelKey: "nav.endpoints", icon: "endpoints" },
+  // What this project references from other projects' endpoints (EP-15).
+  { plural: "shared", labelKey: "nav.shared", icon: "share" },
+  // A source is what a pipeline reads, so it sits in front of the pipelines (MF-35).
+  { plural: "datasources", labelKey: "nav.datasources", icon: "datasources" },
+  { plural: "pipelines", labelKey: "nav.pipelines", icon: "pipelines" },
+  { plural: "dashboards", labelKey: "nav.dashboards", icon: "dashboards" },
+  { plural: "apps", labelKey: "nav.apps", icon: "apps" },
+  { plural: "assistant", labelKey: "nav.assistant", icon: "chat" },
+  { plural: "approvals", labelKey: "nav.approvals", icon: "approvals" },
+  { plural: "access", labelKey: "nav.access", icon: "access" },
+] as const satisfies ReadonlyArray<{ plural: string; labelKey: string; icon: IconName }>;

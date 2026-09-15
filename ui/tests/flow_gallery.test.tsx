@@ -105,6 +105,7 @@ describe("flow gallery", () => {
     expect(within(card).getByText(en.flows.risk.green)).toBeInTheDocument();
     expect(within(card).getByText("What threshold-alert does")).toBeInTheDocument();
     expect(within(card).getByText("Version 1.2.0")).toBeInTheDocument();
+    expect(card.closest("ul")?.className).toContain("grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]");
 
     const risky = (await screen.findByText("Share with another city")).closest("li") as HTMLElement;
     expect(within(risky).getByText(en.flows.risk.red)).toBeInTheDocument();

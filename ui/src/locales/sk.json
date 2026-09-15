@@ -213,6 +213,31 @@
       "operations": "Operácie"
     },
     "complete": {
+      "spacePlaceholder": "city-bikes",
+      "urlPlaceholder": "https://example.org/stations.json",
+      "kind": {
+        "DataModel": "Dátový model",
+        "ContextSpace": "Kontextový priestor",
+        "DataSource": "Zdroj dát",
+        "Endpoint": "Endpoint",
+        "Pipeline": "Pipeline"
+      },
+      "drafted": "Pripravené",
+      "alreadyThere": "Už existuje",
+      "checkPassed": "Kontrola prešla",
+      "checkFailed": "Kontrola neprešla",
+      "summary": {
+        "DataModel": "Typ {type} s {count, plural, one {# atribútom} other {# atribútmi}}",
+        "ContextSpace": "Obsahuje dáta, ktoré opisuje model {model}",
+        "DataSource": "Načítava {host}",
+        "Pipeline": "Nahráva {type} každých {period}",
+        "audience": {
+          "public": "Čitateľné pre každého s adresou",
+          "organization": "Čitateľné pre všetky projekty organizácie",
+          "project-list": "Čitateľné pre projekty, ktoré uvádza"
+        }
+      },
+      "onApproval": "Navrhnúť všetko pošle tieto koncepty na schválenie spolu. Po schválení sa zdroj začne načítavať a priestor sa naplní.",
       "title": "Complete this space",
       "lead": "Provide a sample file or an endpoint URL; the Portal completes the Context Space with LinkML, and builds the data source and pipeline if described.",
       "space": "Space name",
@@ -221,8 +246,6 @@
       "dropHint": "Drop files here or browse",
       "action": "Complete",
       "proposeAll": "Propose all",
-      "found": "Found",
-      "inferred": "Inferred",
       "open": "Open",
       "noDrafts": "No drafts completed yet."
     }
@@ -1180,6 +1203,7 @@
       "usage": "{steps} krokov, spotrebovaných {tokens} tokenov."
     },
     "conversation": {
+      "details": "{count, plural, one {Podrobnosti (# riadok)} few {Podrobnosti (# riadky)} other {Podrobnosti (# riadkov)}}",
       "title": "Stavba ako rozhovor",
       "live": "Naživo",
       "offline": "Nepripojené",
@@ -1221,7 +1245,25 @@
       "show": "Show the assistant",
       "hide": "Hide the assistant"
     },
+    "progress": {
+      "working": "Pracuje…",
+      "waiting": "Čaká na vás",
+      "done": "Hotovo",
+      "stopped": "Zastavené"
+    },
     "step": {
+      "label": {
+        "search_catalog": "Prehľadal katalóg",
+        "query_endpoint": "Prečítal dáta",
+        "readEndpoint": "Prečítal {endpoint}",
+        "change_resource": "Skontroloval zmenu",
+        "grant_role": "Skontroloval pridelenie roly",
+        "propose_endpoint": "Pripravil endpoint",
+        "edit_endpoint": "Skontroloval zmenu endpointu",
+        "space_complete": "Skontroloval zdroj a pripravil priestor",
+        "compute_kpi": "Vypočítal ukazovateľ",
+        "draft_kpi_pipeline": "Pripravil pipeline"
+      },
       "ok": "Úspešný",
       "failed": "Zlyhal",
       "duration": "{ms} ms",
@@ -1331,7 +1373,9 @@
     }
   },
   "assistant": {
-    "navigated": "Asistent otvoril {route}",
+    "navigated": "Otvorené: {page}",
+    "pageNamed": "{page}: {name}",
+    "anotherPage": "Asistent otvoril inú stránku",
     "dismiss": "Zavrieť oznam",
     "close": "Zavrieť asistenta",
     "title": "Asistent",

@@ -219,7 +219,7 @@ describe("the assistant dock", () => {
       );
     });
     // The dock came along, and says what it did.
-    const notice = await screen.findByText(`The assistant opened /projects/${PROJECT}/endpoints`);
+    const notice = await screen.findByText("Opened Endpoints");
     expect(notice).toBeInTheDocument();
     expect(dockStream().url).toBe(`/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/events`);
     // And it is where it always is: the column on the right of the page, after the main
@@ -242,8 +242,10 @@ describe("the assistant dock", () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe(`/projects/${PROJECT}/endpoints`);
     });
+    expect(await screen.findByText("Opened Endpoints")).toBeInTheDocument();
 
-    // The person opens the change for review; the dock on that page replays the run's events.
+    // The person opens the change for review; the dock on that page replays the run's events,
+    // and the notice about the page they left is gone.
     await act(async () => {
       window.history.pushState({}, "", `/projects/${PROJECT}/approvals`);
       window.dispatchEvent(new PopStateEvent("popstate"));
@@ -256,6 +258,7 @@ describe("the assistant dock", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(window.location.pathname).toBe(`/projects/${PROJECT}/approvals`);
+    expect(screen.queryByText("Opened Endpoints")).not.toBeInTheDocument();
 
     // A navigate the run sends later still leads the way.
     await emitToEveryStream("navigate", { seq: 9, route: `/projects/${PROJECT}/spaces` });

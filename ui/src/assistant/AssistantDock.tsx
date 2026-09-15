@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { JSX } from "react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, unwrap } from "../api/client";
 import { ConversationPanel } from "../pages/apps/ConversationPanel";
@@ -20,6 +20,7 @@ import {
   storedEndpoints,
 } from "./EndpointPicker";
 import { Icon } from "../components/ui/icons";
+import { pageOf } from "./pageOf";
 import type { IconName } from "../components/ui/icons";
 import {
   dismissNotice,
@@ -33,6 +34,7 @@ import {
   rememberPrefill,
   rememberRun,
   runSnapshot,
+  settleNotice,
 } from "./state";
 
 /**
@@ -52,6 +54,11 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   const run = useMemo(() => parseRun(raw), [raw]);
   const activeProject = run?.project ?? project;
   const navigated = useSyncExternalStore(onAssistantChange, noticeSnapshot);
+  // The notice goes once the person moves on from the page it names.
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  useEffect(() => {
+    settleNotice(pathname);
+  }, [navigated, pathname]);
   const [open, setOpen] = useState(() => Boolean(parseRun(runSnapshot())));
   const [building, setBuilding] = useState(false);
   const [layout, setLayout] = useState<Layout>(storedLayout);
@@ -355,7 +362,7 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
           role="status"
           className="flex w-full items-center justify-between gap-2 rounded border border-border bg-surface px-3 py-2 text-sm"
         >
-          <span>{t("assistant.navigated", { route: navigated })}</span>
+          <span>{t("assistant.navigated", { page: pageOf(navigated, t) })}</span>
           <button
             type="button"
             onClick={() => {

@@ -3,7 +3,7 @@ import type { JSX, ReactNode } from "react";
 import { useRouterState } from "@tanstack/react-router";
 
 /** What the assistant leaves in the address for the page it opens (AG-73, AG-77). */
-const HAND_OFF = ["edit", "delete", "grant", "draft", "space"] as const;
+export const HAND_OFF = ["edit", "delete", "grant", "draft", "space"] as const;
 
 /**
  * Its page, mounted afresh for each hand-off in the address. A page takes what the assistant

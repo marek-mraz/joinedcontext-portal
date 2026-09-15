@@ -144,7 +144,7 @@ export function FlowGallery({ project }: { project: string }): JSX.Element {
       {blueprints.length === 0 && <p>{t("flows.empty")}</p>}
       {blueprints.length > 0 && shown.length === 0 && <p>{t("flows.emptyFiltered")}</p>}
 
-      <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-4">
         {shown.map((blueprint) => {
           const spec = blueprintSpec(blueprint);
           const title = localized(blueprint.metadata.title, i18n.language, blueprint.metadata.name);

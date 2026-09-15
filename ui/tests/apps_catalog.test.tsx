@@ -128,6 +128,10 @@ describe("apps catalog", () => {
     expect(within(card).getByText("Visible to project")).toBeInTheDocument();
     expect(within(card).getByText(/AirQualityObserved/)).toBeInTheDocument();
     expect(within(card).getByText(/ovzdusie/)).toBeInTheDocument();
+    // A card keeps its width however narrow the page beside the assistant is: the grid fits as
+    // many 14rem columns as there is room for, never a column count set by the window's width.
+    expect(card.closest("ul")?.className).toContain("grid-cols-[repeat(auto-fill,minmax(14rem,1fr))]");
+    expect(card.closest("ul")?.className).not.toMatch(/\b(sm|lg|xl):grid-cols-/);
 
     // AP-24: the prompt history and the branch live with the source, so the card links there.
     expect(within(card).getByRole("link", { name: en.apps.history })).toHaveAttribute(

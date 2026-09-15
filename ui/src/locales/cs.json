@@ -213,6 +213,31 @@
       "operations": "Operace"
     },
     "complete": {
+      "spacePlaceholder": "city-bikes",
+      "urlPlaceholder": "https://example.org/stations.json",
+      "kind": {
+        "DataModel": "Datový model",
+        "ContextSpace": "Kontextový prostor",
+        "DataSource": "Zdroj dat",
+        "Endpoint": "Endpoint",
+        "Pipeline": "Pipeline"
+      },
+      "drafted": "Připraveno",
+      "alreadyThere": "Už existuje",
+      "checkPassed": "Kontrola prošla",
+      "checkFailed": "Kontrola neprošla",
+      "summary": {
+        "DataModel": "Typ {type} s {count, plural, one {# atributem} other {# atributy}}",
+        "ContextSpace": "Obsahuje data, která popisuje model {model}",
+        "DataSource": "Načítá {host}",
+        "Pipeline": "Nahrává {type} každých {period}",
+        "audience": {
+          "public": "Čitelné pro každého s adresou",
+          "organization": "Čitelné pro všechny projekty organizace",
+          "project-list": "Čitelné pro projekty, které uvádí"
+        }
+      },
+      "onApproval": "Navrhnout vše pošle tyto koncepty ke schválení společně. Po schválení se zdroj začne načítat a prostor se naplní.",
       "title": "Complete this space",
       "lead": "Provide a sample file or an endpoint URL; the Portal completes the Context Space with LinkML, and builds the data source and pipeline if described.",
       "space": "Space name",
@@ -221,8 +246,6 @@
       "dropHint": "Drop files here or browse",
       "action": "Complete",
       "proposeAll": "Propose all",
-      "found": "Found",
-      "inferred": "Inferred",
       "open": "Open",
       "noDrafts": "No drafts completed yet."
     }
@@ -1180,6 +1203,7 @@
       "usage": "{steps} kroků, spotřebováno {tokens} tokenů."
     },
     "conversation": {
+      "details": "{count, plural, one {Podrobnosti (# řádek)} few {Podrobnosti (# řádky)} other {Podrobnosti (# řádků)}}",
       "title": "Stavba jako rozhovor",
       "live": "Naživo",
       "offline": "Nepřipojeno",
@@ -1221,7 +1245,25 @@
       "show": "Show the assistant",
       "hide": "Hide the assistant"
     },
+    "progress": {
+      "working": "Pracuje…",
+      "waiting": "Čeká na vás",
+      "done": "Hotovo",
+      "stopped": "Zastaveno"
+    },
     "step": {
+      "label": {
+        "search_catalog": "Prohledal katalog",
+        "query_endpoint": "Přečetl data",
+        "readEndpoint": "Přečetl {endpoint}",
+        "change_resource": "Zkontroloval změnu",
+        "grant_role": "Zkontroloval přidělení role",
+        "propose_endpoint": "Připravil endpoint",
+        "edit_endpoint": "Zkontroloval změnu endpointu",
+        "space_complete": "Zkontroloval zdroj a připravil prostor",
+        "compute_kpi": "Spočítal ukazatel",
+        "draft_kpi_pipeline": "Připravil pipeline"
+      },
       "ok": "Úspěšný",
       "failed": "Selhal",
       "duration": "{ms} ms",
@@ -1331,7 +1373,9 @@
     }
   },
   "assistant": {
-    "navigated": "Asistent otevřel {route}",
+    "navigated": "Otevřeno: {page}",
+    "pageNamed": "{page}: {name}",
+    "anotherPage": "Asistent otevřel jinou stránku",
     "dismiss": "Zavřít oznámení",
     "close": "Zavřít asistenta",
     "title": "Asistent",

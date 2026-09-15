@@ -213,6 +213,31 @@
       "operations": "Operations"
     },
     "complete": {
+      "spacePlaceholder": "city-bikes",
+      "urlPlaceholder": "https://example.org/stations.json",
+      "kind": {
+        "DataModel": "Data model",
+        "ContextSpace": "Context space",
+        "DataSource": "Data source",
+        "Endpoint": "Endpoint",
+        "Pipeline": "Pipeline"
+      },
+      "drafted": "Drafted",
+      "alreadyThere": "Already there",
+      "checkPassed": "Check passed",
+      "checkFailed": "Check failed",
+      "summary": {
+        "DataModel": "Type {type} with {count, plural, one {# attribute} other {# attributes}}",
+        "ContextSpace": "Holds the data the model {model} describes",
+        "DataSource": "Fetches {host}",
+        "Pipeline": "Loads {type} every {period}",
+        "audience": {
+          "public": "Readable by anyone with the address",
+          "organization": "Readable by every project of the organization",
+          "project-list": "Readable by the projects it names"
+        }
+      },
+      "onApproval": "Propose all sends these drafts for approval together. Once a person approves them, the source is fetched and the space fills.",
       "title": "Complete this space",
       "lead": "Provide a sample file or an endpoint URL; the Portal completes the Context Space with LinkML, and builds the data source and pipeline if described.",
       "space": "Space name",
@@ -221,8 +246,6 @@
       "dropHint": "Drop files here or browse",
       "action": "Complete",
       "proposeAll": "Propose all",
-      "found": "Found",
-      "inferred": "Inferred",
       "open": "Open",
       "noDrafts": "No drafts completed yet."
     }
@@ -1180,6 +1203,7 @@
       "usage": "{steps} steps, {tokens} tokens used."
     },
     "conversation": {
+      "details": "{count, plural, one {Details (# line)} other {Details (# lines)}}",
       "title": "The build, as a conversation",
       "live": "Live",
       "offline": "Not connected",
@@ -1221,7 +1245,25 @@
       "show": "Show the assistant",
       "hide": "Hide the assistant"
     },
+    "progress": {
+      "working": "Working…",
+      "waiting": "Waiting for you",
+      "done": "Done",
+      "stopped": "Stopped"
+    },
     "step": {
+      "label": {
+        "search_catalog": "Searched the catalog",
+        "query_endpoint": "Read the data",
+        "readEndpoint": "Read {endpoint}",
+        "change_resource": "Checked the change",
+        "grant_role": "Checked the grant",
+        "propose_endpoint": "Drafted the endpoint",
+        "edit_endpoint": "Checked the endpoint's change",
+        "space_complete": "Checked the feed and drafted the space",
+        "compute_kpi": "Computed the indicator",
+        "draft_kpi_pipeline": "Drafted the pipeline"
+      },
       "ok": "Succeeded",
       "failed": "Failed",
       "duration": "{ms} ms",
@@ -1331,7 +1373,9 @@
     }
   },
   "assistant": {
-    "navigated": "The assistant opened {route}",
+    "navigated": "Opened {page}",
+    "pageNamed": "{page}: {name}",
+    "anotherPage": "The assistant opened another page",
     "dismiss": "Dismiss",
     "close": "Close the assistant",
     "title": "Assistant",

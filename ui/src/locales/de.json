@@ -213,6 +213,31 @@
       "operations": "Operationen"
     },
     "complete": {
+      "spacePlaceholder": "city-bikes",
+      "urlPlaceholder": "https://example.org/stations.json",
+      "kind": {
+        "DataModel": "Datenmodell",
+        "ContextSpace": "Kontextraum",
+        "DataSource": "Datenquelle",
+        "Endpoint": "Endpunkt",
+        "Pipeline": "Pipeline"
+      },
+      "drafted": "Entworfen",
+      "alreadyThere": "Bereits vorhanden",
+      "checkPassed": "Prüfung bestanden",
+      "checkFailed": "Prüfung nicht bestanden",
+      "summary": {
+        "DataModel": "Typ {type} mit {count, plural, one {# Attribut} other {# Attributen}}",
+        "ContextSpace": "Enthält die Daten, die das Modell {model} beschreibt",
+        "DataSource": "Ruft {host} ab",
+        "Pipeline": "Lädt {type} alle {period}",
+        "audience": {
+          "public": "Lesbar für alle mit der Adresse",
+          "organization": "Lesbar für alle Projekte der Organisation",
+          "project-list": "Lesbar für die genannten Projekte"
+        }
+      },
+      "onApproval": "Alle vorschlagen sendet diese Entwürfe gemeinsam zur Freigabe. Nach der Freigabe wird die Quelle abgerufen und der Raum füllt sich.",
       "title": "Complete this space",
       "lead": "Provide a sample file or an endpoint URL; the Portal completes the Context Space with LinkML, and builds the data source and pipeline if described.",
       "space": "Space name",
@@ -221,8 +246,6 @@
       "dropHint": "Drop files here or browse",
       "action": "Complete",
       "proposeAll": "Propose all",
-      "found": "Found",
-      "inferred": "Inferred",
       "open": "Open",
       "noDrafts": "No drafts completed yet."
     }
@@ -1180,6 +1203,7 @@
       "usage": "{steps} Schritte, {tokens} Tokens verbraucht."
     },
     "conversation": {
+      "details": "{count, plural, one {Details (# Zeile)} other {Details (# Zeilen)}}",
       "title": "Der Bau als Gespräch",
       "live": "Live",
       "offline": "Nicht verbunden",
@@ -1221,7 +1245,25 @@
       "show": "Show the assistant",
       "hide": "Hide the assistant"
     },
+    "progress": {
+      "working": "Arbeitet…",
+      "waiting": "Wartet auf Sie",
+      "done": "Fertig",
+      "stopped": "Angehalten"
+    },
     "step": {
+      "label": {
+        "search_catalog": "Katalog durchsucht",
+        "query_endpoint": "Daten gelesen",
+        "readEndpoint": "{endpoint} gelesen",
+        "change_resource": "Änderung geprüft",
+        "grant_role": "Rollenvergabe geprüft",
+        "propose_endpoint": "Endpunkt entworfen",
+        "edit_endpoint": "Änderung des Endpunkts geprüft",
+        "space_complete": "Quelle geprüft und Raum entworfen",
+        "compute_kpi": "Kennzahl berechnet",
+        "draft_kpi_pipeline": "Pipeline entworfen"
+      },
       "ok": "Erfolgreich",
       "failed": "Fehlgeschlagen",
       "duration": "{ms} ms",
@@ -1331,7 +1373,9 @@
     }
   },
   "assistant": {
-    "navigated": "Der Assistent hat {route} geöffnet",
+    "navigated": "Geöffnet: {page}",
+    "pageNamed": "{page}: {name}",
+    "anotherPage": "Der Assistent hat eine andere Seite geöffnet",
     "dismiss": "Ausblenden",
     "close": "Assistent schließen",
     "title": "Assistent",

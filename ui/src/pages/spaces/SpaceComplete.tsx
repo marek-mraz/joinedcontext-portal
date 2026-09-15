@@ -7,7 +7,9 @@ import { takePrefill } from "../../assistant/state";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import type { Change } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
-import { Alert, Badge, Button, Card, Field, Input, PageHeader } from "../../components/ui";
+import { parse as parseYaml } from "yaml";
+import { Alert, Badge, Button, Card, Field, Icon, Input, PageHeader } from "../../components/ui";
+import type { IconName } from "../../components/ui";
 
 interface CompletedDraft {
   kind: string;
@@ -24,6 +26,60 @@ interface CompleteResult {
   proposeReady: boolean;
   lane: string;
   change?: Change | null;
+}
+
+const KIND_ICON: Record<string, IconName> = {
+  DataModel: "models",
+  ContextSpace: "spaces",
+  DataSource: "datasources",
+  Endpoint: "endpoints",
+  Pipeline: "pipelines",
+};
+
+type Translate = (key: string, values?: Record<string, unknown>) => string;
+
+/** What one draft is, in one line a person reads without knowing the kind: its type, feed, schedule or audience. */
+function summaryOf(draft: CompletedDraft, t: Translate): string | null {
+  const spec = (draft.manifest.spec ?? {}) as Record<string, unknown>;
+  const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
+  switch (draft.kind) {
+    case "DataModel": {
+      const type = Array.isArray(spec.classes) ? text(spec.classes[0]) : undefined;
+      if (type === undefined) return null;
+      let attributes = 0;
+      try {
+        const source = parseYaml(text(spec.source) ?? "") as { classes?: Record<string, { attributes?: Record<string, unknown> }> } | null;
+        attributes = Object.keys(source?.classes?.[type]?.attributes ?? {}).length;
+      } catch {
+        attributes = 0;
+      }
+      return t("spaces.complete.summary.DataModel", { type, count: attributes });
+    }
+    case "ContextSpace": {
+      const model = text((spec.dataModelRef as { name?: unknown } | undefined)?.name);
+      return model === undefined ? null : t("spaces.complete.summary.ContextSpace", { model });
+    }
+    case "DataSource": {
+      const url = text((spec.http as { url?: unknown } | undefined)?.url);
+      if (url === undefined) return null;
+      try {
+        return t("spaces.complete.summary.DataSource", { host: new URL(url).host });
+      } catch {
+        return null;
+      }
+    }
+    case "Pipeline": {
+      const type = text((spec.output as { type?: unknown } | undefined)?.type);
+      const period = text(spec.period);
+      return type === undefined || period === undefined ? null : t("spaces.complete.summary.Pipeline", { type, period });
+    }
+    case "Endpoint": {
+      const audience = text(spec.audience);
+      return audience === undefined ? null : t(`spaces.complete.summary.audience.${audience}`);
+    }
+    default:
+      return null;
+  }
 }
 
 /** The drafts the assistant's `space_complete` handed over with its navigation, when it did. */
@@ -142,7 +198,7 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
             id="complete-space"
             value={spaceName}
             onChange={(e) => setSpaceName(e.target.value)}
-            placeholder="e.g. bikes"
+            placeholder={t("spaces.complete.spacePlaceholder")}
           />
         </Field>
 
@@ -151,7 +207,7 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
             id="complete-url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://.../station_status.json"
+            placeholder={t("spaces.complete.urlPlaceholder")}
           />
         </Field>
 
@@ -168,10 +224,10 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
           ) : null}
         </Field>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             id="complete-btn"
-            variant="primary"
+            variant={result?.proposeReady ? "secondary" : "primary"}
             disabled={loading || (!url.trim() && files.length === 0)}
             onClick={() => void executeComplete(false)}
           >
@@ -181,7 +237,7 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
           {result?.proposeReady ? (
             <Button
               id="complete-propose"
-              variant="secondary"
+              variant="primary"
               disabled={loading}
               onClick={() => void executeComplete(true)}
             >
@@ -203,34 +259,49 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
 
       {result?.drafts && result.drafts.length > 0 ? (
         <div className="flex flex-col gap-3">
-          {result.drafts.map((d) => (
-            <Card key={`${d.kind}-${d.name}`} data-testid={`complete-draft-${d.kind}`}>
-              <div className="flex flex-wrap items-center justify-between gap-2 p-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-fg">{d.kind}</span>
-                  <span className="font-mono text-caption text-fg-muted">{d.name}</span>
-                  <Badge tone={d.inferred ? "warning" : "info"}>
-                    {d.inferred ? t("spaces.complete.inferred") : t("spaces.complete.found")}
-                  </Badge>
-                  {d.verdict ? (
-                    <Badge tone={d.verdict.ok ? "success" : "danger"}>
-                      {d.verdict.ok ? "green" : "red"}
-                    </Badge>
-                  ) : null}
+          {result.drafts.map((d) => {
+            const summary = summaryOf(d, t);
+            return (
+              <Card key={`${d.kind}-${d.name}`} data-testid={`complete-draft-${d.kind}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Icon name={KIND_ICON[d.kind] ?? "spaces"} className="size-4 text-fg-muted" />
+                      <span className="font-semibold text-fg">
+                        {KIND_ICON[d.kind] ? t(`spaces.complete.kind.${d.kind}`) : d.kind}
+                      </span>
+                      <span className="font-mono text-caption text-fg-muted">{d.name}</span>
+                      <Badge tone={d.inferred ? "info" : "neutral"}>
+                        {d.inferred ? t("spaces.complete.drafted") : t("spaces.complete.alreadyThere")}
+                      </Badge>
+                      {d.verdict ? (
+                        <Badge tone={d.verdict.ok ? "success" : "danger"}>
+                          {d.verdict.ok ? t("spaces.complete.checkPassed") : t("spaces.complete.checkFailed")}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    {summary !== null ? <p className="text-caption text-fg-muted">{summary}</p> : null}
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => openDraft(d)}>
+                    {t("spaces.complete.open")}
+                  </Button>
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => openDraft(d)}>
-                  {t("spaces.complete.open")}
-                </Button>
-              </div>
-              {d.verdict && !d.verdict.ok && d.verdict.findings.length > 0 ? (
-                <div className="border-t border-border px-3 py-2 text-caption text-danger">
-                  {d.verdict.findings.map((f, i) => (
-                    <div key={i}>{f.path ? `${f.path}: ` : ""}{f.message}</div>
-                  ))}
-                </div>
-              ) : null}
-            </Card>
-          ))}
+                {d.verdict && !d.verdict.ok && d.verdict.findings.length > 0 ? (
+                  <ul className="border-t border-border px-3 py-2 text-caption text-danger">
+                    {d.verdict.findings.map((f, i) => (
+                      <li key={i}>
+                        {f.path ? `${f.path}: ` : ""}
+                        {f.message}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </Card>
+            );
+          })}
+          {result.proposeReady ? (
+            <p className="text-caption text-fg-muted">{t("spaces.complete.onApproval")}</p>
+          ) : null}
         </div>
       ) : null}
     </div>
