@@ -9,7 +9,7 @@ import { ChangeNotice } from "../../components/ChangeNotice";
 import { SchemaForm } from "../../components/forms/SchemaForm";
 import type { JsonSchema } from "../../components/forms/types";
 import { blueprintSpec } from "./Gallery";
-import { PageHeader } from "../../components/ui/PageHeader";
+import { Alert, Button, PageHeader } from "../../components/ui";
 
 type Parameters = Record<string, unknown>;
 
@@ -76,13 +76,9 @@ export function Instantiate({
 
   return (
     <div className="space-y-4">
-      <button
-        type="button"
-        onClick={onBack}
-        className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-      >
+      <Button size="sm" onClick={onBack}>
         {t("flows.back")}
-      </button>
+      </Button>
 
       <PageHeader
         title={t("flows.instantiate.title", { name })}
@@ -91,16 +87,16 @@ export function Instantiate({
 
       {change && <ChangeNotice change={change} project={project} />}
       {error && (
-        <div role="alert" className="text-danger">
+        <Alert role="alert" tone="danger">
           <p>{error}</p>
           {violations.length > 0 && (
-            <ul className="mt-1 list-disc pl-5 text-sm">
+            <ul className="mt-1 list-disc pl-5 text-caption">
               {violations.map((violation) => (
                 <li key={violation}>{violation}</li>
               ))}
             </ul>
           )}
-        </div>
+        </Alert>
       )}
 
       {schema ? (

@@ -11,7 +11,19 @@ import type { Change, Manifest } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
-import { Button } from "../../components/ui";
+import {
+  Alert,
+  Button,
+  EmptyState,
+  PageHeader,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui";
 import { PlanDiffViewer } from "../../components/diff/PlanDiffViewer";
 import type { FieldChange } from "../../components/diff/PlanDiffViewer";
 import { ResourceFormDialog } from "../../components/ResourceFormDialog";
@@ -32,7 +44,6 @@ import type { CatalogInput, DataSourceType, TypedDataSourceType } from "../../sc
 import { useBentoInputs } from "./RunnerInputForm";
 import { SecretRefContext } from "../../components/forms/widgets/SecretRef";
 import type { SecretRefValue } from "../../components/forms/widgets/SecretRef";
-import { PageHeader } from "../../components/ui/PageHeader";
 
 /** The form of one source: the metadata a manifest carries plus the block its type names. */
 export interface DataSourceForm {
@@ -441,18 +452,17 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
         ? (list.error.problem?.detail ?? list.error.message)
         : t("app.error.generic");
     return (
-      <div role="alert">
-        <p className="text-danger">{message}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void list.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("app.error.retry")}
-        </button>
-      </div>
+      <Alert
+        role="alert"
+        tone="danger"
+        actions={
+          <Button size="sm" onClick={() => void list.refetch()}>
+            {t("app.error.retry")}
+          </Button>
+        }
+      >
+        {message}
+      </Alert>
     );
   }
 
@@ -461,9 +471,10 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <PageHeader title={t("datasources.title")} description={t("datasources.lead")} />
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col text-sm">
+          <label htmlFor="datasource-type" className="flex flex-col text-sm">
             <span className="mb-1 font-medium">{t("datasources.field.type")}</span>
-            <select
+            <Select
+              id="datasource-type"
               value={type}
               onChange={(event) => {
                 setType(event.target.value as DataSourceType);
@@ -472,7 +483,6 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
                 setProbe(null);
                 setCollectedSecrets({});
               }}
-              className="rounded border border-border bg-surface px-3 py-1.5 text-sm text-surface-fg focus:outline-none focus:ring-2 focus:ring-border-focus"
             >
               <optgroup label={t("datasources.group.typed", { defaultValue: "Common connections" })}>
                 {DATA_SOURCE_TYPES.map((option) => (
@@ -500,21 +510,17 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
                     </optgroup>
                   );
                 })}
-            </select>
+            </Select>
           </label>
           {selectedSummary ? (
-            <p data-testid="input-summary" className="max-w-xs text-xs text-surface-fg/70">
+            <p data-testid="input-summary" className="max-w-xs text-xs text-fg-muted">
               {selectedSummary}
             </p>
           ) : null}
           <PermissionGuard project={project} kind="DataSource" verb="propose">
-          <button
-            type="button"
-            onClick={openCreate}
-            className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
-          >
-            {t("datasources.add")}
-          </button>
+            <Button variant="primary" onClick={openCreate}>
+              {t("datasources.add")}
+            </Button>
           </PermissionGuard>
         </div>
       </div>
@@ -522,74 +528,61 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
       {change ? <ChangeNotice change={change} project={project} /> : null}
 
       {sources.length === 0 ? (
-        <p className="text-sm text-surface-fg/70">{t("datasources.empty")}</p>
+        <EmptyState title={t("datasources.empty")} />
       ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full border-collapse text-left text-sm">
-            <caption className="sr-only">{t("datasources.title")}</caption>
-            <thead>
-              <tr className="border-b border-border bg-surface-subtle">
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("datasources.field.name")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("datasources.field.type")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("datasources.field.endpoint")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("datasources.field.secrets")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  <span className="sr-only">{t("datasources.edit")}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sources.map((source) => {
-                const used = knownSecretNames([source]);
-                return (
-                  <tr key={source.metadata.name} className="border-b border-border last:border-0">
-                    <td className="px-4 py-2">
-                      <span className="font-mono">{source.metadata.name}</span>
-                      {/* A source without a title is its name; printing it twice says nothing. */}
-                      {source.metadata.title ? (
-                        <span className="block text-xs text-surface-fg/70">
-                          {localized(source.metadata.title, locale, source.metadata.name)}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-2">
-                      {isTypedDataSource(typeOf(source.spec))
-                        ? t(`datasources.type.${typeOf(source.spec)}`, { defaultValue: typeOf(source.spec) })
-                        : typeOf(source.spec)}
-                    </td>
-                    <td className="break-all px-4 py-2 font-mono text-xs">
-                      {endpointOf(source.spec)}
-                    </td>
+        <Table caption={t("datasources.title")}>
+          <TableHead>
+            <TableHeaderCell>{t("datasources.field.name")}</TableHeaderCell>
+            <TableHeaderCell>{t("datasources.field.type")}</TableHeaderCell>
+            <TableHeaderCell>{t("datasources.field.endpoint")}</TableHeaderCell>
+            <TableHeaderCell>{t("datasources.field.secrets")}</TableHeaderCell>
+            <TableHeaderCell align="right">
+              <span className="sr-only">{t("datasources.edit")}</span>
+            </TableHeaderCell>
+          </TableHead>
+          <TableBody>
+            {sources.map((source) => {
+              const used = knownSecretNames([source]);
+              return (
+                <TableRow key={source.metadata.name}>
+                  <TableCell>
+                    <span className="font-mono">{source.metadata.name}</span>
+                    {/* A source without a title is its name; printing it twice says nothing. */}
+                    {source.metadata.title ? (
+                      <span className="block text-caption text-fg-muted">
+                        {localized(source.metadata.title, locale, source.metadata.name)}
+                      </span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    {isTypedDataSource(typeOf(source.spec))
+                      ? t(`datasources.type.${typeOf(source.spec)}`, { defaultValue: typeOf(source.spec) })
+                      : typeOf(source.spec)}
+                  </TableCell>
+                  <TableCell className="break-all font-mono text-caption">
+                    {endpointOf(source.spec)}
+                  </TableCell>
+                  <TableCell className="text-caption">
                     {/* The names of the references, never a value: the store holds the rest. */}
-                    <td className="px-4 py-2 text-xs">
-                      {used.length > 0 ? used.join(", ") : t("datasources.noSecret")}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        {mayPropose ? (
-                          <Button size="sm" onClick={() => openEdit(source)}>
-                            {t("datasources.edit")}
-                          </Button>
-                        ) : null}
-                        <DeleteResourceAction
-                          target={{ project, kind: "DataSource", plural: "datasources", name: source.metadata.name }}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    {used.length > 0 ? used.join(", ") : t("datasources.noSecret")}
+                  </TableCell>
+                  <TableCell align="right">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {mayPropose ? (
+                        <Button size="sm" onClick={() => openEdit(source)}>
+                          {t("datasources.edit")}
+                        </Button>
+                      ) : null}
+                      <DeleteResourceAction
+                        target={{ project, kind: "DataSource", plural: "datasources", name: source.metadata.name }}
+                      />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
       )}
 
       <SecretRefContext.Provider

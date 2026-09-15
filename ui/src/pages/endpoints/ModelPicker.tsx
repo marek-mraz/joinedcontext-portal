@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../../api/client";
 import { asManifests } from "../../api/manifest";
 import { parseModel } from "../models/linkml";
-import { Button } from "../../components/ui";
+import { Button, Input } from "../../components/ui";
 
 export interface ClassConfig {
   ticked: boolean;
@@ -307,12 +307,12 @@ export function ModelPicker({
             <label htmlFor="projection-name" className="text-caption font-medium text-fg">
               {t("endpoints.picker.projectionName")}:
             </label>
-            <input
+            <Input
               id="projection-name"
               disabled={disabled || isReadOnly}
               value={value.projectionName}
               onChange={(e) => onChange({ ...value, projectionName: e.target.value })}
-              className="rounded border border-border bg-surface px-2.5 py-1 text-caption font-mono text-fg"
+              className="h-8 font-mono text-caption"
             />
           </div>
         )}

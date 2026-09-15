@@ -6,7 +6,7 @@ import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
 import { Instantiate } from "./Instantiate";
-import { PageHeader } from "../../components/ui/PageHeader";
+import { Alert, Button, EmptyState, PageHeader } from "../../components/ui";
 
 /** The three review lanes a blueprint declares (CC-59, CC-63). */
 const RISK_STYLES: Record<string, string> = {
@@ -82,18 +82,17 @@ export function FlowGallery({ project }: { project: string }): JSX.Element {
         ? (list.error.problem?.detail ?? list.error.message)
         : t("app.error.generic");
     return (
-      <div role="alert">
-        <p className="text-danger">{message}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void list.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("app.error.retry")}
-        </button>
-      </div>
+      <Alert
+        role="alert"
+        tone="danger"
+        actions={
+          <Button size="sm" onClick={() => void list.refetch()}>
+            {t("app.error.retry")}
+          </Button>
+        }
+      >
+        {message}
+      </Alert>
     );
   }
 
@@ -139,8 +138,10 @@ export function FlowGallery({ project }: { project: string }): JSX.Element {
         </div>
       )}
 
-      {blueprints.length === 0 && <p>{t("flows.empty")}</p>}
-      {blueprints.length > 0 && shown.length === 0 && <p>{t("flows.emptyFiltered")}</p>}
+      {blueprints.length === 0 && <EmptyState title={t("flows.empty")} />}
+      {blueprints.length > 0 && shown.length === 0 && (
+        <EmptyState title={t("flows.emptyFiltered")} />
+      )}
 
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-4">
         {shown.map((blueprint) => {
@@ -149,27 +150,27 @@ export function FlowGallery({ project }: { project: string }): JSX.Element {
           return (
             <li
               key={blueprint.metadata.name}
-              className="flex flex-col gap-2 rounded border border-border p-4"
+              className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4 shadow-1"
             >
               <div className="flex items-start justify-between gap-2">
                 <h2 className="font-semibold">{title}</h2>
                 <RiskBadge riskClass={spec.riskClass} />
               </div>
-              <p className="text-sm text-muted">
+              <p className="text-caption text-fg-muted">
                 {localized(blueprint.metadata.description, i18n.language, "")}
               </p>
               {spec.version ? (
-                <p className="text-xs text-muted">{t("flows.version", { version: spec.version })}</p>
+                <p className="text-caption text-fg-muted">{t("flows.version", { version: spec.version })}</p>
               ) : null}
-              <button
-                type="button"
+              <Button
+                size="sm"
+                className="mt-auto self-start"
                 onClick={() => {
                   setSelected(blueprint);
                 }}
-                className="mt-auto self-start rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
               >
                 {t("flows.run")}
-              </button>
+              </Button>
             </li>
           );
         })}

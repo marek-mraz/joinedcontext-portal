@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { SCHEMA_FORMALISMS } from "../../schemas/kinds";
 import type { SchemaFormalism } from "../../schemas/kinds";
+import { Button, Field, Input, Select } from "../../components/ui";
 
 /**
  * What an Endpoint publishes of its model, and which attributes it holds back (EP-46, EP-61).
@@ -116,22 +117,20 @@ export function SchemaProjectionPanel({
       </h3>
       <p className="text-sm text-surface-fg/70">{t("endpoints.projection.hint")}</p>
 
-      <label className="block text-sm font-medium" htmlFor="projection-formalism">
-        {t("endpoints.projection.formalism")}
-      </label>
-      <select
-        id="projection-formalism"
-        value={formalism}
-        onChange={(event) => setFormalism(event.target.value as SchemaFormalism)}
-        className="block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
-      >
-        {SCHEMA_FORMALISMS.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
-      <p className="font-mono text-xs break-all text-surface-fg/60">{artifactUrl}</p>
+      <Field id="projection-formalism" label={t("endpoints.projection.formalism")}>
+        <Select
+          id="projection-formalism"
+          value={formalism}
+          onChange={(event) => setFormalism(event.target.value as SchemaFormalism)}
+        >
+          {SCHEMA_FORMALISMS.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <p className="break-all font-mono text-caption text-fg-muted">{artifactUrl}</p>
 
       {index.isPending || schema.isPending ? (
         <p role="status">{t("endpoints.projection.loading")}</p>
@@ -202,28 +201,22 @@ export function SchemaProjectionPanel({
       })}
 
       <div className="flex items-end gap-2">
-        <div className="flex-1">
-          <label className="mb-1 block text-sm font-medium" htmlFor="projection-typed">
-            {t("endpoints.projection.addHidden")}
-          </label>
-          <input
+        <Field id="projection-typed" label={t("endpoints.projection.addHidden")} className="flex-1">
+          <Input
             id="projection-typed"
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
-            className="block w-full rounded border border-border bg-surface px-3 py-1.5 text-base"
           />
-        </div>
-        <button
-          type="button"
+        </Field>
+        <Button
           disabled={typed.trim() === "" || hidden.includes(typed.trim())}
           onClick={() => {
             onHiddenChange([...hidden, typed.trim()]);
             setTyped("");
           }}
-          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
         >
           {t("endpoints.projection.add")}
-        </button>
+        </Button>
       </div>
 
       {hidden.length > 0 ? (

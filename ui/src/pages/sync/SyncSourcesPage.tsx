@@ -7,7 +7,7 @@ import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
 import type { components } from "../../api/schema";
-import { PageHeader } from "../../components/ui/PageHeader";
+import { Alert, Button, EmptyState, PageHeader } from "../../components/ui";
 
 export function syncStatusKey(project: string, name: string) {
   return ["projects", project, "syncsources", name, "status"] as const;
@@ -54,13 +54,13 @@ export function SyncSourcesPage({ project }: { project: string }): JSX.Element {
 
       {list.isPending ? <p role="status">{t("app.loading")}</p> : null}
       {list.isError ? (
-        <p role="alert" className="text-sm text-danger">
+        <Alert role="alert" tone="danger">
           {t("app.error.generic")}
-        </p>
+        </Alert>
       ) : null}
 
       {!list.isPending && !list.isError && items.length === 0 ? (
-        <p className="text-sm">{t("syncSources.empty")}</p>
+        <EmptyState title={t("syncSources.empty")} />
       ) : null}
 
       <ul className="space-y-4">
@@ -205,40 +205,38 @@ function SyncSourceCard({
       ) : null}
 
       {failure ? (
-        <p role="alert" className="mt-3 text-sm text-danger">
+        <Alert role="alert" tone="danger" className="mt-3">
           {failure instanceof ApiError ? failure.message : t("app.error.generic")}
-        </p>
+        </Alert>
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
+        <Button
+          size="sm"
           disabled={busy || paused}
           onClick={() => syncNow.mutate()}
-          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
         >
           {t("syncSources.syncNow")}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          size="sm"
           disabled={busy}
           onClick={() => pause.mutate(!paused)}
-          className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
         >
           {paused ? t("syncSources.resume") : t("syncSources.pause")}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="danger"
+          size="sm"
           disabled={busy}
           onClick={() => {
             if (window.confirm(t("syncSources.detachConfirm", { name }))) {
               detach.mutate();
             }
           }}
-          className="rounded border border-danger px-3 py-1.5 text-sm text-danger hover:bg-danger/10 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
         >
           {t("syncSources.detach")}
-        </button>
+        </Button>
       </div>
     </article>
   );
@@ -258,9 +256,9 @@ function RunReport({ report }: { report: components["schemas"]["SyncRunReport"] 
         <p role="status">{t("syncSources.nothingToDo")}</p>
       ) : null}
       {report.flags.map((flag) => (
-        <p key={flag} role="alert" className="text-danger">
+        <Alert key={flag} role="alert" tone="danger" className="mt-1">
           {flag}
-        </p>
+        </Alert>
       ))}
     </div>
   );

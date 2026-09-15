@@ -2,22 +2,25 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { clsx } from "clsx";
 import { api, ApiError, unwrap } from "../../api/client";
 import { rememberRun, requestOpen } from "../../assistant/state";
-import { Button } from "../../components/ui/Button";
-import { EmptyState } from "../../components/ui/EmptyState";
-import { Field } from "../../components/ui/Field";
-import { Input, Select, Textarea } from "../../components/ui/Input";
-import { PageHeader } from "../../components/ui/PageHeader";
 import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeaderCell,
   TableRow,
-} from "../../components/ui/Table";
+  Textarea,
+} from "../../components/ui";
 import { appDisplayName, useEndpointTitles } from "../apps/appTitle";
 import { TERMINAL_STATES } from "../apps/useAgentRun";
 import { AgentAccess } from "./AgentAccess";
@@ -223,7 +226,7 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
         description={t("assistantPage.lead")}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-surface p-4">
+      <Card className="flex flex-wrap items-center justify-between gap-4 p-4">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
             <label htmlFor="filter-kind" className="text-caption font-medium text-fg-muted">
@@ -273,7 +276,7 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
             </span>
           </label>
         </div>
-      </div>
+      </Card>
 
       {runsQuery.isPending ? (
         <p role="status" className="text-body text-fg-muted">
@@ -319,15 +322,8 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span
-                      className={clsx(
-                        "inline-flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 text-caption font-medium",
-                        run.status === "failed"
-                          ? "bg-danger-soft text-danger"
-                          : ended
-                            ? "bg-surface-subtle text-fg-muted"
-                            : "bg-primary-soft text-primary-soft-fg",
-                      )}
+                    <Badge
+                      tone={run.status === "failed" ? "danger" : ended ? "neutral" : "primary"}
                     >
                       {ended ? null : (
                         <span aria-hidden className="size-1.5 rounded-full bg-current" />
@@ -337,7 +333,7 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
                           defaultValue: run.status,
                         }),
                       })}
-                    </span>
+                    </Badge>
                   </TableCell>
                   <TableCell className="hidden whitespace-nowrap text-caption text-fg-muted md:table-cell">
                     {run.firstFrameMs != null || run.firstVersionMs != null ? (
@@ -400,10 +396,7 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
         </Table>
       )}
 
-      <section
-        aria-labelledby="new-work-heading"
-        className="space-y-4 rounded-lg border border-border bg-surface p-5 shadow-1"
-      >
+      <Card className="space-y-4 p-5" aria-labelledby="new-work-heading">
         <div className="space-y-1">
           <h2 id="new-work-heading" className="text-lg font-semibold text-fg">
             {t("assistantPage.newWork.title")}
@@ -497,7 +490,7 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
             {t("assistantPage.newWork.start")}
           </Button>
         </form>
-      </section>
+      </Card>
 
       <AgentAccess project={project} />
     </div>
