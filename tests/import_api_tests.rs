@@ -784,3 +784,95 @@ async fn a_role_that_grants_propose_on_every_kind_in_the_bundle_imports_it() {
         .iter()
         .any(|p| p == "projects/banskabystrica/pipelines/aq/bento.yaml"));
 }
+
+#[tokio::test]
+async fn a_role_that_misses_one_kind_of_the_bundle_refuses_the_whole_bundle_naming_it() {
+    let server = forge().await;
+    // ContextSpace and Endpoint, but not the Pipeline whose bento.yaml the bundle carries.
+    let partial = role(
+        "partial",
+        json!([{ "kinds": ["ContextSpace", "Endpoint"], "verbs": ["propose"] }]),
+    );
+    let (state, cookie) = state_as(&server, vec![], &[], vec![partial, binding("partial")]);
+    let (content_type, body) = multipart(&bundle_archive(), &[]);
+    let (status, problem) = post(state, &cookie, &content_type, body).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("Pipeline"), "{detail}");
+    assert!(written(&server).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_constraint_the_bundles_manifest_violates_refuses_it_naming_the_field() {
+    let server = forge().await;
+    // The bundle's Endpoint is public; this role may propose internal ones only.
+    let internal = role(
+        "internal-editor",
+        json!([
+            { "kinds": ["ContextSpace", "Pipeline"], "verbs": ["propose"] },
+            { "kinds": ["Endpoint"], "verbs": ["propose"],
+              "constraints": [{ "field": "spec.audience", "notIn": ["public"] }] }
+        ]),
+    );
+    let (state, cookie) = state_as(
+        &server,
+        vec![],
+        &[],
+        vec![internal, binding("internal-editor")],
+    );
+    let (content_type, body) = multipart(&bundle_archive(), &[]);
+    let (status, problem) = post(state, &cookie, &content_type, body).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("spec.audience"), "{detail}");
+    assert!(written(&server).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_binding_on_another_project_grants_nothing_here() {
+    let server = forge().await;
+    let importer = role(
+        "importer",
+        json!([{ "kinds": ["ContextSpace", "Endpoint", "Pipeline"], "verbs": ["propose"] }]),
+    );
+    let mut elsewhere = binding("importer");
+    elsewhere["spec"]["scope"] = json!({ "project": SOURCE });
+    let (state, cookie) = state_as(&server, vec![], &[], vec![importer, elsewhere]);
+    let (content_type, body) = multipart(&bundle_archive(), &[]);
+    let (status, problem) = post(state, &cookie, &content_type, body).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    assert!(written(&server).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_native_file_under_a_directory_that_names_no_kind_is_refused_even_with_every_role() {
+    let server = forge().await;
+    // Every kind the catalogue has, and still no role can cover `projects/x/notes/`.
+    let kinds: Vec<&str> = joinedcontext_portal::resource::kinds()
+        .map(|info| info.kind)
+        .collect();
+    let everything = role(
+        "everything",
+        json!([{ "kinds": kinds, "verbs": ["propose"] }]),
+    );
+    let (state, cookie) = state_as(
+        &server,
+        vec![],
+        &[],
+        vec![everything, binding("everything")],
+    );
+    let file = archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        ("projects/helsinki/notes/todo.txt", "remember the milk\n"),
+    ]);
+    let (content_type, body) = multipart(&file, &[]);
+    let (status, problem) = post(state, &cookie, &content_type, body).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("notes/todo.txt"), "{detail}");
+    assert!(written(&server).await.is_empty());
+}
