@@ -112,7 +112,18 @@ pub async fn for_endpoint(
         .items
         .into_iter()
         .find(|env| env.spec["slug"].as_str() == Some(slug))?;
-    let space = ref_name(&endpoint.spec["contextSpaceRef"])?;
+    of_endpoint(state, project, &endpoint.spec, types).await
+}
+
+/// The field schema of the space an endpoint's `spec` publishes, for `types`; `None` as for
+/// [`for_endpoint`].
+pub async fn of_endpoint(
+    state: &AppState,
+    project: &str,
+    endpoint: &Value,
+    types: &[String],
+) -> Option<Value> {
+    let space = ref_name(&endpoint["contextSpaceRef"])?;
     let space = state.mirror.get(project, "ContextSpace", &space)?;
     let model = ref_name(&space.spec["dataModelRef"])?;
     state.mirror.get(project, "DataModel", &model)?;

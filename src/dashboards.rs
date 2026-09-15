@@ -11,7 +11,8 @@ fn is_public_dashboard(spec: &Value) -> bool {
     spec.get("visibility").and_then(Value::as_str) == Some("public")
 }
 
-fn layer_names(spec: &Value) -> Vec<String> {
+/// The layers a dashboard's pages draw, by name.
+pub fn layer_names(spec: &Value) -> Vec<String> {
     spec.get("pages")
         .and_then(Value::as_array)
         .into_iter()

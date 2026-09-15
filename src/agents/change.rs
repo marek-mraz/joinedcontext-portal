@@ -24,6 +24,57 @@ pub struct ChangeResource {
     pub operations: Option<Vec<crate::agents::model_change::Operation>>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub delete: bool,
+    /// A new Dashboard: `patch` holds its spec and `layers` the new Layers its pages draw.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub create: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<NewLayer>,
+}
+
+/// A Layer a new dashboard draws, created with it (UI-18).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct NewLayer {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub spec: Value,
+}
+
+/// A manifest of this project's `kind`, as a new resource is written.
+pub fn manifest(kind: &str, project: &str, name: &str, spec: Value) -> Value {
+    json!({
+        "apiVersion": "joinedcontext.com/v1alpha1",
+        "kind": kind,
+        "metadata": { "name": name, "namespace": project },
+        "spec": spec,
+    })
+}
+
+/// The spec a new resource's `patch` carries: `{spec: {…}}` as a merge patch of an empty
+/// manifest, or the spec itself.
+pub fn spec_of(patch: &Value) -> Option<Value> {
+    let spec = patch.get("spec").unwrap_or(patch);
+    spec.is_object().then(|| spec.clone())
+}
+
+/// The attributes a layer's encodings and popup name, in order, each once.
+pub fn named_attributes(layer: &Value) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let encoded = ["/colorBy/property", "/sizeBy/property"]
+        .into_iter()
+        .filter_map(|pointer| layer.pointer(pointer).and_then(Value::as_str));
+    let popup = layer
+        .get("popupProperties")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str);
+    for name in encoded.chain(popup) {
+        if !names.iter().any(|known| known == name) {
+            names.push(name.to_owned());
+        }
+    }
+    names
 }
 
 /// The call of the tool named `tool` in a model answer, when the answer holds one.
@@ -189,6 +240,32 @@ mod tests {
         assert!(same.is_err_and(|e| e.contains("changes nothing")));
         let listed = patched(&pipeline(), &json!(["suspended"]));
         assert!(listed.is_err_and(|e| e.contains("merge patch")));
+    }
+
+    #[test]
+    fn a_new_dashboard_reads_its_spec_either_way_and_its_layers_name_their_attributes_once() {
+        let spec = json!({ "title": "Bikes", "pages": [{ "layers": ["stations"] }] });
+        assert_eq!(spec_of(&json!({ "spec": spec })), Some(spec.clone()));
+        assert_eq!(spec_of(&spec), Some(spec.clone()));
+        assert_eq!(spec_of(&json!(["pages"])), None);
+        let call = tool_call("```json\n{\"tool\":\"change_resource\",\"kind\":\"Dashboard\",\"name\":\"bikes\",\"create\":true,\"patch\":{\"spec\":{}},\"layers\":[{\"name\":\"stations\",\"spec\":{\"entityType\":\"BikeHireDockingStation\"}}]}\n```")
+            .expect("a call")
+            .expect("parses");
+        assert!(call.create);
+        assert_eq!(call.layers[0].name, "stations");
+        let layer = json!({
+            "colorBy": { "property": "availableBikeNumber" },
+            "sizeBy": { "property": "capacity" },
+            "popupProperties": ["name", "availableBikeNumber"]
+        });
+        assert_eq!(
+            named_attributes(&layer),
+            ["availableBikeNumber", "capacity", "name"]
+        );
+        assert_eq!(
+            manifest("Layer", "helsinki", "stations", json!({}))["metadata"],
+            json!({ "name": "stations", "namespace": "helsinki" })
+        );
     }
 
     #[test]

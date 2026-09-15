@@ -123,7 +123,7 @@ const FEATURES = {
   features: [{ type: "Feature", geometry: { type: "Point", coordinates: [24.95, 60.17] }, properties: { name: "Kamppi", availableBikeNumber: 7 } }],
 };
 
-function renderDashboards(options: { writeStatus?: number; writeBody?: unknown } = {}) {
+function renderDashboards(options: { writeStatus?: number; writeBody?: unknown; drafts?: Record<string, unknown> } = {}) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const url = typeof input === "string" ? new URL(input) : new URL(request.url);
@@ -137,6 +137,10 @@ function renderDashboards(options: { writeStatus?: number; writeBody?: unknown }
     }
     if (request.method !== "GET") {
       return json(options.writeBody ?? CHANGE, options.writeStatus ?? 202);
+    }
+    const draft = options.drafts?.[url.pathname];
+    if (url.pathname.includes("/drafts/")) {
+      return draft ? json(draft) : json({ title: "Not Found", status: 404 }, 404);
     }
     if (url.pathname.endsWith("/dashboards")) {
       return json(list([DASHBOARD]));
@@ -229,6 +233,46 @@ describe("dashboard editors", () => {
     const request = writes(fetchMock)[0];
     expect(new URL(request.url).pathname).toBe("/api/v1/projects/helsinki/layers/bikes");
     expect(((await request.clone().json()) as { spec: { style: string } }).spec.style).toBe("heatmap");
+  });
+
+  it("opens the dashboard the assistant drafted as new, and proposes it with its drafted layer as one import (T-0739)", async () => {
+    const drafted = {
+      ...DASHBOARD,
+      metadata: { name: "stations-map", namespace: "helsinki" },
+      spec: { title: "Stations", visibility: "project", pages: [{ layout: "full-map", layers: ["bikes", "stations"] }] },
+    };
+    const layer = { ...LAYER, metadata: { name: "stations", namespace: "helsinki" } };
+    rememberPrefill("/projects/helsinki/dashboards?edit=stations-map", drafted);
+    window.history.pushState({}, "", "/projects/helsinki/dashboards?edit=stations-map&draft=stations-map");
+    const fetchMock = renderDashboards({
+      drafts: {
+        "/api/v1/projects/helsinki/drafts/Layer/stations": {
+          project: "helsinki",
+          kind: "Layer",
+          name: "stations",
+          manifest: layer,
+          verdict: null,
+          touchedBy: "jana.kovacova",
+          touchedKind: "assistant",
+          version: 1,
+          updatedAt: "2026-09-15T08:00:00Z",
+        },
+      },
+    });
+
+    const dialog = await screen.findByRole("dialog", { name: en.dashboards.add });
+    expect(writes(fetchMock)).toHaveLength(0);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((call) => (call[0] as Request).url.endsWith("/drafts/Layer/stations"))).toBe(true),
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: en.dashboards.propose }));
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const request = writes(fetchMock)[0];
+    expect(request.method).toBe("POST");
+    expect(new URL(request.url).pathname).toBe("/api/v1/projects/helsinki/import");
+    const body = (await request.clone().json()) as { manifests: { kind: string; metadata: { name: string } }[] };
+    // The existing layer stays out of the bundle; the drafted one goes with the dashboard.
+    expect(body.manifests.map((m) => `${m.kind}/${m.metadata.name}`)).toEqual(["Layer/stations", "Dashboard/stations-map"]);
   });
 
   it("shows the server's reason when a public dashboard would read a private endpoint (UI-19)", async () => {

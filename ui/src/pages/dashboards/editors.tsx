@@ -85,8 +85,25 @@ function useProposal(project: string, plural: string, onChange: (change: Change)
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const mutation = useMutation({
-    mutationFn: async ({ body, create }: { body: { metadata: { name: string } }; create: boolean }) => {
+    mutationFn: async ({
+      body,
+      create,
+      bundle = [],
+    }: {
+      body: { metadata: { name: string } };
+      create: boolean;
+      /** Drafted manifests the resource needs, proposed with it as one Change. */
+      bundle?: unknown[];
+    }) => {
       setError(null);
+      if (bundle.length > 0) {
+        return unwrap<unknown>(
+          await api.POST("/api/v1/projects/{project}/import", {
+            params: { path: { project } },
+            body: { manifests: [...bundle, body] } as never,
+          }),
+        );
+      }
       const result = create
         ? await api.POST("/api/v1/projects/{project}/{plural}", {
             params: { path: { project, plural } },
@@ -98,11 +115,14 @@ function useProposal(project: string, plural: string, onChange: (change: Change)
           });
       return unwrap(result);
     },
-    onSuccess: (result) => {
+    onSuccess: (result, { bundle = [] }) => {
       if (isChange(result)) {
         onChange(result);
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, plural) });
+      if (bundle.length > 0) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, "layers") });
+      }
     },
     onError: (err) => {
       setError(
@@ -133,7 +153,14 @@ export function DashboardEditor({
   onEditingChange,
   onChange,
   layers,
-}: EditorProps<DashboardForm> & { layers: string[] }): JSX.Element {
+  draftedLayers = [],
+  loadingDrafts = false,
+}: EditorProps<DashboardForm> & {
+  layers: string[];
+  /** Layers drafted with the dashboard, proposed with it; not proposable until they are read. */
+  draftedLayers?: Manifest[];
+  loadingDrafts?: boolean;
+}): JSX.Element {
   const { t } = useTranslation();
   const proposal = useProposal(project, "dashboards", (change) => {
     onChange(change);
@@ -155,13 +182,20 @@ export function DashboardEditor({
       uiSchema={dashboardUiSchema}
       formData={editing ?? undefined}
       submitLabel={t("dashboards.propose")}
-      disabled={proposal.mutation.isPending}
+      disabled={proposal.mutation.isPending || loadingDrafts}
       error={proposal.error}
       source={{
         toManifest: (form) => dashboardToManifest(project, form),
         fromManifest: dashboardFromManifest,
       }}
-      onSubmit={(form) => proposal.mutation.mutate({ body: dashboardToManifest(project, form), create: isNew })}
+      onSubmit={(form) => {
+        const drawn = new Set(form.pages.flatMap((page) => page.layers ?? []));
+        proposal.mutation.mutate({
+          body: dashboardToManifest(project, form),
+          create: isNew,
+          bundle: draftedLayers.filter((layer) => drawn.has(layer.metadata.name)),
+        });
+      }}
       onChange={(form) => {
         if (form) {
           onEditingChange(form);

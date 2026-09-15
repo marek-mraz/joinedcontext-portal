@@ -1850,6 +1850,42 @@ with what it saw: fix the patch. You never propose, approve or remove anything y
                 changeable = serde_json::to_string_pretty(&changeable).unwrap_or_default(),
             ));
         }
+        let endpoint_names = self.names_of("Endpoint");
+        let may_draw = ["Dashboard", "Layer"]
+            .iter()
+            .all(|kind| self.may_change(kind, Verb::Propose).is_ok());
+        if may_draw && !endpoint_names.is_empty() {
+            pack.push_str(&format!(
+                r#"
+## WHEN THE PERSON ASKS FOR A NEW DASHBOARD
+
+A request for a dashboard that does not exist yet: "a dashboard with a map of the stations
+coloured by free bikes". A dashboard is pages of map layers, and each new layer reads one of the
+project's endpoints ({endpoints}) for one entity type. Answer with one plain sentence and then ONE
+fenced JSON block, nothing else:
+
+```json
+{{
+  "tool": "change_resource",
+  "kind": "Dashboard",
+  "name": "<a new name: lowercase letters, digits and hyphens>",
+  "create": true,
+  "patch": {{ "spec": {{ "title": "<its title>", "visibility": "project", "pages": [{{ "title": "<a page title>", "layout": "full-map", "layers": ["<a new layer's name>"] }}] }} }},
+  "layers": [
+    {{ "name": "<a new layer's name>", "spec": {{ "sourceEndpointRef": "<one of the endpoints>", "entityType": "<a type it serves>", "style": "circle", "colorBy": {{ "property": "<a number attribute>" }}, "popupProperties": ["<an attribute>"] }} }}
+  ]
+}}
+```
+
+`style` is `circle`, `line`, `fill`, `heatmap`, `hexagon` or `icon`; `sizeBy` {{property}} and `filter`
+{{q}} (an NGSI-LD query such as `availableBikeNumber==0`) are optional. A page may also draw a
+layer the project already has, by its name. When you name an attribute the type does not have,
+the platform answers with its attributes. It checks every layer and the dashboard and opens the
+dashboard editor with them; the person proposes it there.
+"#,
+                endpoints = endpoint_names.join(", ")
+            ));
+        }
         if self.may_change("RoleBinding", Verb::Propose).is_ok() {
             pack.push_str(&format!(
                 r#"
@@ -3465,6 +3501,11 @@ a removal of its binding with change_resource.
                 .await
                 .map(Worked::Done);
         }
+        if params.create {
+            return self
+                .create_dashboard(info.kind, &params, answer, input, started, last)
+                .await;
+        }
         let name = params.name.trim();
         let Some(current) = self.state.mirror.get(self.home(info.kind), info.kind, name) else {
             let names = self.names_of(info.kind);
@@ -3552,6 +3593,250 @@ a removal of its binding with change_resource.
             info, name, manifest, answer, TOOL, input, started, last, route, draft,
         )
         .await
+    }
+
+    /// A new dashboard with the new layers its pages draw (AG-77, UI-17, UI-18). Every manifest
+    /// passes the dry run and is kept as the person's draft, and the dashboard editor opens on
+    /// the dashboard; its one proposal carries the layers with it. What the model got wrong goes
+    /// back to it with the project's real names and the endpoint's attributes.
+    async fn create_dashboard(
+        &self,
+        kind: &str,
+        params: &change::ChangeResource,
+        answer: &str,
+        input: Value,
+        started: std::time::Instant,
+        last: bool,
+    ) -> Result<Worked, String> {
+        const TOOL: &str = "change_resource";
+        let millis = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let name = params.name.trim();
+        if kind == "Dashboard" {
+            if let Err(reason) = self.may_change("Layer", Verb::Propose) {
+                return self
+                    .refused(TOOL, started, input, reason)
+                    .await
+                    .map(Worked::Done);
+            }
+        }
+        let mut drafted = match self.new_dashboard(kind, name, params).await {
+            Ok(drafted) => drafted,
+            Err(reason) => {
+                self.event("tool", failed_step(TOOL, started, &input, &reason))
+                    .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}"),
+                        format!("The dashboard could not be drafted: {reason}"),
+                    )
+                    .await;
+            }
+        };
+        for manifest in &drafted {
+            let refused = match crate::api::dry_run::execute_dry_run(
+                &self.identity,
+                &self.state,
+                &self.project,
+                manifest.clone(),
+            )
+            .await
+            {
+                Ok(result) if result.valid => None,
+                Ok(result) => Some(serde_json::to_string(&result.plan).unwrap_or_default()),
+                Err(err) => Some(err.to_string()),
+            };
+            if let Some(findings) = refused {
+                let reason = format!(
+                    "the platform's check refuses {} '{}': {findings}",
+                    manifest["kind"].as_str().unwrap_or_default(),
+                    manifest["metadata"]["name"].as_str().unwrap_or_default()
+                );
+                self.event("tool", failed_step(TOOL, started, &input, &reason))
+                    .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}; the manifest was {manifest}"),
+                        format!("The dashboard does not pass the platform's check: {reason}"),
+                    )
+                    .await;
+            }
+        }
+        for manifest in &drafted {
+            let kind = manifest["kind"].as_str().unwrap_or_default();
+            let named = manifest["metadata"]["name"].as_str().unwrap_or_default();
+            let kept = self
+                .state
+                .drafts
+                .put(
+                    &self.project,
+                    kind,
+                    named,
+                    manifest.clone(),
+                    None,
+                    &self.created_by,
+                    "assistant",
+                )
+                .await;
+            let verdict = crate::ops::verdict::Verdict::green(manifest, None);
+            let checked = match kept {
+                Ok(_) => self
+                    .state
+                    .drafts
+                    .set_verdict(&self.project, kind, named, verdict)
+                    .await
+                    .map(|_| ()),
+                Err(err) => Err(err),
+            };
+            if let Err(err) = checked {
+                tracing::warn!(run = %self.run_id, kind, name = named, error = %err, "dashboard draft not kept");
+            }
+        }
+        // The dashboard is drafted last, so it is the one the editor opens on.
+        let dashboard = drafted.pop().unwrap_or(Value::Null);
+        let layers: Vec<&str> = drafted
+            .iter()
+            .filter_map(|layer| layer["metadata"]["name"].as_str())
+            .collect();
+        self.event(
+            "tool",
+            json!({
+                "tool": TOOL,
+                "status": "ok",
+                "durationMs": millis(),
+                "input": input,
+                "output": { "kind": "Dashboard", "name": name, "checked": true, "create": true, "layers": layers },
+            }),
+        )
+        .await?;
+        let mut prose = share::prose_of(answer);
+        if prose.is_empty() {
+            prose = format!("Drafted the dashboard '{name}'; review it and propose it.");
+        }
+        self.thought(&prose).await?;
+        self.event(
+            "navigate",
+            json!({
+                "route": format!("/projects/{}/dashboards?edit={name}", self.project),
+                "prefill": dashboard,
+                "draft": { "kind": "Dashboard", "name": name },
+            }),
+        )
+        .await?;
+        Ok(Worked::Done(prose))
+    }
+
+    /// The new layers and then the dashboard, as manifests, or what is wrong with the call in
+    /// words the model can act on.
+    async fn new_dashboard(
+        &self,
+        kind: &str,
+        name: &str,
+        params: &change::ChangeResource,
+    ) -> Result<Vec<Value>, String> {
+        if kind != "Dashboard" {
+            return Err(format!(
+                "only a Dashboard is created here; a new {kind} is drafted on its own page"
+            ));
+        }
+        if self
+            .state
+            .mirror
+            .get(&self.project, "Dashboard", name)
+            .is_some()
+        {
+            return Err(format!(
+                "Dashboard '{name}' already exists; change it with a patch instead"
+            ));
+        }
+        let spec = params.patch.as_ref().and_then(change::spec_of).ok_or(
+            "a new dashboard carries its spec as the patch: {\"spec\": {\"title\", \"visibility\", \"pages\"}}",
+        )?;
+        let public = spec["visibility"].as_str() == Some("public");
+        let endpoints: BTreeMap<String, Value> = self
+            .state
+            .mirror
+            .list(
+                &self.project,
+                "Endpoint",
+                &crate::store::ListOptions::default(),
+            )
+            .items
+            .into_iter()
+            .map(|envelope| (envelope.metadata.name, envelope.spec))
+            .collect();
+        let existing = self.names_of("Layer");
+        let mut manifests = Vec::new();
+        for layer in &params.layers {
+            let layer_name = layer.name.trim();
+            if existing.iter().any(|known| known == layer_name) {
+                return Err(format!(
+                    "Layer '{layer_name}' already exists; draw it by its name and leave it out of layers"
+                ));
+            }
+            let source = layer.spec["sourceEndpointRef"].as_str().unwrap_or_default();
+            let Some(endpoint) = endpoints.get(source) else {
+                return Err(format!(
+                    "layer '{layer_name}' reads '{source}', which is not an endpoint of the project; its endpoints are {}",
+                    endpoints.keys().cloned().collect::<Vec<_>>().join(", ")
+                ));
+            };
+            if public && endpoint["audience"].as_str() != Some("public") {
+                return Err(format!(
+                    "a public dashboard reads only public endpoints, and '{source}' is not public (UI-19)"
+                ));
+            }
+            let entity_type = layer.spec["entityType"].as_str().unwrap_or_default();
+            let named = change::named_attributes(&layer.spec);
+            let schema = if named.is_empty() {
+                None
+            } else {
+                fields::of_endpoint(
+                    &self.state,
+                    &self.project,
+                    endpoint,
+                    &[entity_type.to_owned()],
+                )
+                .await
+            };
+            if let Some(schema) = schema {
+                let Some(properties) = schema[entity_type]["properties"].as_object() else {
+                    return Err(format!(
+                        "the data model behind '{source}' has no type '{entity_type}'"
+                    ));
+                };
+                let unknown: Vec<&str> = named
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|attribute| !properties.contains_key(*attribute))
+                    .collect();
+                if !unknown.is_empty() {
+                    return Err(format!(
+                        "layer '{layer_name}' names {}, which {entity_type} on '{source}' does not have; its attributes are {}",
+                        unknown.join(", "),
+                        properties.keys().cloned().collect::<Vec<_>>().join(", ")
+                    ));
+                }
+            }
+            manifests.push(change::manifest(
+                "Layer",
+                &self.project,
+                layer_name,
+                layer.spec.clone(),
+            ));
+        }
+        for drawn in crate::dashboards::layer_names(&spec) {
+            let new = params.layers.iter().any(|layer| layer.name.trim() == drawn);
+            if !new && !existing.contains(&drawn) {
+                return Err(format!(
+                    "a page draws '{drawn}', which is neither a layer of the project nor one of the new layers; the project's layers are {}",
+                    if existing.is_empty() { "none".to_owned() } else { existing.join(", ") }
+                ));
+            }
+        }
+        manifests.push(change::manifest("Dashboard", &self.project, name, spec));
+        Ok(manifests)
     }
 
     /// A data model changed by the editor's operations (AG-77, DM-13): applied to the LinkML

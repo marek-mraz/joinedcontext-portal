@@ -296,6 +296,28 @@ describe("the assistant dock", () => {
     expect(within(dialog).getByLabelText(new RegExp(en.access.roles.personLabel))).toHaveValue("jana.kovacova");
   });
 
+  it("sends what the person types to the application run it follows, not to a new conversation (T-0739)", async () => {
+    const user = userEvent.setup();
+    renderPortal();
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
+    const dock = (await screen.findByRole("button", { name: en.assistant.hide })).closest("aside") as HTMLElement;
+    expect(within(dock).getByTestId("assistant-app")).toHaveTextContent("Ovzdusie dnes");
+
+    await user.type(within(dock).getByLabelText(en.agentRun.conversation.placeholder), "Make the map bigger");
+    await user.click(within(dock).getByRole("button", { name: en.agentRun.conversation.send }));
+
+    await waitFor(() => {
+      expect(
+        fetchCalls().some(
+          (request) => request.method === "POST" && request.url.endsWith(`/agent-runs/${RUN_ID}/messages`),
+        ),
+      ).toBe(true);
+    });
+    const sent = fetchCalls().find((request) => request.url.endsWith(`/agent-runs/${RUN_ID}/messages`)) as Request;
+    expect(await sent.clone().json()).toEqual({ text: "Make the map bigger" });
+    expect(fetchCalls().some((request) => request.url.endsWith("/assistant/conversations"))).toBe(false);
+  });
+
   it("hides to a bubble at the bottom right, opens full screen, stops the run and closes", async () => {
     const user = userEvent.setup();
     renderPortal();

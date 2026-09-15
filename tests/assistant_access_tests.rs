@@ -1928,3 +1928,153 @@ async fn a_data_model_is_changed_by_the_editors_operations_once_the_source_check
         "nothing is written to the repository"
     );
 }
+
+/// A dashboard created from the chat (T-0739, AG-77, UI-17, UI-18): a page drawing a layer that
+/// is neither new nor the project's, and a layer naming an attribute its type does not have, go
+/// back to the model with the real names; the corrected dashboard and its layer pass the check,
+/// are kept as drafts, and the dashboard editor opens on them. Nothing is proposed.
+#[tokio::test]
+async fn a_dashboard_is_created_with_its_layers_once_they_name_what_the_endpoint_serves() {
+    let call = |pages: &str, popup: &str| {
+        format!("Drafting the dashboard.\n```json\n{{\"tool\":\"change_resource\",\"kind\":\"Dashboard\",\"name\":\"bike-stations\",\"create\":true,\"patch\":{{\"spec\":{{\"title\":\"Bike stations\",\"visibility\":\"project\",\"pages\":[{{\"layout\":\"full-map\",\"layers\":[{pages}]}}]}}}},\"layers\":[{{\"name\":\"stations\",\"spec\":{{\"sourceEndpointRef\":\"helsinki-bikes\",\"entityType\":\"BikeHireDockingStation\",\"style\":\"circle\",\"popupProperties\":[{popup}]}}}}]}}\n```")
+    };
+    let unknown_layer = call("\"stations\",\"stops\"", "\"name\"");
+    let unknown_attribute = call("\"stations\"", "\"name\",\"freeBikes\"");
+    let corrected = call("\"stations\"", "\"name\",\"status\"");
+    let proxy = model_answering(&[&unknown_layer, &unknown_attribute, &corrected]).await;
+    let forge = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&forge)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo/contents/projects/helsinki/spaces/helsinki/datamodels/helsinki.linkml.yaml"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(HELSINKI_LINKML)
+        })))
+        .mount(&forge)
+        .await;
+    let config = config(&proxy.uri());
+    let mirror = mirror(Some(json!({
+        "operations": ["jc_catalog_search", "jc_resource_propose"],
+        "kinds": [
+            { "kind": "Dashboard", "verbs": ["read", "propose"] },
+            { "kind": "Layer", "verbs": ["read", "propose"] }
+        ]
+    })));
+    mirror.upsert(envelope(
+        "DataModel",
+        "helsinki",
+        "helsinki",
+        json!({ "contextSpaceRef": "helsinki", "linkml": "./helsinki.linkml.yaml", "version": "1.1.0", "lifecycle": "published" }),
+    ));
+    mirror.upsert(envelope(
+        "ContextSpace",
+        "helsinki",
+        "helsinki",
+        json!({ "tenant": "helsinki", "dataModelRef": "helsinki" }),
+    ));
+    mirror.upsert(envelope(
+        "Endpoint",
+        "helsinki-bikes",
+        "helsinki",
+        json!({ "contextSpaceRef": "helsinki", "slug": "bikes", "audience": "project-list" }),
+    ));
+    let gitea = GiteaClient::new(forge.uri().parse().expect("url"), "owner", "repo", "token")
+        .expect("client");
+    let state = AppState::new(config.clone(), None)
+        .with_mirror(mirror)
+        .with_gitea(Arc::new(gitea));
+
+    let id = start_conversation(
+        &state,
+        &config,
+        "A dashboard with a map of the bike stations",
+    )
+    .await;
+    let mut events = Vec::new();
+    for _ in 0..300 {
+        events = state.agents.events_since(&id, 0).await.expect("events");
+        if events.iter().any(|e| e.kind == "navigate") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+
+    let steps: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.kind == "tool" && e.payload["tool"] == "change_resource")
+        .map(|e| &e.payload)
+        .collect();
+    assert_eq!(steps.len(), 3, "{steps:?}");
+    assert_eq!(steps[0]["status"], "failed");
+    assert_eq!(
+        steps[0]["error"],
+        "a page draws 'stops', which is neither a layer of the project nor one of the new layers; the project's layers are none"
+    );
+    assert_eq!(steps[1]["status"], "failed");
+    assert_eq!(
+        steps[1]["error"],
+        "layer 'stations' names freeBikes, which BikeHireDockingStation on 'helsinki-bikes' does not have; its attributes are name, status"
+    );
+    let prompts: Vec<String> = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|r| String::from_utf8_lossy(&r.body).into_owned())
+        .collect();
+    assert!(
+        prompts[0].contains("WHEN THE PERSON ASKS FOR A NEW DASHBOARD")
+            && prompts[0].contains("helsinki-bikes"),
+        "the model is told how to draft a dashboard over the project's endpoints"
+    );
+    assert!(prompts[2].contains("its attributes are name, status"));
+    assert_eq!(steps[2]["status"], "ok", "{}", steps[2]);
+    assert_eq!(
+        steps[2]["output"],
+        json!({ "kind": "Dashboard", "name": "bike-stations", "checked": true, "create": true, "layers": ["stations"] })
+    );
+
+    for (kind, name) in [("Layer", "stations"), ("Dashboard", "bike-stations")] {
+        let draft = state
+            .drafts
+            .get("helsinki", kind, name)
+            .await
+            .expect("drafts")
+            .unwrap_or_else(|| panic!("the {kind} is kept as a draft"));
+        assert!(
+            draft.verdict.as_ref().is_some_and(|v| v.ok),
+            "the {kind} draft carries its green check"
+        );
+    }
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the dashboard editor opens");
+    assert_eq!(
+        navigate.payload["route"],
+        "/projects/helsinki/dashboards?edit=bike-stations"
+    );
+    assert_eq!(navigate.payload["prefill"]["kind"], "Dashboard");
+    assert_eq!(
+        navigate.payload["prefill"]["spec"]["pages"][0]["layers"],
+        json!(["stations"])
+    );
+    assert!(
+        state
+            .mirror
+            .get("helsinki", "Dashboard", "bike-stations")
+            .is_none(),
+        "nothing is proposed"
+    );
+    let written = forge.received_requests().await.unwrap_or_default();
+    assert!(
+        written
+            .iter()
+            .all(|r| r.method == wiremock::http::Method::GET),
+        "nothing is written to the repository"
+    );
+}

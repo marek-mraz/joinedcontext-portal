@@ -1,9 +1,10 @@
 import { lazy, Suspense, useCallback, useId, useMemo, useState } from "react";
 import type { JSX } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { Feature, FeatureCollection } from "geojson";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
+import { getDraft } from "../api/drafts";
 import { asManifests, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { usePermissions } from "../api/permissions";
@@ -187,15 +188,17 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   );
   const endpointManifests = useMemo(() => asManifests(endpoints.data?.items ?? []), [endpoints.data]);
 
-  const requested = request
-    ? ((request.manifest as Manifest | null) ??
-      [...asManifests(dashboards.data?.items ?? []), ...layerManifests].find(
-        (item) => item.metadata.name === request.name,
-      ))
+  // The lists say whether the resource exists: a dashboard the assistant drafted opens as new.
+  const listed = dashboards.data && layers.data
+    ? [...asManifests(dashboards.data.items ?? []), ...layerManifests]
     : undefined;
-  if (requested) {
+  const requested =
+    request && listed
+      ? ((request.manifest as Manifest | null) ?? listed.find((item) => item.metadata.name === request.name))
+      : undefined;
+  if (requested && listed) {
     setRequest(null);
-    setIsNew(false);
+    setIsNew(!listed.some((item) => item.kind === requested.kind && item.metadata.name === requested.metadata.name));
     if (requested.kind === "Layer") {
       setEditingLayer(layerFromManifest(requested));
     } else {
@@ -203,6 +206,19 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
       setEditingDashboard(dashboardFromManifest(requested));
     }
   }
+  // The layers a drafted dashboard draws that are drafts themselves, proposed with it (AG-77).
+  const draftedNames = useMemo(() => {
+    const known = new Set(layerManifests.map((item) => item.metadata.name));
+    const drawn = (editingDashboard?.pages ?? []).flatMap((page) => page.layers ?? []);
+    return [...new Set(drawn)].filter((name) => !known.has(name));
+  }, [editingDashboard, layerManifests]);
+  const drafts = useQueries({
+    queries: draftedNames.map((name) => ({
+      queryKey: ["drafts", project, "Layer", name],
+      queryFn: () => getDraft(project, "Layer", name),
+    })),
+  });
+  const draftedLayers = drafts.flatMap((query) => (query.data ? [query.data.manifest as unknown as Manifest] : []));
   const spaceManifests = useMemo(() => asManifests(spaces.data?.items ?? []), [spaces.data]);
   const modelManifests = useMemo(() => asManifests(models.data?.items ?? []), [models.data]);
 
@@ -334,7 +350,9 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         isNew={isNew}
         onEditingChange={setEditingDashboard}
         onChange={setChange}
-        layers={layerManifests.map((item) => item.metadata.name)}
+        layers={[...layerManifests, ...draftedLayers].map((item) => item.metadata.name)}
+        draftedLayers={draftedLayers}
+        loadingDrafts={drafts.some((query) => query.isPending)}
       />
       <LayerEditor
         project={project}
