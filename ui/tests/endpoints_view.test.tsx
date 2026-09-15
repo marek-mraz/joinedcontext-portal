@@ -224,10 +224,21 @@ describe("endpoints view", () => {
       within(dialog).getByRole("checkbox", { name: en.endpoints.representationOption.csv }),
     ).toBeChecked();
 
+    // Opened on the assistant's change, the page checks what the form shows before anything else.
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const checked = writes(fetchMock)[0];
+    expect(`${checked.method} ${new URL(checked.url).pathname}${new URL(checked.url).search}`).toBe(
+      "POST /api/v1/projects/banskabystrica/endpoints?dryRun=All",
+    );
+    await expect(checked.clone().json()).resolves.toMatchObject({
+      draft: { kind: "Endpoint", name: "public-air" },
+      spec: { slug: SLUG },
+    });
+
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
-    const request = writes(fetchMock)[0];
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2));
+    const request = writes(fetchMock)[1];
     expect(request.method).toBe("PUT");
     expect(new URL(request.url).pathname).toBe(
       "/api/v1/projects/banskabystrica/endpoints/public-air",

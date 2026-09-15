@@ -101,7 +101,27 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { create: 3 } },
 };
 
-function setupTest() {
+const EXISTING = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "List",
+  items: [
+    {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "Endpoint",
+      metadata: { name: "vehicles-live", namespace: "banskabystrica" },
+      spec: {
+        contextSpaceRef: "ovzdusie",
+        slug: "k7m2qz4tv6xh3n5jb2ryd3wcfa",
+        audience: "organization",
+        enabledRepresentations: ["ngsi-ld"],
+        projectionRef: { kind: "ModelProjection", name: "vehicles" },
+      },
+      status: { phase: "Live" },
+    },
+  ],
+};
+
+function setupTest(endpoints: unknown = { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] }) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const url = typeof input === "string" ? new URL(input) : new URL(request.url);
@@ -118,7 +138,9 @@ function setupTest() {
     if (url.pathname.endsWith("/spaces")) return json(SPACES);
     if (url.pathname.endsWith("/datamodels")) return json(DATAMODELS);
     if (url.pathname.endsWith("/projections")) return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
-    if (url.pathname.endsWith("/endpoints")) return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
+    if (url.pathname.endsWith("/endpoints") && request.method === "POST") return json({ valid: true, lane: "yellow" });
+    if (url.pathname.endsWith("/endpoints/vehicles-live")) return json(CHANGE, 202);
+    if (url.pathname.endsWith("/endpoints")) return json(endpoints);
     if (url.pathname.endsWith("/import")) return json(CHANGE, 202);
 
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
@@ -301,5 +323,51 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
         ],
       },
     ]);
+  });
+
+  // T-0763: writes of the page other than its drafts, as "METHOD path?query".
+  const writes = (fetchMock: ReturnType<typeof setupTest>) =>
+    fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method !== "GET" && !request.url.includes("/drafts"))
+      .map((request) => ({ request, line: `${request.method} ${new URL(request.url).pathname}${new URL(request.url).search}` }));
+
+  it("checks and proposes an existing endpoint alone, with the projection it names and no class ticked (T-0763)", async () => {
+    const fetchMock = setupTest(EXISTING);
+    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.edit }));
+    const dialog = await screen.findByRole("dialog");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const [check] = writes(fetchMock);
+    expect(check.line).toBe("POST /api/v1/projects/banskabystrica/endpoints?dryRun=All");
+    await expect(check.request.clone().json()).resolves.toMatchObject({
+      draft: { kind: "Endpoint", name: "vehicles-live" },
+      spec: { projectionRef: { kind: "ModelProjection", name: "vehicles" } },
+    });
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2));
+    expect(writes(fetchMock)[1].line).toBe("PUT /api/v1/projects/banskabystrica/endpoints/vehicles-live");
+    expect(writes(fetchMock).some((write) => write.line.includes("/import"))).toBe(false);
+  });
+
+  it("checks a new endpoint's bundle whole and then its endpoint with its draft, so the verdict is the form's (T-0763)", async () => {
+    const fetchMock = setupTest();
+    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.add }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(dialog.querySelector("#root_name") as HTMLElement, "public-vehicles");
+    await waitFor(() => expect(within(dialog).getByLabelText("Vehicle")).toBeInTheDocument());
+    await userEvent.click(within(dialog).getByLabelText("Vehicle"));
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2));
+    const [bundle, endpoint] = writes(fetchMock);
+    expect(bundle.line).toBe("POST /api/v1/projects/banskabystrica/import?dryRun=All");
+    expect(endpoint.line).toBe("POST /api/v1/projects/banskabystrica/endpoints?dryRun=All");
+    await expect(endpoint.request.clone().json()).resolves.toMatchObject({
+      draft: { kind: "Endpoint", name: "public-vehicles" },
+      spec: { projectionRef: { kind: "ModelProjection", name: "public-vehicles" } },
+    });
   });
 });

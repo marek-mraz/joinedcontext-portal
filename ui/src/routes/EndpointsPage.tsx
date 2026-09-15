@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -362,23 +362,33 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       (m) => (m.spec as { contextSpaceRef?: string })?.contextSpaceRef === editedSpace,
     );
 
-  const buildManifests = (form: EndpointForm) => {
-    if (!spaceHasModel) {
-      return [toEnvelope(project, form, activeSlug, hidden)];
-    }
+  const tickedClassNames = Object.keys(pickerState.classes).filter(
+    (c) => pickerState.classes[c]?.ticked,
+  );
+  // In a space with a model a new endpoint publishes the ticked classes as its own projection
+  // and policies, and so does an existing one whose classes are ticked; otherwise the endpoint is
+  // proposed alone, with the projection it already names.
+  const projecting =
+    spaceHasModel && !pickerState.selectedProjectionRef && (isNew || tickedClassNames.length > 0);
+  const projectionNameOf = (form: EndpointForm) =>
+    pickerState.projectionName || form.name || "projection";
 
-    const tickedClassNames = Object.keys(pickerState.classes).filter(
-      (c) => pickerState.classes[c]?.ticked,
+  /** The Endpoint the form stands for: what its draft holds, what is checked, what is proposed. */
+  const endpointOf = (form: EndpointForm) =>
+    toEnvelope(
+      project,
+      form,
+      activeSlug,
+      hidden,
+      projecting ? projectionNameOf(form) : pickerState.selectedProjectionRef,
     );
 
-    const projectionName = pickerState.projectionName || form.name || "projection";
-    const projRefName = pickerState.selectedProjectionRef || projectionName;
-
-    const endpointEnvelope = toEnvelope(project, form, activeSlug, hidden, projRefName);
-
-    if (pickerState.selectedProjectionRef) {
+  const buildManifests = (form: EndpointForm) => {
+    const endpointEnvelope = endpointOf(form);
+    if (!projecting) {
       return [endpointEnvelope];
     }
+    const projectionName = projectionNameOf(form);
 
     const modelProjection = {
       apiVersion: "joinedcontext.com/v1alpha1",
@@ -465,33 +475,37 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     return manifests;
   };
 
+  /** The projection, its policies and the endpoint as one import; `dryRun` checks without proposing. */
+  const importBundle = async (form: EndpointForm, dryRun: boolean): Promise<unknown> => {
+    if (tickedClassNames.length === 0) {
+      throw new Error(t("endpoints.picker.nothingTicked"));
+    }
+    const res = await globalThis.fetch(
+      new Request(
+        `${window.location.origin}/api/v1/projects/${encodeURIComponent(project)}/import${dryRun ? "?dryRun=All" : ""}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ manifests: buildManifests(form) }),
+        },
+      ),
+    );
+    if (!res.ok) {
+      const problem = (await res.json().catch(() => null)) as { detail?: string } | null;
+      throw new ApiError(res.status, problem?.detail || `HTTP ${res.status}`);
+    }
+    return res.json();
+  };
+
+  // A bundle is checked whole, and the endpoint is always checked with its draft too, so the
+  // verdict the proposal waits for is recorded for exactly the manifest the form shows (AG-62).
   const check = useMutation({
     mutationFn: async (form: EndpointForm) => {
       setFormError(null);
-      if (spaceHasModel) {
-        const ticked = Object.keys(pickerState.classes).filter((c) => pickerState.classes[c]?.ticked);
-        if (ticked.length === 0) {
-          throw new Error(t("endpoints.picker.nothingTicked"));
-        }
-        const manifests = buildManifests(form);
-        const res = await globalThis.fetch(
-          new Request(
-            `${window.location.origin}/api/v1/projects/${encodeURIComponent(project)}/import?dryRun=All`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ manifests }),
-            },
-          ),
-        );
-        if (!res.ok) {
-          const problem = (await res.json().catch(() => null)) as { detail?: string } | null;
-          throw new ApiError(res.status, problem?.detail || `HTTP ${res.status}`);
-        }
-        return res.json();
+      if (projecting) {
+        await importBundle(form, true);
       }
-
-      const envelope = toEnvelope(project, form, activeSlug, hidden);
+      const envelope = endpointOf(form);
       const draftRef = form.name ? { kind: "Endpoint", name: form.name } : undefined;
       const body = (draftRef ? { ...envelope, draft: draftRef } : envelope) as never;
       return unwrap(
@@ -518,6 +532,18 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     },
   });
 
+  // The assistant's change opens checked: the form rebuilds the manifest from its fields, which
+  // leaves the verdict the assistant recorded behind, so the page checks what it shows once.
+  const checkedOnOpen = useRef(false);
+  const openedOnChange = prefill?.existing === true && adopted !== null && modelsQuery.isSuccess;
+  useEffect(() => {
+    if (checkedOnOpen.current || !openedOnChange || !editing?.contextSpaceRef) {
+      return;
+    }
+    checkedOnOpen.current = true;
+    check.mutate(editing);
+  }, [openedOnChange, editing, check]);
+
   const propose = useMutation({
     mutationFn: async ({
       form,
@@ -529,30 +555,10 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       draft?: { kind: string; name: string };
     }) => {
       setFormError(null);
-      if (spaceHasModel) {
-        const ticked = Object.keys(pickerState.classes).filter((c) => pickerState.classes[c]?.ticked);
-        if (ticked.length === 0) {
-          throw new Error(t("endpoints.picker.nothingTicked"));
-        }
-        const manifests = buildManifests(form);
-        const res = await globalThis.fetch(
-          new Request(
-            `${window.location.origin}/api/v1/projects/${encodeURIComponent(project)}/import`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ manifests }),
-            },
-          ),
-        );
-        if (!res.ok) {
-          const problem = (await res.json().catch(() => null)) as { detail?: string } | null;
-          throw new ApiError(res.status, problem?.detail || `HTTP ${res.status}`);
-        }
-        return res.json();
+      if (projecting) {
+        return importBundle(form, false);
       }
-
-      const envelope = toEnvelope(project, form, activeSlug, hidden);
+      const envelope = endpointOf(form);
       const body = (draftRef ? { ...envelope, draft: draftRef } : envelope) as never;
       const result = create
         ? await api.POST("/api/v1/projects/{project}/{plural}", {
@@ -976,7 +982,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         verdict={verdict}
         onVerdictChange={setVerdict}
         source={{
-          toManifest: (form) => toEnvelope(project, form, activeSlug, hidden),
+          toManifest: endpointOf,
           fromManifest: (manifest) => toForm(manifest as Manifest),
         }}
         title={isNew ? t("endpoints.add") : t("endpoints.edit")}
