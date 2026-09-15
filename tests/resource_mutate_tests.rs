@@ -953,6 +953,92 @@ async fn a_second_proposal_while_a_change_is_open_names_it_and_writes_nothing() 
     );
 }
 
+/// A change that a retry opened on a suffixed branch (T-0887) is the same resource: the second
+/// proposal is refused and names it.
+#[tokio::test]
+async fn an_open_change_on_a_suffixed_branch_still_blocks_a_proposal() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .mount(&server)
+        .await;
+    let open_branch = format!(
+        "{}-0badf00d",
+        branch_name("ovzdusie", "ContextSpace", "mobility", Operation::Create)
+    );
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "number": 176,
+                "html_url": "https://gitea.example.sk/pulls/176",
+                "state": "open",
+                "title": "create ContextSpace mobility",
+                "head": { "ref": open_branch },
+                "base": { "ref": "main" },
+                "created_at": "2026-09-15T20:00:00Z",
+                "user": { "login": "jana.kovacova", "full_name": "Jana Kováčová" },
+                "mergeable": true,
+                "merged": false
+            }
+        ])))
+        .mount(&server)
+        .await;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    let payload = json!({
+        "apiVersion": API_VERSION,
+        "kind": "ContextSpace",
+        "metadata": { "name": "mobility", "namespace": "ovzdusie" },
+        "spec": { "isSandbox": true }
+    });
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/spaces")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&payload).expect("json bytes"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bytes")
+        .to_bytes();
+    let problem: ProblemDetails = serde_json::from_slice(&body).expect("problem");
+    assert_eq!(
+        problem.detail.expect("detail"),
+        "a change for ContextSpace 'mobility' is already open: chg-000000b0; approve or reject it first"
+    );
+    let requests = server.received_requests().await.expect("received requests");
+    assert!(
+        !requests.iter().any(|r| r.method.as_str() != "GET"),
+        "nothing was written to the forge"
+    );
+}
+
 /// An open change on another resource is nobody's business here: the proposal goes through.
 #[tokio::test]
 async fn an_open_change_elsewhere_does_not_block_a_proposal() {

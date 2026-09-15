@@ -134,9 +134,11 @@ pub(crate) async fn open_change_on(
         Err(GitError::NotFound) => Vec::new(),
         Err(err) => return Err(err.into()),
     };
+    // A retry after a rejection opens on `{branch}-{nonce}` (T-0887): the same resource.
+    let suffixed = format!("{branch}-");
     Ok(pulls
         .into_iter()
-        .find(|pr| pr.head_branch == branch)
+        .find(|pr| pr.head_branch == branch || pr.head_branch.starts_with(&suffixed))
         .map(|pr| ChangeMeta::from_merge_request(pr.number, project)))
 }
 
