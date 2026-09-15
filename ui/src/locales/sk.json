@@ -67,7 +67,8 @@
     "yamlNotManifest": "dokument nie je manifest",
     "schemaErrors": "Manifest nezodpovedá schéme:",
     "exclusive": "Vyplniť možno len jedno z týchto polí",
-    "dependency": "Toto pole potrebuje pole, od ktorého závisí"
+    "dependency": "Toto pole potrebuje pole, od ktorého závisí",
+    "check": "Skontrolovať"
   },
   "approvals": {
     "lead": "Každá zmena projektu je tu návrhom, kým ju schvaľovateľ nezlúči.",

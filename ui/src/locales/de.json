@@ -67,7 +67,8 @@
     "yamlNotManifest": "das Dokument ist kein Manifest",
     "schemaErrors": "Das Manifest entspricht nicht dem Schema:",
     "exclusive": "Nur eines dieser Felder darf gesetzt sein",
-    "dependency": "Dieses Feld braucht das Feld, von dem es abhängt"
+    "dependency": "Dieses Feld braucht das Feld, von dem es abhängt",
+    "check": "Prüfen"
   },
   "approvals": {
     "lead": "Jede Änderung am Projekt ist hier ein Vorschlag, bis eine freigebende Person sie zusammenführt.",

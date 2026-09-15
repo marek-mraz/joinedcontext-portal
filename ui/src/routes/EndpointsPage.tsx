@@ -1003,6 +1003,11 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         draftName={editing?.name || urlDraftName || undefined}
         verdict={verdict}
         onVerdictChange={setVerdict}
+        onCheck={(form) => {
+          if (form.name) {
+            check.mutate(form);
+          }
+        }}
         source={{
           toManifest: endpointOf,
           fromManifest: (manifest) => {
@@ -1061,20 +1066,6 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                 </div>
               </details>
             ) : null}
-
-            <div>
-              <Button
-                size="sm"
-                disabled={!editing?.name || check.isPending}
-                onClick={() => {
-                  if (editing) {
-                    check.mutate(editing);
-                  }
-                }}
-              >
-                {t("endpoints.check")}
-              </Button>
-            </div>
 
             {previewManifests && editing?.name ? (
               <details className="rounded border border-border p-3">

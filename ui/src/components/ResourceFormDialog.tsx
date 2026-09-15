@@ -61,6 +61,11 @@ export interface ResourceFormDialogProps<T> {
   draftName?: string;
   verdict?: Verdict | null;
   onVerdictChange?: (verdict: Verdict | null) => void;
+  /**
+   * Runs the kind's check on what the dialog holds (PF-57): a Check beside the verdict chip in
+   * both views, so a manifest pasted in the YAML view is checked where it was typed (T-0884).
+   */
+  onCheck?: (data: T) => void;
   onSubmit: (data: T, draft?: { kind: string; name: string }) => void;
   onChange?: (data: T | undefined) => void;
 }
@@ -114,6 +119,7 @@ export function ResourceFormDialog<T>({
   draftKind,
   draftName,
   verdict: externalVerdict,
+  onCheck,
   onVerdictChange,
   onSubmit,
   onChange,
@@ -477,6 +483,30 @@ export function ResourceFormDialog<T>({
     );
   }
 
+  /** The check runs on what the active view holds: the form, or the YAML read back into it. */
+  function runCheck() {
+    if (!onCheck) {
+      return;
+    }
+    if (view === "form") {
+      if (formData) {
+        onCheck(formData);
+      }
+      return;
+    }
+    const form = readYaml();
+    if (form !== null) {
+      onChange?.(form);
+      onCheck(form);
+    }
+  }
+
+  const checkButton = onCheck ? (
+    <Button size="sm" disabled={disabled} onClick={runCheck}>
+      {t("form.check")}
+    </Button>
+  ) : null;
+
   /** The YAML view submits what the form view would: the same schema decides (UI-01). */
   function submitYaml() {
     const form = readYaml();
@@ -658,6 +688,7 @@ export function ResourceFormDialog<T>({
                   <DialogClose asChild>
                     <Button variant="ghost">{t("form.cancel")}</Button>
                   </DialogClose>
+                  {checkButton}
                   {draftKind && activeName ? (
                     <>
                       {verdictChip}
@@ -723,6 +754,7 @@ export function ResourceFormDialog<T>({
               <DialogClose asChild>
                 <Button variant="ghost">{t("form.cancel")}</Button>
               </DialogClose>
+              {checkButton}
               {draftKind && activeName ? (
                 <>
                   {verdictChip}

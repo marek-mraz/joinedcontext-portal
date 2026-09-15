@@ -609,6 +609,12 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
           }}
           project={project}
           draftKind="DataSource"
+          onCheck={(form) => {
+            setFormError(null);
+            if (form.name && validateForm(form)) {
+              check.mutate({ ...form, secrets: Object.values(collectedSecrets) });
+            }
+          }}
           draftName={editing?.metadata.name || urlDraftName || undefined}
           verdict={verdict}
           onVerdictChange={setVerdict}
@@ -680,25 +686,6 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
         >
           <div className="space-y-2">
             <p className="text-sm text-surface-fg/70">{t("datasources.secretHint")}</p>
-            <button
-              type="button"
-              disabled={!draft?.name || check.isPending}
-              onClick={() => {
-                if (draft) {
-                  setFormError(null);
-                  if (!validateForm(draft)) {
-                    return;
-                  }
-                  check.mutate({
-                    ...draft,
-                    secrets: Object.values(collectedSecrets),
-                  });
-                }
-              }}
-            className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {t("datasources.check")}
-          </button>
           {plan ? (
             <div>
               <h2 className="text-sm font-medium">{t("datasources.plan")}</h2>

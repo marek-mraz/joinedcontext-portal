@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -6,6 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { ResourceFormDialog } from "../src/components/ResourceFormDialog";
 import type { JsonSchema } from "../src/components/forms/types";
+
+// Monaco draws on a canvas and starts a worker, neither of which exists in jsdom; a textarea
+// with the same contract stands in, so the YAML view's own work is what runs here.
+vi.mock("../src/pages/models/MonacoSourceView", () => ({
+  default: ({ value, onChange }: { value: string; onChange?: (value: string) => void }) => (
+    <textarea aria-label="YAML" value={value} onChange={(event) => onChange?.(event.target.value)} />
+  ),
+}));
 
 /**
  * T-0452: a `kind: UiSchema` manifest committed to `portal/forms/` changes the form in the
@@ -172,5 +180,97 @@ describe("a manifest form", () => {
     // A manifest silently ignored is the failure this whole path exists to avoid.
     const status = await screen.findByRole("status");
     expect(status.textContent).toContain("nosuchfield");
+  });
+});
+
+/** The check a proposal needs is offered where the manifest was typed (T-0884, PF-57, AG-61). */
+describe("the dialog's check", () => {
+  type Form = { name: string; slug?: string; audience?: string };
+  const source = {
+    toManifest: (form: Form) => ({
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "Endpoint",
+      metadata: { name: form.name },
+      spec: { slug: form.slug, audience: form.audience },
+    }),
+    fromManifest: (document: unknown) => {
+      const manifest = document as { metadata: { name: string }; spec: { slug?: string; audience?: string } };
+      return { name: manifest.metadata.name, slug: manifest.spec.slug, audience: manifest.spec.audience };
+    },
+  };
+
+  function renderWithCheck(onCheck: (form: Form) => void) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <ResourceFormDialog<Form>
+            open
+            onOpenChange={() => {}}
+            title="Endpoint"
+            description="An endpoint"
+            schema={SCHEMA}
+            formData={{ name: "air", slug: "a", audience: "public" }}
+            submitLabel="Propose"
+            source={source}
+            onCheck={onCheck}
+            onSubmit={() => {}}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("runs on the form in the form view", async () => {
+    const onCheck = vi.fn();
+    renderWithCheck(onCheck);
+    await userEvent.click(screen.getByRole("button", { name: "Check" }));
+    expect(onCheck).toHaveBeenCalledWith({ name: "air", slug: "a", audience: "public" });
+  });
+
+  it("is offered in the YAML view and runs on the manifest typed there", async () => {
+    const onCheck = vi.fn();
+    renderWithCheck(onCheck);
+    await userEvent.click(screen.getByRole("tab", { name: "YAML" }));
+    const editor = await screen.findByLabelText("YAML");
+    fireEvent.change(editor, {
+      target: {
+        value: "apiVersion: joinedcontext.com/v1alpha1\nkind: Endpoint\nmetadata:\n  name: air\nspec:\n  slug: typed\n  audience: public\n",
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Check" }));
+    expect(onCheck).toHaveBeenCalledWith({ name: "air", slug: "typed", audience: "public" });
+  });
+
+  it("says why when the YAML does not parse instead of checking anything", async () => {
+    const onCheck = vi.fn();
+    renderWithCheck(onCheck);
+    await userEvent.click(screen.getByRole("tab", { name: "YAML" }));
+    fireEvent.change(await screen.findByLabelText("YAML"), { target: { value: "metadata: [" } });
+    await userEvent.click(screen.getByRole("button", { name: "Check" }));
+    expect(onCheck).not.toHaveBeenCalled();
+    expect(screen.getByText(/does not parse/)).toBeInTheDocument();
+  });
+
+  it("is absent when the kind has no check", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <ResourceFormDialog<Form>
+            open
+            onOpenChange={() => {}}
+            title="Endpoint"
+            description="An endpoint"
+            schema={SCHEMA}
+            formData={{ name: "air" }}
+            submitLabel="Propose"
+            source={source}
+            onSubmit={() => {}}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "Check" })).not.toBeInTheDocument();
   });
 });

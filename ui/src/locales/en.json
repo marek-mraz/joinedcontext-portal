@@ -67,7 +67,8 @@
     "yamlNotManifest": "the document is not a manifest",
     "schemaErrors": "The manifest does not match the schema:",
     "exclusive": "Only one of these fields may be set",
-    "dependency": "This field needs the field it depends on"
+    "dependency": "This field needs the field it depends on",
+    "check": "Check"
   },
   "approvals": {
     "lead": "Every change to the project is a proposal here until an approver merges it.",
