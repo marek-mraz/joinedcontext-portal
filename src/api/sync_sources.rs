@@ -41,6 +41,7 @@ use crate::state::AppState;
 use crate::sync::driver::{Driver, RunError};
 use crate::sync::proposal::{self, Proposal};
 use crate::sync::state::Stored;
+use jc_core::kinds::Verb;
 
 /// The kind this module drives.
 const KIND: &str = "SyncSource";
@@ -150,10 +151,11 @@ pub async fn status(
     )
 )]
 pub async fn sync_now(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, name)): Path<(String, String)>,
 ) -> Result<Json<SyncRunReport>, ApiError> {
+    may_drive(&state, &user, &project, Verb::Propose)?;
     let driver = driver(&state)?;
     let (project, name) = named(&state, &project, &name)?;
     Ok(Json(run(driver, &project, &name).await?))
@@ -176,11 +178,12 @@ pub async fn sync_now(
     )
 )]
 pub async fn pause(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, name)): Path<(String, String)>,
     Json(request): Json<PauseRequest>,
 ) -> Result<Json<SyncSourceStatus>, ApiError> {
+    may_drive(&state, &user, &project, Verb::Propose)?;
     let driver = driver(&state)?;
     let (project, name) = named(&state, &project, &name)?;
     driver.pause(&project, &name, request.paused).await;
@@ -209,10 +212,11 @@ pub async fn pause(
     )
 )]
 pub async fn detach(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, name)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
+    may_drive(&state, &user, &project, Verb::Delete)?;
     let driver = driver(&state)?;
     let gitea = state
         .gitea
@@ -321,6 +325,18 @@ async fn run(driver: &Driver, project: &str, name: &str) -> Result<SyncRunReport
         flags: outcome.flags,
         status: SyncSourceStatus::of(project, name, &stored, driver.is_durable()),
     })
+}
+
+/// Who may drive a source (T-0800, PF-50): a run or a pause changes what the project syncs,
+/// which is `propose` on the SyncSource; a detach removes it, which is `delete`. Checked
+/// before the loop is asked for, so a person without a binding learns nothing about it.
+fn may_drive(
+    state: &AppState,
+    user: &CurrentUser,
+    project: &str,
+    verb: Verb,
+) -> Result<(), ApiError> {
+    crate::permissions::for_request(state, &user.0.identity, project).check(KIND, verb, None)
 }
 
 /// The loop, or the reason there is none.
