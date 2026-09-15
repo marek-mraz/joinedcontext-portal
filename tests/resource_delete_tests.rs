@@ -661,13 +661,36 @@ async fn a_stale_branch_is_recreated_from_main_before_the_removal_is_written() {
     let response = delete_mobility(&config, state).await;
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     let requests = server.received_requests().await.expect("received requests");
-    let creations = requests
+    let names: Vec<String> = requests
         .iter()
         .filter(|r| r.method.as_str() == "POST" && r.url.path().ends_with("/branches"))
-        .count();
+        .map(|r| {
+            r.body_json::<serde_json::Value>().expect("branch body")["new_branch_name"]
+                .as_str()
+                .expect("name")
+                .to_string()
+        })
+        .collect();
+    assert_eq!(names[0], branch, "the deterministic name is tried first");
+    assert!(
+        names[1].starts_with(&format!("{branch}-")) && names[1] != branch,
+        "the retry opens on a fresh name: {}",
+        names[1]
+    );
+    let heads: Vec<String> = requests
+        .iter()
+        .filter(|r| r.method.as_str() == "POST" && r.url.path().ends_with("/pulls"))
+        .map(|r| {
+            r.body_json::<serde_json::Value>().expect("pull body")["head"]
+                .as_str()
+                .expect("head")
+                .to_string()
+        })
+        .collect();
     assert_eq!(
-        creations, 2,
-        "the branch is created again after the stale one is dropped"
+        heads,
+        vec![names[1].clone()],
+        "the pull request opens on the fresh name"
     );
 }
 

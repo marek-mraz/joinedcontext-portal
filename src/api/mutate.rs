@@ -148,25 +148,34 @@ pub(crate) async fn create_or_reuse_branch(
     gitea: &crate::git::GiteaClient,
     branch: &str,
     default_branch: &str,
-) -> Result<(), ApiError> {
+) -> Result<String, ApiError> {
     match gitea.create_branch(branch, default_branch).await {
-        Ok(()) => Ok(()),
+        Ok(()) => Ok(branch.to_string()),
         Err(GitError::Conflict(_)) => {
+            let suffixed = format!("{branch}-");
             if let Some(open) = gitea
                 .list_pull_requests("open")
                 .await?
                 .into_iter()
-                .find(|pr| pr.head_branch == branch)
+                .find(|pr| pr.head_branch == branch || pr.head_branch.starts_with(&suffixed))
             {
                 return Err(ApiError::Conflict(format!(
                     "a change is already open on this resource: chg-{:08x}; approve or reject it first",
                     open.number
                 )));
             }
-            tracing::info!(branch = %branch, from = %default_branch, "recreating a stale branch");
+            // The forge closes, a moment later, every pull request whose head is a branch that
+            // was deleted, matched by name: a request opened on the recreated name is closed at
+            // birth (T-0887). The stale branch goes, the change opens on a fresh name.
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.subsec_nanos())
+                .unwrap_or_default();
+            let fresh = format!("{suffixed}{nanos:08x}");
+            tracing::info!(stale = %branch, branch = %fresh, from = %default_branch, "replacing a stale branch");
             gitea.delete_branch(branch).await?;
-            gitea.create_branch(branch, default_branch).await?;
-            Ok(())
+            gitea.create_branch(&fresh, default_branch).await?;
+            Ok(fresh)
         }
         Err(other) => Err(other.into()),
     }
@@ -452,7 +461,7 @@ pub async fn propose_with_identity(
             kind_info.kind, envelope.metadata.name, pending.name
         )));
     }
-    create_or_reuse_branch(gitea, &branch, &default_branch).await?;
+    let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
     let repo_path = resolve_repo_path(&envelope, kind_info, project)?;
 
     let mut envelope_to_commit = envelope.clone();

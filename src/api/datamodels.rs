@@ -610,7 +610,7 @@ pub async fn put_source(
 
     let default_branch = gitea.default_branch().await?;
     let branch = branch_name(&project, "datamodel", &name, Operation::Update);
-    create_or_reuse_branch(gitea, &branch, &default_branch).await?;
+    let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
     let (author_name, author_email) = author_credentials(&user.0.identity, &project);
     let commit_msg = format!("update DataModel {name} source and artifacts");

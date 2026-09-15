@@ -223,7 +223,7 @@ pub async fn delete_with_identity(
             kind_info.kind, pending.name
         )));
     }
-    create_or_reuse_branch(gitea, &branch, &default_branch).await?;
+    let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
     let (author_name, author_email) = author_credentials(identity, project);
     let commit_msg = format!("delete {} {name}", kind_info.kind);

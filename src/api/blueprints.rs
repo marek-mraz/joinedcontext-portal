@@ -328,7 +328,7 @@ pub async fn start_flow(
         &request.version,
         &request.parameters,
     );
-    create_or_reuse_branch(gitea, &branch, &default_branch).await?;
+    let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
     let (author_name, author_email) = author_credentials(&user.0.identity, &project);
     for (repo_path, yaml) in &files {

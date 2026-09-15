@@ -674,7 +674,7 @@ pub async fn propose_bundle(
         ),
         None => format!("portal/import-{project}-{hash:08x}"),
     };
-    create_or_reuse_branch(gitea, &branch, &default_branch).await?;
+    let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
     let (author_name, author_email) = author_credentials(identity, project);
     for (path, content) in &files {
