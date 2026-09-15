@@ -5,6 +5,7 @@ pub mod data_query;
 pub mod endpoints;
 pub mod events;
 pub mod fields;
+pub mod grant;
 pub mod kit;
 pub mod kpi;
 pub mod kpi_pipeline;

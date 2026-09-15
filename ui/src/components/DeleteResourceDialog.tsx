@@ -18,6 +18,8 @@ export interface ResourceTarget {
   name: string;
   /** What the person calls it; the name when there is no title. */
   label?: string;
+  /** Where its routes live when that is not the page's project: `org` for a Role or a RoleBinding. */
+  home?: string;
 }
 
 /**
@@ -40,12 +42,13 @@ export function DeleteResourceDialog({
   const [typed, setTyped] = useState("");
   const [change, setChange] = useState<Change | null>(null);
   const { project, plural, name } = target;
+  const home = target.home ?? project;
 
   const remove = useMutation({
     mutationFn: async () =>
       unwrap(
         await api.DELETE("/api/v1/projects/{project}/{plural}/{name}", {
-          params: { path: { project, plural, name } },
+          params: { path: { project: home, plural, name } },
         }),
       ),
     onSuccess: (result) => {
@@ -131,7 +134,7 @@ export function DeleteResourceDialog({
  */
 export function DeleteResourceAction({ target }: { target: ResourceTarget }): JSX.Element | null {
   const { t } = useTranslation();
-  const mayDelete = usePermissions(target.project).can(target.kind, "delete");
+  const mayDelete = usePermissions(target.home ?? target.project).can(target.kind, "delete");
   const [open, setOpen] = useState(
     () =>
       typeof window !== "undefined" &&

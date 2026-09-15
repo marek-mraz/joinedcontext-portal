@@ -40,17 +40,18 @@ export function EditResourceDialog({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { project, plural, name } = target;
+  const home = target.home ?? project;
   const [text, setText] = useState<string | null>(() => (changed ? writable(changed) : null));
   const [invalid, setInvalid] = useState<string | null>(null);
   const [change, setChange] = useState<Change | null>(null);
 
   const current = useQuery({
-    queryKey: [...queryKeys.list(project, plural), name],
+    queryKey: [...queryKeys.list(home, plural), name],
     enabled: open,
     queryFn: async () =>
       unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}/{name}", {
-          params: { path: { project, plural, name } },
+          params: { path: { project: home, plural, name } },
         }),
       ),
   });
@@ -60,7 +61,7 @@ export function EditResourceDialog({
     mutationFn: async (body: unknown) =>
       unwrap(
         await api.PUT("/api/v1/projects/{project}/{plural}/{name}", {
-          params: { path: { project, plural, name } },
+          params: { path: { project: home, plural, name } },
           body: body as never,
         }),
       ),
@@ -170,7 +171,7 @@ export function EditResourceDialog({
  */
 export function EditResourceAction({ target }: { target: ResourceTarget }): JSX.Element | null {
   const { t } = useTranslation();
-  const mayPropose = usePermissions(target.project).can(target.kind, "propose");
+  const mayPropose = usePermissions(target.home ?? target.project).can(target.kind, "propose");
   const [request] = useState(() => takeEditRequest(target.name));
   const [open, setOpen] = useState(request !== null);
   if (!mayPropose) {

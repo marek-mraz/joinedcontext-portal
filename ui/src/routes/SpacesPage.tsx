@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { usePermissions } from "../api/permissions";
 import { Link } from "@tanstack/react-router";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
-import { asManifests, isChange, localized, refName } from "../api/manifest";
+import { asManifests, isChange, localized, ORG_NAMESPACE, refName } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
@@ -31,9 +31,6 @@ import {
   buttonClass,
   SourceLink,
 } from "../components/ui";
-
-/** The namespace organization-scoped manifests such as `Project` live in. */
-const ORG_NAMESPACE = "org";
 
 interface SpaceForm {
   name: string;

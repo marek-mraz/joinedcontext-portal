@@ -11,6 +11,9 @@ export type Manifest = Omit<components["schemas"]["ResourceEnvelope"], "spec"> &
 
 export type Change = components["schemas"]["Change"];
 
+/** The project segment of the organization's own manifests: roles, bindings, agent profiles, projects (PF-49). */
+export const ORG_NAMESPACE = "org";
+
 /** A write answers `202` with a Change, or `200` with a dry-run result. */
 export function isChange(result: unknown): result is Change {
   return typeof result === "object" && result !== null && "metadata" in result;

@@ -636,6 +636,221 @@ async fn a_removal_opens_the_typed_confirmation_of_the_resource_and_a_person_wit
     assert!(events.iter().all(|e| e.kind != "navigate"));
 }
 
+const GRANT_SECTION: &str = "## WHEN THE PERSON ASKS TO GIVE SOMEBODY A ROLE";
+
+/// A profile that may open grants of roles and nothing else.
+fn grant_access() -> Value {
+    json!({
+        "operations": ["jc_resource_propose"],
+        "kinds": [{ "kind": "RoleBinding", "verbs": ["read", "propose"] }]
+    })
+}
+
+/// The organization's steward and org-admin roles, and `lead@hel.fi`, who proposes bindings over
+/// the organization, starts conversations and is steward on the helsinki project only.
+fn access_roles() -> Vec<ResourceEnvelope> {
+    let mut seeded = bikes_space();
+    for (name, rules) in [
+        (
+            "binder",
+            json!([{ "kinds": ["RoleBinding"], "verbs": ["propose"] }]),
+        ),
+        (
+            "steward",
+            json!([{ "kinds": ["Pipeline", "Endpoint"], "verbs": ["propose", "approve"] }]),
+        ),
+        (
+            "org-admin",
+            json!([{ "kinds": ["Pipeline", "Endpoint", "RoleBinding"], "verbs": ["propose", "approve", "delete"] }]),
+        ),
+    ] {
+        seeded.push(envelope(
+            "Role",
+            name,
+            ORG_NAMESPACE,
+            json!({ "rules": rules }),
+        ));
+    }
+    for (name, role, scope) in [
+        ("lead-binder", "binder", json!({ "organization": "hel" })),
+        ("lead-steward", "steward", json!({ "project": "helsinki" })),
+        ("lead-apps", "app-starter", json!({ "project": "helsinki" })),
+    ] {
+        seeded.push(envelope(
+            "RoleBinding",
+            name,
+            ORG_NAMESPACE,
+            json!({ "subjects": [{ "user": "lead@hel.fi" }], "role": role, "scope": scope }),
+        ));
+    }
+    seeded
+}
+
+const GRANT_STEWARD: &str = "Granting it.\n\n```json\n{\"tool\":\"grant_role\",\"subjects\":[{\"user\":\"jana.kovacova\"}],\"role\":\"steward\",\"scope\":{\"project\":\"helsinki\"}}\n```\n";
+const GRANT_ADMIN: &str = "```json\n{\"tool\":\"grant_role\",\"subjects\":[{\"user\":\"jana.kovacova\"}],\"role\":\"org-admin\",\"scope\":{\"project\":\"helsinki\"}}\n```";
+const GRANT_UNKNOWN: &str = "```json\n{\"tool\":\"grant_role\",\"subjects\":[{\"user\":\"jana.kovacova\"}],\"role\":\"superuser\",\"scope\":{\"project\":\"helsinki\"}}\n```";
+
+#[tokio::test]
+async fn granting_a_role_opens_the_grant_form_on_the_checked_binding_and_proposes_nothing() {
+    let (state, events, prompts) = converse_with(
+        Some(grant_access()),
+        person("lead@hel.fi", &[]),
+        Conversation {
+            answer: GRANT_STEWARD,
+            message: "Give jana.kovacova steward on helsinki",
+            tool: "grant_role",
+            seeded: access_roles(),
+        },
+    )
+    .await;
+
+    assert!(prompts.contains(GRANT_SECTION));
+    assert!(
+        prompts.contains("app-starter, binder, org-admin, steward"),
+        "the model is shown the roles"
+    );
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "ok", "{tool}");
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the grant form opens");
+    assert_eq!(
+        navigate.payload["route"],
+        "/projects/helsinki/access?grant=jana-kovacova-steward-helsinki"
+    );
+    let prefill = &navigate.payload["prefill"];
+    assert_eq!(prefill["kind"], "RoleBinding");
+    assert_eq!(
+        prefill["spec"],
+        json!({ "subjects": [{ "user": "jana.kovacova" }], "role": "steward", "scope": { "project": "helsinki" } })
+    );
+    let draft = state
+        .drafts
+        .get(
+            ORG_NAMESPACE,
+            "RoleBinding",
+            "jana-kovacova-steward-helsinki",
+        )
+        .await
+        .expect("drafts")
+        .expect("the grant is the person's draft");
+    assert!(draft
+        .verdict
+        .as_ref()
+        .is_some_and(|verdict| verdict.is_fresh_for(&draft.manifest)));
+    assert!(state
+        .mirror
+        .get(
+            ORG_NAMESPACE,
+            "RoleBinding",
+            "jana-kovacova-steward-helsinki"
+        )
+        .is_none());
+    assert!(events.iter().all(|e| e.kind != "change"));
+}
+
+#[tokio::test]
+async fn a_grant_beyond_the_persons_rights_or_of_an_unknown_role_goes_back_to_the_model() {
+    let (state, events, prompts) = converse_with(
+        Some(grant_access()),
+        person("lead@hel.fi", &[]),
+        Conversation {
+            answer: GRANT_ADMIN,
+            message: "Make jana.kovacova an administrator on helsinki",
+            tool: "grant_role",
+            seeded: access_roles(),
+        },
+    )
+    .await;
+    assert_eq!(
+        events[0].payload["status"], "failed",
+        "{}",
+        events[0].payload
+    );
+    assert!(
+        prompts.contains("may not grant more than its proposer holds: missing delete on Pipeline"),
+        "the verbs the person lacks go back to the model"
+    );
+    assert!(events.iter().all(|e| e.kind != "navigate"));
+    assert!(state
+        .drafts
+        .get(
+            ORG_NAMESPACE,
+            "RoleBinding",
+            "jana-kovacova-org-admin-helsinki"
+        )
+        .await
+        .expect("drafts")
+        .is_none());
+
+    let (_, events, prompts) = converse_with(
+        Some(grant_access()),
+        person("lead@hel.fi", &[]),
+        Conversation {
+            answer: GRANT_UNKNOWN,
+            message: "Make jana.kovacova a superuser",
+            tool: "grant_role",
+            seeded: access_roles(),
+        },
+    )
+    .await;
+    assert_eq!(
+        events[0].payload["status"], "failed",
+        "{}",
+        events[0].payload
+    );
+    assert!(prompts.contains("the organization has no role 'superuser'; its roles are app-starter, binder, org-admin, steward"));
+}
+
+#[tokio::test]
+async fn a_person_who_may_not_propose_bindings_is_not_offered_the_grant_and_is_refused() {
+    let (_, events, prompts) = converse_with(
+        Some(grant_access()),
+        person("reader@hel.fi", &[]),
+        Conversation {
+            answer: GRANT_STEWARD,
+            message: "Give jana.kovacova steward on helsinki",
+            tool: "grant_role",
+            seeded: access_roles(),
+        },
+    )
+    .await;
+    assert!(!prompts.contains(GRANT_SECTION));
+    assert_eq!(
+        events[0].payload["status"], "failed",
+        "{}",
+        events[0].payload
+    );
+    assert!(events[0].payload["error"]
+        .as_str()
+        .is_some_and(|e| e.contains("no role grants propose on RoleBinding")));
+}
+
+#[tokio::test]
+async fn taking_a_role_away_opens_the_removal_of_its_binding_on_the_access_page() {
+    let (_, events, _) = converse_with(
+        Some(grant_access()),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: "Opening its removal.\n\n```json\n{\"tool\":\"change_resource\",\"kind\":\"RoleBinding\",\"name\":\"lead-steward\",\"delete\":true}\n```\n",
+            message: "Take the steward role away from lead",
+            tool: "change_resource",
+            seeded: access_roles(),
+        },
+    )
+    .await;
+    assert_eq!(events[0].payload["status"], "ok", "{}", events[0].payload);
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the removal dialog opens");
+    assert_eq!(
+        navigate.payload,
+        json!({ "route": "/projects/helsinki/access?delete=lead-steward" })
+    );
+}
+
 #[tokio::test]
 async fn a_feed_url_with_a_description_is_integrated_as_drafts_the_person_reviews() {
     let access = json!({

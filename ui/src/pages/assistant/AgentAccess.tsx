@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { api, ApiError, unwrap } from "../../api/client";
-import { isChange } from "../../api/manifest";
+import { isChange, ORG_NAMESPACE } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
 import type { components } from "../../api/schema";
 import { ChangeNotice } from "../../components/ChangeNotice";
@@ -21,9 +21,6 @@ import {
 } from "../../components/ui/Table";
 
 type ProfileAccess = components["schemas"]["ProfileAccess"];
-
-/** Agent profiles live in the organization's configuration, not in a project. */
-const ORG = "org";
 
 /**
  * What each agent profile lets a run you start do (UI-56, AG-70): per operation the profile's
@@ -77,7 +74,7 @@ function ProfileCard({ project, profile }: { project: string; profile: ProfileAc
 
   const propose = useMutation({
     mutationFn: async (block: unknown) => {
-      const path = { project: ORG, plural: "agentprofiles", name: profile.name };
+      const path = { project: ORG_NAMESPACE, plural: "agentprofiles", name: profile.name };
       const current = (await unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}/{name}", { params: { path } }),
       )) as unknown as { spec: Record<string, unknown>; status?: unknown };
@@ -163,7 +160,7 @@ function ProfileCard({ project, profile }: { project: string; profile: ProfileAc
         </TableBody>
       </Table>
 
-      {change ? <ChangeNotice change={change} project={ORG} /> : null}
+      {change ? <ChangeNotice change={change} project={ORG_NAMESPACE} /> : null}
 
       {text === null ? (
         <Button

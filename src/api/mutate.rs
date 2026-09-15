@@ -362,6 +362,8 @@ pub async fn propose_with_identity(
         jc_core::kinds::Verb::Propose,
         Some(&body_val),
     )?;
+    // 4d. Nobody grants above their own rights (PF-52, AG-77).
+    crate::permissions::within_own_rights(state, identity, &body_val, "proposer")?;
 
     // 5. Diff against current mirror state
     let current = state

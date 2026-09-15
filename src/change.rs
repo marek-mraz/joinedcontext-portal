@@ -171,8 +171,8 @@ pub enum Operation {
 /// - `Endpoint` with `spec.audience == "public"` is `Red` (public exposure).
 /// - Federation edges and data-space edges (`ContextSourceRegistration`, `SharedSpaceReference`,
 ///   `DataSpaceParticipant`, `DataOffer`, `DataAgreement`) are `Red`.
-/// - Identity and access kinds (`ServiceAccount`, `Policy`, `ScopeDefinition`, `Organization`,
-///   `Project`) are `Red`.
+/// - Identity and access kinds (`ServiceAccount`, `Role`, `RoleBinding`, `Policy`,
+///   `ScopeDefinition`, `Organization`, `Project`) are `Red` (PF-52).
 /// - `ContextSpace` with `spec.isSandbox == true` is `Green` (ephemeral sandbox, CC-67).
 /// - `Dashboard` and `Layer` are `Green`.
 /// - Everything else defaults to `Yellow`.
@@ -192,6 +192,8 @@ pub fn classify(kind: &str, op: Operation, spec: &serde_json::Value) -> Lane {
         | "DataOffer"
         | "DataAgreement"
         | "ServiceAccount"
+        | "Role"
+        | "RoleBinding"
         | "Policy"
         | "ScopeDefinition"
         | "Organization"
@@ -313,6 +315,8 @@ mod tests {
     fn identity_and_access_kinds_are_red() {
         let kinds = [
             "ServiceAccount",
+            "Role",
+            "RoleBinding",
             "Policy",
             "ScopeDefinition",
             "Organization",

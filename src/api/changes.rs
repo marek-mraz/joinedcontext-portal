@@ -707,6 +707,22 @@ pub async fn approve_change_for(
             ))
         })?;
     may_approve(state, identity, project, &data)?;
+    // Access changes hold the approver to what they grant, and a removal to `delete` (PF-52).
+    if matches!(
+        data.kind.as_str(),
+        "Role" | "RoleBinding" | "ServiceAccount"
+    ) {
+        match (data.operation, &data.head_envelope) {
+            (Operation::Delete, _) => crate::permissions::for_request(state, identity, project)
+                .check(&data.kind, jc_core::kinds::Verb::Delete, None)?,
+            (_, Some(head)) => {
+                let manifest =
+                    serde_json::to_value(head).map_err(|e| ApiError::Internal(e.to_string()))?;
+                crate::permissions::within_own_rights(state, identity, &manifest, "approver")?;
+            }
+            (_, None) => {}
+        }
+    }
 
     let author = human_author(gitea, &pr).await;
     let is_author = match (&author.email, &identity.email) {

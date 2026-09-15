@@ -25,7 +25,7 @@ use crate::agents::preview;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
-use crate::agents::{change, data_query, fields, kpi, kpi_pipeline, share, verification};
+use crate::agents::{change, data_query, fields, grant, kpi, kpi_pipeline, share, verification};
 use crate::auth::session::Identity;
 use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::resource::Scope;
@@ -1490,6 +1490,20 @@ impl Driver {
                     }
                 }
             }
+            if let Some(call) = grant::tool_call(&answer) {
+                let input = call
+                    .as_ref()
+                    .ok()
+                    .and_then(|c| serde_json::to_value(c).ok());
+                match self.grant_role(call, &answer, last).await? {
+                    Worked::Done(prose) => return Ok(prose),
+                    Worked::Again(reason) => {
+                        drafts += 1;
+                        results.push((drafted("grant_role", input), reason));
+                        continue;
+                    }
+                }
+            }
             if let Some(call) = kpi_pipeline::tool_call(&answer) {
                 let input = call
                     .as_ref()
@@ -1774,6 +1788,34 @@ dialog; the person reviews it there and proposes it. You never propose, approve 
 anything yourself.
 "#,
                 changeable = serde_json::to_string_pretty(&changeable).unwrap_or_default(),
+            ));
+        }
+        if self.may_change("RoleBinding", Verb::Propose).is_ok() {
+            pack.push_str(&format!(
+                r#"
+## WHEN THE PERSON ASKS TO GIVE SOMEBODY A ROLE
+
+A request to give a person or a group a role: "make jana.kovacova a steward on helsinki". The
+organization's roles are {roles}. A role applies to the whole organization, to one project or to
+one context space. Answer with one plain sentence and then ONE fenced JSON block, nothing else:
+
+```json
+{{
+  "tool": "grant_role",
+  "subjects": [{{ "user": "<username or e-mail>" }}],
+  "role": "<one of the organization's roles>",
+  "scope": {{ "project": "{project}" }}
+}}
+```
+
+`subjects` may name a group instead, `{{ "group": "<group>" }}`; `scope` is exactly one of
+`{{ "organization": true }}`, `{{ "project": "<name>" }}` or `{{ "contextSpace": "<name>" }}`. The
+platform checks that the person holds everything the role grants there and opens the grant form
+filled in; the person proposes it there. You never grant anything yourself. Taking a role away is
+a removal of its binding with change_resource.
+"#,
+                roles = self.names_of("Role").join(", "),
+                project = self.project
             ));
         }
 
@@ -3282,15 +3324,24 @@ anything yourself.
                 "the agent profile does not grant propose on {kind} through jc_resource_propose (AG-70)"
             ));
         }
-        crate::permissions::for_request(&self.state, &self.identity, &self.project)
+        crate::permissions::for_request(&self.state, &self.identity, self.home(kind))
             .check(kind, verb, None)
             .map_err(|err| err.to_string())
+    }
+
+    /// Where a kind's resources live: the organization's namespace for a Role or a RoleBinding,
+    /// this project for everything else.
+    fn home(&self, kind: &str) -> &str {
+        match crate::resource::by_kind(kind) {
+            Some(info) if info.scope == Scope::Organization => crate::permissions::ORG_NAMESPACE,
+            _ => &self.project,
+        }
     }
 
     /// The project's resources this run may change, by kind, so the model names one that exists.
     fn changeable(&self) -> BTreeMap<&'static str, Vec<String>> {
         crate::resource::kinds()
-            .filter(|info| info.scope == Scope::Project)
+            .filter(|info| matches!(info.scope, Scope::Project | Scope::Organization))
             .filter(|info| self.may_change(info.kind, Verb::Propose).is_ok())
             .filter_map(|info| {
                 let names = self.names_of(info.kind);
@@ -3303,7 +3354,7 @@ anything yourself.
         let mut names: Vec<String> = self
             .state
             .mirror
-            .list(&self.project, kind, &crate::store::ListOptions::default())
+            .list(self.home(kind), kind, &crate::store::ListOptions::default())
             .items
             .into_iter()
             .map(|envelope| envelope.metadata.name)
@@ -3324,15 +3375,7 @@ anything yourself.
     ) -> Result<Worked, String> {
         const TOOL: &str = "change_resource";
         let started = std::time::Instant::now();
-        let failed = |input: &Value, reason: &str| {
-            json!({
-                "tool": TOOL,
-                "status": "failed",
-                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                "input": input,
-                "error": reason,
-            })
-        };
+        let failed = |input: &Value, reason: &str| failed_step(TOOL, started, input, reason);
         let params = match call {
             Ok(params) => params,
             Err(reason) => {
@@ -3349,7 +3392,7 @@ anything yourself.
         let input = serde_json::to_value(&params).unwrap_or(Value::Null);
         let changeable = self.changeable();
         let Some(info) = crate::resource::by_kind(params.kind.trim())
-            .filter(|info| info.scope == Scope::Project)
+            .filter(|info| matches!(info.scope, Scope::Project | Scope::Organization))
         else {
             let kinds: Vec<&str> = changeable.keys().copied().collect();
             let reason = format!(
@@ -3391,7 +3434,7 @@ anything yourself.
                 .map(Worked::Done);
         }
         let name = params.name.trim();
-        let Some(current) = self.state.mirror.get(&self.project, info.kind, name) else {
+        let Some(current) = self.state.mirror.get(self.home(info.kind), info.kind, name) else {
             let names = self.names_of(info.kind);
             let reason = if names.is_empty() {
                 format!(
@@ -3472,6 +3515,79 @@ anything yourself.
         .await
     }
 
+    /// A role for people or a group (AG-77, PF-52): the binding named and checked like any
+    /// proposal, which holds it to what the person holds on its scope, then the Access page's
+    /// grant form opens on it. An unknown role goes back with the organization's roles.
+    async fn grant_role(
+        &self,
+        call: Result<grant::GrantRole, String>,
+        answer: &str,
+        last: bool,
+    ) -> Result<Worked, String> {
+        const TOOL: &str = "grant_role";
+        let started = std::time::Instant::now();
+        let params = match call {
+            Ok(params) => params,
+            Err(reason) => {
+                self.event("tool", failed_step(TOOL, started, &Value::Null, &reason))
+                    .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}"),
+                        format!("The grant could not be read: {reason}"),
+                    )
+                    .await;
+            }
+        };
+        let input = serde_json::to_value(&params).unwrap_or(Value::Null);
+        if let Err(reason) = self.may_change("RoleBinding", Verb::Propose) {
+            return self
+                .refused(TOOL, started, input, reason)
+                .await
+                .map(Worked::Done);
+        }
+        let roles = self.names_of("Role");
+        let checked = if roles.iter().any(|role| role == params.role.trim()) {
+            grant::manifest(
+                &params,
+                &crate::api::assistant::org_domain(&self.state, &self.project),
+            )
+        } else {
+            Err(format!(
+                "the organization has no role '{}'; its roles are {}",
+                params.role,
+                roles.join(", ")
+            ))
+        };
+        let manifest = match checked {
+            Ok(manifest) => manifest,
+            Err(reason) => {
+                self.event("tool", failed_step(TOOL, started, &input, &reason))
+                    .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}"),
+                        format!("The role could not be granted: {reason}"),
+                    )
+                    .await;
+            }
+        };
+        let name = manifest["metadata"]["name"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let info = crate::resource::by_kind("RoleBinding")
+            .ok_or_else(|| "RoleBinding is not a kind of this Portal".to_owned())?;
+        let route = format!("/projects/{}/access?grant={name}", self.project);
+        let draft = json!({ "kind": "RoleBinding", "name": name });
+        self.open_change(
+            info, &name, manifest, answer, TOOL, input, started, last, route, draft,
+        )
+        .await
+    }
+
     /// The patched manifest checked by the dry run every channel uses (AG-77), kept as the
     /// person's draft and opened on the kind's page. A refused check goes back to the model.
     #[allow(clippy::too_many_arguments)]
@@ -3489,10 +3605,11 @@ anything yourself.
         draft: Value,
     ) -> Result<Worked, String> {
         let millis = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let home = self.home(info.kind);
         let refused = match crate::api::dry_run::execute_dry_run(
             &self.identity,
             &self.state,
-            &self.project,
+            home,
             manifest.clone(),
         )
         .await
@@ -3528,7 +3645,7 @@ anything yourself.
             .state
             .drafts
             .put(
-                &self.project,
+                home,
                 info.kind,
                 name,
                 manifest.clone(),
@@ -3546,7 +3663,7 @@ anything yourself.
         if let Err(err) = self
             .state
             .drafts
-            .set_verdict(&self.project, info.kind, name, verdict)
+            .set_verdict(home, info.kind, name, verdict)
             .await
         {
             tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change verdict not kept");
@@ -3737,17 +3854,8 @@ anything yourself.
         input: Value,
         reason: String,
     ) -> Result<String, String> {
-        self.event(
-            "tool",
-            json!({
-                "tool": tool,
-                "status": "failed",
-                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                "input": input,
-                "error": reason,
-            }),
-        )
-        .await?;
+        self.event("tool", failed_step(tool, started, &input, &reason))
+            .await?;
         let prose = format!("That is outside what this assistant may do: {reason}");
         self.thought(&prose).await?;
         Ok(prose)
@@ -4253,6 +4361,17 @@ fn needs_served(data_needs: &Value, index: Option<&Value>) -> Value {
             Some(need)
         });
     Value::Array(needs.collect())
+}
+
+/// The `tool` event of a call that did not run, with why.
+fn failed_step(tool: &str, started: std::time::Instant, input: &Value, reason: &str) -> Value {
+    json!({
+        "tool": tool,
+        "status": "failed",
+        "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "input": input,
+        "error": reason,
+    })
 }
 
 /// The prompt section that teaches each tool, by heading, and the operation behind the tool.

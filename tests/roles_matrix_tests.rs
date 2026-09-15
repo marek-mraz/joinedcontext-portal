@@ -3,30 +3,20 @@
 //! for one kind of each family. The expected table is data; a cell that differs is reported with
 //! the answer it got, and every refusal must carry the words of its reason.
 
-use std::sync::Arc;
+mod common;
 
-use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
-use axum::response::IntoResponse;
-use axum_extra::extract::cookie::PrivateCookieJar;
-use http_body_util::BodyExt;
+use axum::http::StatusCode;
 use serde_json::{json, Value};
-use tower::ServiceExt;
 use wiremock::matchers::{method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
-use joinedcontext_portal::auth::session::{self, Identity, Session};
-use joinedcontext_portal::config::Config;
-use joinedcontext_portal::git::GiteaClient;
+use common::{encode, envelope, person, Answer, REPO};
+use joinedcontext_portal::auth::session::Identity;
 use joinedcontext_portal::ops::{self, Caller, OpError, Via};
 use joinedcontext_portal::permissions::ORG_NAMESPACE;
-use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
-use joinedcontext_portal::server;
+use joinedcontext_portal::resource::API_VERSION;
 use joinedcontext_portal::state::AppState;
 
-const CSRF: &str = "test-csrf-token-matrix";
-const REPO: &str = "/api/v1/repos/test-owner/test-repo";
 const PROJECT: &str = "helsinki";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,15 +44,7 @@ impl Who {
     }
 
     fn identity(self) -> Identity {
-        let name = self.name();
-        Identity {
-            subject: format!("sub-{name}"),
-            username: name.to_owned(),
-            email: Some(format!("{name}@hel.fi")),
-            name: Some(name.to_owned()),
-            roles: Vec::new(),
-            groups: Vec::new(),
-        }
+        person(self.name())
     }
 
     fn verbs(self) -> &'static [&'static str] {
@@ -200,16 +182,6 @@ fn manifest(family: &Family, name: &str) -> Value {
     })
 }
 
-fn envelope(kind: &str, name: &str, namespace: &str, spec: Value) -> ResourceEnvelope {
-    ResourceEnvelope {
-        api_version: API_VERSION.to_owned(),
-        kind: kind.to_owned(),
-        metadata: ObjectMeta::new(name, namespace),
-        spec,
-        status: None,
-    }
-}
-
 /// The resource of a family every cell reads, changes or removes.
 fn existing(family: &Family) -> String {
     format!("{}-existing", family.kind.to_ascii_lowercase())
@@ -231,44 +203,7 @@ fn branch(family: &Family, number: u64) -> String {
 }
 
 async fn forge() -> MockServer {
-    let gitea = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path(REPO))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
-        .mount(&gitea)
-        .await;
-    Mock::given(method("POST"))
-        .and(path(format!("{REPO}/branches")))
-        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
-        .mount(&gitea)
-        .await;
-    for verb in ["PUT", "POST", "DELETE"] {
-        Mock::given(method(verb))
-            .and(path_regex(format!("^{REPO}/contents/.*")))
-            .respond_with(
-                ResponseTemplate::new(201)
-                    .set_body_json(json!({ "commit": { "sha": "commit-1" } })),
-            )
-            .mount(&gitea)
-            .await;
-    }
-    Mock::given(method("POST"))
-        .and(path(format!("{REPO}/pulls")))
-        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
-            "number": 9, "html_url": "https://gitea.example/pulls/9", "state": "open",
-            "mergeable": true, "merged": false
-        })))
-        .mount(&gitea)
-        .await;
-    Mock::given(path_regex(format!("^{REPO}/pulls/[0-9]+/(merge|reviews)$")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .mount(&gitea)
-        .await;
-    Mock::given(method("PATCH"))
-        .and(path_regex(format!("^{REPO}/pulls/[0-9]+$")))
-        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "state": "closed" })))
-        .mount(&gitea)
-        .await;
+    let gitea = common::forge().await;
 
     // Every existing resource has its file; a new one has none.
     for family in &FAMILIES {
@@ -285,13 +220,6 @@ async fn forge() -> MockServer {
             .mount(&gitea)
             .await;
     }
-    Mock::given(method("GET"))
-        .and(path_regex(format!("^{REPO}/contents/.*")))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
-        .with_priority(9)
-        .mount(&gitea)
-        .await;
-
     // The merge requests the approval cells decide: one by somebody else and one by each person.
     for (index, family) in FAMILIES.iter().enumerate() {
         let authors = std::iter::once(None).chain(PEOPLE.iter().copied().map(Some));
@@ -333,22 +261,10 @@ async fn forge() -> MockServer {
     gitea
 }
 
-fn encode(text: &str) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(text)
-}
-
 /// The organization's roles and a binding of each person over the whole organization, the
 /// context space the manifests read, and one existing resource of each family.
 fn state_with(gitea: &MockServer) -> AppState {
-    let client = GiteaClient::new(
-        gitea.uri().parse().expect("mock url"),
-        "test-owner",
-        "test-repo",
-        "token-xyz",
-    )
-    .expect("client");
-    let state = AppState::new(Config::for_tests(), None).with_gitea(Arc::new(client));
+    let state = common::state_on(gitea);
     let kinds: Vec<&str> = FAMILIES.iter().map(|family| family.kind).collect();
     for who in [Who::Editor, Who::Steward, Who::Admin] {
         state.mirror.upsert(envelope(
@@ -391,66 +307,8 @@ fn state_with(gitea: &MockServer) -> AppState {
     state
 }
 
-fn cookie(config: &Config, identity: Identity) -> String {
-    let now = session::now_unix();
-    let session = Session {
-        identity,
-        expires_at: now + 3600,
-        issued_at: now,
-        id_token: "id".into(),
-        access_expires_at: now + 3600,
-        refresh_token: None,
-    };
-    let jar =
-        session::store(PrivateCookieJar::new(config.cookie_key.clone()), &session).expect("store");
-    let response = (jar, StatusCode::OK).into_response();
-    let mut parts: Vec<String> = response
-        .headers()
-        .get_all(header::SET_COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .map(|raw| raw.split(';').next().unwrap_or_default().to_owned())
-        .collect();
-    parts.push(format!("{CSRF_COOKIE}={CSRF}"));
-    parts.join("; ")
-}
-
 async fn send(state: &AppState, who: Who, http: &str, uri: &str, body: Option<Value>) -> Answer {
-    let content_type = if http == "PATCH" {
-        "application/merge-patch+json"
-    } else {
-        "application/json"
-    };
-    let config = state.config.clone();
-    let response = server::app(state.clone())
-        .oneshot(
-            Request::builder()
-                .method(http)
-                .uri(uri)
-                .header(header::COOKIE, cookie(&config, who.identity()))
-                .header(CSRF_HEADER, CSRF)
-                .header(header::CONTENT_TYPE, content_type)
-                .body(body.map_or_else(Body::empty, |body| Body::from(body.to_string())))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
-    let status = response.status();
-    let bytes = response
-        .into_body()
-        .collect()
-        .await
-        .expect("body")
-        .to_bytes();
-    Answer {
-        status,
-        text: String::from_utf8_lossy(&bytes).into_owned(),
-    }
-}
-
-struct Answer {
-    status: StatusCode,
-    text: String,
+    common::send(state, who.identity(), http, uri, body).await
 }
 
 /// What a cell expects: the status, and for a refusal the words its reason must carry.

@@ -3,6 +3,7 @@
 //! and checks the result; the kind's page opens with the change filled in, or with its removal
 //! dialog, and the person proposes from there. Nothing is proposed here.
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -22,15 +23,20 @@ pub struct ChangeResource {
     pub delete: bool,
 }
 
-/// The `change_resource` call in a model answer, when the answer is one.
-pub fn tool_call(answer: &str) -> Option<Result<ChangeResource, String>> {
+/// The call of the tool named `tool` in a model answer, when the answer holds one.
+pub fn call_of<T: DeserializeOwned>(answer: &str, tool: &str) -> Option<Result<T, String>> {
     TOOL_FENCE.captures_iter(answer).find_map(|fence| {
         let value = serde_json::from_str::<Value>(&fence[1]).ok()?;
-        (value.get("tool").and_then(Value::as_str) == Some("change_resource")).then(|| {
-            serde_json::from_value::<ChangeResource>(value)
-                .map_err(|err| format!("the change_resource call does not parse: {err}"))
+        (value.get("tool").and_then(Value::as_str) == Some(tool)).then(|| {
+            serde_json::from_value::<T>(value)
+                .map_err(|err| format!("the {tool} call does not parse: {err}"))
         })
     })
+}
+
+/// The `change_resource` call in a model answer, when the answer is one.
+pub fn tool_call(answer: &str) -> Option<Result<ChangeResource, String>> {
+    call_of(answer, "change_resource")
 }
 
 /// RFC 7386: an object patch merges key by key, `null` removes a key, anything else replaces.

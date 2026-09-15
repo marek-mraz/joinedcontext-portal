@@ -4,7 +4,9 @@
 //! read from it. A caller without a binding reads and proposes nothing.
 
 use chrono::{DateTime, Utc};
-use jc_core::kinds::{Constraint, RoleBindingSpec, RoleSpec, Rule, Verb};
+use jc_core::kinds::{
+    Constraint, RoleBindingSpec, RoleScope, RoleSpec, Rule, ServiceAccountSpec, Verb,
+};
 use serde::Serialize;
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -67,58 +69,18 @@ pub fn effective(
             grants: Vec::new(),
         };
     }
-    let opts = ListOptions::default();
-    let roles: Vec<(String, RoleSpec)> = mirror
-        .list(ORG_NAMESPACE, "Role", &opts)
-        .items
+    let grants = in_force(mirror, identity, now)
         .into_iter()
-        .filter_map(|env| match serde_json::from_value::<RoleSpec>(env.spec) {
-            Ok(spec) => Some((env.metadata.name, spec)),
-            Err(e) => {
-                tracing::warn!(role = %env.metadata.name, error = %e, "Role in the mirror does not parse; it grants nothing");
-                None
-            }
+        .filter_map(|(reach, mut grant)| {
+            grant.space = match reach {
+                Reach::Organization => None,
+                Reach::Project(p) if p == project => None,
+                Reach::Project(_) => return None,
+                Reach::Space(space) => Some(space),
+            };
+            Some(grant)
         })
         .collect();
-
-    let mut grants = Vec::new();
-    for env in mirror.list(ORG_NAMESPACE, "RoleBinding", &opts).items {
-        let binding = match serde_json::from_value::<RoleBindingSpec>(env.spec) {
-            Ok(spec) => spec,
-            Err(e) => {
-                tracing::warn!(binding = %env.metadata.name, error = %e, "RoleBinding in the mirror does not parse; it grants nothing");
-                continue;
-            }
-        };
-        if !binding.subjects.iter().any(|s| is_subject(identity, s)) {
-            continue;
-        }
-        if binding.validity.as_ref().is_some_and(|v| !v.contains(now)) {
-            continue;
-        }
-        let space = match (
-            &binding.scope.organization,
-            &binding.scope.project,
-            &binding.scope.context_space,
-        ) {
-            (Some(_), _, _) => None,
-            (_, Some(p), _) if p == project => None,
-            (_, _, Some(space)) => Some(space.clone()),
-            _ => continue,
-        };
-        let Some((role_name, role)) = roles.iter().find(|(name, _)| *name == binding.role) else {
-            tracing::warn!(binding = %env.metadata.name, role = %binding.role, "RoleBinding names a Role the repository lacks");
-            continue;
-        };
-        for rule in &role.rules {
-            grants.push(Grant {
-                role: role_name.clone(),
-                binding: env.metadata.name.clone(),
-                space: space.clone(),
-                rule: rule.clone(),
-            });
-        }
-    }
     Effective {
         project: project.to_owned(),
         bootstrap: false,
@@ -167,6 +129,190 @@ impl Effective {
             )
         })))
     }
+}
+
+/// Where a binding applies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Reach {
+    Organization,
+    Project(String),
+    Space(String),
+}
+
+impl Reach {
+    fn of(scope: &RoleScope) -> Option<Self> {
+        match (&scope.organization, &scope.project, &scope.context_space) {
+            (Some(_), _, _) => Some(Self::Organization),
+            (_, Some(project), _) => Some(Self::Project(project.clone())),
+            (_, _, Some(space)) => Some(Self::Space(space.clone())),
+            _ => None,
+        }
+    }
+
+    /// Whether a grant held here also holds at `target`: the organization covers everything, a
+    /// project its own context spaces.
+    fn covers(&self, target: &Self, mirror: &Mirror) -> bool {
+        match (self, target) {
+            (Self::Organization, _) => true,
+            (Self::Project(held), Self::Project(wanted)) => held == wanted,
+            (Self::Project(held), Self::Space(space)) => {
+                mirror.get(held, "ContextSpace", space).is_some()
+            }
+            (Self::Space(held), Self::Space(wanted)) => held == wanted,
+            _ => false,
+        }
+    }
+}
+
+fn roles(mirror: &Mirror) -> Vec<(String, RoleSpec)> {
+    mirror
+        .list(ORG_NAMESPACE, "Role", &ListOptions::default())
+        .items
+        .into_iter()
+        .filter_map(|env| match serde_json::from_value::<RoleSpec>(env.spec) {
+            Ok(spec) => Some((env.metadata.name, spec)),
+            Err(e) => {
+                tracing::warn!(role = %env.metadata.name, error = %e, "Role in the mirror does not parse; it grants nothing");
+                None
+            }
+        })
+        .collect()
+}
+
+/// Every rule a binding in force at `now` gives the caller, with where the binding applies.
+fn in_force(mirror: &Mirror, identity: &Identity, now: DateTime<Utc>) -> Vec<(Reach, Grant)> {
+    let roles = roles(mirror);
+    let mut grants = Vec::new();
+    for env in mirror
+        .list(ORG_NAMESPACE, "RoleBinding", &ListOptions::default())
+        .items
+    {
+        let binding = match serde_json::from_value::<RoleBindingSpec>(env.spec) {
+            Ok(spec) => spec,
+            Err(e) => {
+                tracing::warn!(binding = %env.metadata.name, error = %e, "RoleBinding in the mirror does not parse; it grants nothing");
+                continue;
+            }
+        };
+        if !binding.subjects.iter().any(|s| is_subject(identity, s)) {
+            continue;
+        }
+        if binding.validity.as_ref().is_some_and(|v| !v.contains(now)) {
+            continue;
+        }
+        let Some(reach) = Reach::of(&binding.scope) else {
+            continue;
+        };
+        let Some((role_name, role)) = roles.iter().find(|(name, _)| *name == binding.role) else {
+            tracing::warn!(binding = %env.metadata.name, role = %binding.role, "RoleBinding names a Role the repository lacks");
+            continue;
+        };
+        for rule in &role.rules {
+            grants.push((
+                reach.clone(),
+                Grant {
+                    role: role_name.clone(),
+                    binding: env.metadata.name.clone(),
+                    space: None,
+                    rule: rule.clone(),
+                },
+            ));
+        }
+    }
+    grants
+}
+
+/// Nobody grants above their own rights (PF-52, AG-77): every verb on every kind a proposed
+/// `Role` (on the organization), `RoleBinding` (on its scope) or `ServiceAccount` (through each of
+/// its roles the organization defines, on that role's scope) would grant must be one `identity`
+/// holds there, under no constraint the new rule drops. `who` is "proposer" or "approver"; any
+/// other kind and the bootstrap group pass.
+pub fn within_own_rights(
+    state: &AppState,
+    identity: &Identity,
+    manifest: &Value,
+    who: &str,
+) -> Result<(), ApiError> {
+    let mirror = &state.mirror;
+    let spec = manifest.get("spec").cloned().unwrap_or(Value::Null);
+    let unreadable = |e: serde_json::Error| ApiError::BadRequest(format!("spec: {e}"));
+    let no_scope = || {
+        ApiError::BadRequest("spec.scope names no organization, project or context space".into())
+    };
+    let roles = roles(mirror);
+    let rules_of = |name: &str| {
+        roles
+            .iter()
+            .find(|(role, _)| role == name)
+            .map(|(_, spec)| spec.rules.clone())
+    };
+    let (noun, grants): (&str, Vec<(Vec<Rule>, Reach)>) = match manifest
+        .get("kind")
+        .and_then(Value::as_str)
+    {
+        Some("Role") => {
+            let role: RoleSpec = serde_json::from_value(spec).map_err(unreadable)?;
+            ("role", vec![(role.rules, Reach::Organization)])
+        }
+        Some("RoleBinding") => {
+            let binding: RoleBindingSpec = serde_json::from_value(spec).map_err(unreadable)?;
+            let rules = rules_of(&binding.role).ok_or_else(|| {
+                    ApiError::Denied(format!(
+                        "the organization has no role {}; propose the role before a binding to it (PF-52)",
+                        binding.role
+                    ))
+                })?;
+            let target = Reach::of(&binding.scope).ok_or_else(no_scope)?;
+            ("binding", vec![(rules, target)])
+        }
+        // A service account's other roles are the gateway's role templates, which grant data
+        // access through Policies and nothing here (CC-60).
+        Some("ServiceAccount") => {
+            let account: ServiceAccountSpec = serde_json::from_value(spec).map_err(unreadable)?;
+            let mut grants = Vec::new();
+            for granted in &account.roles {
+                if let Some(rules) = rules_of(&granted.role) {
+                    grants.push((rules, Reach::of(&granted.scope).ok_or_else(no_scope)?));
+                }
+            }
+            ("service account", grants)
+        }
+        _ => return Ok(()),
+    };
+    if in_group(identity, &state.config.bootstrap_admins) {
+        return Ok(());
+    }
+    let held = in_force(mirror, identity, Utc::now());
+    let mut missing: Vec<String> = Vec::new();
+    for (rules, target) in &grants {
+        for rule in rules {
+            for kind in &rule.kinds {
+                for verb in &rule.verbs {
+                    let holds = held.iter().any(|(reach, grant)| {
+                        reach.covers(target, mirror)
+                            && grant.rule.kinds.contains(kind)
+                            && grant.rule.verbs.contains(verb)
+                            && grant
+                                .rule
+                                .constraints
+                                .iter()
+                                .all(|c| rule.constraints.contains(c))
+                    });
+                    let item = format!("{} on {kind}", verb_name(*verb));
+                    if !holds && !missing.contains(&item) {
+                        missing.push(item);
+                    }
+                }
+            }
+        }
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(ApiError::Denied(format!(
+        "a {noun} may not grant more than its {who} holds: missing {} (PF-52)",
+        missing.join(", ")
+    )))
 }
 
 fn in_group(identity: &Identity, group: &str) -> bool {

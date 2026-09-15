@@ -80,3 +80,25 @@ test("the assistant opens a change or a removal on the kind's page, and the pers
   await steward.context.close();
   await approver.context.close();
 });
+
+test("the assistant drafts a role grant into the access page's form, and the person proposes it as a red change", async ({ browser }) => {
+  // The demo steward is also the organization's administrator, so the grant is within their rights.
+  const steward = await signIn(browser, STEWARD, `/projects/${PROJECT}/access?lang=en`);
+  const page = steward.page;
+
+  await ask(page, "Give jana.kovacova the steward role on the helsinki project");
+  await expect(page).toHaveURL(/\/projects\/helsinki\/access\?grant=jana-kovacova-steward-helsinki/, { timeout: 180_000 });
+  const grant = page.getByRole("dialog", { name: "Grant a role" });
+  await expect(grant).toBeVisible();
+  await expect(grant.getByLabel(/Username or e-mail/)).toHaveValue("jana.kovacova");
+  await expect(grant.getByLabel(/^Role/)).toHaveValue("steward");
+  await expect(grant.getByLabel("Where it applies")).toHaveValue("project");
+  await grant.getByRole("button", { name: "Propose grant" }).click();
+  const id = await proposedChange(page);
+  const detail = await page.request.get(`/api/v1/projects/${PROJECT}/changes/${id}`);
+  expect((await detail.json()).status.lane).toBe("red");
+  // Nobody else approves access here, so the steward withdraws it again.
+  await reject(page, PROJECT, id);
+
+  await steward.context.close();
+});
