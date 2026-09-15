@@ -2538,3 +2538,314 @@ async fn verification_stops_after_three_passes_and_says_what_is_left() {
     assert!(left.contains("shows undefined"), "{left}");
     assert_eq!(model_requests(&proxy).await.len(), 5);
 }
+
+// ---- The editing agent: every message after the first version is a tool loop (T-0684, SDK-20) ----
+
+/// One model answer that calls the tools, in the provider's body.
+fn tool_answer(provider: &str, calls: &[(&str, &str, Value)]) -> Value {
+    if provider == "anthropic" {
+        let content: Vec<Value> = calls
+            .iter()
+            .map(|(id, name, input)| {
+                json!({ "type": "tool_use", "id": id, "name": name, "input": input })
+            })
+            .collect();
+        json!({
+            "id": "msg_tools",
+            "type": "message",
+            "role": "assistant",
+            "content": content,
+            "stop_reason": "tool_use",
+            "usage": { "input_tokens": 300, "output_tokens": 40 }
+        })
+    } else {
+        let tool_calls: Vec<Value> = calls
+            .iter()
+            .map(|(id, name, input)| {
+                json!({
+                    "id": id,
+                    "type": "function",
+                    "function": { "name": name, "arguments": input.to_string() }
+                })
+            })
+            .collect();
+        json!({
+            "choices": [{
+                "message": { "role": "assistant", "content": null, "tool_calls": tool_calls },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": { "total_tokens": 340 }
+        })
+    }
+}
+
+/// The model route of `provider`, answering `bodies` in order, one each.
+async fn mount_tool_answers(proxy: &MockServer, provider: &str, bodies: &[Value]) {
+    let route = if provider == "anthropic" {
+        "/v1/llm/messages"
+    } else {
+        "/v1/llm/chat/completions"
+    };
+    for body in bodies {
+        Mock::given(method("POST"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .up_to_n_times(1)
+            .mount(proxy)
+            .await;
+    }
+}
+
+async fn send_message(app: &axum::Router, cookie: &str, id: &str, text: &str) {
+    let (status, body) = json(
+        app,
+        cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/messages"),
+        Some(json!({ "text": text })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+}
+
+/// The `tool` events of the run as (tool, status, result), in order.
+fn tool_events(log: &[(String, Value)]) -> Vec<(String, String, String)> {
+    // The loop's events carry their step; the first pass's `apply_patch` has none.
+    log.iter()
+        .filter(|(kind, payload)| kind == "tool" && payload.get("step").is_some())
+        .map(|(_, payload)| {
+            (
+                payload["tool"].as_str().unwrap_or_default().to_owned(),
+                payload["status"].as_str().unwrap_or_default().to_owned(),
+                payload["result"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// A message after the first version: read, an edit that reaches for axios, a check that
+/// refuses it, the fix, a passing check that reloads the frame, finish (SDK-20, SDK-12).
+async fn a_message_after_the_first_version_is_a_tool_loop(provider: &str) {
+    let forge = code_forge().await;
+    // The first version, the completing pass (unchanged), then the six tool turns: the proxy
+    // answers in mount order, so everything is mounted before the run starts.
+    let first = code_answer("A page listing the stations.", &stations_app(STATIONS));
+    let complete = code_answer("Complete.", &[]);
+    let (state, app, cookie, proxy) =
+        portal_state_with(provider, &[first, complete], Some(&forge)).await;
+    mount_types(&proxy).await;
+    mount_tool_answers(
+        &proxy,
+        provider,
+        &[
+            tool_answer(provider, &[("t1", "read_file", json!({ "path": "src/pages/Stations.tsx" }))]),
+            tool_answer(
+                provider,
+                &[(
+                    "t2",
+                    "edit_file",
+                    json!({ "path": "src/pages/Stations.tsx", "search": "", "replace": STATIONS_AXIOS }),
+                )],
+            ),
+            tool_answer(provider, &[("t3", "check", json!({}))]),
+            tool_answer(
+                provider,
+                &[(
+                    "t4",
+                    "edit_file",
+                    json!({ "path": "src/pages/Stations.tsx", "search": "", "replace": STATIONS }),
+                )],
+            ),
+            tool_answer(provider, &[("t5", "check", json!({}))]),
+            tool_answer(
+                provider,
+                &[("t6", "finish", json!({ "message": "The Stations page reads through the SDK again." }))],
+            ),
+        ],
+    )
+    .await;
+    let id = create_application(&app, &cookie).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
+    send_message(&app, &cookie, &id, "Fetch the stations with axios").await;
+    let run = wait_for_version(&app, &cookie, &id, 2).await;
+    assert!(
+        run["previewUrl"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with("?v=2"),
+        "one passing check after a change is one reload: {run}"
+    );
+
+    let log = events(&app, &cookie, &id).await;
+    let tools = tool_events(&log);
+    let names: Vec<&str> = tools.iter().map(|(name, _, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "read_file",
+            "edit_file",
+            "check",
+            "edit_file",
+            "check",
+            "finish"
+        ],
+        "{tools:?}"
+    );
+    assert_eq!(tools[0].1, "ok");
+    assert!(
+        tools[0].2.contains("useEntities"),
+        "the read shows the file: {}",
+        tools[0].2
+    );
+    assert_eq!(tools[2].1, "failed");
+    assert!(
+        tools[2].2.contains("axios"),
+        "the check names the refused import: {}",
+        tools[2].2
+    );
+    assert_eq!(
+        tools[4],
+        ("check".to_owned(), "ok".to_owned(), "ok".to_owned())
+    );
+    let files = files_of(&state, &id).await;
+    assert_eq!(
+        files["src/pages/Stations.tsx"].as_str().map(str::trim_end),
+        Some(STATIONS.trim_end())
+    );
+    assert!(
+        log.iter().any(|(kind, payload)| kind == "thought"
+            && payload["text"] == json!("The Stations page reads through the SDK again.")),
+        "the finish message reaches the chat"
+    );
+    let requests = model_requests(&proxy).await;
+    assert_eq!(requests.len(), 8, "two first-run passes and six tool turns");
+    let last = requests[7].to_string();
+    assert!(
+        last.contains("\"tools\""),
+        "the tools travel in the body: {last}"
+    );
+    assert!(last.contains("Fetch the stations with axios"), "{last}");
+}
+
+#[tokio::test]
+async fn a_message_after_the_first_version_is_a_tool_loop_for_anthropic() {
+    a_message_after_the_first_version_is_a_tool_loop("anthropic").await;
+}
+
+#[tokio::test]
+async fn a_message_after_the_first_version_is_a_tool_loop_for_openai() {
+    a_message_after_the_first_version_is_a_tool_loop("openai-compatible").await;
+}
+
+/// A write outside SDK-11's paths is a refused tool result, never a write and never the end
+/// of the turn.
+#[tokio::test]
+async fn a_write_outside_the_sdk_paths_is_refused_as_a_tool_result() {
+    let forge = code_forge().await;
+    let first = code_answer("A page listing the stations.", &stations_app(STATIONS));
+    let complete = code_answer("Complete.", &[]);
+    let (state, app, cookie, proxy) =
+        portal_state_with("openai-compatible", &[first, complete], Some(&forge)).await;
+    mount_types(&proxy).await;
+    mount_tool_answers(
+        &proxy,
+        "openai-compatible",
+        &[
+            tool_answer(
+                "openai-compatible",
+                &[
+                    (
+                        "w1",
+                        "write_file",
+                        json!({ "path": "../../etc/passwd", "content": "root" }),
+                    ),
+                    (
+                        "w2",
+                        "write_file",
+                        json!({ "path": "package.json", "content": "{}" }),
+                    ),
+                ],
+            ),
+            tool_answer(
+                "openai-compatible",
+                &[("f", "finish", json!({ "message": "Nothing to change." }))],
+            ),
+        ],
+    )
+    .await;
+    let id = create_application(&app, &cookie).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
+    wait_for_thought(&app, &cookie, &id, "Complete.").await;
+    let before = files_of(&state, &id).await;
+    send_message(&app, &cookie, &id, "Write the password file").await;
+    let said = wait_for_thought(&app, &cookie, &id, "Nothing to change.").await;
+    assert_eq!(said, "Nothing to change.");
+
+    let tools = tool_events(&events(&app, &cookie, &id).await);
+    assert_eq!(tools.len(), 3, "{tools:?}");
+    for refused in &tools[..2] {
+        assert_eq!(refused.0, "write_file");
+        assert_eq!(refused.1, "failed");
+        assert!(
+            refused
+                .2
+                .starts_with("not a path the application may write"),
+            "{}",
+            refused.2
+        );
+    }
+    assert_eq!(files_of(&state, &id).await, before, "nothing was written");
+}
+
+/// The profile's `stepsPerRun` bounds one message: the turn ends with a word for the person
+/// and no further model call.
+#[tokio::test]
+async fn the_step_limit_ends_the_turn_with_a_message() {
+    let forge = code_forge().await;
+    let first = code_answer("A page listing the stations.", &stations_app(STATIONS));
+    let complete = code_answer("Complete.", &[]);
+    let (state, app, cookie, proxy) =
+        portal_state_with("anthropic", &[first, complete], Some(&forge)).await;
+    mount_types(&proxy).await;
+    state.mirror.upsert(envelope(
+        "AgentProfile",
+        "app-builder",
+        "org",
+        json!({
+            "role": "builder",
+            "runtime": {
+                "image": "ghcr.io/all-hands-ai/agent-server:v1.4.0",
+                "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            },
+            "model": { "provider": "anthropic", "name": "claude-sonnet-5", "maxTokensPerRun": 400000, "reasoningEffort": "medium" },
+            "limits": { "stepsPerRun": 3, "wallClock": "PT20M", "concurrentRunsPerOrganization": 2, "requestsPerMinute": 60, "maxResponseBytes": 2097152 },
+            "egress": { "allowedHosts": [] },
+            "tools": ["shell"],
+            "workspace": { "cpu": "1", "memory": "2Gi", "ephemeralStorage": "4Gi" }
+        }),
+    ));
+    let id = create_application(&app, &cookie).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
+    wait_for_thought(&app, &cookie, &id, "Complete.").await;
+
+    // The model never stops asking for the file list.
+    Mock::given(method("POST"))
+        .and(path("/v1/llm/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(tool_answer("anthropic", &[("l", "list_files", json!({}))])),
+        )
+        .mount(&proxy)
+        .await;
+    send_message(&app, &cookie, &id, "Look around").await;
+    let said = wait_for_thought(&app, &cookie, &id, "The step limit").await;
+    assert!(said.contains("3 tool calls"), "{said}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let tools = tool_events(&events(&app, &cookie, &id).await);
+    assert_eq!(tools.len(), 3, "{tools:?}");
+    assert_eq!(
+        model_requests(&proxy).await.len(),
+        2 + 3,
+        "two first-run passes, three tool turns, no call past the limit"
+    );
+}

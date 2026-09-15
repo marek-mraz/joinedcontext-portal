@@ -37,6 +37,7 @@ use jc_core::kinds::Verb;
 
 mod code_pass;
 mod conversation;
+mod edit_loop;
 mod model;
 mod tools_change;
 mod tools_data;
@@ -221,6 +222,7 @@ struct Driver {
     kind: String,
     unattended: bool,
     continues: Option<String>,
+    steps_per_run: u32,
 }
 
 /// Starts the pass in the background. Returns at once; the run's stream is where the outcome
@@ -264,6 +266,7 @@ pub fn spawn(
         kind: run.kind.clone(),
         unattended: run.unattended,
         continues: run.continues.clone(),
+        steps_per_run: profile.steps_per_run,
     };
     tokio::spawn(async move {
         let run_id = driver.run_id.clone();
@@ -1042,6 +1045,7 @@ mod tests {
             kind: "application".into(),
             unattended: false,
             continues: None,
+            steps_per_run: 30,
         };
         let pack = driver
             .pack(&json!({}), &BTreeMap::new(), &[], "instruction", None, None)

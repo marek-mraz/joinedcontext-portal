@@ -1101,163 +1101,75 @@ pub async fn call_function(
             run.status
         )));
     }
-    let files: BTreeMap<String, String> = run
-        .files
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter(|(path, _)| path.starts_with("functions/"))
-        .filter_map(|(path, text)| Some((path.clone(), text.as_str()?.to_owned())))
-        .collect();
-    let entry = format!("functions/{name}.ts");
-    if !is_function_name(&name) || !files.contains_key(&entry) {
-        return Err(ApiError::NotFound(format!(
-            "run '{id}' has no function '{name}'"
-        )));
-    }
+    let tool = format!("function:{name}");
     let input: serde_json::Value = if body.is_empty() {
         serde_json::Value::Null
     } else {
         serde_json::from_slice(&body)
             .map_err(|err| ApiError::BadRequest(format!("the body is not JSON: {err}")))?
     };
-    let built = transpile::transpile(&files);
-    let problems: Vec<String> = built
-        .problems
-        .iter()
-        .filter(|problem| !problem.file.contains(".test."))
-        .map(ToString::to_string)
-        .collect();
-    if !problems.is_empty() {
-        return Err(ApiError::Invalid {
-            detail: format!(
-                "the run's functions do not build: {} problem(s)",
-                problems.len()
-            ),
-            errors: problems,
-        });
-    }
-    let runtime = state.config.functions_url.as_deref().ok_or_else(|| {
-        ApiError::Unavailable("this Portal has no jc-functions address (JC_FUNCTIONS_URL)".into())
-    })?;
-    let oidc = state.oidc.as_ref().ok_or_else(|| {
-        ApiError::Unavailable(
-            "this Portal has no Keycloak client to authenticate to jc-functions with".into(),
-        )
-    })?;
-    let server = kit::functions_server().ok_or_else(|| {
-        ApiError::Unavailable(
-            "this Portal was built without the SDK server module (sdk/dist/functions-server.js)"
-                .into(),
-        )
-    })?;
-    let service = oidc.service_token().await?;
-
-    let identity = &user.0.identity;
-    let space = state
-        .mirror
-        .get(&run.project, "Endpoint", &run.endpoint_name)
-        .and_then(|env| crate::api::assistant::ref_name(&env.spec["contextSpaceRef"]))
-        .unwrap_or_else(|| run.project.clone());
-    let mut modules = built.functions;
-    modules.insert("@joinedcontext/sdk/server".to_owned(), server);
-    let mut invocation = serde_json::json!({
-        "files": modules,
-        "entry": format!("{}{entry}", transpile::APP),
-        "request": {
-            "method": "POST",
-            "query": query,
-            "body": input,
-            "user": {
-                "id": identity.subject,
-                "name": identity.name.clone().unwrap_or_else(|| identity.username.clone()),
-                "email": identity.email,
-                "roles": identity.roles,
-            },
-        },
-        "config": {
-            "slug": run.endpoint_slug,
-            "orgDomain": crate::api::assistant::org_domain(&state, &run.project),
-            "space": space,
-        },
-        "token": caller_token(&state, &headers),
-    });
-    let run_endpoints = crate::agents::endpoints::of_run(&run);
-    if run_endpoints.len() > 1 {
-        invocation["config"]["endpoints"] =
-            crate::agents::endpoints::config(&run_endpoints, &run.data_needs);
-    }
-
-    let started = std::time::Instant::now();
-    let answer = functions_http()
-        .post(format!("{runtime}/invoke"))
-        .bearer_auth(service)
-        .json(&invocation)
-        .send()
-        .await;
-    let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let tool = format!("function:{name}");
-    let refused = |error: String| {
-        serde_json::json!({
-            "tool": tool,
-            "status": "failed",
-            "durationMs": duration_ms,
-            "input": input,
-            "error": error,
-        })
-    };
-    let response = match answer {
-        Ok(response) => response,
-        Err(err) => {
-            tracing::warn!(error = %err, "jc-functions did not answer");
+    let invoked = invoke_function(
+        &state,
+        &run,
+        &name,
+        input.clone(),
+        &query,
+        &user.0.identity,
+        caller_token(&state, &headers),
+    )
+    .await;
+    let Invocation {
+        outcome,
+        duration_ms,
+    } = match invoked {
+        Ok(invocation) => invocation,
+        Err(InvokeError::NoFunction) => {
+            return Err(ApiError::NotFound(format!(
+                "run '{id}' has no function '{name}'"
+            )))
+        }
+        Err(InvokeError::DoesNotBuild(problems)) => {
+            return Err(ApiError::Invalid {
+                detail: format!(
+                    "the run's functions do not build: {} problem(s)",
+                    problems.len()
+                ),
+                errors: problems,
+            })
+        }
+        Err(InvokeError::Unavailable(reason)) => return Err(ApiError::Unavailable(reason)),
+        Err(InvokeError::Refused {
+            reason,
+            duration_ms,
+            status,
+        }) => {
             publish_event(
                 &state,
                 &id,
                 "tool",
-                refused("jc-functions did not answer".into()),
+                serde_json::json!({
+                    "tool": tool,
+                    "status": "failed",
+                    "durationMs": duration_ms,
+                    "input": input,
+                    "error": reason,
+                }),
             )
             .await?;
-            return Err(ApiError::Unavailable("jc-functions did not answer".into()));
+            return Err(match status {
+                RefusedStatus::NoAnswer => {
+                    ApiError::Unavailable("jc-functions did not answer".into())
+                }
+                RefusedStatus::Full => ApiError::TooManyRequests(
+                    "jc-functions is running all the calls it takes; try again".into(),
+                ),
+                RefusedStatus::TooLarge => ApiError::BadRequest(
+                    "the function's body is larger than jc-functions takes (256 KiB)".into(),
+                ),
+                RefusedStatus::Other => ApiError::Unavailable(reason),
+            });
         }
     };
-    match response.status() {
-        StatusCode::OK => {}
-        StatusCode::TOO_MANY_REQUESTS => {
-            publish_event(&state, &id, "tool", refused("jc-functions is full".into())).await?;
-            return Err(ApiError::TooManyRequests(
-                "jc-functions is running all the calls it takes; try again".into(),
-            ));
-        }
-        StatusCode::PAYLOAD_TOO_LARGE => {
-            publish_event(
-                &state,
-                &id,
-                "tool",
-                refused("the request is too large".into()),
-            )
-            .await?;
-            return Err(ApiError::BadRequest(
-                "the function's body is larger than jc-functions takes (256 KiB)".into(),
-            ));
-        }
-        status => {
-            tracing::warn!(%status, "jc-functions refused an invocation");
-            publish_event(
-                &state,
-                &id,
-                "tool",
-                refused(format!("jc-functions answered {status}")),
-            )
-            .await?;
-            return Err(ApiError::Unavailable(format!(
-                "jc-functions answered {status}"
-            )));
-        }
-    }
-    let outcome: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|err| ApiError::Unavailable(format!("jc-functions answered no outcome: {err}")))?;
     let status = outcome["status"]
         .as_u64()
         .and_then(|status| u16::try_from(status).ok())
@@ -1311,6 +1223,176 @@ pub async fn call_function(
         .cloned()
         .unwrap_or(serde_json::Value::Null);
     Ok((status, Json(body)).into_response())
+}
+
+/// What one invocation of a run's function returned: the runtime's outcome and how long it took.
+pub(crate) struct Invocation {
+    pub outcome: serde_json::Value,
+    pub duration_ms: u64,
+}
+
+/// Why the runtime was not asked, or did not take the call.
+pub(crate) enum InvokeError {
+    NoFunction,
+    DoesNotBuild(Vec<String>),
+    /// This Portal cannot reach a runtime at all: no address, no client, no server module.
+    Unavailable(String),
+    /// The runtime did not take the call; `reason` is what the run's log says.
+    Refused {
+        reason: String,
+        duration_ms: u64,
+        status: RefusedStatus,
+    },
+}
+
+pub(crate) enum RefusedStatus {
+    NoAnswer,
+    Full,
+    TooLarge,
+    Other,
+}
+
+/// One call of a run's function in `jc-functions`, as `identity` (SDK-18, SDK-23): the route
+/// and the editing agent's `call_function` tool share it (SDK-20). `caller_token` is the
+/// person's own edge token when the call comes through the edge, nothing otherwise.
+pub(crate) async fn invoke_function(
+    state: &AppState,
+    run: &AgentRun,
+    name: &str,
+    input: serde_json::Value,
+    query: &BTreeMap<String, String>,
+    identity: &crate::auth::session::Identity,
+    caller_token: Option<String>,
+) -> Result<Invocation, InvokeError> {
+    let files: BTreeMap<String, String> = run
+        .files
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(path, _)| path.starts_with("functions/"))
+        .filter_map(|(path, text)| Some((path.clone(), text.as_str()?.to_owned())))
+        .collect();
+    let entry = format!("functions/{name}.ts");
+    if !is_function_name(name) || !files.contains_key(&entry) {
+        return Err(InvokeError::NoFunction);
+    }
+    let built = transpile::transpile(&files);
+    let problems: Vec<String> = built
+        .problems
+        .iter()
+        .filter(|problem| !problem.file.contains(".test."))
+        .map(ToString::to_string)
+        .collect();
+    if !problems.is_empty() {
+        return Err(InvokeError::DoesNotBuild(problems));
+    }
+    let runtime = state.config.functions_url.as_deref().ok_or_else(|| {
+        InvokeError::Unavailable(
+            "this Portal has no jc-functions address (JC_FUNCTIONS_URL)".into(),
+        )
+    })?;
+    let oidc = state.oidc.as_ref().ok_or_else(|| {
+        InvokeError::Unavailable(
+            "this Portal has no Keycloak client to authenticate to jc-functions with".into(),
+        )
+    })?;
+    let server = kit::functions_server().ok_or_else(|| {
+        InvokeError::Unavailable(
+            "this Portal was built without the SDK server module (sdk/dist/functions-server.js)"
+                .into(),
+        )
+    })?;
+    let service = oidc
+        .service_token()
+        .await
+        .map_err(|err| InvokeError::Unavailable(format!("no token for jc-functions: {err}")))?;
+
+    let space = state
+        .mirror
+        .get(&run.project, "Endpoint", &run.endpoint_name)
+        .and_then(|env| crate::api::assistant::ref_name(&env.spec["contextSpaceRef"]))
+        .unwrap_or_else(|| run.project.clone());
+    let mut modules = built.functions;
+    modules.insert("@joinedcontext/sdk/server".to_owned(), server);
+    let mut invocation = serde_json::json!({
+        "files": modules,
+        "entry": format!("{}{entry}", transpile::APP),
+        "request": {
+            "method": "POST",
+            "query": query,
+            "body": input,
+            "user": {
+                "id": identity.subject,
+                "name": identity.name.clone().unwrap_or_else(|| identity.username.clone()),
+                "email": identity.email,
+                "roles": identity.roles,
+            },
+        },
+        "config": {
+            "slug": run.endpoint_slug,
+            "orgDomain": crate::api::assistant::org_domain(state, &run.project),
+            "space": space,
+        },
+        "token": caller_token,
+    });
+    let run_endpoints = crate::agents::endpoints::of_run(run);
+    if run_endpoints.len() > 1 {
+        invocation["config"]["endpoints"] =
+            crate::agents::endpoints::config(&run_endpoints, &run.data_needs);
+    }
+
+    let started = std::time::Instant::now();
+    let answer = functions_http()
+        .post(format!("{runtime}/invoke"))
+        .bearer_auth(service)
+        .json(&invocation)
+        .send()
+        .await;
+    let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let refused = |reason: String, status: RefusedStatus| InvokeError::Refused {
+        reason,
+        duration_ms,
+        status,
+    };
+    let response = match answer {
+        Ok(response) => response,
+        Err(err) => {
+            tracing::warn!(error = %err, "jc-functions did not answer");
+            return Err(refused(
+                "jc-functions did not answer".into(),
+                RefusedStatus::NoAnswer,
+            ));
+        }
+    };
+    match response.status() {
+        StatusCode::OK => {}
+        StatusCode::TOO_MANY_REQUESTS => {
+            return Err(refused("jc-functions is full".into(), RefusedStatus::Full))
+        }
+        StatusCode::PAYLOAD_TOO_LARGE => {
+            return Err(refused(
+                "the request is too large".into(),
+                RefusedStatus::TooLarge,
+            ))
+        }
+        status => {
+            tracing::warn!(%status, "jc-functions refused an invocation");
+            return Err(refused(
+                format!("jc-functions answered {status}"),
+                RefusedStatus::Other,
+            ));
+        }
+    }
+    let outcome: serde_json::Value = response.json().await.map_err(|err| {
+        refused(
+            format!("jc-functions answered no outcome: {err}"),
+            RefusedStatus::Other,
+        )
+    })?;
+    Ok(Invocation {
+        outcome,
+        duration_ms,
+    })
 }
 
 /// One client for every invocation, without redirects: the runtime's address is configuration.

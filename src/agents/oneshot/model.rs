@@ -39,6 +39,52 @@ impl Driver {
         first.map_err(|err| err.said(budget))
     }
 
+    /// Common HTTP execution for model calls through the proxy, handling 402 credits and budget cuts.
+    async fn post_llm(&self, path: &str, body: &Value, budget: u32) -> Result<Value, CallError> {
+        let response = self
+            .http
+            .post(format!("{}{path}", self.proxy_base))
+            .bearer_auth(&self.bearer)
+            .json(body)
+            .send()
+            .await
+            .map_err(|err| {
+                CallError::Failed(format!(
+                    "the model call did not go through the proxy: {err}"
+                ))
+            })?;
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+            return Err(CallError::Credit {
+                affordable: affordable_tokens(&text),
+            });
+        }
+        if !status.is_success() {
+            return Err(CallError::Failed(format!(
+                "the proxy answered {status} to the model call: {}",
+                provider_said(&text)
+            )));
+        }
+        let answer: Value = serde_json::from_str(&text)
+            .map_err(|err| CallError::Failed(format!("the model's answer is not JSON: {err}")))?;
+        let cut = answer
+            .pointer("/choices/0/finish_reason")
+            .and_then(Value::as_str)
+            .is_some_and(|reason| reason == "length")
+            || answer
+                .get("stop_reason")
+                .and_then(Value::as_str)
+                .is_some_and(|reason| reason == "max_tokens");
+        if cut {
+            return Err(CallError::Failed(format!(
+                "the answer was cut at the output budget of {budget} tokens and nothing \
+                 was applied; ask for less at once"
+            )));
+        }
+        Ok(answer)
+    }
+
     /// One call through the proxy, in the body the profile's provider reads (AG-53).
     pub(super) async fn complete_once(
         &self,
@@ -69,48 +115,7 @@ impl Driver {
                 }),
             )
         };
-        let response = self
-            .http
-            .post(format!("{}{path}", self.proxy_base))
-            .bearer_auth(&self.bearer)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|err| {
-                CallError::Failed(format!(
-                    "the model call did not go through the proxy: {err}"
-                ))
-            })?;
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-            return Err(CallError::Credit {
-                affordable: affordable_tokens(&text),
-            });
-        }
-        if !status.is_success() {
-            return Err(CallError::Failed(format!(
-                "the proxy answered {status} to the model call: {}",
-                provider_said(&text)
-            )));
-        }
-        let answer: Value = serde_json::from_str(&text)
-            .map_err(|err| CallError::Failed(format!("the model's answer is not JSON: {err}")))?;
-        // An answer the budget cut is not applied at all: half a page is worse than none.
-        let cut = answer
-            .pointer("/choices/0/finish_reason")
-            .and_then(Value::as_str)
-            .is_some_and(|reason| reason == "length")
-            || answer
-                .get("stop_reason")
-                .and_then(Value::as_str)
-                .is_some_and(|reason| reason == "max_tokens");
-        if cut {
-            return Err(CallError::Failed(format!(
-                "the answer was cut at the output budget of {budget} tokens and nothing \
-                 was applied; ask for less at once"
-            )));
-        }
+        let answer = self.post_llm(path, &body, budget).await?;
         // OpenAI-compatible: choices[0].message.content. Anthropic: content[].text, joined.
         if let Some(content) = answer
             .pointer("/choices/0/message/content")
@@ -133,6 +138,179 @@ impl Driver {
             return Err(CallError::Empty);
         }
         Ok(joined)
+    }
+
+    /// One tool completion through the proxy with 402 retry and empty-answer retry (SDK-20).
+    pub(super) async fn complete_tools(
+        &self,
+        system: &str,
+        messages: &[Value],
+        tools: &[ToolSpec],
+        budget: u32,
+    ) -> Result<ToolAnswer, CallError> {
+        let first = match self
+            .complete_tools_once(system, messages, tools, budget)
+            .await
+        {
+            Err(CallError::Empty) => {
+                self.complete_tools_once(system, messages, tools, budget)
+                    .await
+            }
+            Err(CallError::Credit {
+                affordable: Some(afford),
+            }) if afford >= MIN_CREDIT_BUDGET && afford < budget => {
+                self.complete_tools_once(system, messages, tools, afford - afford / 20)
+                    .await
+            }
+            other => other,
+        };
+        first
+    }
+
+    async fn complete_tools_once(
+        &self,
+        system: &str,
+        messages: &[Value],
+        tools: &[ToolSpec],
+        budget: u32,
+    ) -> Result<ToolAnswer, CallError> {
+        if self.provider == "anthropic" {
+            let tools_json = tools
+                .iter()
+                .map(|t| {
+                    json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.input_schema,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let merged = merge_anthropic_messages(messages);
+            let body = json!({
+                "model": self.model,
+                "max_tokens": budget,
+                "system": system,
+                "messages": merged,
+                "tools": tools_json,
+            });
+            let answer = self.post_llm("/v1/llm/messages", &body, budget).await?;
+            let mut text_parts = Vec::new();
+            let mut calls = Vec::new();
+            if let Some(content) = answer.get("content").and_then(Value::as_array) {
+                for part in content {
+                    let part_type = part.get("type").and_then(Value::as_str).unwrap_or("");
+                    if part_type == "text" {
+                        if let Some(t) = part.get("text").and_then(Value::as_str) {
+                            text_parts.push(t);
+                        }
+                    } else if part_type == "tool_use" {
+                        let id = part
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned();
+                        let name = part
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned();
+                        let input = part.get("input").cloned().unwrap_or(Value::Null);
+                        calls.push(ToolCall { id, name, input });
+                    }
+                }
+            }
+            let text = if text_parts.is_empty() {
+                None
+            } else {
+                Some(text_parts.join("\n"))
+            };
+            let usage_tokens = answer
+                .pointer("/usage/input_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                + answer
+                    .pointer("/usage/output_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+            if text.as_deref().unwrap_or("").trim().is_empty() && calls.is_empty() {
+                return Err(CallError::Empty);
+            }
+            Ok(ToolAnswer {
+                text,
+                calls,
+                usage_tokens,
+            })
+        } else {
+            let tools_json = tools
+                .iter()
+                .map(|t| {
+                    json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.input_schema,
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            let mut full_messages = vec![json!({ "role": "system", "content": system })];
+            full_messages.extend_from_slice(messages);
+            let body = json!({
+                "model": self.model,
+                "max_tokens": budget,
+                "messages": full_messages,
+                "tools": tools_json,
+            });
+            let answer = self
+                .post_llm("/v1/llm/chat/completions", &body, budget)
+                .await?;
+            let choice_msg = answer.pointer("/choices/0/message");
+            let text = choice_msg
+                .and_then(|m| m.get("content"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let mut calls = Vec::new();
+            if let Some(tool_calls) = choice_msg
+                .and_then(|m| m.get("tool_calls"))
+                .and_then(Value::as_array)
+            {
+                for tc in tool_calls {
+                    let id = tc
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    let name = tc
+                        .pointer("/function/name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    let input = if let Some(s) =
+                        tc.pointer("/function/arguments").and_then(Value::as_str)
+                    {
+                        serde_json::from_str::<Value>(s).unwrap_or(Value::Null)
+                    } else {
+                        tc.pointer("/function/arguments")
+                            .cloned()
+                            .unwrap_or(Value::Null)
+                    };
+                    calls.push(ToolCall { id, name, input });
+                }
+            }
+            let usage_tokens = answer
+                .pointer("/usage/total_tokens")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            if text.as_deref().unwrap_or("").trim().is_empty() && calls.is_empty() {
+                return Err(CallError::Empty);
+            }
+            Ok(ToolAnswer {
+                text,
+                calls,
+                usage_tokens,
+            })
+        }
     }
 
     /// The entity types the data needs name, in order, once each.
@@ -520,5 +698,109 @@ impl Driver {
                     .await
             }
         }
+    }
+}
+
+/// A tool the model may call in an editing turn (SDK-20), in the provider's own body.
+pub(super) struct ToolSpec {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub input_schema: Value,
+}
+
+/// One call the model asked for: the id the provider echoes, the tool and its arguments.
+#[derive(Debug, Clone)]
+pub(super) struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub input: Value,
+}
+
+/// What a tool completion answered: prose, calls, and what it cost.
+#[derive(Debug, Clone, Default)]
+pub(super) struct ToolAnswer {
+    pub text: Option<String>,
+    pub calls: Vec<ToolCall>,
+    pub usage_tokens: u64,
+}
+
+/// Anthropic takes alternating roles: two turns of one role in a row are one turn with the
+/// content blocks joined (a string is one text block).
+pub(super) fn merge_anthropic_messages(messages: &[Value]) -> Vec<Value> {
+    let blocks = |content: &Value| -> Vec<Value> {
+        match content {
+            Value::String(text) => vec![json!({ "type": "text", "text": text })],
+            Value::Array(parts) => parts.clone(),
+            other => vec![json!({ "type": "text", "text": other.to_string() })],
+        }
+    };
+    let mut merged: Vec<Value> = Vec::new();
+    for message in messages {
+        let role = message
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("user");
+        let content = blocks(message.get("content").unwrap_or(&Value::Null));
+        match merged.last_mut() {
+            Some(last) if last.get("role").and_then(Value::as_str) == Some(role) => {
+                if let Some(parts) = last.get_mut("content").and_then(Value::as_array_mut) {
+                    parts.extend(content);
+                }
+            }
+            _ => merged.push(json!({ "role": role, "content": content })),
+        }
+    }
+    merged
+}
+
+/// The model's own turn, appended so the next call sees what it asked for.
+pub(super) fn assistant_turn_message(provider: &str, answer: &ToolAnswer) -> Value {
+    if provider == "anthropic" {
+        let mut content = Vec::new();
+        if let Some(text) = answer
+            .text
+            .as_deref()
+            .filter(|text| !text.trim().is_empty())
+        {
+            content.push(json!({ "type": "text", "text": text }));
+        }
+        for call in &answer.calls {
+            content.push(json!({
+                "type": "tool_use",
+                "id": call.id,
+                "name": call.name,
+                "input": call.input,
+            }));
+        }
+        json!({ "role": "assistant", "content": content })
+    } else {
+        let calls: Vec<Value> = answer
+            .calls
+            .iter()
+            .map(|call| {
+                json!({
+                    "id": call.id,
+                    "type": "function",
+                    "function": { "name": call.name, "arguments": call.input.to_string() },
+                })
+            })
+            .collect();
+        let mut message = json!({ "role": "assistant", "content": answer.text });
+        if !calls.is_empty() {
+            message["tool_calls"] = Value::Array(calls);
+        }
+        message
+    }
+}
+
+/// A tool's result, in the shape the provider reads it back.
+pub(super) fn tool_result_message(provider: &str, call_id: &str, content: &str) -> Value {
+    if provider == "anthropic" {
+        json!({
+            "role": "user",
+            "content": [{ "type": "tool_result", "tool_use_id": call_id, "content": content }],
+        })
+    } else {
+        json!({ "role": "tool", "tool_call_id": call_id, "content": content })
     }
 }

@@ -233,6 +233,27 @@ impl Driver {
                         .to_owned();
                     instruction = text.clone();
                     self.thought("Working on your message…").await?;
+                    // A version on screen is edited in place, tool by tool (SDK-20); before one
+                    // exists the message is one more whole pass.
+                    if shown.is_some() {
+                        match self
+                            .edit_turn(
+                                &mut files,
+                                &mut committed,
+                                &mut conversation,
+                                &text,
+                                shown.as_ref(),
+                            )
+                            .await
+                        {
+                            Ok(Some(next)) => shown = Some(next),
+                            Ok(None) => {}
+                            Err(message) => {
+                                self.thought(&format!("The turn failed: {message}")).await?
+                            }
+                        }
+                        continue;
+                    }
                     match self
                         .code_pass(
                             &samples,
