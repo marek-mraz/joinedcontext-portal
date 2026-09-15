@@ -19,7 +19,8 @@ use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
 use joinedcontext_portal::auth::session::{self, Identity, Session};
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::git::GiteaClient;
-use joinedcontext_portal::resource::ResourceEnvelope;
+use joinedcontext_portal::permissions::ORG_NAMESPACE;
+use joinedcontext_portal::resource::{ResourceEnvelope, API_VERSION};
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
 use joinedcontext_portal::store::Mirror;
@@ -156,7 +157,7 @@ async fn forge() -> MockServer {
     server
 }
 
-fn session_cookie(config: &Config) -> String {
+fn session_cookie(config: &Config, groups: &[&str]) -> String {
     use axum::response::IntoResponse;
     let now = session::now_unix();
     let session = Session {
@@ -166,7 +167,7 @@ fn session_cookie(config: &Config) -> String {
             email: None,
             name: None,
             roles: Vec::new(),
-            groups: vec!["portal-approver".into()],
+            groups: groups.iter().map(|g| (*g).to_owned()).collect(),
         },
         expires_at: now + 3600,
         issued_at: now,
@@ -188,13 +189,25 @@ fn session_cookie(config: &Config) -> String {
 }
 
 /// The session and the double-submit CSRF cookie, which every UI mutation carries.
-fn cookies(config: &Config) -> String {
-    format!("{}; {CSRF_COOKIE}={CSRF}", session_cookie(config))
+fn cookies(config: &Config, groups: &[&str]) -> String {
+    format!("{}; {CSRF_COOKIE}={CSRF}", session_cookie(config, groups))
 }
 
+/// The bootstrap administrator of `Config::for_tests`, who may propose every kind.
 fn state(server: &MockServer, existing: Vec<&str>) -> (AppState, String) {
+    state_as(server, existing, &["portal-approver"], vec![])
+}
+
+/// A person in no group, whose rights are exactly the organization's `Role`s and
+/// `RoleBinding`s in `org` (T-0798, PF-50).
+fn state_as(
+    server: &MockServer,
+    existing: Vec<&str>,
+    groups: &[&str],
+    org: Vec<Value>,
+) -> (AppState, String) {
     let config = Config::for_tests();
-    let cookie = cookies(&config);
+    let cookie = cookies(&config, groups);
     let gitea = Arc::new(
         GiteaClient::new(
             server.uri().parse().expect("forge url"),
@@ -209,6 +222,9 @@ fn state(server: &MockServer, existing: Vec<&str>) -> (AppState, String) {
         let mut envelope: ResourceEnvelope = serde_yaml_ng::from_str(yaml).expect("manifest");
         envelope.metadata.namespace = Some(PROJECT.to_string());
         mirror.upsert(envelope);
+    }
+    for manifest in org {
+        mirror.upsert(serde_json::from_value(manifest).expect("organization manifest"));
     }
     let state = AppState::new(config, None)
         .with_gitea(gitea)
@@ -285,6 +301,41 @@ async fn put_bodies(server: &MockServer) -> Vec<String> {
             let encoded = payload.get("content")?.as_str()?.to_owned();
             String::from_utf8(STANDARD.decode(encoded).ok()?).ok()
         })
+        .collect()
+}
+
+/// A `Role` of the organization repository with the given rules.
+fn role(name: &str, rules: Value) -> Value {
+    json!({
+        "apiVersion": API_VERSION,
+        "kind": "Role",
+        "metadata": { "name": name, "namespace": ORG_NAMESPACE },
+        "spec": { "rules": rules },
+    })
+}
+
+/// The signed-in person holds `role` on this project.
+fn binding(role: &str) -> Value {
+    json!({
+        "apiVersion": API_VERSION,
+        "kind": "RoleBinding",
+        "metadata": { "name": format!("jana-{role}"), "namespace": ORG_NAMESPACE },
+        "spec": {
+            "subjects": [{ "user": "jana.kovacova" }],
+            "role": role,
+            "scope": { "project": PROJECT },
+        },
+    })
+}
+
+/// Everything the forge saw, as `METHOD path`.
+async fn forge_calls(server: &MockServer) -> Vec<String> {
+    server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|request| format!("{} {}", request.method, request.url.path()))
         .collect()
 }
 
@@ -689,4 +740,47 @@ async fn an_anonymous_import_is_refused_before_anything_is_parsed() {
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert!(written(&server).await.is_empty());
+}
+
+// --- who may import (T-0798, PF-50) -----------------------------------------------------
+
+#[tokio::test]
+async fn an_import_by_someone_with_no_binding_is_refused_before_anything_is_planned() {
+    let server = forge().await;
+    for fields in [&[][..], &[("dryRun", "All")][..]] {
+        let (state, cookie) = state_as(&server, vec![], &[], vec![]);
+        let (content_type, body) = multipart(&bundle_archive(), fields);
+        let (status, problem) = post(state, &cookie, &content_type, body).await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN, "{fields:?}: {problem}");
+        let detail = problem["detail"].as_str().unwrap_or_default();
+        assert!(detail.contains("PF-50"), "{detail}");
+    }
+    // Not a branch, not a file, not a merge request: the forge was never asked.
+    let calls = forge_calls(&server).await;
+    assert!(
+        !calls
+            .iter()
+            .any(|c| c.starts_with("POST") || c.starts_with("PUT")),
+        "{calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_role_that_grants_propose_on_every_kind_in_the_bundle_imports_it() {
+    let server = forge().await;
+    let importer = role(
+        "importer",
+        json!([{ "kinds": ["ContextSpace", "Endpoint", "Pipeline"], "verbs": ["propose"] }]),
+    );
+    let (state, cookie) = state_as(&server, vec![], &[], vec![importer, binding("importer")]);
+    let (content_type, body) = multipart(&bundle_archive(), &[]);
+    let (status, change) = post(state, &cookie, &content_type, body).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED, "{change}");
+    assert_eq!(change["status"]["plan"]["create"], 2);
+    assert!(written(&server)
+        .await
+        .iter()
+        .any(|p| p == "projects/banskabystrica/pipelines/aq/bento.yaml"));
 }

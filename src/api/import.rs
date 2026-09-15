@@ -597,6 +597,7 @@ pub async fn import(
     }
 
     let incoming = parse(&bytes)?;
+    authorize(&state, &user.0.identity, &project, &incoming)?;
     let target = options
         .target_namespace
         .clone()
@@ -894,6 +895,55 @@ fn plan_import(
         files.push((reproject(&path, project), content));
     }
     Ok((report, files))
+}
+
+/// Who may propose what the bundle holds (T-0798, PF-50): the caller's bindings in this
+/// project, checked per manifest before anything is planned, so a dry run discloses nothing
+/// either. `mutate::propose_with_identity` asks the same two questions of a single manifest.
+fn authorize(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    incoming: &[Incoming],
+) -> Result<(), ApiError> {
+    let effective = crate::permissions::for_request(state, identity, project);
+    for item in incoming {
+        match &item.envelope {
+            Some(envelope) if envelope.kind == BUNDLE_KIND => {}
+            Some(envelope) => {
+                let raw = serde_json::to_value(envelope)
+                    .map_err(|e| ApiError::Internal(format!("manifest did not serialise: {e}")))?;
+                effective.check(&envelope.kind, jc_core::kinds::Verb::Propose, Some(&raw))?;
+                crate::permissions::within_own_rights(state, identity, &raw, "proposer")?;
+            }
+            None => {
+                let Some(path) = &item.path else { continue };
+                // A native file is proposed under the kind its directory names; a path that
+                // names no kind has no role that could grant it.
+                let kind = native_kind(&reproject(path, project)).ok_or_else(|| {
+                    ApiError::Denied(format!(
+                        "'{path}' belongs to no kind this platform serves, so no role grants \
+                         proposing it (PF-50)"
+                    ))
+                })?;
+                effective.check(kind, jc_core::kinds::Verb::Propose, None)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The kind a native file belongs to: the plural directory after `projects/{project}/`, or
+/// after `spaces/{space}/` for the kinds that live under a space.
+fn native_kind(path: &str) -> Option<&'static str> {
+    let mut segments = path.split('/').skip(2);
+    let first = segments.next()?;
+    let plural = if first == "spaces" {
+        segments.nth(1)?
+    } else {
+        first
+    };
+    resource::by_plural(plural).map(|info| info.kind)
 }
 
 /// The space a manifest lives under, for the kinds whose path has a `{space}` segment.
