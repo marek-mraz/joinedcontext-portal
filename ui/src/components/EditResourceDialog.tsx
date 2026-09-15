@@ -7,6 +7,7 @@ import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { isChange } from "../api/manifest";
 import type { Change } from "../api/manifest";
 import { usePermissions } from "../api/permissions";
+import { takeEditRequest } from "../assistant/state";
 import { ChangeNotice } from "./ChangeNotice";
 import type { ResourceTarget } from "./DeleteResourceDialog";
 import { Alert, Button, Dialog } from "./ui";
@@ -28,15 +29,18 @@ export function EditResourceDialog({
   target,
   open,
   onOpenChange,
+  changed,
 }: {
   target: ResourceTarget;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The manifest with a change already made, e.g. by the assistant; shown in place of the stored one. */
+  changed?: Record<string, unknown> | null;
 }): JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { project, plural, name } = target;
-  const [text, setText] = useState<string | null>(null);
+  const [text, setText] = useState<string | null>(() => (changed ? writable(changed) : null));
   const [invalid, setInvalid] = useState<string | null>(null);
   const [change, setChange] = useState<Change | null>(null);
 
@@ -161,16 +165,14 @@ export function EditResourceDialog({
 
 /**
  * The Edit action of one row: shown only to a person whose role may propose the kind, the dialog
- * opened on click, or at once when the page was opened with `?edit=<name>`.
+ * opened on click, or at once when the page was opened with `?edit=<name>`, on the change the
+ * assistant made when it made one.
  */
 export function EditResourceAction({ target }: { target: ResourceTarget }): JSX.Element | null {
   const { t } = useTranslation();
   const mayPropose = usePermissions(target.project).can(target.kind, "propose");
-  const [open, setOpen] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      new URLSearchParams(window.location.search).get("edit") === target.name,
-  );
+  const [request] = useState(() => takeEditRequest(target.name));
+  const [open, setOpen] = useState(request !== null);
   if (!mayPropose) {
     return null;
   }
@@ -183,7 +185,7 @@ export function EditResourceAction({ target }: { target: ResourceTarget }): JSX.
       >
         {t("resourceEdit.button")}
       </Button>
-      <EditResourceDialog target={target} open={open} onOpenChange={setOpen} />
+      <EditResourceDialog target={target} open={open} onOpenChange={setOpen} changed={request?.manifest} />
     </>
   );
 }

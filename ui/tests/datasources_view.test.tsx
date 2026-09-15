@@ -119,6 +119,8 @@ describe("data sources view", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    // The runner form cases below render on the page this block leaves open, without a query.
+    window.history.pushState({}, "", "/projects/banskabystrica/datasources");
   });
 
   it("lists every source with its type, endpoint and the names of its credentials", async () => {
@@ -308,6 +310,24 @@ describe("data sources view", () => {
     await expect(request.clone().json()).resolves.toMatchObject({
       spec: { type: "mqtt", mqtt: { username: "bb-reader" } },
     });
+  });
+
+  it("opens a source's editor on the change the assistant made, and sends nothing until proposed (AG-77)", async () => {
+    const source = SOURCES.items[0];
+    const changed = { ...source, status: undefined, spec: { ...source.spec, mqtt: { ...source.spec.mqtt, username: "bb-reader" } } };
+    rememberPrefill("/projects/banskabystrica/datasources?edit=mqtt-mesto", changed);
+    window.history.pushState({}, "", "/projects/banskabystrica/datasources?edit=mqtt-mesto&draft=mqtt-mesto");
+    const fetchMock = renderDataSources();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/Name/)).toHaveValue("mqtt-mesto");
+    expect(within(dialog).getByLabelText(/User name/)).toHaveValue("bb-reader");
+    expect(writes(fetchMock).filter((request) => !new URL(request.url).searchParams.has("dryRun"))).toHaveLength(0);
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.propose }));
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    expect(writes(fetchMock)[0].method).toBe("PUT");
+    expect(new URL(writes(fetchMock)[0].url).pathname).toBe("/api/v1/projects/banskabystrica/datasources/mqtt-mesto");
   });
 });
 

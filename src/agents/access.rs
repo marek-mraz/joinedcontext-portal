@@ -92,6 +92,18 @@ impl Access {
             .is_some_and(|verbs| verbs.contains(verb))
     }
 
+    /// The profile's half of a tool that names its kind only when it is called (`change_resource`):
+    /// the operation named and `propose` granted on that kind. Without an access block, nothing.
+    pub fn proposes(&self, operation: &str, kind: &str) -> bool {
+        self.declared.as_ref().is_some_and(|declared| {
+            declared.operations.contains(operation)
+                && declared
+                    .kinds
+                    .get(kind)
+                    .is_some_and(|verbs| verbs.contains("propose"))
+        })
+    }
+
     /// Whether a run may build on this endpoint: `read`, and `write` when the run writes. A
     /// profile that lists no endpoints leaves them to the person and the Endpoint's Policy.
     pub fn grants_endpoint(&self, name: &str, write: bool) -> bool {
@@ -142,6 +154,22 @@ mod tests {
         assert!(access.names(op("jc_kpi_compute")));
         assert!(!access.names(op("jc_space_complete")));
         assert!(!access.names(op("jc_change_approve")));
+    }
+
+    #[test]
+    fn a_kind_named_at_the_call_needs_the_operation_and_propose_on_that_kind() {
+        let access = Access::from_spec(&json!({ "access": {
+            "operations": ["jc_resource_propose"],
+            "kinds": [
+                { "kind": "Pipeline", "verbs": ["read", "propose"] },
+                { "kind": "ContextSpace", "verbs": ["read"] }
+            ]
+        }}));
+        assert!(access.proposes("jc_resource_propose", "Pipeline"));
+        assert!(!access.proposes("jc_resource_propose", "ContextSpace"));
+        assert!(!access.proposes("jc_resource_propose", "Endpoint"));
+        assert!(!access.proposes("jc_endpoint_propose", "Pipeline"));
+        assert!(!Access::default().proposes("jc_resource_propose", "Pipeline"));
     }
 
     #[test]

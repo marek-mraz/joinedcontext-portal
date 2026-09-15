@@ -7,6 +7,7 @@ import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { usePermissions } from "../api/permissions";
+import { takeEditRequest } from "../assistant/state";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { rendersWithDeckGl } from "../components/dashboards/rendering";
@@ -160,6 +161,8 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   const [editingDashboard, setEditingDashboard] = useState<DashboardForm | null>(null);
   const [editingLayer, setEditingLayer] = useState<LayerForm | null>(null);
   const [isNew, setIsNew] = useState(false);
+  // The assistant may have sent the person here with a change to one dashboard or layer (AG-77).
+  const [request, setRequest] = useState(() => takeEditRequest());
   const permissions = usePermissions(project);
   const mayEditDashboard = permissions.can("Dashboard", "propose");
   const mayEditLayer = permissions.can("Layer", "propose");
@@ -183,6 +186,23 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
     [layers.data],
   );
   const endpointManifests = useMemo(() => asManifests(endpoints.data?.items ?? []), [endpoints.data]);
+
+  const requested = request
+    ? ((request.manifest as Manifest | null) ??
+      [...asManifests(dashboards.data?.items ?? []), ...layerManifests].find(
+        (item) => item.metadata.name === request.name,
+      ))
+    : undefined;
+  if (requested) {
+    setRequest(null);
+    setIsNew(false);
+    if (requested.kind === "Layer") {
+      setEditingLayer(layerFromManifest(requested));
+    } else {
+      setSelected(requested.metadata.name);
+      setEditingDashboard(dashboardFromManifest(requested));
+    }
+  }
   const spaceManifests = useMemo(() => asManifests(spaces.data?.items ?? []), [spaces.data]);
   const modelManifests = useMemo(() => asManifests(models.data?.items ?? []), [models.data]);
 

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
+import { rememberPrefill } from "../src/assistant/state";
 import { geojsonUrl } from "../src/routes/DashboardsPage";
 import { layerFromManifest, layerToManifest } from "../src/pages/dashboards/editors";
 
@@ -214,6 +215,20 @@ describe("dashboard editors", () => {
     expect(body.spec.filter).toEqual({ q: "availableBikeNumber>0" });
     expect(body.spec.colorBy).toEqual({ property: "availableBikeNumber", domain: [0, 20] });
     expect(body.spec.visible).toBeUndefined();
+  });
+
+  it("opens a layer's editor on the change the assistant made, and sends nothing until proposed (AG-77)", async () => {
+    rememberPrefill("/projects/helsinki/dashboards?edit=bikes", { ...LAYER, spec: { ...LAYER.spec, style: "heatmap" } });
+    window.history.pushState({}, "", "/projects/helsinki/dashboards?edit=bikes&draft=bikes");
+    const fetchMock = renderDashboards();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(writes(fetchMock)).toHaveLength(0);
+    await userEvent.click(within(dialog).getByRole("button", { name: en.dashboards.propose }));
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const request = writes(fetchMock)[0];
+    expect(new URL(request.url).pathname).toBe("/api/v1/projects/helsinki/layers/bikes");
+    expect(((await request.clone().json()) as { spec: { style: string } }).spec.style).toBe("heatmap");
   });
 
   it("shows the server's reason when a public dashboard would read a private endpoint (UI-19)", async () => {

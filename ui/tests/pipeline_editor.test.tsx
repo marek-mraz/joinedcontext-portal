@@ -9,6 +9,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import type { Manifest } from "../src/api/manifest";
 import type { PipelineForm } from "../src/pages/pipelines/PipelineEditor";
+import { rememberPrefill } from "../src/assistant/state";
 
 // Monaco draws on a canvas and starts a worker, neither of which exists in jsdom. The stand-in
 // is a textarea with the same contract, so what the test exercises is the dialog's own work:
@@ -576,5 +577,24 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     const body = (await request.clone().json()) as { spec: Record<string, unknown>; status?: unknown };
     expect(body.spec).toEqual({ ...EXISTING.spec, period: "10s" });
     expect(body.status).toBeUndefined();
+  });
+
+  it("opens a pipeline's editor on the change the assistant made, and sends nothing until proposed (AG-77)", async () => {
+    const changed = { ...EXISTING, status: undefined, spec: { ...EXISTING.spec, period: "5m" } };
+    rememberPrefill("/projects/banskabystrica/pipelines?edit=aq-mqtt-ingest", changed);
+    window.history.pushState({}, "", "/projects/banskabystrica/pipelines?edit=aq-mqtt-ingest&draft=aq-mqtt-ingest");
+    const fetchMock = renderPipelines();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/^Name/)).toHaveValue("aq-mqtt-ingest");
+    expect(within(dialog).getByLabelText(/^Period/)).toHaveValue("5m");
+    expect(writes(fetchMock)).toHaveLength(0);
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const request = writes(fetchMock)[0];
+    expect(request.method).toBe("PUT");
+    expect(new URL(request.url).pathname).toBe("/api/v1/projects/banskabystrica/pipelines/aq-mqtt-ingest");
+    expect(((await request.clone().json()) as { spec: unknown }).spec).toEqual(changed.spec);
   });
 });

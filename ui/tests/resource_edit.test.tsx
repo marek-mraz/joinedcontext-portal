@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
+import { rememberPrefill } from "../src/assistant/state";
 
 // Monaco needs a canvas and a worker, which jsdom has neither of; a textarea keeps its contract.
 function MockEditor({ value, onChange }: { value: string; onChange?: (value: string) => void }) {
@@ -144,6 +145,24 @@ describe("editing a resource from its list", () => {
     const { dialog } = await openEditor();
     await userEvent.click(within(dialog).getByRole("button", { name: en.resourceEdit.propose }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("spec.endpoint must be an https URL");
+  });
+
+  it("opens the editor on the change the assistant made, and sends nothing until proposed (AG-77)", async () => {
+    rememberPrefill(`/projects/${PROJECT}/csrs?edit=${NAME}`, {
+      ...REGISTRATION,
+      status: undefined,
+      spec: { ...REGISTRATION.spec, contextSpaceRef: "air" },
+    });
+    window.history.pushState({}, "", `/projects/${PROJECT}/csrs?edit=${NAME}&draft=${NAME}`);
+    const fetchMock = renderList({ verbs: ["propose"] });
+    const dialog = await screen.findByRole("dialog");
+    const yaml = (await within(dialog).findByRole("textbox", { name: "YAML" })) as HTMLTextAreaElement;
+    expect((parseYaml(yaml.value) as { spec: unknown }).spec).toEqual({ ...REGISTRATION.spec, contextSpaceRef: "air" });
+    expect(puts(fetchMock)).toHaveLength(0);
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.resourceEdit.propose }));
+    expect(await within(dialog).findByText(CHANGE.metadata.name)).toBeInTheDocument();
+    expect((await puts(fetchMock)[0].json()).spec.contextSpaceRef).toBe("air");
   });
 
   it("opens the editor at once for a page opened to edit one resource", async () => {

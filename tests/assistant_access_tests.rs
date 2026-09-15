@@ -338,6 +338,33 @@ async fn a_profile_without_an_access_block_offers_only_read_only_tools() {
     assert_eq!(tool["status"], "ok", "{tool}");
 }
 
+const CHANGE_SECTION: &str = "## WHEN THE PERSON ASKS TO CHANGE OR REMOVE SOMETHING";
+
+/// A profile that may open changes of pipelines and nothing else.
+fn pipeline_access() -> Value {
+    json!({
+        "operations": ["jc_catalog_search", "jc_resource_propose"],
+        "kinds": [{ "kind": "Pipeline", "verbs": ["read", "propose"] }]
+    })
+}
+
+/// The project's context space, an endpoint into it and the hel-news pipeline that writes there.
+fn news_pipeline() -> Vec<ResourceEnvelope> {
+    let mut seeded = bikes_space();
+    seeded.push(envelope(
+        "Pipeline",
+        "hel-news",
+        "helsinki",
+        json!({
+            "class": "resident",
+            "enabled": true,
+            "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:helsinki-all",
+            "quotas": { "maxMemoryMb": 128, "cpuMillicores": 250 }
+        }),
+    ));
+    seeded
+}
+
 #[tokio::test]
 async fn a_change_to_an_existing_endpoint_opens_its_form_with_the_change_and_keeps_its_slug() {
     let mut endpoint = envelope(
@@ -355,19 +382,21 @@ async fn a_change_to_an_existing_endpoint_opens_its_form_with_the_change_and_kee
         .metadata
         .labels
         .insert("joinedcontext.com/space".into(), "helsinki".into());
+    let mut seeded = bikes_space();
+    seeded.push(endpoint);
     let (state, events, prompts) = converse_with(
         None,
         person("admin@hel.fi", &["portal-approver"]),
         Conversation {
-            answer: "I will add CSV to the news endpoint.\n\n```json\n{\"tool\":\"edit_endpoint\",\"name\":\"helsinki-news\",\"addRepresentations\":[\"csv\"]}\n```\n",
+            answer: "I will add CSV to the news endpoint.\n\n```json\n{\"tool\":\"change_resource\",\"kind\":\"Endpoint\",\"name\":\"helsinki-news\",\"patch\":{\"spec\":{\"enabledRepresentations\":[\"ngsi-ld\",\"geojson\",\"csv\"]}}}\n```\n",
             message: "Add csv to helsinki-news",
-            tool: "edit_endpoint",
-            seeded: vec![endpoint],
+            tool: "change_resource",
+            seeded,
         },
     )
     .await;
 
-    assert!(prompts.contains("## WHEN THE PERSON ASKS TO CHANGE AN ENDPOINT"));
+    assert!(prompts.contains(CHANGE_SECTION));
     assert!(
         prompts.contains("helsinki-news"),
         "the model is shown the endpoint"
@@ -375,8 +404,8 @@ async fn a_change_to_an_existing_endpoint_opens_its_form_with_the_change_and_kee
     let tool = &events[0].payload;
     assert_eq!(tool["status"], "ok", "{tool}");
     assert_eq!(
-        tool["output"]["changes"],
-        json!([{ "field": "enabledRepresentations", "before": ["ngsi-ld", "geojson"], "after": ["ngsi-ld", "geojson", "csv"] }])
+        tool["output"],
+        json!({ "kind": "Endpoint", "name": "helsinki-news", "checked": true })
     );
     let draft = state
         .drafts
@@ -411,6 +440,196 @@ async fn a_change_to_an_existing_endpoint_opens_its_form_with_the_change_and_kee
         navigate.payload["prefill"]["enabledRepresentations"],
         json!(["ngsi-ld", "geojson", "csv"])
     );
+}
+
+#[tokio::test]
+async fn pausing_a_pipeline_opens_its_editor_with_the_patched_manifest_and_proposes_nothing() {
+    let (state, events, prompts) = converse_with(
+        Some(pipeline_access()),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: "Pausing the news pipeline.\n\n```json\n{\"tool\":\"change_resource\",\"kind\":\"Pipeline\",\"name\":\"hel-news\",\"patch\":{\"spec\":{\"enabled\":false}}}\n```\n",
+            message: "Pause the hel-news pipeline",
+            tool: "change_resource",
+            seeded: news_pipeline(),
+        },
+    )
+    .await;
+
+    assert!(prompts.contains(CHANGE_SECTION));
+    assert!(
+        prompts.contains("hel-news"),
+        "the model is shown the pipeline"
+    );
+    assert!(
+        !prompts.contains("\"ContextSpace\": ["),
+        "a kind outside the profile is not offered"
+    );
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "ok", "{tool}");
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the editor opens");
+    assert_eq!(
+        navigate.payload["route"],
+        "/projects/helsinki/pipelines?edit=hel-news"
+    );
+    assert_eq!(
+        navigate.payload["draft"],
+        json!({ "kind": "Pipeline", "name": "hel-news" })
+    );
+    let prefill = &navigate.payload["prefill"];
+    assert_eq!(prefill["kind"], "Pipeline");
+    assert_eq!(prefill["spec"]["enabled"], false);
+    assert_eq!(prefill["spec"]["class"], "resident");
+    assert!(prefill.get("status").is_none(), "{prefill}");
+    assert_eq!(
+        state
+            .drafts
+            .get("helsinki", "Pipeline", "hel-news")
+            .await
+            .expect("drafts")
+            .expect("the change is the person's draft")
+            .manifest["spec"]["enabled"],
+        false
+    );
+    // The pipeline itself is untouched: only the person's proposal changes it.
+    let stored = state
+        .mirror
+        .get("helsinki", "Pipeline", "hel-news")
+        .expect("pipeline");
+    assert_eq!(stored.spec["enabled"], true);
+    assert!(events.iter().all(|e| e.kind != "change"));
+}
+
+#[tokio::test]
+async fn a_change_the_check_refuses_goes_back_to_the_model_with_the_findings() {
+    let (state, events, prompts) = converse_with(
+        Some(pipeline_access()),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: "```json\n{\"tool\":\"change_resource\",\"kind\":\"Pipeline\",\"name\":\"hel-news\",\"patch\":{\"spec\":{\"class\":\"whenever\"}}}\n```",
+            message: "Run hel-news whenever",
+            tool: "change_resource",
+            seeded: news_pipeline(),
+        },
+    )
+    .await;
+
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "failed", "{tool}");
+    assert!(
+        prompts.contains("the platform's check refuses the change"),
+        "the findings are sent back to the model"
+    );
+    assert!(events.iter().all(|e| e.kind != "navigate"));
+    assert!(state
+        .drafts
+        .get("helsinki", "Pipeline", "hel-news")
+        .await
+        .expect("drafts")
+        .is_none());
+}
+
+#[tokio::test]
+async fn a_change_to_a_name_that_does_not_exist_answers_the_real_ones() {
+    let (_, events, prompts) = converse_with(
+        Some(pipeline_access()),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: "```json\n{\"tool\":\"change_resource\",\"kind\":\"Pipeline\",\"name\":\"hel-parking\",\"patch\":{\"spec\":{\"enabled\":false}}}\n```",
+            message: "Pause the parking pipeline",
+            tool: "change_resource",
+            seeded: news_pipeline(),
+        },
+    )
+    .await;
+
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "failed", "{tool}");
+    assert!(
+        tool["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("hel-parking") && e.contains("hel-news")),
+        "{tool}"
+    );
+    assert!(prompts.contains("the project's are hel-news"));
+    assert!(events.iter().all(|e| e.kind != "navigate"));
+}
+
+#[tokio::test]
+async fn a_kind_outside_the_profile_is_refused_with_the_reason() {
+    let (_, events, _) = converse_with(
+        Some(pipeline_access()),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: "```json\n{\"tool\":\"change_resource\",\"kind\":\"ContextSpace\",\"name\":\"helsinki\",\"delete\":true}\n```",
+            message: "Remove the helsinki space",
+            tool: "change_resource",
+            seeded: news_pipeline(),
+        },
+    )
+    .await;
+
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "failed", "{tool}");
+    assert!(
+        tool["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("propose on ContextSpace")),
+        "{tool}"
+    );
+    assert!(events.iter().all(|e| e.kind != "navigate"));
+}
+
+#[tokio::test]
+async fn a_removal_opens_the_typed_confirmation_of_the_resource_and_a_person_without_delete_is_refused(
+) {
+    let access = json!({
+        "operations": ["jc_resource_propose"],
+        "kinds": [{ "kind": "ContextSpace", "verbs": ["read", "propose"] }]
+    });
+    let removal = "Opening its removal.\n\n```json\n{\"tool\":\"change_resource\",\"kind\":\"ContextSpace\",\"name\":\"helsinki\",\"delete\":true}\n```\n";
+    let (_, events, _) = converse_with(
+        Some(access.clone()),
+        person("admin@hel.fi", &["portal-approver"]),
+        Conversation {
+            answer: removal,
+            message: "Remove the helsinki space",
+            tool: "change_resource",
+            seeded: bikes_space(),
+        },
+    )
+    .await;
+    assert_eq!(events[0].payload["status"], "ok", "{}", events[0].payload);
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the removal dialog opens");
+    assert_eq!(
+        navigate.payload,
+        json!({ "route": "/projects/helsinki/spaces?delete=helsinki" })
+    );
+
+    // The reader may start a conversation but holds no delete on context spaces.
+    let (_, events, _) = converse_with(
+        Some(access),
+        person("reader@hel.fi", &[]),
+        Conversation {
+            answer: removal,
+            message: "Remove the helsinki space",
+            tool: "change_resource",
+            seeded: bikes_space(),
+        },
+    )
+    .await;
+    assert_eq!(
+        events[0].payload["status"], "failed",
+        "{}",
+        events[0].payload
+    );
+    assert!(events.iter().all(|e| e.kind != "navigate"));
 }
 
 #[tokio::test]
@@ -476,7 +695,7 @@ async fn a_feed_url_with_a_description_is_integrated_as_drafts_the_person_review
 }
 
 #[tokio::test]
-async fn a_change_to_an_endpoint_that_does_not_exist_names_the_real_ones_and_opens_nothing() {
+async fn an_edit_endpoint_call_of_the_earlier_prompt_still_names_the_real_endpoints() {
     let endpoint = envelope(
         "Endpoint",
         "helsinki-news",

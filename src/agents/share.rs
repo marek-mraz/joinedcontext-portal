@@ -325,13 +325,11 @@ pub struct FieldChange {
     pub after: Value,
 }
 
-/// An edited endpoint: the manifest with the change, the values the endpoint form opens with,
-/// and what changed.
+/// An edited endpoint: the manifest with the change and what changed.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Edit {
     pub endpoint: Value,
-    pub prefill: Value,
     pub changes: Vec<FieldChange>,
 }
 
@@ -529,12 +527,7 @@ pub fn edit(endpoints: &[Value], params: &EditEndpoint) -> Result<Edit, String> 
     if changes.is_empty() {
         return Err(format!("the request changes nothing on '{name}'"));
     }
-    let prefill = form_values(&endpoint);
-    Ok(Edit {
-        endpoint,
-        prefill,
-        changes,
-    })
+    Ok(Edit { endpoint, changes })
 }
 
 /// A title as one string: the manifest's own string, or the English (else first) entry of the
@@ -553,7 +546,7 @@ fn plain_title(title: &Value) -> String {
 }
 
 /// The values the endpoint form opens with for an endpoint that exists (`existing: true`).
-fn form_values(endpoint: &Value) -> Value {
+pub fn form_values(endpoint: &Value) -> Value {
     let spec = &endpoint["spec"];
     let mut prefill = json!({
         "existing": true,
@@ -593,32 +586,10 @@ pub fn edit_call(answer: &str) -> Option<Result<EditEndpoint, String>> {
     None
 }
 
-/// What the model is shown of the project's endpoints, so it names one that exists.
-pub fn endpoint_summaries(endpoints: &[Value]) -> Value {
-    Value::Array(
-        endpoints
-            .iter()
-            .map(|endpoint| {
-                let spec = &endpoint["spec"];
-                json!({
-                    "name": endpoint["metadata"]["name"],
-                    "title": endpoint["metadata"].get("title").map(plain_title),
-                    "contextSpace": spec["contextSpaceRef"],
-                    "audience": spec["audience"],
-                    "representations": spec["enabledRepresentations"],
-                    "allowedProjects": spec.get("allowedProjects"),
-                    "hiddenAttributes": spec["projection"].get("hiddenAttributes"),
-                    "requestsPerMinute": spec["rateLimits"].get("requestsPerMinute"),
-                })
-            })
-            .collect(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        edit, edit_call, prose_of, render, slug, tool_call, EditEndpoint, FieldChange,
+        edit, edit_call, form_values, prose_of, render, slug, tool_call, EditEndpoint, FieldChange,
         ProposeEndpoint,
     };
     use crate::change::Lane;
@@ -785,13 +756,11 @@ mod tests {
                 after: json!(["csv", "geojson"]),
             }]
         );
-        assert_eq!(edited.prefill["existing"], true);
-        assert_eq!(edited.prefill["slug"], "abcdefghijklmnopqrstuvwxyz");
-        assert_eq!(edited.prefill["title"], "Helsinki indicators");
-        assert_eq!(
-            edited.prefill["allowedProjects"],
-            json!(["helsinki-mobility"])
-        );
+        let form = form_values(&edited.endpoint);
+        assert_eq!(form["existing"], true);
+        assert_eq!(form["slug"], "abcdefghijklmnopqrstuvwxyz");
+        assert_eq!(form["title"], "Helsinki indicators");
+        assert_eq!(form["allowedProjects"], json!(["helsinki-mobility"]));
     }
 
     #[test]
@@ -819,8 +788,9 @@ mod tests {
                 "requestsPerMinute"
             ]
         );
-        assert_eq!(edited.prefill["allowedProjects"], json!([]));
-        assert_eq!(edited.prefill["hiddenAttributes"], json!(["address"]));
+        let form = form_values(&edited.endpoint);
+        assert_eq!(form["allowedProjects"], json!([]));
+        assert_eq!(form["hiddenAttributes"], json!(["address"]));
     }
 
     #[test]

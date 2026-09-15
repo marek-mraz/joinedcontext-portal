@@ -11,7 +11,7 @@ import { ChangeNotice } from "../components/ChangeNotice";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { PipelineEditorDialog } from "../pages/pipelines/PipelineEditor";
 import type { PipelineForm, toEnvelope } from "../pages/pipelines/PipelineEditor";
-import { takePrefill } from "../assistant/state";
+import { takeEditRequest, takePrefill } from "../assistant/state";
 import { PermissionGuard } from "../components/ui/PermissionGuard";
 import {
   Alert,
@@ -169,13 +169,15 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Manifest | null>(null);
-  // The assistant may have sent the person here with a form in hand (UI-45): taken once,
-  // before the first render, so the editor is open from the start and a reload starts clean.
-  const [initial] = useState(
-    () => (takePrefill(window.location.pathname) as PipelineForm | null) ?? undefined,
+  // The assistant may have sent the person here with a form in hand (UI-45), or with a change
+  // to one pipeline (`?edit=`, AG-77): taken once, before the first render, so the editor is
+  // open from the start and a reload starts clean.
+  const [request, setRequest] = useState(() => takeEditRequest());
+  const [editing, setEditing] = useState<Manifest | null>(() => (request?.manifest as Manifest | null) ?? null);
+  const [initial] = useState(() =>
+    request ? undefined : ((takePrefill(window.location.pathname) as PipelineForm | null) ?? undefined),
   );
-  const [dialogOpen, setDialogOpen] = useState(initial !== undefined);
+  const [dialogOpen, setDialogOpen] = useState(initial !== undefined || editing !== null);
   const { can } = usePermissions(project);
   const mayPropose = can("Pipeline", "propose");
   const [formError, setFormError] = useState<string | null>(null);
@@ -268,6 +270,17 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
       );
     },
   });
+
+  // A link to one pipeline's editor without a change in hand opens the stored manifest once the
+  // list has it.
+  const requested =
+    request && !request.manifest
+      ? asManifests(list.data?.items ?? []).find((pipeline) => pipeline.metadata.name === request.name)
+      : undefined;
+  if (requested) {
+    setRequest(null);
+    openEditor(requested);
+  }
 
   function openEditor(pipeline: Manifest | null) {
     setEditing(pipeline);

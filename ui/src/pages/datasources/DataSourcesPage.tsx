@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { usePermissions } from "../../api/permissions";
-import { takePrefill } from "../../assistant/state";
+import { takeEditRequest, takePrefill } from "../../assistant/state";
 import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, plainTitle, prune } from "../../api/manifest";
@@ -251,7 +251,12 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
     return new URLSearchParams(window.location.search).get("draft") ?? undefined;
   });
 
+  // Or with a change to one source (`?edit=`, AG-77), opened in its editor below.
+  const [request, setRequest] = useState(() => takeEditRequest());
   const [initial] = useState(() => {
+    if (request) {
+      return undefined;
+    }
     const taken = takePrefill(window.location.pathname) as (DataSourceForm & { type?: unknown }) | null;
     if (!taken) {
       return undefined;
@@ -282,6 +287,13 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   });
 
   const sources = useMemo(() => asManifests(list.data?.items ?? []), [list.data]);
+  const requested = request
+    ? ((request.manifest as Manifest | null) ?? sources.find((source) => source.metadata.name === request.name))
+    : undefined;
+  if (requested) {
+    setRequest(null);
+    openEdit(requested);
+  }
   const secrets = useMemo(() => knownSecretNames(sources), [sources]);
 
   const runnerCatalogInput = catalog?.inputs.find((i) => i.name === type);

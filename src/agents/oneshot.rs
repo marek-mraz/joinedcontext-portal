@@ -25,10 +25,12 @@ use crate::agents::preview;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
-use crate::agents::{data_query, fields, kpi, kpi_pipeline, share, verification};
+use crate::agents::{change, data_query, fields, kpi, kpi_pipeline, share, verification};
 use crate::auth::session::Identity;
 use crate::git::gitea::{Author, FileWrite, GitError};
+use crate::resource::Scope;
 use crate::state::AppState;
+use jc_core::kinds::Verb;
 
 /// Entities read per type as the model's sample of the data (AP-57).
 const SAMPLES_PER_TYPE: u32 = 5;
@@ -1474,6 +1476,20 @@ impl Driver {
             }
 
             let last = drafts + 1 >= data_query::MAX_DRAFTS;
+            if let Some(call) = change::tool_call(&answer) {
+                let input = call
+                    .as_ref()
+                    .ok()
+                    .and_then(|c| serde_json::to_value(c).ok());
+                match self.change_resource(call, &answer, last).await? {
+                    Worked::Done(prose) => return Ok(prose),
+                    Worked::Again(reason) => {
+                        drafts += 1;
+                        results.push((drafted("change_resource", input), reason));
+                        continue;
+                    }
+                }
+            }
             if let Some(call) = kpi_pipeline::tool_call(&answer) {
                 let input = call
                     .as_ref()
@@ -1719,43 +1735,45 @@ To build an application or a dashboard, explain in one or two plain sentences th
 "#,
             project = self.project
         ));
-        let endpoints = self.project_endpoints();
-        if !endpoints.is_empty() {
+        let changeable = self.changeable();
+        if !changeable.is_empty() {
             pack.push_str(&format!(
                 r#"
-## WHEN THE PERSON ASKS TO CHANGE AN ENDPOINT
+## WHEN THE PERSON ASKS TO CHANGE OR REMOVE SOMETHING
 
-A request to change an endpoint that exists: make it public, add or remove a format, hide or show
-an attribute, let another project read it, change its title or its rate limit. Name only an
-endpoint from this list, the project's endpoints as they are now:
+A request to change or remove a resource that exists: pause or resume a pipeline, change an
+endpoint's audience, formats or rate limit, retitle a space, remove one. Name only a resource from
+this list, the project's resources you may change as they are now, by kind:
 
 ```json
-{summaries}
+{changeable}
 ```
 
-Answer with one or two plain sentences and then ONE fenced JSON block, nothing else, carrying
-only the fields that change:
+Answer with one or two plain sentences and then ONE fenced JSON block, nothing else. A change
+carries only the fields that change, as a JSON merge patch of the manifest (`null` removes a
+field):
 
 ```json
 {{
-  "tool": "edit_endpoint",
-  "name": "<an endpoint name from the list>",
-  "title": "<the new title>",
-  "audience": "public | organization | project-list",
-  "allowedProjects": ["<every project that may read it, when the audience is project-list>"],
-  "addRepresentations": ["<formats to add: {representations}>"],
-  "removeRepresentations": ["<formats to remove>"],
-  "hiddenAttributes": ["<every attribute hidden after the change>"],
-  "requestsPerMinute": 600
+  "tool": "change_resource",
+  "kind": "<a kind from the list>",
+  "name": "<a name listed under that kind>",
+  "patch": {{ "spec": {{ "<field>": "<its new value>" }} }}
 }}
 ```
 
-The platform opens the endpoint's form with the change filled in; the person reviews it and
-proposes it.
+When you do not know the manifest's fields, send the call without `patch` first: the platform
+answers with the manifest as it is, and you send the patch next. A removal:
+
+```json
+{{ "tool": "change_resource", "kind": "<a kind from the list>", "name": "<its name>", "delete": true }}
+```
+
+The platform checks the change and opens the resource's form with it filled in, or its removal
+dialog; the person reviews it there and proposes it. You never propose, approve or remove
+anything yourself.
 "#,
-                summaries = serde_json::to_string_pretty(&share::endpoint_summaries(&endpoints))
-                    .unwrap_or_default(),
-                representations = share::REPRESENTATIONS.join(", "),
+                changeable = serde_json::to_string_pretty(&changeable).unwrap_or_default(),
             ));
         }
 
@@ -3254,6 +3272,313 @@ proposes it.
         }
     }
 
+    /// Whether this run may open a change of `kind` for the person (AG-70): the profile names
+    /// `jc_resource_propose` with `propose` on the kind, or shares endpoints and the kind is
+    /// Endpoint; and the person holds the verb, `delete` for a removal.
+    fn may_change(&self, kind: &str, verb: Verb) -> Result<(), String> {
+        let shares = kind == "Endpoint" && self.granted("jc_endpoint_propose").is_ok();
+        if !shares && !self.access.proposes("jc_resource_propose", kind) {
+            return Err(format!(
+                "the agent profile does not grant propose on {kind} through jc_resource_propose (AG-70)"
+            ));
+        }
+        crate::permissions::for_request(&self.state, &self.identity, &self.project)
+            .check(kind, verb, None)
+            .map_err(|err| err.to_string())
+    }
+
+    /// The project's resources this run may change, by kind, so the model names one that exists.
+    fn changeable(&self) -> BTreeMap<&'static str, Vec<String>> {
+        crate::resource::kinds()
+            .filter(|info| info.scope == Scope::Project)
+            .filter(|info| self.may_change(info.kind, Verb::Propose).is_ok())
+            .filter_map(|info| {
+                let names = self.names_of(info.kind);
+                (!names.is_empty()).then_some((info.kind, names))
+            })
+            .collect()
+    }
+
+    fn names_of(&self, kind: &str) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .state
+            .mirror
+            .list(&self.project, kind, &crate::store::ListOptions::default())
+            .items
+            .into_iter()
+            .map(|envelope| envelope.metadata.name)
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// A change or a removal of a resource the conversation names (AG-77, AG-73). What the model
+    /// got wrong goes back to it while drafts are left: an unknown kind or name with the real
+    /// ones, a patch the check refuses with the reason and the manifest as it is. Nothing is
+    /// proposed; the kind's page opens on the change or the removal for the person.
+    async fn change_resource(
+        &self,
+        call: Result<change::ChangeResource, String>,
+        answer: &str,
+        last: bool,
+    ) -> Result<Worked, String> {
+        const TOOL: &str = "change_resource";
+        let started = std::time::Instant::now();
+        let failed = |input: &Value, reason: &str| {
+            json!({
+                "tool": TOOL,
+                "status": "failed",
+                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "input": input,
+                "error": reason,
+            })
+        };
+        let params = match call {
+            Ok(params) => params,
+            Err(reason) => {
+                self.event("tool", failed(&Value::Null, &reason)).await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}"),
+                        format!("The change could not be read: {reason}"),
+                    )
+                    .await;
+            }
+        };
+        let input = serde_json::to_value(&params).unwrap_or(Value::Null);
+        let changeable = self.changeable();
+        let Some(info) = crate::resource::by_kind(params.kind.trim())
+            .filter(|info| info.scope == Scope::Project)
+        else {
+            let kinds: Vec<&str> = changeable.keys().copied().collect();
+            let reason = format!(
+                "'{}' is not a kind of this project; the kinds you may change are {}",
+                params.kind,
+                kinds.join(", ")
+            );
+            self.event("tool", failed(&input, &reason)).await?;
+            return self
+                .again(
+                    last,
+                    format!("error: {reason}"),
+                    format!("That could not be changed: {reason}"),
+                )
+                .await;
+        };
+        // A model's classes and attributes live in its LinkML source, not in the manifest.
+        if info.kind == "DataModel" && !params.delete {
+            let reason = "a data model's classes and attributes are changed in its editor on the \
+                          Models page, not by a manifest patch";
+            self.event("tool", failed(&input, reason)).await?;
+            return self
+                .again(
+                    last,
+                    format!("error: {reason}"),
+                    format!("That could not be changed here: {reason}."),
+                )
+                .await;
+        }
+        let verb = if params.delete {
+            Verb::Delete
+        } else {
+            Verb::Propose
+        };
+        if let Err(reason) = self.may_change(info.kind, verb) {
+            return self
+                .refused(TOOL, started, input, reason)
+                .await
+                .map(Worked::Done);
+        }
+        let name = params.name.trim();
+        let Some(current) = self.state.mirror.get(&self.project, info.kind, name) else {
+            let names = self.names_of(info.kind);
+            let reason = if names.is_empty() {
+                format!(
+                    "{} '{name}' does not exist; the project has no {}",
+                    info.kind, info.kind
+                )
+            } else {
+                format!(
+                    "{} '{name}' does not exist; the project's are {}",
+                    info.kind,
+                    names.join(", ")
+                )
+            };
+            self.event("tool", failed(&input, &reason)).await?;
+            return self
+                .again(
+                    last,
+                    format!("error: {reason}"),
+                    format!("That could not be changed: {reason}"),
+                )
+                .await;
+        };
+        let route = change::route(&self.project, info.kind, info.plural, name, params.delete);
+        let draft = json!({ "kind": info.kind, "name": name });
+
+        if params.delete {
+            self.event(
+                "tool",
+                json!({
+                    "tool": TOOL,
+                    "status": "ok",
+                    "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "input": input,
+                    "output": { "kind": info.kind, "name": name, "delete": true },
+                }),
+            )
+            .await?;
+            let mut prose = share::prose_of(answer);
+            if prose.is_empty() {
+                prose =
+                    format!("Opened the removal of '{name}'; type its name there to propose it.");
+            }
+            self.thought(&prose).await?;
+            self.event("navigate", json!({ "route": route })).await?;
+            return Ok(Worked::Done(prose));
+        }
+
+        let mut current = serde_json::to_value(&current).map_err(|err| err.to_string())?;
+        if let Value::Object(fields) = &mut current {
+            fields.remove("status");
+        }
+        let Some(patch) = params.patch.as_ref() else {
+            // A call without a patch reads the manifest first, so the next one names real fields.
+            return self
+                .again(
+                    last,
+                    format!("the manifest of {} '{name}' as it is: {current}; answer with change_resource and a patch of the fields that change", info.kind),
+                    format!("I could not tell what to change in '{name}'; say which field and value."),
+                )
+                .await;
+        };
+        let manifest = match change::patched(&current, patch) {
+            Ok(manifest) => manifest,
+            Err(reason) => {
+                self.event("tool", failed(&input, &reason)).await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}; the manifest as it is: {current}"),
+                        format!("The change to '{name}' could not be made: {reason}"),
+                    )
+                    .await;
+            }
+        };
+        self.open_change(
+            info, name, manifest, answer, TOOL, input, started, last, route, draft,
+        )
+        .await
+    }
+
+    /// The patched manifest checked by the dry run every channel uses (AG-77), kept as the
+    /// person's draft and opened on the kind's page. A refused check goes back to the model.
+    #[allow(clippy::too_many_arguments)]
+    async fn open_change(
+        &self,
+        info: &crate::resource::KindInfo,
+        name: &str,
+        manifest: Value,
+        answer: &str,
+        tool: &str,
+        input: Value,
+        started: std::time::Instant,
+        last: bool,
+        route: String,
+        draft: Value,
+    ) -> Result<Worked, String> {
+        let millis = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let refused = match crate::api::dry_run::execute_dry_run(
+            &self.identity,
+            &self.state,
+            &self.project,
+            manifest.clone(),
+        )
+        .await
+        {
+            Ok(result) if result.valid => None,
+            Ok(result) => Some(format!(
+                "the plan does not validate: {}",
+                serde_json::to_string(&result.plan).unwrap_or_default()
+            )),
+            Err(err) => Some(err.to_string()),
+        };
+        if let Some(findings) = refused {
+            self.event(
+                "tool",
+                json!({
+                    "tool": tool,
+                    "status": "failed",
+                    "durationMs": millis(),
+                    "input": input,
+                    "error": findings,
+                }),
+            )
+            .await?;
+            return self
+                .again(
+                    last,
+                    format!("error: the platform's check refuses the change: {findings}; the changed manifest was {manifest}"),
+                    format!("The change to '{name}' does not pass the platform's check: {findings}"),
+                )
+                .await;
+        }
+        if let Err(err) = self
+            .state
+            .drafts
+            .put(
+                &self.project,
+                info.kind,
+                name,
+                manifest.clone(),
+                None,
+                &self.created_by,
+                "assistant",
+            )
+            .await
+        {
+            tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change draft not kept");
+        }
+        self.event(
+            "tool",
+            json!({
+                "tool": tool,
+                "status": "ok",
+                "durationMs": millis(),
+                "input": input,
+                "output": { "kind": info.kind, "name": name, "checked": true },
+            }),
+        )
+        .await?;
+        let mut prose = share::prose_of(answer);
+        if prose.is_empty() {
+            prose = format!("Opened '{name}' with the change; review it and propose it.");
+        }
+        self.thought(&prose).await?;
+        // The endpoint form reads its own values; every other page opens on the manifest.
+        let prefill = if info.kind == "Endpoint" {
+            share::form_values(&manifest)
+        } else {
+            manifest
+        };
+        self.event(
+            "navigate",
+            json!({ "route": route, "prefill": prefill, "draft": draft }),
+        )
+        .await?;
+        Ok(Worked::Done(prose))
+    }
+
+    /// What goes back to the model while drafts are left, or the person's answer on the last one.
+    async fn again(&self, last: bool, reason: String, prose: String) -> Result<Worked, String> {
+        if last {
+            self.thought(&prose).await?;
+            return Ok(Worked::Done(prose));
+        }
+        Ok(Worked::Again(reason))
+    }
+
     /// The project's endpoints as manifests, from the Portal's mirror of the repository.
     fn project_endpoints(&self) -> Vec<Value> {
         self.state
@@ -3269,103 +3594,67 @@ proposes it.
             .collect()
     }
 
-    /// A change to an endpoint that exists (EP-72, AG-56): the edited manifest is kept as the
-    /// person's draft and the endpoint form opens on it with the change filled in. Nothing is
-    /// proposed here; the person reviews the form and proposes it.
+    /// The `edit_endpoint` call of the earlier prompt, still read for one release (EP-72, AG-77):
+    /// the edit becomes the endpoint's changed manifest and opens like a `change_resource` change.
     async fn edit_endpoint(
         &self,
         call: Result<share::EditEndpoint, String>,
         answer: &str,
     ) -> Result<String, String> {
+        const TOOL: &str = "edit_endpoint";
         let started = std::time::Instant::now();
-        let millis = |started: std::time::Instant| {
-            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+        let failed = |input: &Value, reason: &str| {
+            json!({
+                "tool": TOOL,
+                "status": "failed",
+                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "input": input,
+                "error": reason,
+            })
         };
         let params = match call {
             Ok(params) => params,
             Err(reason) => {
-                self.event(
-                    "tool",
-                    json!({
-                        "tool": "edit_endpoint",
-                        "status": "failed",
-                        "durationMs": millis(started),
-                        "error": reason,
-                    }),
-                )
-                .await?;
+                self.event("tool", failed(&Value::Null, &reason)).await?;
                 let prose = format!("The change could not be read: {reason}");
                 self.thought(&prose).await?;
                 return Ok(prose);
             }
         };
         let input = serde_json::to_value(&params).unwrap_or(Value::Null);
-        if let Err(reason) = self.granted("jc_endpoint_propose") {
-            return self.refused("edit_endpoint", started, input, reason).await;
+        if let Err(reason) = self.may_change("Endpoint", Verb::Propose) {
+            return self.refused(TOOL, started, input, reason).await;
         }
         let edit = match share::edit(&self.project_endpoints(), &params) {
             Ok(edit) => edit,
             Err(reason) => {
-                self.event(
-                    "tool",
-                    json!({
-                        "tool": "edit_endpoint",
-                        "status": "failed",
-                        "durationMs": millis(started),
-                        "input": input,
-                        "error": reason,
-                    }),
-                )
-                .await?;
+                self.event("tool", failed(&input, &reason)).await?;
                 let prose = format!("The endpoint could not be changed: {reason}");
                 self.thought(&prose).await?;
                 return Ok(prose);
             }
         };
-        let name = params.name.trim().to_owned();
-        self.event(
-            "tool",
-            json!({
-                "tool": "edit_endpoint",
-                "status": "ok",
-                "durationMs": millis(started),
-                "input": input,
-                "output": { "name": name, "changes": edit.changes },
-            }),
-        )
-        .await?;
-        let mut prose = share::prose_of(answer);
-        if prose.is_empty() {
-            let fields: Vec<&str> = edit.changes.iter().map(|c| c.field.as_str()).collect();
-            prose = format!(
-                "Opened '{name}' with the new {}; review it in the form and propose it.",
-                fields.join(", ")
-            );
-        }
-        self.thought(&prose).await?;
-        let _ = self
-            .state
-            .drafts
-            .put(
-                &self.project,
-                "Endpoint",
-                &name,
+        let name = params.name.trim();
+        let info = crate::resource::by_kind("Endpoint").ok_or("Endpoint is not a kind")?;
+        let route = change::route(&self.project, info.kind, info.plural, name, false);
+        let draft = json!({ "kind": info.kind, "name": name });
+        match self
+            .open_change(
+                info,
+                name,
                 edit.endpoint,
-                None,
-                &self.created_by,
-                "assistant",
+                answer,
+                TOOL,
+                input,
+                started,
+                true,
+                route,
+                draft,
             )
-            .await;
-        self.event(
-            "navigate",
-            json!({
-                "route": format!("/projects/{}/endpoints", self.project),
-                "prefill": edit.prefill,
-                "draft": { "kind": "Endpoint", "name": name },
-            }),
-        )
-        .await?;
-        Ok(prose)
+            .await?
+        {
+            Worked::Done(prose) | Worked::Again(prose) => Ok(prose),
+        }
     }
 
     /// The catalog search over the person's words, published as the `search_catalog` tool
@@ -3956,13 +4245,9 @@ fn needs_served(data_needs: &Value, index: Option<&Value>) -> Value {
 }
 
 /// The prompt section that teaches each tool, by heading, and the operation behind the tool.
-const TOOL_SECTIONS: [(&str, &str); 5] = [
+const TOOL_SECTIONS: [(&str, &str); 4] = [
     (
         "## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA",
-        "jc_endpoint_propose",
-    ),
-    (
-        "## WHEN THE PERSON ASKS TO CHANGE AN ENDPOINT",
         "jc_endpoint_propose",
     ),
     ("## WHEN THE PERSON ASKS FOR AN INDICATOR", "jc_kpi_compute"),

@@ -139,6 +139,24 @@ export function takePrefill(pathname: string): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * The resource a page was opened to change (`?edit=<name>`, AG-77), with the changed manifest the
+ * assistant left for this path when it left one; the prefill is taken once. With `name`, only a
+ * request for that resource is taken, so each row of a list can ask for its own.
+ */
+export function takeEditRequest(name?: string): { name: string; manifest: Record<string, unknown> | null } | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const edit = new URLSearchParams(window.location.search).get("edit");
+  if (!edit || (name !== undefined && edit !== name)) {
+    return null;
+  }
+  const prefill = takePrefill(window.location.pathname);
+  const named = (prefill?.metadata as { name?: unknown } | undefined)?.name === edit;
+  return { name: edit, manifest: named ? prefill : null };
+}
+
 /** What the panel opens on: the chat, or the app builder (`build`). */
 export type OpenIntent = "chat" | "build";
 
