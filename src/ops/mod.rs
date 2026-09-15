@@ -13,6 +13,7 @@ use std::pin::Pin;
 use std::sync::OnceLock;
 
 pub mod drafts;
+pub mod feed_shape;
 pub mod resources;
 pub mod space_complete;
 pub mod verdict;

@@ -497,3 +497,194 @@ async fn a_type_name_that_is_not_pascal_case_or_a_description_too_long_is_refuse
         );
     }
 }
+
+#[tokio::test]
+async fn a_feeds_records_become_the_model_the_mapping_and_a_map_dashboard_with_fresh_verdicts() {
+    // AG-79: a GBFS-shaped sample; the records are `data.stations`, not the envelope around them.
+    let mut config = Config::for_tests();
+    let model_tools = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/infer-schema"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "linkml": "id: https://example.com/stations\nclasses:\n  BikeHireDockingStation:\n    is_a: Entity\n    slots: [station_id, name, last_reported, capacity, rentalUris]\nslots:\n  station_id: { range: string }\n  name: { range: string }\n  last_reported: { range: integer }\n  capacity: { range: integer }\n  rentalUris: { range: string, title: { en: rental_uris } }\n"
+        })))
+        .mount(&model_tools)
+        .await;
+    config.model_tools_url = Some(model_tools.uri());
+    let state = AppState::new(config.clone(), None);
+    let app = server::app(state);
+    let cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@hel.fi"),
+        vec!["portal-approver"],
+        vec![],
+    );
+    let stations = json!({
+        "last_updated": 1789460937, "ttl": 60, "version": "2.2",
+        "data": { "stations": [
+            { "station_id": "008", "name": "Vanha kirkkopuisto", "lat": 60.165288, "lon": 24.93915, "capacity": 24, "last_reported": 1, "rental_uris": {} },
+            { "station_id": "015", "name": "Ritarikatu", "lat": 60.171609, "lon": 24.956159, "capacity": 18, "last_reported": 2, "rental_uris": {} }
+        ] }
+    });
+    let payload = json!({
+        "space": "city-bikes",
+        "typeName": "BikeHireDockingStation",
+        "description": "The city bike stations of Helsinki with their capacity.",
+        "files": [
+            { "name": "station_information.json", "content": stations.to_string() },
+            { "name": "README.md", "content": "Data comes from https://example.invalid/gbfs/station_information.json" }
+        ]
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/ops/jc_space_complete")
+                .header(header::COOKIE, cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+
+    // The model is inferred from the two stations, not from the document around them.
+    let sent = &model_tools.received_requests().await.expect("recorded")[0];
+    let sent: Value = serde_json::from_slice(&sent.body).expect("json body");
+    use base64::Engine as _;
+    let sample: Value = serde_json::from_slice(
+        &base64::engine::general_purpose::STANDARD
+            .decode(sent["content"].as_str().unwrap())
+            .unwrap(),
+    )
+    .expect("the records");
+    assert_eq!(sample.as_array().map(Vec::len), Some(2), "{sample}");
+    assert_eq!(sample[0]["station_id"], "008");
+
+    let mapping = draft(&body, "Pipeline")["manifest"]["spec"]["compute"]["bloblang"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        mapping.starts_with("root = this.data.stations.map_each(record -> {"),
+        "{mapping}"
+    );
+    assert!(
+        mapping.contains(":city-bikes:\" + record.station_id.string()"),
+        "{mapping}"
+    );
+    assert!(
+        mapping.contains("\"coordinates\": [ record.lon.number(), record.lat.number() ]"),
+        "{mapping}"
+    );
+    assert!(
+        mapping.contains("\"rentalUris\": record.rental_uris"),
+        "{mapping}"
+    );
+
+    let layer = draft(&body, "Layer");
+    assert_eq!(layer["manifest"]["metadata"]["name"], "city-bikes-map");
+    assert_eq!(
+        layer["manifest"]["spec"],
+        json!({
+            "sourceEndpointRef": "city-bikes-all",
+            "entityType": "BikeHireDockingStation",
+            "style": "circle",
+            "colorBy": { "property": "capacity" },
+            "popupProperties": ["name", "capacity"]
+        })
+    );
+    let dashboard = draft(&body, "Dashboard");
+    assert_eq!(dashboard["manifest"]["metadata"]["name"], "city-bikes");
+    assert_eq!(dashboard["manifest"]["spec"]["visibility"], "project");
+    assert_eq!(
+        dashboard["manifest"]["spec"]["pages"][0]["layers"],
+        json!(["city-bikes-map"])
+    );
+    for d in [layer, dashboard] {
+        assert_eq!(d["verdict"]["ok"], true, "{d}");
+    }
+
+    // A described model's verdict is taken on the manifest the draft holds.
+    let model = draft(&body, "DataModel");
+    assert_eq!(
+        model["verdict"]["inputDigest"],
+        joinedcontext_portal::ops::verdict::digest_of(&model["manifest"]),
+        "{model}"
+    );
+    assert!(
+        body["change"].is_null(),
+        "nothing is proposed without the person"
+    );
+}
+
+#[tokio::test]
+async fn records_without_a_position_draw_no_map() {
+    let mut config = Config::for_tests();
+    let model_tools = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/infer-schema"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "linkml": "classes:\n  Notice:\n    slots: [title]\nslots:\n  title: { range: string }\n"
+        })))
+        .mount(&model_tools)
+        .await;
+    config.model_tools_url = Some(model_tools.uri());
+    let state = AppState::new(config.clone(), None);
+    let app = server::app(state);
+    let cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@hel.fi"),
+        vec!["portal-approver"],
+        vec![],
+    );
+    let payload = json!({
+        "space": "notices",
+        "typeName": "Notice",
+        "files": [
+            { "name": "notices.json", "content": json!({ "items": [{ "id": "n1", "title": "A" }, { "id": "n2", "title": "B" }] }).to_string() },
+            { "name": "README.md", "content": "From https://example.invalid/notices.json" }
+        ]
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/ops/jc_space_complete")
+                .header(header::COOKIE, cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let kinds: Vec<&str> = body["drafts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|d| d["kind"].as_str())
+        .collect();
+    assert!(
+        !kinds.contains(&"Layer") && !kinds.contains(&"Dashboard"),
+        "{kinds:?}"
+    );
+    let mapping = draft(&body, "Pipeline")["manifest"]["spec"]["compute"]["bloblang"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        mapping.starts_with("root = this.items.map_each(record -> {"),
+        "{mapping}"
+    );
+    assert!(mapping.contains("+ record.id.string()"), "{mapping}");
+}

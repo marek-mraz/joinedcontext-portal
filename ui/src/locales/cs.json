@@ -220,7 +220,9 @@
         "ContextSpace": "Kontextový prostor",
         "DataSource": "Zdroj dat",
         "Endpoint": "Endpoint",
-        "Pipeline": "Pipeline"
+        "Pipeline": "Pipeline",
+        "Layer": "Mapová vrstva",
+        "Dashboard": "Dashboard"
       },
       "drafted": "Připraveno",
       "alreadyThere": "Už existuje",
@@ -235,7 +237,10 @@
           "public": "Čitelné pro každého s adresou",
           "organization": "Čitelné pro všechny projekty organizace",
           "project-list": "Čitelné pro projekty, které uvádí"
-        }
+        },
+        "Layer": "Kreslí {type} do mapy",
+        "LayerColoured": "Kreslí {type} do mapy, obarvené podle {property}",
+        "Dashboard": "Mapový dashboard s {count, plural, one {# stránkou} other {# stránkami}}"
       },
       "onApproval": "Navrhnout vše pošle tyto koncepty ke schválení společně. Po schválení se zdroj začne načítat a prostor se naplní.",
       "title": "Complete this space",

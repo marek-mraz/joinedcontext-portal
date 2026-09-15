@@ -102,12 +102,15 @@ describe("SpaceComplete page", () => {
         drafts: [
           draft("DataModel", "city-bikes", {
             classes: ["BikeStation"],
-            source: "classes:\n  BikeStation:\n    attributes:\n      name: {}\n      capacity: {}\n",
+            // Model Tools lists a class's slots; a hand-written model may declare attributes inline.
+            source: "classes:\n  BikeStation:\n    slots: [name]\n    attributes:\n      capacity: {}\n",
           }),
           draft("ContextSpace", "city-bikes", { dataModelRef: { kind: "DataModel", name: "city-bikes" } }, true, false),
           draft("DataSource", "city-bikes-source", { type: "http", http: { url: "https://gbfs.example.org/station_status.json" } }, false),
           draft("Pipeline", "city-bikes-load", { period: "60s", output: { type: "BikeStation" } }),
           draft("Endpoint", "city-bikes-all", { audience: "organization" }),
+          draft("Layer", "city-bikes-map", { sourceEndpointRef: "city-bikes-all", entityType: "BikeStation", style: "circle", colorBy: { property: "capacity" } }),
+          draft("Dashboard", "city-bikes", { title: "City Bikes map", visibility: "project", pages: [{ layout: "full-map", layers: ["city-bikes-map"] }] }),
         ],
         proposeReady: true,
         lane: "yellow",
@@ -130,6 +133,10 @@ describe("SpaceComplete page", () => {
     expect(source).toHaveTextContent("spec.http.url: the feed answered 404 Not Found");
     expect(screen.getByTestId("complete-draft-Pipeline")).toHaveTextContent("Loads BikeStation every 60s");
     expect(screen.getByTestId("complete-draft-Endpoint")).toHaveTextContent("Readable by every project of the organization");
+    // The map over the new endpoint is drafted with the rest (AG-79).
+    expect(screen.getByTestId("complete-draft-Layer")).toHaveTextContent("Map layer");
+    expect(screen.getByTestId("complete-draft-Layer")).toHaveTextContent("Draws BikeStation on the map, coloured by capacity");
+    expect(screen.getByTestId("complete-draft-Dashboard")).toHaveTextContent("A map dashboard with 1 page");
     expect(screen.queryByText(/\b(green|red|Inferred)\b/)).not.toBeInTheDocument();
     // Proposing is the next step, so it is the primary action and says what approval does.
     expect(screen.getByRole("button", { name: /Propose all/i }).className).toContain("bg-primary");

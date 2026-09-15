@@ -34,6 +34,8 @@ const KIND_ICON: Record<string, IconName> = {
   DataSource: "datasources",
   Endpoint: "endpoints",
   Pipeline: "pipelines",
+  Layer: "dashboards",
+  Dashboard: "dashboards",
 };
 
 type Translate = (key: string, values?: Record<string, unknown>) => string;
@@ -48,8 +50,12 @@ function summaryOf(draft: CompletedDraft, t: Translate): string | null {
       if (type === undefined) return null;
       let attributes = 0;
       try {
-        const source = parseYaml(text(spec.source) ?? "") as { classes?: Record<string, { attributes?: Record<string, unknown> }> } | null;
-        attributes = Object.keys(source?.classes?.[type]?.attributes ?? {}).length;
+        const source = parseYaml(text(spec.source) ?? "") as {
+          classes?: Record<string, { attributes?: Record<string, unknown>; slots?: unknown[] }>;
+        } | null;
+        // Model Tools lists a class's slots; a hand-written model may declare attributes inline.
+        const declared = source?.classes?.[type];
+        attributes = (declared?.slots?.length ?? 0) + Object.keys(declared?.attributes ?? {}).length;
       } catch {
         attributes = 0;
       }
@@ -76,6 +82,18 @@ function summaryOf(draft: CompletedDraft, t: Translate): string | null {
     case "Endpoint": {
       const audience = text(spec.audience);
       return audience === undefined ? null : t(`spaces.complete.summary.audience.${audience}`);
+    }
+    case "Layer": {
+      const type = text(spec.entityType);
+      const colour = text((spec.colorBy as { property?: unknown } | undefined)?.property);
+      if (type === undefined) return null;
+      return colour === undefined
+        ? t("spaces.complete.summary.Layer", { type })
+        : t("spaces.complete.summary.LayerColoured", { type, property: colour });
+    }
+    case "Dashboard": {
+      const pages = Array.isArray(spec.pages) ? spec.pages.length : 0;
+      return t("spaces.complete.summary.Dashboard", { count: pages });
     }
     default:
       return null;
@@ -177,6 +195,8 @@ export function SpaceComplete({ project }: { project: string }): JSX.Element {
       void navigate({ href: `${base}/pipelines${draft}` });
     } else if (d.kind === "Endpoint") {
       void navigate({ href: `${base}/endpoints${draft}` });
+    } else if (d.kind === "Dashboard" || d.kind === "Layer") {
+      void navigate({ href: `${base}/dashboards` });
     } else if (d.kind === "DataModel") {
       const source = (d.manifest.spec as { source?: unknown } | undefined)?.source;
       if (typeof source === "string") {

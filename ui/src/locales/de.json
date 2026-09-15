@@ -220,7 +220,9 @@
         "ContextSpace": "Kontextraum",
         "DataSource": "Datenquelle",
         "Endpoint": "Endpunkt",
-        "Pipeline": "Pipeline"
+        "Pipeline": "Pipeline",
+        "Layer": "Kartenebene",
+        "Dashboard": "Dashboard"
       },
       "drafted": "Entworfen",
       "alreadyThere": "Bereits vorhanden",
@@ -235,7 +237,10 @@
           "public": "Lesbar für alle mit der Adresse",
           "organization": "Lesbar für alle Projekte der Organisation",
           "project-list": "Lesbar für die genannten Projekte"
-        }
+        },
+        "Layer": "Zeichnet {type} auf die Karte",
+        "LayerColoured": "Zeichnet {type} auf die Karte, gefärbt nach {property}",
+        "Dashboard": "Ein Karten-Dashboard mit {count, plural, one {# Seite} other {# Seiten}}"
       },
       "onApproval": "Alle vorschlagen sendet diese Entwürfe gemeinsam zur Freigabe. Nach der Freigabe wird die Quelle abgerufen und der Raum füllt sich.",
       "title": "Complete this space",

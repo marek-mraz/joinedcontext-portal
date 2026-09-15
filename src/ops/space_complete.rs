@@ -10,6 +10,7 @@ use utoipa::ToSchema;
 use crate::api::import::ImportReport;
 use crate::change::{Change, Lane};
 use crate::error::ApiError;
+use crate::ops::feed_shape::{self, Records};
 use crate::ops::verdict::{Finding, Level, Verdict};
 use crate::ops::{self, draft_store, Caller, OpError};
 use crate::resource::{self, is_dns1123, API_VERSION};
@@ -536,6 +537,8 @@ pub async fn run(
     let mut model_verdict = None;
     let mut model_manifest = manifests.get("DataModel").cloned();
     let mut model_linkml_text = linkml_source.clone();
+    // The records of the probed feed, when its sample holds an array of them (AG-79).
+    let mut feed: Option<Records> = None;
 
     if !has_datamodel {
         let (inferred_text, infer_findings) = if let Some(text) = linkml_source.clone() {
@@ -548,6 +551,17 @@ pub async fn run(
             } else {
                 None
             };
+            // A JSON sample's model is its records', like a feed's (AG-79).
+            if fmt == Some("json") {
+                feed = serde_json::from_slice::<Value>(bytes)
+                    .ok()
+                    .as_ref()
+                    .and_then(feed_shape::records);
+            }
+            let records = feed
+                .as_ref()
+                .map(|records| records.inference_sample().to_string().into_bytes());
+            let bytes = records.as_deref().unwrap_or(bytes);
             match model_tools::infer_schema_from_bytes(state, Some(&class_name), bytes, fmt).await {
                 Ok(resp) => {
                     let text = resp
@@ -575,7 +589,13 @@ pub async fn run(
             let spec = json!({ "type": "http", "http": { "url": url_str } });
             match crate::api::pipeline_test::probe_source(state, project, &spec).await {
                 Some(probe) if probe.skipped.is_none() && probe.sample.is_some() => {
-                    let sample = probe.sample.unwrap_or(Value::Null).to_string();
+                    // The model is the records', not the envelope's around them (AG-79).
+                    let whole = probe.sample.unwrap_or(Value::Null);
+                    feed = feed_shape::records(&whole);
+                    let sample = feed
+                        .as_ref()
+                        .map_or(whole, Records::inference_sample)
+                        .to_string();
                     match model_tools::infer_schema_from_bytes(
                         state,
                         Some(&class_name),
@@ -657,12 +677,13 @@ pub async fn run(
             }
         });
 
+        let mut manifest = manifest;
+        describe(&mut manifest, description.as_deref());
         let is_ok = infer_findings.is_empty()
             && !inferred_text.is_empty()
             && inferred_text.contains("classes:");
+        // Taken on the described manifest, the one the draft holds, so it is fresh for it.
         model_verdict = Some(Verdict::new(is_ok, infer_findings, None, &manifest));
-        let mut manifest = manifest;
-        describe(&mut manifest, description.as_deref());
         model_manifest = Some(manifest);
         inferred_model = true;
     }
@@ -730,6 +751,8 @@ pub async fn run(
     let mut pipeline_manifest = manifests.get("Pipeline").cloned();
     let mut inferred_endpoint = false;
     let mut endpoint_manifest = manifests.get("Endpoint").cloned();
+    // The endpoint the pipeline writes through, which a drafted map reads (AG-79).
+    let mut map_endpoint: Option<String> = None;
 
     if !has_pipeline && datasource_manifest.is_some() {
         let ds_name = datasource_manifest
@@ -737,12 +760,19 @@ pub async fn run(
             .and_then(|m| m.pointer("/metadata/name"))
             .and_then(Value::as_str)
             .unwrap_or("source");
-        let mapping = bloblang_content.unwrap_or_else(|| {
-            format!(
-                "root = this\nroot.id = \"urn:ngsi-ld:{class_name}:\" + (this.stationId | this.id | this.station_id | uuid_v4()).string()\nroot.type = \"{class_name}\"\n"
-            )
-        });
         let org = crate::api::assistant::org_domain(state, project);
+        let mapping = bloblang_content.unwrap_or_else(|| match &feed {
+            Some(records) => {
+                let slots = model_linkml_text
+                    .as_deref()
+                    .map(|linkml| feed_shape::slot_names(linkml, &class_name))
+                    .unwrap_or_default();
+                records.mapping(&class_name, &org, &space_name, &slots)
+            }
+            None => format!(
+                "root = this\nroot.id = \"urn:ngsi-ld:{class_name}:\" + (this.stationId | this.id | this.station_id | uuid_v4()).string()\nroot.type = \"{class_name}\"\n"
+            ),
+        });
         let endpoint_name = endpoint_manifest
             .as_ref()
             .and_then(|m| m.pointer("/metadata/name"))
@@ -780,6 +810,7 @@ pub async fn run(
                 name
             });
         let target_endpoint = format!("urn:ngsi-ld:Endpoint:{org}:{space_name}:{endpoint_name}");
+        map_endpoint = Some(endpoint_name);
 
         let spec = json!({
             "class": "auto",
@@ -817,6 +848,19 @@ pub async fn run(
         pipeline_manifest = Some(manifest);
         inferred_pipeline = true;
     }
+
+    // 5. A map of the records over that endpoint, when they carry a position (AG-79): a Layer
+    // and a Dashboard with one full-map page, proposed with the rest.
+    let map_manifests = match (&feed, &map_endpoint, &model_linkml_text) {
+        (Some(records), Some(endpoint), Some(linkml))
+            if records.position().is_some()
+                && !manifests.contains_key("Dashboard")
+                && !manifests.contains_key("Layer") =>
+        {
+            map_of(state, project, &space_name, &class_name, endpoint, linkml)
+        }
+        _ => Vec::new(),
+    };
 
     // Now compute verdicts and store drafts
     let mut drafts = Vec::new();
@@ -860,62 +904,7 @@ pub async fn run(
 
     // Save ContextSpace draft
     if let Some(m) = space_manifest {
-        let name = m
-            .pointer("/metadata/name")
-            .and_then(Value::as_str)
-            .unwrap_or(&space_name);
-        let stored = store
-            .put(
-                project,
-                "ContextSpace",
-                name,
-                m.clone(),
-                None,
-                &caller.identity.username,
-                caller.via.touched_kind(),
-            )
-            .await
-            .map_err(draft_error)?;
-        // Dry run space
-        let dry_res = ops::call(
-            ops::find("jc_manifest_dry_run").unwrap(),
-            caller,
-            state,
-            project,
-            json!({ "manifest": m }),
-        )
-        .await;
-        let v = match dry_res {
-            Ok(val) => serde_json::from_value::<Verdict>(
-                val.get("verdict").cloned().unwrap_or(Value::Null),
-            )
-            .ok(),
-            Err(e) => Some(Verdict::red(
-                &m,
-                vec![Finding {
-                    level: Level::Error,
-                    path: "".into(),
-                    message: e.to_string(),
-                }],
-                None,
-            )),
-        };
-        let final_v = if let Some(verdict) = v {
-            store
-                .set_verdict(project, "ContextSpace", name, verdict)
-                .await
-                .map_err(draft_error)?
-                .verdict
-        } else {
-            stored.verdict
-        };
-        drafts.push(CompletedDraft {
-            kind: "ContextSpace".into(),
-            name: name.into(),
-            inferred: inferred_space,
-            manifest: m,
-            verdict: final_v,
-        });
+        drafts.push(checked_draft(caller, state, project, m, inferred_space).await?);
     }
 
     // Save DataSource draft
@@ -994,61 +983,7 @@ pub async fn run(
 
     // Save Endpoint draft
     if let Some(m) = endpoint_manifest {
-        let name = m
-            .pointer("/metadata/name")
-            .and_then(Value::as_str)
-            .unwrap_or(&space_name);
-        let stored = store
-            .put(
-                project,
-                "Endpoint",
-                name,
-                m.clone(),
-                None,
-                &caller.identity.username,
-                caller.via.touched_kind(),
-            )
-            .await
-            .map_err(draft_error)?;
-        let dry_res = ops::call(
-            ops::find("jc_manifest_dry_run").unwrap(),
-            caller,
-            state,
-            project,
-            json!({ "manifest": m }),
-        )
-        .await;
-        let v = match dry_res {
-            Ok(val) => serde_json::from_value::<Verdict>(
-                val.get("verdict").cloned().unwrap_or(Value::Null),
-            )
-            .ok(),
-            Err(e) => Some(Verdict::red(
-                &m,
-                vec![Finding {
-                    level: Level::Error,
-                    path: "".into(),
-                    message: e.to_string(),
-                }],
-                None,
-            )),
-        };
-        let final_v = if let Some(verdict) = v {
-            store
-                .set_verdict(project, "Endpoint", name, verdict)
-                .await
-                .map_err(draft_error)?
-                .verdict
-        } else {
-            stored.verdict
-        };
-        drafts.push(CompletedDraft {
-            kind: "Endpoint".into(),
-            name: name.into(),
-            inferred: inferred_endpoint,
-            manifest: m,
-            verdict: final_v,
-        });
+        drafts.push(checked_draft(caller, state, project, m, inferred_endpoint).await?);
     }
 
     // Save Pipeline draft
@@ -1172,6 +1107,10 @@ pub async fn run(
         });
     }
 
+    for m in map_manifests {
+        drafts.push(checked_draft(caller, state, project, m, true).await?);
+    }
+
     let propose_ready = !drafts.is_empty()
         && drafts.iter().all(|d| {
             d.verdict
@@ -1267,6 +1206,125 @@ pub async fn run(
     };
 
     Ok(serde_json::to_value(out)?)
+}
+
+/// The Layer and the Dashboard that draw the records over `endpoint`, or none when the project
+/// already has either name: circles coloured by the first measure of the model, the name and that
+/// measure in the popup, `project` visibility (UI-19).
+fn map_of(
+    state: &AppState,
+    project: &str,
+    space: &str,
+    class: &str,
+    endpoint: &str,
+    linkml: &str,
+) -> Vec<Value> {
+    let layer = format!("{space}-map");
+    let taken = |kind: &str, name: &str| state.mirror.get(project, kind, name).is_some();
+    if taken("Layer", &layer) || taken("Dashboard", space) {
+        return Vec::new();
+    }
+    let colour = feed_shape::colour_slot(linkml, class);
+    let mut spec = json!({ "sourceEndpointRef": endpoint, "entityType": class, "style": "circle" });
+    if let Some(slot) = &colour {
+        spec["colorBy"] = json!({ "property": slot });
+    }
+    let popup: Vec<String> = feed_shape::has_slot(linkml, class, "name")
+        .then(|| "name".to_owned())
+        .into_iter()
+        .chain(colour)
+        .collect();
+    if !popup.is_empty() {
+        spec["popupProperties"] = json!(popup);
+    }
+    let words = words_capitalized(space);
+    vec![
+        json!({
+            "apiVersion": API_VERSION,
+            "kind": "Layer",
+            "metadata": { "name": layer, "namespace": project, "title": { "en": format!("{words} on the map") } },
+            "spec": spec
+        }),
+        json!({
+            "apiVersion": API_VERSION,
+            "kind": "Dashboard",
+            "metadata": { "name": space, "namespace": project, "title": { "en": format!("{words} map") } },
+            "spec": {
+                "title": format!("{words} map"),
+                "visibility": "project",
+                "pages": [{ "title": words, "layout": "full-map", "layers": [layer] }]
+            }
+        }),
+    ]
+}
+
+/// One draft kept with the verdict of `jc_manifest_dry_run` on it; `inferred` when the completion
+/// drafted it rather than found it.
+async fn checked_draft(
+    caller: &Caller,
+    state: &AppState,
+    project: &str,
+    manifest: Value,
+    inferred: bool,
+) -> Result<CompletedDraft, OpError> {
+    let kind = manifest["kind"].as_str().unwrap_or_default().to_owned();
+    let name = manifest["metadata"]["name"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let store = draft_store(state);
+    let stored = store
+        .put(
+            project,
+            &kind,
+            &name,
+            manifest.clone(),
+            None,
+            &caller.identity.username,
+            caller.via.touched_kind(),
+        )
+        .await
+        .map_err(draft_error)?;
+    let verdict = match ops::call(
+        ops::find("jc_manifest_dry_run").expect("jc_manifest_dry_run is registered"),
+        caller,
+        state,
+        project,
+        json!({ "manifest": manifest }),
+    )
+    .await
+    {
+        Ok(val) => {
+            serde_json::from_value::<Verdict>(val.get("verdict").cloned().unwrap_or(Value::Null))
+                .ok()
+        }
+        Err(e) => Some(Verdict::red(
+            &manifest,
+            vec![Finding {
+                level: Level::Error,
+                path: "".into(),
+                message: e.to_string(),
+            }],
+            None,
+        )),
+    };
+    let verdict = match verdict {
+        Some(verdict) => {
+            store
+                .set_verdict(project, &kind, &name, verdict)
+                .await
+                .map_err(draft_error)?
+                .verdict
+        }
+        None => stored.verdict,
+    };
+    Ok(CompletedDraft {
+        kind,
+        name,
+        inferred,
+        manifest,
+        verdict,
+    })
 }
 
 /// The manifest as the repository takes it: no `status`, and no inline `spec.source` on a

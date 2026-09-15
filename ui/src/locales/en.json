@@ -220,7 +220,9 @@
         "ContextSpace": "Context space",
         "DataSource": "Data source",
         "Endpoint": "Endpoint",
-        "Pipeline": "Pipeline"
+        "Pipeline": "Pipeline",
+        "Layer": "Map layer",
+        "Dashboard": "Dashboard"
       },
       "drafted": "Drafted",
       "alreadyThere": "Already there",
@@ -235,7 +237,10 @@
           "public": "Readable by anyone with the address",
           "organization": "Readable by every project of the organization",
           "project-list": "Readable by the projects it names"
-        }
+        },
+        "Layer": "Draws {type} on the map",
+        "LayerColoured": "Draws {type} on the map, coloured by {property}",
+        "Dashboard": "A map dashboard with {count, plural, one {# page} other {# pages}}"
       },
       "onApproval": "Propose all sends these drafts for approval together. Once a person approves them, the source is fetched and the space fills.",
       "title": "Complete this space",

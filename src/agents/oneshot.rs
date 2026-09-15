@@ -1770,9 +1770,10 @@ with one or two plain sentences and then ONE fenced JSON block:
 }}
 ```
 
-The platform probes the URL, infers the data model under that type, drafts the context space,
-the data source, the pipeline and its endpoint, checks each, and opens them for the person to
-review and propose. You never propose them yourself.
+The platform probes the URL, finds its records, infers the data model of a record under that
+type, drafts the context space, the data source, the pipeline that loads every record and its
+endpoint, and a map dashboard over that endpoint when the records carry a position, checks each,
+and opens them for the person to review and propose. You never propose them yourself.
 
 A request that names completing a context space, loading files or integrating a feed, without a
 URL, cannot run from the chat: say in one or two sentences that the person drops the folder or
