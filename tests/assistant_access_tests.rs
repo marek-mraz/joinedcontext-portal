@@ -1532,6 +1532,10 @@ fn bikes_pipeline() -> Vec<ResourceEnvelope> {
     seeded
 }
 
+/// One runner conversation at a time: the Portal holds one pipeline test per project, and these
+/// tests all run in helsinki.
+static ON_THE_RUNNER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// A change conversation against a runner: the model's answers in order, and what the harness
 /// posts back for each test the runner is given, in order. Answers the run's events once the model
 /// has given its last answer and the run's last event is `until`, the model's requests, and the
@@ -1543,6 +1547,7 @@ async fn change_on_the_runner(
     captures: Vec<Vec<Value>>,
     until: &str,
 ) -> (AppState, Vec<AgentRunEvent>, Vec<String>, Vec<Value>) {
+    let _one_at_a_time = ON_THE_RUNNER.lock().await;
     let proxy = MockServer::start().await;
     for answer in answers {
         Mock::given(method("POST"))

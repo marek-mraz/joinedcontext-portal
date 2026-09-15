@@ -3716,6 +3716,10 @@ a removal of its binding with change_resource.
         {
             tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change verdict not kept");
         }
+        let mut output = json!({ "kind": info.kind, "name": name, "checked": true });
+        if let Some(card) = tested.card {
+            output["test"] = card;
+        }
         self.event(
             "tool",
             json!({
@@ -3723,7 +3727,7 @@ a removal of its binding with change_resource.
                 "status": "ok",
                 "durationMs": millis(),
                 "input": input,
-                "output": { "kind": info.kind, "name": name, "checked": true, "test": tested.card },
+                "output": output,
             }),
         )
         .await?;
