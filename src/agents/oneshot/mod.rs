@@ -144,9 +144,8 @@ const CONVERSATION_SYSTEM: &str =
      \"successfully\", \"seamless\" or \"powerful\", and no exclamation marks.";
 
 /// The kit pass's system prompt (AP-56): `prompts/kit_system.md`, the kit's schema filled in.
-static SYSTEM: LazyLock<String> = LazyLock::new(|| {
-    include_str!("prompts/kit_system.md").replace("{schema}", kit::schema_json())
-});
+static SYSTEM: LazyLock<String> =
+    LazyLock::new(|| include_str!("prompts/kit_system.md").replace("{schema}", kit::schema_json()));
 
 /// What a drafting tool of the conversation left: the answer for the person, or what the model
 /// reads back to look at the data again and try once more (AG-76).
