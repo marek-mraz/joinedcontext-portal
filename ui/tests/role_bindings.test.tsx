@@ -3,7 +3,7 @@
  * proposed from a form the assistant may have filled, a refusal shown in the API's words, and the
  * removal of a binding with its name typed back, all against the organization's routes.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -188,6 +188,24 @@ describe("people and roles", () => {
 
     await userEvent.click(within(dialog).getByRole("button", { name: en.access.roles.propose }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(refusal);
+  });
+
+  it("opens the grant the assistant drafts while the person is already on the access page", async () => {
+    renderAccess({ grants: ADMIN });
+    await screen.findByText("demo.steward@hel.fi");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // What the dock does with a navigate event: the form in hand, then the route with the draft.
+    const route = `/projects/${PROJECT}/access?grant=jana-kovacova-steward-helsinki`;
+    rememberPrefill(route, binding("jana-kovacova-steward-helsinki", { user: "jana.kovacova" }, "steward", { project: PROJECT }));
+    act(() => {
+      window.history.pushState({}, "", `${route}&draft=jana-kovacova-steward-helsinki`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    const dialog = await screen.findByRole("dialog", { name: en.access.roles.grantTitle });
+    expect(within(dialog).getByLabelText(new RegExp(en.access.roles.personLabel))).toHaveValue("jana.kovacova");
+    await waitFor(() => expect(within(dialog).getByLabelText(new RegExp(en.access.roles.roleLabel))).toHaveValue("steward"));
   });
 
   it("removes a binding only after its name is typed back, through the organization's route", async () => {

@@ -21,6 +21,7 @@ import { CkanPage } from "./pages/ckan/CkanPage";
 import { SpaceInside } from "./pages/spaces/SpaceInside";
 import { AppPage } from "./pages/apps/AppPage";
 import { AssistantPage } from "./pages/assistant/AssistantPage";
+import { HandOff } from "./assistant/HandOff";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -217,7 +218,9 @@ const spaceCompleteRoute = createRoute({
     const { project } = spaceCompleteRoute.useParams();
     return (
       <Shell project={project}>
-        <SpaceComplete project={project} />
+        <HandOff>
+          <SpaceComplete project={project} />
+        </HandOff>
       </Shell>
     );
   },
@@ -272,7 +275,9 @@ const resourceListRoute = createRoute({
     const { project, plural } = resourceListRoute.useParams();
     return (
       <Shell project={project}>
-        <ResourceListPage project={project} plural={plural} />
+        <HandOff>
+          <ResourceListPage project={project} plural={plural} />
+        </HandOff>
       </Shell>
     );
   },
