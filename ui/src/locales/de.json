@@ -1259,6 +1259,7 @@
         "query_endpoint": "Daten gelesen",
         "readEndpoint": "{endpoint} gelesen",
         "change_resource": "Änderung geprüft",
+        "write_entities": "Änderung an Entitäten vorbereitet",
         "grant_role": "Rollenvergabe geprüft",
         "propose_endpoint": "Endpunkt entworfen",
         "edit_endpoint": "Änderung des Endpunkts geprüft",
@@ -1347,6 +1348,22 @@
       "endpoint": "Ausgeführt auf einer Seite des Endpunkts {name}",
       "url": "{url} einmal abgerufen",
       "records": "{count, plural, one {# Datensatz} other {# Datensätze}}"
+    },
+    "write": {
+      "title": "Änderung an Entitäten",
+      "lead": "{count, plural, one {# Entität} other {# Entitäten}} über {endpoint}",
+      "entity": "Entität",
+      "attribute": "Attribut",
+      "before": "Jetzt",
+      "after": "Danach",
+      "empty": "nicht gesetzt",
+      "apply": "Anwenden",
+      "cancel": "Abbrechen",
+      "applied": "Geändert: {count, plural, one {# Entität} other {# Entitäten}}.",
+      "refusedEntity": "{entity} wurde nicht geändert: {reason}",
+      "refused": "Der Endpoint hat die Änderung abgelehnt ({status}).",
+      "unreachable": "Der Endpoint hat nicht geantwortet.",
+      "cancelled": "Nicht angewendet."
     },
     "kpiPipeline": {
       "title": "Indikator-Pipeline",

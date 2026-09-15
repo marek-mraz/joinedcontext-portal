@@ -1259,6 +1259,7 @@
         "query_endpoint": "Prečítal dáta",
         "readEndpoint": "Prečítal {endpoint}",
         "change_resource": "Skontroloval zmenu",
+        "write_entities": "Pripravil zmenu entít",
         "grant_role": "Skontroloval pridelenie roly",
         "propose_endpoint": "Pripravil endpoint",
         "edit_endpoint": "Skontroloval zmenu endpointu",
@@ -1347,6 +1348,22 @@
       "endpoint": "Spustené na stránke endpointu {name}",
       "url": "{url} načítané raz",
       "records": "{count, plural, one {# záznam} few {# záznamy} other {# záznamov}}"
+    },
+    "write": {
+      "title": "Zmena entít",
+      "lead": "{count, plural, one {# entita} few {# entity} other {# entít}} cez {endpoint}",
+      "entity": "Entita",
+      "attribute": "Atribút",
+      "before": "Teraz",
+      "after": "Potom",
+      "empty": "nenastavené",
+      "apply": "Použiť",
+      "cancel": "Zrušiť",
+      "applied": "Zmenené: {count, plural, one {# entita} few {# entity} other {# entít}}.",
+      "refusedEntity": "{entity} sa nezmenila: {reason}",
+      "refused": "Endpoint zmenu odmietol ({status}).",
+      "unreachable": "Endpoint neodpovedal.",
+      "cancelled": "Nepoužité."
     },
     "kpiPipeline": {
       "title": "Pipeline ukazovateľa",

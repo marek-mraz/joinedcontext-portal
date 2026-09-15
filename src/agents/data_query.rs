@@ -11,6 +11,7 @@
 use serde_json::{json, Value};
 
 use crate::agents::endpoints::RunEndpoint;
+use crate::agents::entity_write::MAX_ENTITIES;
 use crate::agents::share;
 
 /// Calls of the façade one message may make before the model must answer (AG-76).
@@ -255,6 +256,21 @@ the conversation first. Their tools are the same read tools:
 
 Read tools an endpoint may offer; each endpoint above lists the ones its policy grants the person,
 and only those run: {}
+
+When the person asks to change entities ("set station 001 to out of service"), read them first,
+then answer with one plain sentence and ONE block naming the endpoint, each entity's id and only
+the attributes that change with their new values, at most {MAX_ENTITIES} entities:
+
+```json
+{{
+  "tool": "write_entities",
+  "endpoint": "<an endpoint name from either list above>",
+  "entities": [{{ "id": "<the entity's id>", "attrs": {{ "<attribute>": "<its new value>" }} }}]
+}}
+```
+
+The platform checks the person's grants and shows them every value before and after; the person
+applies the change themselves. You never write an entity.
 "#,
         serde_json::to_string_pretty(&listed).unwrap_or_default(),
         serde_json::to_string_pretty(&others).unwrap_or_default(),
@@ -263,8 +279,9 @@ and only those run: {}
 }
 
 /// The tools whose call changes something or moves the person's page.
-const ACTING_TOOLS: [&str; 7] = [
+const ACTING_TOOLS: [&str; 8] = [
     "change_resource",
+    "write_entities",
     "grant_role",
     "draft_kpi_pipeline",
     "propose_endpoint",

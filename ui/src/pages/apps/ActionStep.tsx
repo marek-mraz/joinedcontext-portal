@@ -41,6 +41,7 @@ const LABELLED = new Set([
   "search_catalog",
   "query_endpoint",
   "change_resource",
+  "write_entities",
   "grant_role",
   "propose_endpoint",
   "edit_endpoint",

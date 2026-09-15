@@ -2078,3 +2078,79 @@ async fn a_dashboard_is_created_with_its_layers_once_they_name_what_the_endpoint
         "nothing is written to the repository"
     );
 }
+
+/// A change to entities prepared from the chat (T-0741, AG-78): a change the person's grants do
+/// not cover goes back to the model with the reason, a covered one is read as it is and published
+/// as a preview of every value before and after, and nothing is written.
+#[tokio::test]
+async fn an_entity_change_is_previewed_with_the_persons_grants_and_never_written() {
+    let station = "urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:kaivopuisto";
+    let write = |attrs: &str| {
+        format!("Setting Kaivopuisto out of service.\n```json\n{{\"tool\":\"write_entities\",\"endpoint\":\"helsinki-all\",\"entities\":[{{\"id\":\"{station}\",\"attrs\":{attrs}}}]}}\n```")
+    };
+    let refused = write("{\"name\":\"Kaivopuisto 2\"}");
+    let covered = write("{\"status\":\"outOfService\"}");
+    let data = move |request: &wiremock::Request| {
+        let body = String::from_utf8_lossy(&request.body);
+        let structured = if body.contains("describe_access") {
+            json!({
+                "permissions": [{ "resource": { "type": "BikeHireDockingStation" }, "actions": ["queryEntity", "updateAttrs"], "attributes": ["status"] }],
+                "prohibitions": []
+            })
+        } else {
+            json!({ "id": station, "type": "BikeHireDockingStation", "status": { "type": "Property", "value": "working" } })
+        };
+        ResponseTemplate::new(200).set_body_json(json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "isError": false, "content": [{ "type": "text", "text": structured.to_string() }], "structuredContent": structured }
+        }))
+    };
+    let (events, bodies, _) =
+        ask_the_data_with(json!(["helsinki-all"]), &[&refused, &covered], data).await;
+
+    let steps: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.kind == "tool" && e.payload["tool"] == "write_entities")
+        .map(|e| &e.payload)
+        .collect();
+    assert_eq!(steps.len(), 2, "{events:?}");
+    assert_eq!(steps[0]["status"], "failed");
+    assert_eq!(
+        steps[0]["error"],
+        format!("{station}: the person's grants on this endpoint do not let them update name of BikeHireDockingStation")
+    );
+    let second = bodies[1]["messages"][1]["content"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        second.contains("do not let them update name"),
+        "the model is told why"
+    );
+    assert!(
+        bodies[0]["messages"][1]["content"]
+            .as_str()
+            .is_some_and(|prompt| prompt.contains("\"tool\": \"write_entities\"")),
+        "the model is told how to prepare a change"
+    );
+
+    assert_eq!(steps[1]["status"], "ok", "{}", steps[1]);
+    let output = &steps[1]["output"];
+    assert_eq!(output["endpoint"], "helsinki-all");
+    assert!(output["slug"].as_str().is_some_and(|slug| !slug.is_empty()));
+    assert_eq!(
+        output["entities"],
+        json!([{ "id": station, "type": "BikeHireDockingStation", "changes": [{ "attribute": "status", "before": "working", "after": "outOfService" }] }])
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.kind == "thought"
+                && e.payload["text"] == "Setting Kaivopuisto out of service.")
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| e.payload.to_string().contains("upsert_entity")),
+        "no write tool is called"
+    );
+}

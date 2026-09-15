@@ -8,6 +8,7 @@ import { ActionStep } from "./ActionStep";
 import { CatalogCards, catalogItemsOf } from "./CatalogCards";
 import { ChangeTestCard, changeTestOf } from "./ChangeTestCard";
 import { EndpointProposalCard, proposalOf } from "./EndpointProposalCard";
+import { EntityWriteCard, entityWriteOf } from "./EntityWriteCard";
 import { KpiCard, kpiOf } from "./KpiCard";
 import { KpiPipelineCard, kpiPipelineOf } from "./KpiPipelineCard";
 import { QueryResultCard, queryResultOf } from "./QueryResultCard";
@@ -325,6 +326,7 @@ export function ConversationPanel({
               const kpiPipeline =
                 event.payload.tool === "draft_kpi_pipeline" ? kpiPipelineOf(event.payload.output) : null;
               const tested = changeTestOf(event.payload);
+              const write = entityWriteOf(event.payload);
               return (
                 <li key={event.seq} className="space-y-2">
                   {found !== null ? (
@@ -342,6 +344,7 @@ export function ConversationPanel({
                   {kpi !== null ? <KpiCard project={project} kpi={kpi} onSend={live ? onSend : undefined} /> : null}
                   {kpiPipeline !== null ? <KpiPipelineCard project={project} pipeline={kpiPipeline} /> : null}
                   {tested !== null ? <ChangeTestCard test={tested} /> : null}
+                  {write !== null ? <EntityWriteCard write={write} live={live} /> : null}
                   {queried !== null ? <QueryResultCard result={queried} /> : null}
                   <ActionStep event={event} live={live} onSend={onSend} count={count} />
                 </li>

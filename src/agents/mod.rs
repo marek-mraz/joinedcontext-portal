@@ -3,6 +3,7 @@ pub mod change;
 pub mod code;
 pub mod data_query;
 pub mod endpoints;
+pub mod entity_write;
 pub mod events;
 pub mod fields;
 pub mod grant;

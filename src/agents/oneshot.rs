@@ -19,6 +19,7 @@ use tokio::sync::broadcast;
 use crate::agents::access::Access;
 use crate::agents::code;
 use crate::agents::endpoints;
+use crate::agents::entity_write;
 use crate::agents::kit;
 use crate::agents::patch;
 use crate::agents::preview;
@@ -1519,6 +1520,23 @@ impl Driver {
                     Worked::Again(reason) => {
                         drafts += 1;
                         results.push((drafted("change_resource", input), reason));
+                        continue;
+                    }
+                }
+            }
+            if let Some(call) = entity_write::tool_call(&answer) {
+                let input = call
+                    .as_ref()
+                    .ok()
+                    .and_then(|c| serde_json::to_value(c).ok());
+                match self
+                    .write_entities(call, &answer, &mut chosen, &mut tools, last)
+                    .await?
+                {
+                    Worked::Done(prose) => return Ok(prose),
+                    Worked::Again(reason) => {
+                        drafts += 1;
+                        results.push((drafted("write_entities", input), reason));
                         continue;
                     }
                 }
@@ -4643,32 +4661,9 @@ a removal of its binding with change_resource.
             .await?;
             return Ok(format!("error: {reason}"));
         }
-        let url = format!(
-            "{}/mcp",
-            endpoints::data_base(&self.proxy_base, chosen, index.unwrap_or(0))
-        );
-        let answer = match self
-            .http
-            .post(&url)
-            .bearer_auth(&self.bearer)
-            .header("accept", "application/json")
-            .json(&data_query::rpc(call))
-            .send()
-            .await
-        {
-            Ok(response) => {
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                if status.is_success() {
-                    serde_json::from_str::<Value>(&body).unwrap_or_else(
-                        |err| json!({ "error": format!("the endpoint's answer is not JSON: {err}") }),
-                    )
-                } else {
-                    json!({ "error": format!("{status}: {}", body.chars().take(300).collect::<String>()) })
-                }
-            }
-            Err(err) => json!({ "error": format!("the call did not go through the proxy: {err}") }),
-        };
+        let answer = self
+            .call_endpoint(chosen, index.unwrap_or(0), &data_query::rpc(call))
+            .await;
         let text = self.redacted(&data_query::result_text(&answer));
         let failed = answer.get("error").is_some()
             || answer.pointer("/result/isError").and_then(Value::as_bool) == Some(true);
@@ -4684,6 +4679,163 @@ a removal of its binding with change_resource.
         }
         self.event("tool", payload).await?;
         Ok(text)
+    }
+
+    /// One JSON-RPC request to an endpoint of the conversation through the proxy, with the
+    /// person's grants: the endpoint's answer, or `{error}` saying why there is none.
+    async fn call_endpoint(
+        &self,
+        chosen: &[endpoints::RunEndpoint],
+        index: usize,
+        rpc: &Value,
+    ) -> Value {
+        let url = format!(
+            "{}/mcp",
+            endpoints::data_base(&self.proxy_base, chosen, index)
+        );
+        match self
+            .http
+            .post(&url)
+            .bearer_auth(&self.bearer)
+            .header("accept", "application/json")
+            .json(rpc)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                if status.is_success() {
+                    serde_json::from_str::<Value>(&body).unwrap_or_else(
+                        |err| json!({ "error": format!("the endpoint's answer is not JSON: {err}") }),
+                    )
+                } else {
+                    json!({ "error": format!("{status}: {}", body.chars().take(300).collect::<String>()) })
+                }
+            }
+            Err(err) => json!({ "error": format!("the call did not go through the proxy: {err}") }),
+        }
+    }
+
+    /// What one read tool of an endpoint answered, structured; `Err` is the refusal in words.
+    async fn read_endpoint(
+        &self,
+        chosen: &[endpoints::RunEndpoint],
+        index: usize,
+        name: &str,
+        arguments: Value,
+    ) -> Result<Value, String> {
+        let call = data_query::QueryCall {
+            endpoint: String::new(),
+            name: name.to_owned(),
+            arguments,
+        };
+        let answer = self
+            .call_endpoint(chosen, index, &data_query::rpc(&call))
+            .await;
+        let refused = answer.get("error").is_some()
+            || answer.pointer("/result/isError").and_then(Value::as_bool) == Some(true);
+        if refused {
+            return Err(self.redacted(&data_query::result_text(&answer)));
+        }
+        Ok(answer
+            .pointer("/result/structuredContent")
+            .cloned()
+            .unwrap_or(Value::Null))
+    }
+
+    /// A change to entities prepared for the person (AG-78): their grants on the endpoint and
+    /// each entity are read through the proxy, and the preview is published for the card to
+    /// apply. Nothing is written; what the grants refuse goes back to the model with the reason.
+    async fn write_entities(
+        &self,
+        call: Result<entity_write::WriteEntities, String>,
+        answer: &str,
+        chosen: &mut Vec<endpoints::RunEndpoint>,
+        tools: &mut Vec<Vec<Value>>,
+        last: bool,
+    ) -> Result<Worked, String> {
+        const TOOL: &str = "write_entities";
+        let started = std::time::Instant::now();
+        let input = call
+            .as_ref()
+            .ok()
+            .and_then(|c| serde_json::to_value(c).ok())
+            .unwrap_or(Value::Null);
+        let prepared = match call {
+            Ok(call) => self.prepared_write(&call, chosen, tools).await,
+            Err(reason) => Err(reason),
+        };
+        let output = match prepared {
+            Ok(output) => output,
+            Err(reason) => {
+                self.event("tool", failed_step(TOOL, started, &input, &reason))
+                    .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}"),
+                        format!("The change could not be prepared: {reason}"),
+                    )
+                    .await;
+            }
+        };
+        self.event(
+            "tool",
+            json!({
+                "tool": TOOL,
+                "status": "ok",
+                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "input": input,
+                "output": output,
+            }),
+        )
+        .await?;
+        let mut prose = share::prose_of(answer);
+        if prose.is_empty() {
+            prose = "Review the values and apply the change.".to_owned();
+        }
+        self.thought(&prose).await?;
+        Ok(Worked::Done(prose))
+    }
+
+    /// The preview of a `write_entities` call: every entity the person's grants let them update,
+    /// as it is and as it would be.
+    async fn prepared_write(
+        &self,
+        call: &entity_write::WriteEntities,
+        chosen: &mut Vec<endpoints::RunEndpoint>,
+        tools: &mut Vec<Vec<Value>>,
+    ) -> Result<Value, String> {
+        entity_write::checked(call)?;
+        let index = self.open_endpoint(chosen, tools, &call.endpoint).await?;
+        let access = self
+            .read_endpoint(chosen, index, "describe_access", json!({}))
+            .await
+            .map_err(|reason| {
+                format!(
+                    "the grants on '{}' could not be read: {reason}",
+                    call.endpoint
+                )
+            })?;
+        let mut entities = Vec::new();
+        for change in &call.entities {
+            let entity_type = entity_write::type_of(&change.id).unwrap_or_default();
+            let attributes: Vec<&str> = change.attrs.keys().map(String::as_str).collect();
+            if let Some(reason) = entity_write::refusal(&access, entity_type, &attributes) {
+                return Err(format!("{}: {reason}", change.id));
+            }
+            let current = self
+                .read_endpoint(chosen, index, "get_entity", json!({ "id": change.id }))
+                .await
+                .map_err(|reason| format!("{} could not be read: {reason}", change.id))?;
+            entities.push(entity_write::previewed(change, entity_type, &current));
+        }
+        Ok(json!({
+            "endpoint": call.endpoint,
+            "slug": chosen[index].slug,
+            "entities": entities,
+        }))
     }
 
     /// `text` without the run's ticket: an upstream that echoes the request back must not put

@@ -1259,6 +1259,7 @@
         "query_endpoint": "Read the data",
         "readEndpoint": "Read {endpoint}",
         "change_resource": "Checked the change",
+        "write_entities": "Prepared the change to entities",
         "grant_role": "Checked the grant",
         "propose_endpoint": "Drafted the endpoint",
         "edit_endpoint": "Checked the endpoint's change",
@@ -1347,6 +1348,22 @@
       "endpoint": "Ran on a page of the endpoint {name}",
       "url": "Fetched {url} once",
       "records": "{count, plural, one {# record} other {# records}}"
+    },
+    "write": {
+      "title": "Change to entities",
+      "lead": "{count, plural, one {# entity} other {# entities}} through {endpoint}",
+      "entity": "Entity",
+      "attribute": "Attribute",
+      "before": "Now",
+      "after": "After",
+      "empty": "not set",
+      "apply": "Apply",
+      "cancel": "Cancel",
+      "applied": "Changed {count, plural, one {# entity} other {# entities}}.",
+      "refusedEntity": "{entity} was not changed: {reason}",
+      "refused": "The endpoint refused the change ({status}).",
+      "unreachable": "The endpoint did not answer.",
+      "cancelled": "Not applied."
     },
     "kpiPipeline": {
       "title": "Indicator pipeline",

@@ -1259,6 +1259,7 @@
         "query_endpoint": "Přečetl data",
         "readEndpoint": "Přečetl {endpoint}",
         "change_resource": "Zkontroloval změnu",
+        "write_entities": "Připravil změnu entit",
         "grant_role": "Zkontroloval přidělení role",
         "propose_endpoint": "Připravil endpoint",
         "edit_endpoint": "Zkontroloval změnu endpointu",
@@ -1347,6 +1348,22 @@
       "endpoint": "Spuštěno na stránce endpointu {name}",
       "url": "{url} načteno jednou",
       "records": "{count, plural, one {# záznam} few {# záznamy} other {# záznamů}}"
+    },
+    "write": {
+      "title": "Změna entit",
+      "lead": "{count, plural, one {# entita} few {# entity} other {# entit}} přes {endpoint}",
+      "entity": "Entita",
+      "attribute": "Atribut",
+      "before": "Nyní",
+      "after": "Potom",
+      "empty": "nenastaveno",
+      "apply": "Použít",
+      "cancel": "Zrušit",
+      "applied": "Změněno: {count, plural, one {# entita} few {# entity} other {# entit}}.",
+      "refusedEntity": "{entity} se nezměnila: {reason}",
+      "refused": "Endpoint změnu odmítl ({status}).",
+      "unreachable": "Endpoint neodpověděl.",
+      "cancelled": "Nepoužito."
     },
     "kpiPipeline": {
       "title": "Pipeline ukazatele",
