@@ -4,8 +4,10 @@ use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
 use axum_extra::extract::cookie::PrivateCookieJar;
 use http_body_util::BodyExt;
+use joinedcontext_portal::api::mutate::branch_name;
 use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
 use joinedcontext_portal::auth::session::{self, Identity, Session};
+use joinedcontext_portal::change::Operation;
 use joinedcontext_portal::change::{Change, ChangePhase, Lane};
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::error::ProblemDetails;
@@ -15,7 +17,7 @@ use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
 use serde_json::json;
 use tower::ServiceExt;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TEST_CSRF_TOKEN: &str = "test-csrf-token-12345";
@@ -548,4 +550,167 @@ async fn delete_without_csrf_header_returns_403() {
     let problem: ProblemDetails = serde_json::from_slice(&bytes).expect("ProblemDetails");
     assert_eq!(problem.status, 403);
     assert_eq!(problem.r#type, "https://joinedcontext.com/errors/forbidden");
+}
+
+fn space_state(client: GiteaClient) -> (Config, AppState) {
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    state.mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "ContextSpace".to_string(),
+        metadata: ObjectMeta {
+            name: "mobility".to_string(),
+            namespace: Some("ovzdusie".to_string()),
+            ..Default::default()
+        },
+        spec: json!({ "isSandbox": false }),
+        status: None,
+    });
+    (config, state)
+}
+
+async fn mount_repo_and_file(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "blob-sha",
+            "content": "YXBpVmVyc2lvbjogam9pbmVkY29udGV4dC5jb20vdjFhbHBoYTEK",
+            "encoding": "base64"
+        })))
+        .mount(server)
+        .await;
+}
+
+async fn delete_mobility(config: &Config, state: AppState) -> axum::response::Response {
+    server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/projects/ovzdusie/spaces/mobility")
+                .header(header::COOKIE, session_and_csrf_cookies(config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response")
+}
+
+/// A branch an earlier attempt left behind is recreated from main, never reused: on dev the
+/// stale branch had the file already deleted and the removal answered 404 (T-0886).
+#[tokio::test]
+async fn a_stale_branch_is_recreated_from_main_before_the_removal_is_written() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+    mount_repo_and_file(&server).await;
+    let branch = branch_name("ovzdusie", "ContextSpace", "mobility", Operation::Delete);
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    // The first creation finds the stale branch; after it is dropped the second one succeeds.
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(409).set_body_string("branch already exists"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!(
+            "/api/v1/repos/test-owner/test-repo/branches/{branch}"
+        )))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "commit": { "sha": "c2" } })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 56,
+            "html_url": "https://gitea.example.sk/pulls/56",
+            "state": "open",
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+
+    let (config, state) = space_state(client);
+    let response = delete_mobility(&config, state).await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let requests = server.received_requests().await.expect("received requests");
+    let creations = requests
+        .iter()
+        .filter(|r| r.method.as_str() == "POST" && r.url.path().ends_with("/branches"))
+        .count();
+    assert_eq!(
+        creations, 2,
+        "the branch is created again after the stale one is dropped"
+    );
+}
+
+/// A removal already under review is decided first: the second one names it (T-0883).
+#[tokio::test]
+async fn a_second_removal_while_one_is_open_names_the_open_change() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+    mount_repo_and_file(&server).await;
+    let branch = branch_name("ovzdusie", "ContextSpace", "mobility", Operation::Delete);
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+            "number": 300,
+            "html_url": "https://gitea.example.sk/pulls/300",
+            "state": "open",
+            "head": { "ref": branch },
+            "base": { "ref": "main" },
+            "merged": false
+        }])))
+        .mount(&server)
+        .await;
+
+    let (config, state) = space_state(client);
+    let response = delete_mobility(&config, state).await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bytes")
+        .to_bytes();
+    let problem: ProblemDetails = serde_json::from_slice(&body).expect("problem");
+    assert_eq!(
+        problem.detail.as_deref(),
+        Some("a change for ContextSpace 'mobility' is already open: chg-0000012c; approve or reject it first")
+    );
+    let requests = server.received_requests().await.expect("received requests");
+    assert!(
+        requests.iter().all(|r| r.method.as_str() == "GET"),
+        "nothing was written"
+    );
 }

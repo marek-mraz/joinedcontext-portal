@@ -567,3 +567,41 @@ async fn pull_request_files_lists_every_page_and_marks_deletions() {
     assert_eq!(files[50].path, "users/assignments/gone.yaml");
     assert!(files[50].deleted);
 }
+
+/// A stale branch is dropped before a proposal starts again from main (T-0886); one already
+/// gone is nothing to report.
+#[tokio::test]
+async fn delete_branch_drops_a_branch_and_ignores_one_already_gone() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().unwrap();
+    let client = GiteaClient::new(base_url, "test-owner", "test-repo", "secret-token").unwrap();
+
+    Mock::given(method("DELETE"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/branches/portal/delete-contextspace-x-1",
+        ))
+        .and(header("authorization", "token secret-token"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches/gone"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("branch does not exist"))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/branches/protected",
+        ))
+        .respond_with(ResponseTemplate::new(403).set_body_string("branch is protected"))
+        .mount(&server)
+        .await;
+
+    client
+        .delete_branch("portal/delete-contextspace-x-1")
+        .await
+        .unwrap();
+    client.delete_branch("gone").await.unwrap();
+    let err = client.delete_branch("protected").await.unwrap_err();
+    assert!(matches!(err, GitError::Api { status: 403, .. }), "{err:?}");
+}

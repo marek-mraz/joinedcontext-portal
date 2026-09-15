@@ -574,6 +574,16 @@ impl GiteaClient {
         Ok(())
     }
 
+    /// `DELETE /branches/{branch}` — drops a branch; one already gone is no error (T-0886).
+    pub async fn delete_branch(&self, branch: &str) -> Result<(), GitError> {
+        let url = self.repo_url(&format!("branches/{branch}"))?;
+        let res = self.send(self.http.delete(url)).await?;
+        match Self::check_status(res).await {
+            Ok(_) | Err(GitError::NotFound) => Ok(()),
+            Err(err) => Err(err),
+        }
+    }
+
     /// `GET /contents/{path}?ref={git_ref}` — reads a file and decodes its base64 content.
     pub async fn get_file(&self, path: &str, git_ref: &str) -> Result<Option<RepoFile>, GitError> {
         let mut url = self.repo_url(&format!("contents/{}", path.trim_start_matches('/')))?;

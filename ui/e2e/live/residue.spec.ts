@@ -2,7 +2,7 @@
  * Sweeps what takes and e2e left behind in helsinki (T-0667, T-0750): every resource whose name
  * carries a take's HHMM suffix, or the fixed name an act creates, is deleted through the
  * Portal's own delete, a Red change the approver approves with the name typed back, so the
- * reconciler drops what it had deployed. Dependents first, then the spaces and models they used.
+ * reconciler drops what it had deployed. Dependents first, then the spaces, then the models the spaces referenced.
  * Only these names, only this project; nothing to sweep is a pass.
  */
 import { expect, test } from "@playwright/test";
@@ -18,8 +18,9 @@ const SWEEP: { plural: string; residue: (name: string) => boolean }[] = [
   { plural: "datasources", residue: (name) => TAKE.test(name) },
   { plural: "dashboards", residue: (name) => TAKE.test(name) || name === "city-bikes" || name === "city-bike-stations" },
   { plural: "apps", residue: (name) => TAKE.test(name) || name === "large-map-city" },
-  { plural: "datamodels", residue: (name) => /^citybikes-\d{4}$/.test(name) },
+  // A space references its model (dataModelRef), so the space goes first.
   { plural: "spaces", residue: (name) => /^citybikes-\d{4}$/.test(name) || name === "city-bikes" || name === "city-bike-stations" },
+  { plural: "datamodels", residue: (name) => /^citybikes-\d{4}$/.test(name) },
 ];
 
 test.setTimeout(3_600_000);

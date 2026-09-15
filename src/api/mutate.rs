@@ -122,20 +122,54 @@ pub fn branch_name(project: &str, kind: &str, name: &str, operation: Operation) 
     format!("portal/{op_str}-{kind_lower}-{name}-{short}")
 }
 
+/// The open change whose pull request still uses `branch`, if any (T-0883, T-0886).
+pub(crate) async fn open_change_on(
+    gitea: &crate::git::GiteaClient,
+    branch: &str,
+    project: &str,
+) -> Result<Option<ChangeMeta>, ApiError> {
+    // A forge that answers 404 here has no repository at all, and the next step says so.
+    let pulls = match gitea.list_pull_requests("open").await {
+        Ok(pulls) => pulls,
+        Err(GitError::NotFound) => Vec::new(),
+        Err(err) => return Err(err.into()),
+    };
+    Ok(pulls
+        .into_iter()
+        .find(|pr| pr.head_branch == branch)
+        .map(|pr| ChangeMeta::from_merge_request(pr.number, project)))
+}
+
+/// The branch a proposal is written on, starting from the default branch. A branch left by
+/// an earlier attempt is recreated, never reused: it may hold that attempt's writes (a file
+/// already deleted, another content), which turned a delete into a forge 404 (T-0886). One a
+/// live pull request still uses is left alone and the caller told (CC-34).
 pub(crate) async fn create_or_reuse_branch(
     gitea: &crate::git::GiteaClient,
     branch: &str,
     default_branch: &str,
 ) -> Result<(), ApiError> {
-    if let Err(err) = gitea.create_branch(branch, default_branch).await {
-        match err {
-            GitError::Conflict(_) => {
-                tracing::info!(branch = %branch, "reusing existing branch for retry");
+    match gitea.create_branch(branch, default_branch).await {
+        Ok(()) => Ok(()),
+        Err(GitError::Conflict(_)) => {
+            if let Some(open) = gitea
+                .list_pull_requests("open")
+                .await?
+                .into_iter()
+                .find(|pr| pr.head_branch == branch)
+            {
+                return Err(ApiError::Conflict(format!(
+                    "a change is already open on this resource: chg-{:08x}; approve or reject it first",
+                    open.number
+                )));
             }
-            other => return Err(other.into()),
+            tracing::info!(branch = %branch, from = %default_branch, "recreating a stale branch");
+            gitea.delete_branch(branch).await?;
+            gitea.create_branch(branch, default_branch).await?;
+            Ok(())
         }
+        Err(other) => Err(other.into()),
     }
-    Ok(())
 }
 
 pub(crate) fn resolve_repo_path(
@@ -412,14 +446,7 @@ pub async fn propose_with_identity(
     // One open change per resource (CC-34): the branch is one per resource and operation, so a
     // second proposal while one is pending would rewrite the open pull request under its
     // approver. Refused before anything is written, naming the change to decide first (T-0883).
-    // A forge that answers 404 here has no repository at all, and the branch step below says so.
-    let open_pulls = match gitea.list_pull_requests("open").await {
-        Ok(pulls) => pulls,
-        Err(GitError::NotFound) => Vec::new(),
-        Err(err) => return Err(err.into()),
-    };
-    if let Some(open) = open_pulls.into_iter().find(|pr| pr.head_branch == branch) {
-        let pending = ChangeMeta::from_merge_request(open.number, project);
+    if let Some(pending) = open_change_on(gitea, &branch, project).await? {
         return Err(ApiError::Conflict(format!(
             "a change for {} '{}' is already open: {}; approve or reject it first",
             kind_info.kind, envelope.metadata.name, pending.name

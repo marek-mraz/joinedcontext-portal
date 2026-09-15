@@ -1037,3 +1037,93 @@ async fn an_open_change_elsewhere_does_not_block_a_proposal() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::ACCEPTED);
 }
+
+/// A proposal's branch left by an earlier attempt is recreated from main (T-0886), so what the
+/// approver reviews is this proposal alone.
+#[tokio::test]
+async fn a_stale_proposal_branch_is_recreated_from_main() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(409).set_body_string("branch already exists"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    let branch = branch_name("ovzdusie", "ContextSpace", "mobility", Operation::Create);
+    Mock::given(method("DELETE"))
+        .and(path(format!(
+            "/api/v1/repos/test-owner/test-repo/branches/{branch}"
+        )))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "commit": { "sha": "c1" } })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 44,
+            "html_url": "https://gitea.example.sk/pulls/44",
+            "state": "open",
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    let payload = json!({
+        "apiVersion": API_VERSION,
+        "kind": "ContextSpace",
+        "metadata": { "name": "mobility", "namespace": "ovzdusie" },
+        "spec": { "isSandbox": true }
+    });
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/spaces")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&payload).expect("json bytes"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+}

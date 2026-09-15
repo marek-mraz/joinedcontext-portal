@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::api::dry_run::{self, DryRunQuery, DryRunResult};
 use crate::api::mutate::{
-    author_credentials, branch_name, create_or_reuse_branch, resolve_repo_path,
+    author_credentials, branch_name, create_or_reuse_branch, open_change_on, resolve_repo_path,
 };
 use crate::auth::session::Identity;
 use crate::auth::CurrentUser;
@@ -216,6 +216,13 @@ pub async fn delete_with_identity(
         .ok_or_else(not_found)?;
 
     let branch = branch_name(project, kind_info.kind, name, Operation::Delete);
+    // One open change per resource (CC-34, T-0883): the pending removal is decided first.
+    if let Some(pending) = open_change_on(gitea, &branch, project).await? {
+        return Err(ApiError::Conflict(format!(
+            "a change for {} '{name}' is already open: {}; approve or reject it first",
+            kind_info.kind, pending.name
+        )));
+    }
     create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
     let (author_name, author_email) = author_credentials(identity, project);
