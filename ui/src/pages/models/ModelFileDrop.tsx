@@ -217,7 +217,7 @@ export function ModelFileDrop({
     >
       {compact || icon ? null : (
         <>
-          <h3 className="text-body font-semibold text-fg">{t("models.infer.title")}</h3>
+          <h2 className="text-body font-semibold text-fg">{t("models.infer.title")}</h2>
           <p className="text-caption text-fg-muted">{t("models.infer.lead")}</p>
         </>
       )}

@@ -178,9 +178,9 @@ export function LinkmlVisualEditor({
       ) : null}
       <div className="flex flex-col gap-6">
         <section aria-labelledby="models-classes">
-          <h3 id="models-classes" className="mb-2 text-sm font-semibold uppercase tracking-wide">
+          <h2 id="models-classes" className="mb-2 text-sm font-semibold uppercase tracking-wide">
             {t("models.classes")}
-          </h3>
+          </h2>
           <ul className="flex flex-col gap-1">
             {model.classes.map((klass) => (
               <li key={klass.name}>
@@ -219,9 +219,9 @@ export function LinkmlVisualEditor({
         </section>
 
         <section aria-labelledby="models-enums">
-          <h3 id="models-enums" className="mb-2 text-sm font-semibold uppercase tracking-wide">
+          <h2 id="models-enums" className="mb-2 text-sm font-semibold uppercase tracking-wide">
             {t("models.enums")}
-          </h3>
+          </h2>
           <ul className="flex flex-col gap-2">
             {model.enums.map((entry) => (
               <li key={entry.name} className="rounded border border-border p-2">
@@ -273,9 +273,9 @@ export function LinkmlVisualEditor({
       <div className="flex flex-col gap-6">
         {activeClass ? (
           <section aria-labelledby="models-class-detail" className="flex flex-col gap-3">
-            <h3 id="models-class-detail" className="text-base font-semibold">
+            <h2 id="models-class-detail" className="text-base font-semibold">
               {activeClass.name}
-            </h3>
+            </h2>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label={t("models.classUri")}>
                 <input
@@ -334,9 +334,9 @@ export function LinkmlVisualEditor({
         ) : null}
 
         <section aria-labelledby="models-slots">
-          <h3 id="models-slots" className="mb-2 text-sm font-semibold uppercase tracking-wide">
+          <h2 id="models-slots" className="mb-2 text-sm font-semibold uppercase tracking-wide">
             {t("models.slots")}
-          </h3>
+          </h2>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="text-xs uppercase text-surface-fg/70">
@@ -394,9 +394,9 @@ export function LinkmlVisualEditor({
 
         {activeSlot ? (
           <section aria-labelledby="models-slot-detail" className="flex flex-col gap-3">
-            <h3 id="models-slot-detail" className="text-base font-semibold">
+            <h2 id="models-slot-detail" className="text-base font-semibold">
               {activeSlot.name}
-            </h3>
+            </h2>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label={t("models.range")}>
                 <select

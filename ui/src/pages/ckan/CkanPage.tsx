@@ -131,9 +131,9 @@ function Instances({
 
   return (
     <section aria-labelledby="ckan-instances" className="space-y-3">
-      <h3 id="ckan-instances" className="text-lg font-semibold">
+      <h2 id="ckan-instances" className="text-lg font-semibold">
         {t("ckan.instances.title")}
-      </h3>
+      </h2>
       {loading ? <p role="status">{t("app.loading")}</p> : null}
       {!loading && instances.length === 0 ? <p>{t("ckan.instances.empty")}</p> : null}
       {instances.length > 0 ? (
@@ -272,9 +272,9 @@ function Publications({
   const { t } = useTranslation();
   return (
     <section aria-labelledby="ckan-publications" className="space-y-3">
-      <h3 id="ckan-publications" className="text-lg font-semibold">
+      <h2 id="ckan-publications" className="text-lg font-semibold">
         {t("ckan.publications.title")}
-      </h3>
+      </h2>
       {loading ? <p role="status">{t("app.loading")}</p> : null}
       {!loading && publications.length === 0 ? <p>{t("ckan.publications.empty")}</p> : null}
       <ul className="space-y-4">

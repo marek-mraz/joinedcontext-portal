@@ -185,9 +185,9 @@ export function LinkmlSourceEditor({
         </Suspense>
       </div>
       <section aria-labelledby="models-diagnostics">
-        <h3 id="models-diagnostics" className="text-sm font-semibold">
+        <h2 id="models-diagnostics" className="text-sm font-semibold">
           {t("models.diagnostics", { errors: errors.length, warnings: warnings.length })}
-        </h3>
+        </h2>
         {diagnostics.length === 0 ? (
           <p className="text-sm text-surface-fg/70">{t("models.noDiagnostics")}</p>
         ) : (

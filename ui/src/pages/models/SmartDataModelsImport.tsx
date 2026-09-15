@@ -133,9 +133,9 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <section aria-labelledby="sdm-browse" className="flex flex-col gap-3">
-        <h3 id="sdm-browse" className="text-base font-semibold">
+        <h2 id="sdm-browse" className="text-base font-semibold">
           {t("models.sdm.browse")}
-        </h3>
+        </h2>
         <div className="flex flex-wrap gap-2">
           <input
             className={`${INPUT} w-56`}
@@ -217,9 +217,9 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
       </section>
 
       <section aria-labelledby="sdm-preview" className="flex flex-col gap-3">
-        <h3 id="sdm-preview" className="text-base font-semibold">
+        <h2 id="sdm-preview" className="text-base font-semibold">
           {t("models.sdm.preview")}
-        </h3>
+        </h2>
         {!selected ? (
           <p className="text-sm text-surface-fg/70">{t("models.sdm.pick")}</p>
         ) : preview.isError ? (

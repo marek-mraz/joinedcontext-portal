@@ -281,6 +281,38 @@ describe("accessibility", () => {
 
     await expectNoViolations(container);
   });
+  /** Every page opens with one level-1 heading, the page header's (UI-01, T-0756). */
+  for (const route of ["access", "ckan", "models", "flows", "apps", "datasources"]) {
+    it(`the ${route} page has one h1 and no axe violations`, async () => {
+      window.history.pushState({}, "", `/projects/helsinki/${route}`);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url =
+            typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          const body = url.includes("/auth/me")
+            ? IDENTITY
+            : url.endsWith("/api/v1/projects")
+              ? { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [{ name: "helsinki" }] }
+              : { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] };
+          return Promise.resolve(
+            new Response(JSON.stringify(body), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }),
+      );
+
+      const { container } = renderApp();
+      await waitFor(() => {
+        expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+      });
+
+      await expectNoViolations(container);
+    });
+  }
+
   it("the approvals queue has no axe violations", async () => {
     window.history.pushState({}, "", "/projects/banskabystrica/approvals");
     stubChangesApi();

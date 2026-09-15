@@ -374,9 +374,9 @@ export function ModelsPage({
               : "rounded border border-border p-3"
           }
         >
-          <h3 id="models-changes" className="text-sm font-semibold">
+          <h2 id="models-changes" className="text-sm font-semibold">
             {t(`models.severity.${severity}`)} · {t(`lane.${lane}`)}
-          </h3>
+          </h2>
           {refusal ? (
             <p role="alert" className="mt-1 text-sm text-danger-fg">
               {refusal}

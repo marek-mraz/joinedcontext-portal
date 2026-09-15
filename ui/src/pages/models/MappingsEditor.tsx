@@ -97,9 +97,9 @@ export function MappingsEditor({
   return (
     <div className="flex flex-col gap-4">
       <section aria-labelledby="mappings-pair" className="flex flex-wrap items-end gap-3">
-        <h3 id="mappings-pair" className="sr-only">
+        <h2 id="mappings-pair" className="sr-only">
           {t("mappings.pair")}
-        </h3>
+        </h2>
         <label className="flex flex-col gap-1 text-sm">
           {t("mappings.source")}
           <select
@@ -149,9 +149,9 @@ export function MappingsEditor({
       ) : null}
 
       <section aria-labelledby="mappings-canvas">
-        <h3 id="mappings-canvas" className="text-sm font-semibold">
+        <h2 id="mappings-canvas" className="text-sm font-semibold">
           {t("mappings.canvas")}
-        </h3>
+        </h2>
         <table className="mt-2 w-full text-sm">
           <thead>
             <tr className="text-left">
@@ -260,9 +260,9 @@ export function MappingsEditor({
       </section>
 
       <section aria-labelledby="mappings-golden" className="flex flex-col gap-2">
-        <h3 id="mappings-golden" className="text-sm font-semibold">
+        <h2 id="mappings-golden" className="text-sm font-semibold">
           {t("mappings.golden")}
-        </h3>
+        </h2>
         <label className="flex flex-col gap-1 text-sm">
           {t("mappings.input")}
           <textarea
