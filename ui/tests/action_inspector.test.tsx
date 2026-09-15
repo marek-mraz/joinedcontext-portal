@@ -73,10 +73,10 @@ describe("the action inspector", () => {
     expect(steps).toHaveLength(2);
 
     expect(within(steps[0]).getByRole("img", { name: en.agentRun.step.ok })).toBeInTheDocument();
-    expect(within(steps[0]).getByText("search_catalog")).toBeInTheDocument();
+    expect(within(steps[0]).getByText(en.agentRun.step.label.search_catalog)).toBeInTheDocument();
     expect(within(steps[0]).getByText("120 ms")).toBeInTheDocument();
 
-    await userEvent.click(within(steps[0]).getByText("search_catalog"));
+    await userEvent.click(within(steps[0]).getByText(en.agentRun.step.label.search_catalog));
     expect(within(steps[0]).getByText(en.agentRun.step.input)).toBeInTheDocument();
     expect(within(steps[0]).getByText(/"q": "air quality"/)).toBeInTheDocument();
     expect(within(steps[0]).getByText(/"name": "helsinki-air"/)).toBeInTheDocument();
@@ -87,7 +87,7 @@ describe("the action inspector", () => {
     const failed = screen.getAllByRole("group")[1];
     expect(within(failed).getByRole("img", { name: en.agentRun.step.failed })).toBeInTheDocument();
 
-    await userEvent.click(within(failed).getByText("propose_endpoint"));
+    await userEvent.click(within(failed).getByText(en.agentRun.step.label.propose_endpoint));
     await userEvent.click(within(failed).getByRole("button", { name: en.agentRun.step.fix }));
     expect(onSend).toHaveBeenCalledTimes(1);
     const text = onSend.mock.calls[0][0] as string;
@@ -106,7 +106,7 @@ describe("the action inspector", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     renderPanel();
     const failed = screen.getAllByRole("group")[1];
-    await userEvent.click(within(failed).getByText("propose_endpoint"));
+    await userEvent.click(within(failed).getByText(en.agentRun.step.label.propose_endpoint));
     await userEvent.click(within(failed).getByRole("button", { name: en.agentRun.step.copy }));
 
     expect(writeText).toHaveBeenCalledTimes(1);
@@ -120,7 +120,7 @@ describe("the action inspector", () => {
   it("renders what the workspace sent as text, never as markup (AG-46)", async () => {
     renderPanel();
     const failed = screen.getAllByRole("group")[1];
-    await userEvent.click(within(failed).getByText("propose_endpoint"));
+    await userEvent.click(within(failed).getByText(en.agentRun.step.label.propose_endpoint));
     expect(within(failed).getByText("<script>alert(1)</script>")).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
   });

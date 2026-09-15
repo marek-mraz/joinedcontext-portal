@@ -195,7 +195,8 @@ describe("effective permissions", () => {
     renderMatrix({ subject: { id: "anonymous" }, permissions: [], prohibitions: [] });
 
     expect(await screen.findByText(en.access.matrix.empty)).toBeInTheDocument();
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    // The Access page also lists the people and their roles; the data access matrix draws none.
+    expect(screen.queryByRole("table", { name: en.access.matrix.title })).not.toBeInTheDocument();
   });
 
   it("explains a refusal instead of rendering a broken table", async () => {
