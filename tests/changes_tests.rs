@@ -1637,3 +1637,36 @@ async fn a_red_lane_manifest_inside_a_yellow_bundle_needs_the_confirmation() {
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
     assert!(merged(&server).await);
 }
+
+#[tokio::test]
+async fn a_native_file_under_a_directory_that_names_no_kind_blocks_the_whole_merge_request() {
+    let kinds: Vec<&str> = joinedcontext_portal::resource::kinds()
+        .map(|info| info.kind)
+        .collect();
+    let (server, state) = bundle_of(
+        json!([{ "kinds": kinds, "verbs": ["approve"] }]),
+        &[("projects/ovzdusie/notes/todo.txt", "remember the milk\n")],
+    )
+    .await;
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("notes/todo.txt"), "{body}");
+    assert!(!merged(&server).await);
+}
+
+#[tokio::test]
+async fn a_native_file_of_a_granted_kind_travels_with_the_bundle() {
+    let (server, state) = bundle_of(
+        json!([{ "kinds": ["Pipeline"], "verbs": ["approve"] }]),
+        &[(
+            "projects/ovzdusie/pipelines/aq/bento.yaml",
+            "input:\n  mqtt:\n    urls: [ mqtts://x:8883 ]\n",
+        )],
+    )
+    .await;
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(merged(&server).await);
+}

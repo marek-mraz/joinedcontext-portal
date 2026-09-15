@@ -158,3 +158,31 @@ async fn delete_on_the_source_opens_the_detach_merge_request() {
         "no merge request opened"
     );
 }
+
+#[tokio::test]
+async fn a_binding_answers_404_for_a_source_that_is_not_there_and_403_for_another_project() {
+    let gitea = common::forge().await;
+    let state = state_with(&gitea, &["propose", "delete"]);
+
+    let answer = send(
+        &state,
+        person("jana"),
+        "POST",
+        "/api/v1/projects/bb/syncsources/missing/pause",
+        Some(json!({ "paused": true })),
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::NOT_FOUND, "{}", answer.text);
+
+    // The binding is on bb; espoo is not hers, whatever it holds.
+    let answer = send(
+        &state,
+        person("jana"),
+        "POST",
+        "/api/v1/projects/espoo/syncsources/regional/sync",
+        None,
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::FORBIDDEN, "{}", answer.text);
+    assert!(forge_writes(&gitea).await.is_empty());
+}
