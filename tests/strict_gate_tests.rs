@@ -387,6 +387,10 @@ async fn strict_mode_stale_verdict_refused_409() {
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["error"], "verdict_required");
     assert_eq!(body["reason"], "stale");
+    assert_eq!(
+        body["detail"],
+        "The draft changed since its check; check it again, then propose it."
+    );
 }
 
 #[tokio::test]
@@ -733,6 +737,11 @@ async fn rest_door_with_a_draft_reaches_the_check_and_the_gate() {
         serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["error"], "verdict_required");
     assert_eq!(body["check"], "jc_datasource_check");
+    // A page shows the refusal as it is: what happened and what to do (T-0769).
+    assert_eq!(
+        body["detail"],
+        "The draft has not been checked; check it, then propose it."
+    );
 
     // The dry run is the check: it answers a verdict and files it on the draft.
     let resp = app

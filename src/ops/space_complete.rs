@@ -1200,7 +1200,8 @@ pub async fn run(
             return Err(OpError::Conflict(json!({
                 "error": "verdict_required",
                 "check": failing_check,
-                "reason": "propose_not_ready"
+                "reason": "propose_not_ready",
+                "detail": "A draft of this space has not passed its check; check the drafts again, then propose them."
             })));
         }
 

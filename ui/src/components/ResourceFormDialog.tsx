@@ -278,6 +278,10 @@ export function ResourceFormDialog<T>({
     }
     lastTypedRef.current = Date.now();
     const timer = setTimeout(() => {
+      // A proposal may have written this manifest already (see `draftRefFor`).
+      if (digest === syncedDigestRef.current) {
+        return;
+      }
       void putDraft(
         project,
         draftKind,
@@ -434,11 +438,35 @@ export function ResourceFormDialog<T>({
     setView("form");
   }
 
-  function handleSubmit(form: T) {
+  /**
+   * The draft a proposal names, holding what the form shows: a proposal takes the draft's own
+   * manifest, so the save the debounce has not sent yet goes first (T-0769, AG-61).
+   */
+  async function draftRefFor(form: T): Promise<{ kind: string; name: string } | undefined> {
     const active = draftName || extractName(form);
-    const draftRef =
-      draftKind && active ? { kind: draftKind, name: active } : undefined;
-    onSubmit(form, draftRef);
+    if (!draftKind || !active) {
+      return undefined;
+    }
+    const manifest = source ? source.toManifest(form) : form;
+    const digest = digestOf(manifest);
+    const loaded = !draftName || loadedName === draftName;
+    if (project && loaded && digest !== syncedDigestRef.current) {
+      const saved = await putDraft(project, draftKind, active, manifest, lastVersionRef.current);
+      syncedDigestRef.current = digest;
+      lastVersionRef.current = saved.version;
+      setCurrentDraft(saved);
+      if (saved.verdict !== undefined) {
+        updateVerdict(saved.verdict ?? null);
+      }
+    }
+    return { kind: draftKind, name: active };
+  }
+
+  function handleSubmit(form: T) {
+    draftRefFor(form).then(
+      (draftRef) => onSubmit(form, draftRef),
+      () => setConflict(t("drafts.conflict")),
+    );
   }
 
   /** The YAML view submits what the form view would: the same schema decides (UI-01). */
@@ -458,10 +486,7 @@ export function ResourceFormDialog<T>({
     }
     setIssues([]);
     onChange?.(form);
-    const active = draftName || extractName(form);
-    const draftRef =
-      draftKind && active ? { kind: draftKind, name: active } : undefined;
-    onSubmit(form, draftRef);
+    handleSubmit(form);
   }
 
   const verdictChip = (

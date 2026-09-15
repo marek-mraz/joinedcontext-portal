@@ -830,10 +830,18 @@ fn apply_verdict_gate(state: &AppState, draft: &Draft, check_op: &str) -> Result
 
     if let Some(reason) = reason {
         if mode == verdict::Validation::Strict {
+            let detail = match reason {
+                "verdict_absent" => "The draft has not been checked; check it, then propose it.",
+                "verdict_failed" => {
+                    "The draft's check found problems; resolve them and check it again."
+                }
+                _ => "The draft changed since its check; check it again, then propose it.",
+            };
             return Err(OpError::Conflict(json!({
                 "error": "verdict_required",
                 "check": check_op,
                 "reason": reason,
+                "detail": detail,
             })));
         } else {
             return Ok(true);

@@ -595,6 +595,93 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
     expect(screen.queryByTestId("propose-reason")).toBeNull();
   });
 
+  it("saves the draft the form shows before Propose names it, when the debounce has not sent it yet (T-0769)", async () => {
+    const manifestOf = (url: string) => ({
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "DataSource",
+      metadata: { name: "handed-off", namespace: "banskabystrica" },
+      spec: { type: "http", http: { url } },
+    });
+    const shown = manifestOf("https://checked.example.com");
+    const order: string[] = [];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      const method = input instanceof Request ? input.method : (init?.method ?? "GET");
+      if (url.includes("/api/v1/branding")) {
+        return new Response(JSON.stringify({ validation: "strict" }), { status: 200 });
+      }
+      if (url.includes("/api/v1/projects/banskabystrica/drafts/DataSource/handed-off")) {
+        const put = method === "PUT";
+        const body = put ? JSON.parse(await (input as Request).clone().text()) : undefined;
+        if (put) {
+          order.push(`put ${body.manifest.spec.http.url}`);
+        }
+        return new Response(
+          JSON.stringify({
+            project: "banskabystrica",
+            kind: "DataSource",
+            name: "handed-off",
+            manifest: put ? body.manifest : manifestOf("https://typed.example.com"),
+            // The check ran on what the form shows; the save of it had not landed.
+            verdict: {
+              ok: true,
+              findings: [],
+              checkedAt: "2026-09-13T12:00:00Z",
+              inputDigest: digestOf(shown),
+            },
+            touchedBy: "demo.steward",
+            touchedKind: "person",
+            version: put ? 2 : 1,
+            updatedAt: "2026-09-13T12:00:00Z",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSubmit = vi.fn((_form: TestFormData, draft?: { kind: string; name: string }) => {
+      order.push(`propose ${draft?.kind}/${draft?.name}`);
+    });
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Handed-off Draft"
+            description="Flush before propose"
+            project="banskabystrica"
+            draftKind="DataSource"
+            draftName="handed-off"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={onSubmit}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    const submitBtn = await screen.findByRole("button", { name: "Propose change" });
+    await waitFor(() => expect(submitBtn).toBeDisabled());
+    fireEvent.change(screen.getByLabelText(/URL/i), {
+      target: { value: "https://checked.example.com" },
+    });
+    await waitFor(() => expect(submitBtn).toBeEnabled());
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(["put https://checked.example.com", "propose DataSource/handed-off"]);
+    // The debounced save finds the manifest written and sends nothing more.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+    expect(order).toHaveLength(2);
+  });
+
   it("marks verdict as stale and disables Propose when form is changed after check", async () => {
     const manifest = {
       apiVersion: "joinedcontext.com/v1alpha1",
