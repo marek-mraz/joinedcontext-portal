@@ -6,18 +6,20 @@ use axum_extra::extract::cookie::PrivateCookieJar;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use http_body_util::BodyExt;
+use joinedcontext_portal::api::mutate::branch_name;
 use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
 use joinedcontext_portal::auth::session::{self, Identity, Session};
-use joinedcontext_portal::change::{Change, ChangePhase, Lane};
+use joinedcontext_portal::change::{Change, ChangePhase, Lane, Operation};
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::error::ProblemDetails;
 use joinedcontext_portal::git::GiteaClient;
+
 use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
 use serde_json::json;
 use tower::ServiceExt;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TEST_CSRF_TOKEN: &str = "test-csrf-token-12345";
@@ -860,4 +862,178 @@ async fn create_without_csrf_header_returns_403() {
     let problem: ProblemDetails = serde_json::from_slice(&bytes).expect("ProblemDetails");
     assert_eq!(problem.status, 403);
     assert_eq!(problem.r#type, "https://joinedcontext.com/errors/forbidden");
+}
+
+/// A second proposal for a resource whose change is still open (T-0883, CC-34, PF-52): refused
+/// before a byte reaches the branch, the open change named, nothing of the forge's own words.
+#[tokio::test]
+async fn a_second_proposal_while_a_change_is_open_names_it_and_writes_nothing() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .mount(&server)
+        .await;
+    let open_branch = branch_name("ovzdusie", "ContextSpace", "mobility", Operation::Create);
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "number": 175,
+                "html_url": "https://gitea.example.sk/pulls/175",
+                "state": "open",
+                "title": "create ContextSpace mobility",
+                "head": { "ref": open_branch },
+                "base": { "ref": "main" },
+                "created_at": "2026-09-15T20:00:00Z",
+                "user": { "login": "jana.kovacova", "full_name": "Jana Kováčová" },
+                "mergeable": true,
+                "merged": false
+            }
+        ])))
+        .mount(&server)
+        .await;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    let app = server::app(state);
+    let payload = json!({
+        "apiVersion": API_VERSION,
+        "kind": "ContextSpace",
+        "metadata": { "name": "mobility", "namespace": "ovzdusie" },
+        "spec": { "isSandbox": true }
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/spaces")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&payload).expect("json bytes"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bytes")
+        .to_bytes();
+    let problem: ProblemDetails = serde_json::from_slice(&body).expect("problem");
+    let detail = problem.detail.expect("detail");
+    assert_eq!(
+        detail,
+        "a change for ContextSpace 'mobility' is already open: chg-000000af; approve or reject it first"
+    );
+    assert!(!detail.contains("pull request"), "no forge words: {detail}");
+
+    let requests = server.received_requests().await.expect("received requests");
+    assert!(
+        !requests.iter().any(|r| r.method.as_str() != "GET"),
+        "nothing was written to the forge"
+    );
+}
+
+/// An open change on another resource is nobody's business here: the proposal goes through.
+#[tokio::test]
+async fn an_open_change_elsewhere_does_not_block_a_proposal() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "number": 9,
+                "html_url": "https://gitea.example.sk/pulls/9",
+                "state": "open",
+                "head": { "ref": branch_name("ovzdusie", "ContextSpace", "parking", Operation::Create) },
+                "base": { "ref": "main" },
+                "merged": false
+            }
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "commit": { "sha": "c1" } })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 43,
+            "html_url": "https://gitea.example.sk/pulls/43",
+            "state": "open",
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    let app = server::app(state);
+    let payload = json!({
+        "apiVersion": API_VERSION,
+        "kind": "ContextSpace",
+        "metadata": { "name": "mobility", "namespace": "ovzdusie" },
+        "spec": { "isSandbox": true }
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/spaces")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&payload).expect("json bytes"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
 }

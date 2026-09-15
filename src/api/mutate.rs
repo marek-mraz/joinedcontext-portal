@@ -103,7 +103,9 @@ fn parse_patch_to_value(headers: &HeaderMap, bytes: &[u8]) -> Result<Value, ApiE
     }
 }
 
-pub(crate) fn branch_name(project: &str, kind: &str, name: &str, operation: Operation) -> String {
+/// The branch a proposal lives on: one per project, kind, name and operation, so a retry
+/// lands on the same pull request and a second proposal finds the open one (T-0883).
+pub fn branch_name(project: &str, kind: &str, name: &str, operation: Operation) -> String {
     let op_str = match operation {
         Operation::Create => "create",
         Operation::Update => "update",
@@ -407,6 +409,22 @@ pub async fn propose_with_identity(
     };
 
     let branch = branch_name(project, kind_info.kind, &envelope.metadata.name, operation);
+    // One open change per resource (CC-34): the branch is one per resource and operation, so a
+    // second proposal while one is pending would rewrite the open pull request under its
+    // approver. Refused before anything is written, naming the change to decide first (T-0883).
+    // A forge that answers 404 here has no repository at all, and the branch step below says so.
+    let open_pulls = match gitea.list_pull_requests("open").await {
+        Ok(pulls) => pulls,
+        Err(GitError::NotFound) => Vec::new(),
+        Err(err) => return Err(err.into()),
+    };
+    if let Some(open) = open_pulls.into_iter().find(|pr| pr.head_branch == branch) {
+        let pending = ChangeMeta::from_merge_request(open.number, project);
+        return Err(ApiError::Conflict(format!(
+            "a change for {} '{}' is already open: {}; approve or reject it first",
+            kind_info.kind, envelope.metadata.name, pending.name
+        )));
+    }
     create_or_reuse_branch(gitea, &branch, &default_branch).await?;
     let repo_path = resolve_repo_path(&envelope, kind_info, project)?;
 
