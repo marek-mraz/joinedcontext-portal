@@ -83,6 +83,22 @@ async function stubApi(page: Page): Promise<{ writes: string[] }> {
     if (path.endsWith("/auth/me")) {
       return json(IDENTITY);
     }
+    const draft = /^\/api\/v1\/projects\/([^/]+)\/drafts\/([^/]+)\/([^/]+)$/.exec(path);
+    if (draft && request.method() === "PUT") {
+      // The form saves its draft before it proposes (T-0769); the draft is not the change.
+      const { manifest } = JSON.parse(request.postData() ?? "{}") as { manifest: unknown };
+      const [, project, kind, name] = draft;
+      return json({
+        project,
+        kind,
+        name,
+        manifest,
+        touchedBy: "steward",
+        touchedKind: "person",
+        version: 1,
+        updatedAt: new Date().toISOString(),
+      });
+    }
     if (request.method() !== "GET") {
       writes.push(`${request.method()} ${path} ${request.postData() ?? ""}`);
       return json(CHANGE, 202);
