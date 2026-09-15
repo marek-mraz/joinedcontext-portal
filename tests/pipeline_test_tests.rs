@@ -80,7 +80,7 @@ fn mirror(project: &str) -> Arc<Mirror> {
     mirror.upsert(org(
         "Role",
         "pipeline-author",
-        json!({ "rules": [{ "kinds": ["Pipeline"], "verbs": ["propose"] }] }),
+        json!({ "rules": [{ "kinds": ["Pipeline", "DataSource"], "verbs": ["propose"] }] }),
     ));
     mirror.upsert(org(
         "RoleBinding",
@@ -119,11 +119,21 @@ fn config(runner: Option<&MockServer>) -> Config {
 }
 
 async fn post(state: &AppState, who: &str, project: &str, body: &Value) -> (StatusCode, Value) {
+    send(
+        state,
+        who,
+        &format!("/api/v1/projects/{project}/pipelines/test"),
+        body,
+    )
+    .await
+}
+
+async fn send(state: &AppState, who: &str, uri: &str, body: &Value) -> (StatusCode, Value) {
     let response = server::app(state.clone())
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/projects/{project}/pipelines/test"))
+                .uri(uri)
                 .header(header::COOKIE, cookies(&state.config, identity(who)))
                 .header(CSRF_HEADER, CSRF)
                 .header(header::CONTENT_TYPE, "application/json")
@@ -227,6 +237,56 @@ async fn the_trace_is_what_the_harness_posted_back_and_the_stream_is_deleted() {
         "the target endpoint is never in the harness"
     );
     assert!(!text.contains("secretRef") && !text.contains("resources"));
+    runner.verify().await;
+}
+
+/// A DataSource Check fetches the feed once on the runner (MF-39); a fetch that fails reaches
+/// the capture route like any message, and the Check names what the feed answered.
+#[tokio::test]
+async fn a_data_source_check_names_what_the_feed_answered() {
+    let runner = MockServer::start().await;
+    let (create, delete) = runner_mocks(ResponseTemplate::new(200));
+    create.mount(&runner).await;
+    delete.mount(&runner).await;
+    let state = AppState::new(config(Some(&runner)), None).with_mirror(mirror("porvoo"));
+    let source = json!({
+        "apiVersion": "joinedcontext.com/v1alpha1",
+        "kind": "DataSource",
+        "metadata": { "name": "bikes" },
+        "spec": { "type": "http", "http": { "url": "https://feeds.example/bikes.json" } }
+    });
+    let failed = [json!({
+        "input": null,
+        "output": null,
+        "error": "fetch: https://feeds.example/bikes.json: HTTP request returned unexpected response code (404): 404 Not Found, Error: gone"
+    })];
+    let (answer, harness) = tokio::join!(
+        send(
+            &state,
+            "dev@hel.fi",
+            "/api/v1/projects/porvoo/datasources?dryRun=All",
+            &source
+        ),
+        play_runner(&runner, &state, &failed),
+    );
+    let (status, body) = answer;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["probe"]["skipped"], "the feed answered 404 Not Found",
+        "{body}"
+    );
+    assert!(body["probe"].get("records").is_none());
+
+    // One fetch by a processor whose failure is kept for the envelope, never a polling input.
+    let processors = harness["pipeline"]["processors"]
+        .as_array()
+        .expect("processors");
+    assert_eq!(
+        processors[0]["http"]["url"],
+        "https://feeds.example/bikes.json"
+    );
+    assert!(processors[2]["catch"].is_array());
+    assert!(harness["input"].get("http_client").is_none());
     runner.verify().await;
 }
 

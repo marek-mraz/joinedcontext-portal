@@ -38,6 +38,10 @@ const DEADLINE: Duration = Duration::from_secs(3);
 const QUIET: Duration = Duration::from_millis(300);
 /// The request body: the sample's five mebibytes plus the manifest and the JSON around them.
 const BODY_LIMIT: usize = MAX_SAMPLE_BYTES + 1024 * 1024;
+/// Marks an error the fetch of a URL sample raised, ahead of what Bento wrote.
+const FETCH_FAILED: &str = "fetch: ";
+/// What a fetch that answered no bytes is called; a mapping of nothing would say less.
+const EMPTY_BODY: &str = "the feed answered an empty body";
 
 /// The request of API/01 §7a.
 #[derive(Debug, Deserialize)]
@@ -212,6 +216,7 @@ pub(crate) async fn run_harness(
         &format!("{capture}/internal/pipeline-tests/{id}"),
     )
     .map(single_fetch)
+    .map(failed_envelope)
     .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let _slot = Slot::take(project, &id, sender)?;
@@ -294,18 +299,47 @@ pub(crate) async fn probe_source(state: &AppState, project: &str, spec: &Value) 
         url: Some(url),
         format: SampleFormat::Json,
     };
-    match run_harness(state, project, &probe_spec, &sample).await {
-        Ok(trace) if trace.errors.is_empty() && trace.input.events > 0 => Some(Probe {
+    Some(
+        match run_harness(state, project, &probe_spec, &sample).await {
+            Ok(trace) => answer_of(trace),
+            Err(err) => Probe::skipped(err.to_string()),
+        },
+    )
+}
+
+/// The probe's answer from its trace: the records, or what the fetch or the parse said. A test
+/// stream the runner kept is already logged by `run_harness`, beside the answer, never in its place.
+fn answer_of(trace: TestTrace) -> Probe {
+    match trace.errors.iter().find(|error| error.stage != "runner") {
+        None if trace.input.events > 0 => Probe {
             records: Some(trace.input.events),
             bytes: Some(trace.input.bytes),
             sample: trace.input.sample,
             skipped: None,
-        }),
-        Ok(trace) => Some(Probe::skipped(match trace.errors.first() {
-            Some(error) => format!("the feed did not parse as JSON: {}", error.message),
-            None => "the feed answered nothing within the test's three seconds".to_owned(),
-        })),
-        Err(err) => Some(Probe::skipped(err.to_string())),
+        },
+        None => Probe::skipped("the feed answered nothing within the test's three seconds"),
+        Some(error) => Probe::skipped(outcome_of(&error.message)),
+    }
+}
+
+/// A failed fetch or parse in plain words: the HTTP status, a timeout, an empty body, or the
+/// last clause of the transport or JSON error (`connection refused`, `no such host`).
+fn outcome_of(error: &str) -> String {
+    let last = |text: &str| text.rsplit(": ").next().unwrap_or(text).to_owned();
+    let Some(fetch) = error.strip_prefix(FETCH_FAILED) else {
+        return format!("the feed is not JSON: {}", last(error));
+    };
+    let status = fetch
+        .split_once("unexpected response code (")
+        .and_then(|(_, rest)| rest.split_once("): "))
+        .map(|(_, status)| status.split(", Error:").next().unwrap_or(status));
+    match status {
+        Some(status) => format!("the feed answered {status}"),
+        None if fetch.contains("Client.Timeout") || fetch.contains("deadline exceeded") => {
+            "the feed did not answer within the test's three seconds".to_owned()
+        }
+        None if fetch.ends_with(EMPTY_BODY) => EMPTY_BODY.to_owned(),
+        None => format!("the feed could not be reached: {}", last(fetch)),
     }
 }
 
@@ -320,11 +354,50 @@ fn single_fetch(mut config: Value) -> Value {
     config["input"] = serde_json::json!({
         "generate": { "count": 1, "interval": "", "mapping": "root = \"\"" }
     });
-    let fetch = serde_json::json!({ "http": {
-        "url": http["url"], "verb": "GET", "timeout": http["timeout"], "retries": 0
-    }});
+    // A failed fetch leaves an empty message that every later processor fails on again, so
+    // its own error is kept in metadata, where the envelope reads it first.
+    let fetch = [
+        serde_json::json!({ "http": {
+            "url": http["url"], "verb": "GET", "timeout": http["timeout"], "retries": 0
+        }}),
+        serde_json::json!({ "mapping": format!(
+            "root = if !errored() && content().length() == 0 {{ throw(\"{EMPTY_BODY}\") }} else {{ content() }}"
+        )}),
+        serde_json::json!({ "catch": [{ "mapping": format!(
+            "meta jc_fetch_error = \"{FETCH_FAILED}\" + error()\nroot = \"\""
+        )}]}),
+    ];
     if let Some(processors) = config["pipeline"]["processors"].as_array_mut() {
-        processors.insert(0, fetch);
+        processors.splice(0..0, fetch);
+    }
+    config
+}
+
+/// The harness's envelope reads the message as JSON even when the message failed, which fails
+/// again on a body that is not JSON: the runner then posts the raw body to the capture route,
+/// is refused, and retries until the stream is deleted. Read only when it did not fail, the
+/// failure arrives as an envelope, a failed fetch's own error first (Bento 1.21).
+// ponytail: belongs in jcctl's harness; patched here until the next jcctl tag bump.
+fn failed_envelope(mut config: Value) -> Value {
+    let Some(processors) = config["pipeline"]["processors"].as_array_mut() else {
+        return config;
+    };
+    for processor in processors {
+        if let Some(mapping) = processor["mapping"]
+            .as_str()
+            .filter(|m| m.starts_with("let failed = errored()"))
+        {
+            processor["mapping"] = mapping
+                .replace(
+                    "let out = this\n",
+                    "let out = if $failed { null } else { this }\n",
+                )
+                .replace(
+                    "if $failed { error() }",
+                    "if $failed { meta(\"jc_fetch_error\").or(error()) }",
+                )
+                .into();
+        }
     }
     config
 }
@@ -367,25 +440,118 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn harness_for(sample: Sample) -> Value {
+        let spec: PipelineSpec = serde_json::from_value(json!({
+            "class": "auto",
+            "targetEndpoint": "urn:ngsi-ld:Endpoint:probe.local:probe:probe"
+        }))
+        .expect("spec");
+        failed_envelope(single_fetch(
+            harness(&spec, &sample, "http://portal-internal:9090/x").expect("harness"),
+        ))
+    }
+
     #[test]
     fn a_url_sample_is_fetched_once_by_a_processor_and_a_text_sample_is_left_alone() {
-        let url = json!({
-            "input": { "http_client": { "url": "https://feed.example/x.json", "verb": "GET", "timeout": "3s", "retries": 0 } },
-            "pipeline": { "processors": [{ "mapping": "meta jc_input = content().string()" }] }
+        let url = harness_for(Sample {
+            text: None,
+            url: Some("https://feed.example/x.json".into()),
+            format: SampleFormat::Json,
         });
-        let out = single_fetch(url);
-        assert_eq!(out["input"]["generate"]["count"], 1);
-        assert!(out["input"].get("http_client").is_none());
-        assert_eq!(
-            out["pipeline"]["processors"][0]["http"]["url"],
-            "https://feed.example/x.json"
-        );
-        assert_eq!(out["pipeline"]["processors"][0]["http"]["timeout"], "3s");
-        assert_eq!(out["pipeline"]["processors"].as_array().unwrap().len(), 2);
+        assert_eq!(url["input"]["generate"]["count"], 1);
+        assert!(url["input"].get("http_client").is_none());
+        let processors = url["pipeline"]["processors"]
+            .as_array()
+            .expect("processors");
+        assert_eq!(processors[0]["http"]["url"], "https://feed.example/x.json");
+        assert_eq!(processors[0]["http"]["timeout"], "3s");
+        assert!(processors[1]["mapping"]
+            .as_str()
+            .unwrap()
+            .contains(EMPTY_BODY));
+        assert!(processors[2]["catch"][0]["mapping"]
+            .as_str()
+            .unwrap()
+            .starts_with("meta jc_fetch_error"));
 
-        let text =
-            json!({ "input": { "generate": { "count": 1 } }, "pipeline": { "processors": [] } });
-        assert_eq!(single_fetch(text.clone()), text);
+        let text = harness_for(Sample {
+            text: Some("[1]".into()),
+            url: None,
+            format: SampleFormat::Json,
+        });
+        assert!(text["input"]["generate"]["mapping"]
+            .as_str()
+            .unwrap()
+            .contains("decode"));
+        assert!(!text.to_string().contains("meta jc_fetch_error ="));
+        assert!(text["pipeline"]["processors"][0].get("http").is_none());
+    }
+
+    #[test]
+    fn a_message_that_failed_reaches_the_capture_route_as_an_envelope() {
+        let config = harness_for(Sample {
+            text: Some("<html>no</html>".into()),
+            url: None,
+            format: SampleFormat::Json,
+        });
+        let envelope = config["pipeline"]["processors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["mapping"].as_str())
+            .find(|m| m.starts_with("let failed = errored()"))
+            .expect("jcctl's envelope");
+        // If jcctl rewrites its envelope, the patch no longer applies and this says so.
+        assert!(!envelope.contains("let out = this\n"), "{envelope}");
+        assert!(envelope.contains("let out = if $failed { null } else { this }"));
+        assert!(envelope.contains("meta(\"jc_fetch_error\").or(error())"));
+    }
+
+    fn trace_with(events: usize, errors: &[(&str, &str)]) -> TestTrace {
+        TestTrace {
+            input: jcctl::pipeline_test::InputStage {
+                events,
+                bytes: events * 10,
+                sample: Some(json!({ "id": 1 })),
+            },
+            errors: errors
+                .iter()
+                .map(|(stage, message)| TestError {
+                    stage: (*stage).into(),
+                    line: None,
+                    message: (*message).into(),
+                })
+                .collect(),
+            ..TestTrace::default()
+        }
+    }
+
+    #[test]
+    fn the_probe_names_what_the_fetch_answered_and_a_kept_stream_never_replaces_it() {
+        let kept = (
+            "runner",
+            "the test stream could not be deleted; the runner keeps it until it is",
+        );
+        let records = answer_of(trace_with(2, &[kept]));
+        assert_eq!((records.records, records.bytes), (Some(2), Some(20)));
+        assert!(records.skipped.is_none());
+
+        // What Bento 1.21.1 posted for each outcome, run against a local feed.
+        for (error, said) in [
+            ("fetch: http://127.0.0.1:42019/x: Get \"http://127.0.0.1:42019/x\": dial tcp 127.0.0.1:42019: connect: connection refused", "the feed could not be reached: connection refused"),
+            ("fetch: http://127.0.0.1:42013/missing: HTTP request returned unexpected response code (404): 404 Not Found, Error: not here", "the feed answered 404 Not Found"),
+            ("fetch: http://127.0.0.1:42013/slow: Get \"http://127.0.0.1:42013/slow\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)", "the feed did not answer within the test's three seconds"),
+            ("fetch: https://127.0.0.1:42013/tls: Get \"https://127.0.0.1:42013/tls\": tls: first record does not look like a TLS handshake", "the feed could not be reached: first record does not look like a TLS handshake"),
+            ("fetch: http://no-such-host.invalid/x: Get \"http://no-such-host.invalid/x\": dial tcp: lookup no-such-host.invalid on 192.168.65.7:53: no such host", "the feed could not be reached: no such host"),
+            ("fetch: failed assignment (line 1): the feed answered an empty body", EMPTY_BODY),
+            ("failed to parse message into JSON array: invalid character '<' looking for beginning of value", "the feed is not JSON: invalid character '<' looking for beginning of value"),
+        ] {
+            assert_eq!(answer_of(trace_with(1, &[("mapping", error), kept])).skipped.as_deref(), Some(said));
+        }
+        assert_eq!(
+            answer_of(trace_with(0, &[kept])).skipped.as_deref(),
+            Some("the feed answered nothing within the test's three seconds")
+        );
     }
 
     #[test]
