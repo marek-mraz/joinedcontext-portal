@@ -31,6 +31,24 @@ function isSafeCss(val: unknown): val is string {
   return typeof val === "string" && !/[;{}]|url\(/i.test(val);
 }
 
+/** Families a stack may end in that the browser resolves to whatever the system has. */
+const GENERIC_FAMILIES = new Set(["system-ui", "-apple-system", "blinkmacsystemfont", "sans-serif", "serif", "monospace", "ui-sans-serif", "ui-serif"]);
+
+/**
+ * A body font stack with the bundled Inter before its first generic family, so an app that names
+ * a font the viewer does not have still draws the same letters as the Portal around it (T-0756).
+ */
+export function withBundledFont(stack: string): string {
+  const families = stack.split(",").map((family) => family.trim()).filter(Boolean);
+  const bare = (family: string): string => family.replace(/["']/g, "").toLowerCase();
+  if (families.some((family) => bare(family) === "inter")) {
+    return families.join(", ");
+  }
+  const generic = families.findIndex((family) => GENERIC_FAMILIES.has(bare(family)));
+  const at = generic === -1 ? families.length : generic;
+  return [...families.slice(0, at), '"Inter"', ...families.slice(at)].join(", ");
+}
+
 function cloneTokens(t: DesignTokens): DesignTokens {
   return JSON.parse(JSON.stringify(t)) as DesignTokens;
 }
@@ -206,7 +224,7 @@ export function applyTokens(input: unknown, root?: HTMLElement): DesignTokens {
     target.style.setProperty("--jc-color-success", tokens.color.success);
     target.style.setProperty("--jc-color-warning", tokens.color.warning);
 
-    target.style.setProperty("--jc-font-body", tokens.font.body);
+    target.style.setProperty("--jc-font-body", withBundledFont(tokens.font.body));
     target.style.setProperty("--jc-font-mono", tokens.font.mono);
     target.style.setProperty("--jc-font-size-sm", tokens.font.size.sm);
     target.style.setProperty("--jc-font-size-md", tokens.font.size.md);

@@ -48,6 +48,23 @@ export function logoUrl(branding: Branding): string | undefined {
   return branding.logo ? "/api/v1/branding/logo" : undefined;
 }
 
+/** The families a font stack may end in that the browser resolves on its own. */
+const GENERIC_FAMILIES = new Set(["system-ui", "-apple-system", "blinkmacsystemfont", "sans-serif", "serif", "monospace", "ui-sans-serif", "ui-serif"]);
+
+/**
+ * A branding font stack with the Portal's bundled Inter before its first generic family, so a
+ * brand font the browser does not have falls back to the same letters everywhere (T-0756).
+ */
+export function withBundledFont(stack: string): string {
+  const families = stack.split(",").map((family) => family.trim()).filter(Boolean);
+  if (families.some((family) => family.replace(/["']/g, "").toLowerCase() === "inter")) {
+    return families.join(", ");
+  }
+  const generic = families.findIndex((family) => GENERIC_FAMILIES.has(family.replace(/["']/g, "").toLowerCase()));
+  const at = generic === -1 ? families.length : generic;
+  return [...families.slice(0, at), '"Inter"', ...families.slice(at)].join(", ");
+}
+
 /**
  * Writes the branding into the document: the title, and the colour and font tokens every
  * component already reads through Tailwind's theme.
@@ -65,8 +82,8 @@ export function applyBranding(branding: Branding, doc: Document = document): voi
     "--portal-color-accent": branding.colours?.accent,
     "--portal-color-surface": branding.colours?.background,
     "--portal-color-surface-fg": branding.colours?.text,
-    "--portal-font-sans": branding.fonts?.body,
-    "--portal-font-heading": branding.fonts?.heading,
+    "--portal-font-sans": branding.fonts?.body && withBundledFont(branding.fonts.body),
+    "--portal-font-heading": branding.fonts?.heading && withBundledFont(branding.fonts.heading),
   };
   for (const [token, value] of Object.entries(tokens)) {
     if (value) {

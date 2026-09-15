@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyTokens, currentTokens, DEFAULT_TOKENS, echartsTheme, resolveTokens } from "../src/sdk/tokens";
+import { applyTokens, currentTokens, DEFAULT_TOKENS, echartsTheme, resolveTokens, withBundledFont } from "../src/sdk/tokens";
 
 describe("sdk tokens", () => {
   it("defaults equal the index.css :root colours", () => {
@@ -10,6 +10,16 @@ describe("sdk tokens", () => {
     expect(DEFAULT_TOKENS.color.card).toBe("#f8fafc");
     expect(DEFAULT_TOKENS.color.line).toBe("#e2e8f0");
     expect(DEFAULT_TOKENS.chart.palette).toContain("#0f766e");
+  });
+
+  it("draws the bundled Inter before any system family, whatever stack the app names (T-0756)", () => {
+    expect(DEFAULT_TOKENS.font.body.startsWith('"Inter"')).toBe(true);
+    expect(withBundledFont("Georgia, serif")).toBe('Georgia, "Inter", serif');
+    expect(withBundledFont("system-ui, sans-serif")).toBe('"Inter", system-ui, sans-serif');
+    expect(withBundledFont('"Inter", sans-serif')).toBe('"Inter", sans-serif');
+    const root = document.createElement("div");
+    applyTokens(resolveTokens({ font: { body: "system-ui, sans-serif" } }).tokens, root);
+    expect(root.style.getPropertyValue("--jc-font-body")).toBe('"Inter", system-ui, sans-serif');
   });
 
   it("merges partial override over defaults", () => {

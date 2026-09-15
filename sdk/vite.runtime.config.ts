@@ -83,6 +83,8 @@ export default defineConfig({
     emptyOutDir: true,
     minify: true,
     cssCodeSplit: false,
+    // The typeface rides inside sdk.css: a preview frame's policy allows only `data:` fonts.
+    assetsInlineLimit: 64 * 1024,
     // Vite's preloader resolves dependencies against `import.meta.url`, which a `data:` module lacks.
     modulePreload: false,
     rollupOptions: {

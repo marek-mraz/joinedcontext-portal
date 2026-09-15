@@ -20,6 +20,8 @@ export default defineConfig({
   resolve: { alias: sdkAlias },
   build: {
     cssCodeSplit: false,
+    // The typeface rides inside kit.css: the kit document's policy allows only `data:` fonts.
+    assetsInlineLimit: 64 * 1024,
     rollupOptions: {
       output: {
         entryFileNames: "kit.js",

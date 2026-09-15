@@ -11,7 +11,7 @@
     "warning": "#d97706"
   },
   "font": {
-    "body": "system-ui, -apple-system, \"Segoe UI\", sans-serif",
+    "body": "\"Inter\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
     "mono": "ui-monospace, monospace",
     "size": {
       "sm": "0.75rem",

@@ -5,7 +5,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { App } from "../src/App";
-import { applyBranding, NEUTRAL_BRANDING, offeredLocales } from "../src/branding";
+import { applyBranding, NEUTRAL_BRANDING, offeredLocales, withBundledFont } from "../src/branding";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -94,8 +94,16 @@ describe("runtime branding", () => {
     expect(style.getPropertyValue("--portal-color-surface")).toBe("#ffffff");
     expect(style.getPropertyValue("--portal-color-surface-fg")).toBe("#1a1a1a");
     expect(style.getPropertyValue("--portal-font-heading")).toBe(
-      "HelsinkiGrotesk, system-ui, sans-serif",
+      'HelsinkiGrotesk, "Inter", system-ui, sans-serif',
     );
+  });
+
+  it("falls back to the bundled Inter before any system family, and names it once (T-0756)", () => {
+    expect(withBundledFont("HelsinkiGrotesk, system-ui, sans-serif")).toBe('HelsinkiGrotesk, "Inter", system-ui, sans-serif');
+    expect(withBundledFont("system-ui, sans-serif")).toBe('"Inter", system-ui, sans-serif');
+    expect(withBundledFont("Georgia")).toBe('Georgia, "Inter"');
+    expect(withBundledFont("'Inter', sans-serif")).toBe("'Inter', sans-serif");
+    expect(withBundledFont("")).toBe('"Inter"');
   });
 
   it("shows the instance name and its logo in the shell", async () => {
