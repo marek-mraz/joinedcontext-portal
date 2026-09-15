@@ -28,7 +28,8 @@ describe("the page the assistant opened", () => {
   it("says another page for a route it does not know, and never shows the address", () => {
     for (const route of ["/playground?x=1", "/projects/helsinki/unknown?edit=x", "/"]) {
       const said = pageOf(route, t);
-      expect(said).toBe("The assistant opened another page");
+      // Read inside the notice's "Opened {page}".
+      expect(said).toBe("another page");
       expect(said).not.toContain("/");
     }
   });

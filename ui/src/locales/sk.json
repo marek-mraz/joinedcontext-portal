@@ -1378,7 +1378,7 @@
   "assistant": {
     "navigated": "Otvorené: {page}",
     "pageNamed": "{page}: {name}",
-    "anotherPage": "Asistent otvoril inú stránku",
+    "anotherPage": "iná stránka",
     "dismiss": "Zavrieť oznam",
     "close": "Zavrieť asistenta",
     "title": "Asistent",

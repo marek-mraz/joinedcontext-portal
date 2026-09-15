@@ -29,6 +29,9 @@ export function speakerOf(kind: string): Speaker {
 /** Lines about the machinery of a run rather than the conversation, kept behind Details. */
 const DETAIL_KINDS = new Set(["usage", "commit", "preview", "lag"]);
 
+/** Events that are not lines of the transcript at all. */
+const UNDRAWN_KINDS = new Set(["status", "navigate"]);
+
 /** Where a run stands, as the one line a person reads instead of every status change. */
 export type Progress = "working" | "waiting" | "done" | "stopped";
 
@@ -83,7 +86,8 @@ type Row = { event: RunEvent; count: number } | { details: RunEvent[] };
 
 function rowsOf(events: RunEvent[]): Row[] {
   const rows: Row[] = [];
-  for (const folded of foldRepeats(events.filter((event) => event.kind !== "status"))) {
+  // The progress line stands for the status changes, and the dock's notice for the page opened.
+  for (const folded of foldRepeats(events.filter((event) => !UNDRAWN_KINDS.has(event.kind)))) {
     const last = rows.at(-1);
     if (!DETAIL_KINDS.has(folded.event.kind)) {
       rows.push(folded);
@@ -179,7 +183,7 @@ export function line(
         : t("agentRun.line.noEndpoints");
     }
     default:
-      return event.kind;
+      return "";
   }
 }
 
@@ -343,20 +347,13 @@ export function ConversationPanel({
                 </li>
               );
             }
-            if (event.kind === "endpoints") {
-              return (
-                <li key={event.seq} data-testid="endpoints-line" className="flex items-center gap-1.5 text-xs text-fg-muted">
-                  <span aria-hidden className="h-px flex-1 bg-border" />
-                  <span className="min-w-0 break-words">{line(event, t)}</span>
-                  <span aria-hidden className="h-px flex-1 bg-border" />
-                </li>
-              );
-            }
             if (speaker === "activity") {
-              return (
-                <li key={event.seq} className="flex gap-2 text-xs text-fg-muted">
-                  <span className="w-16 shrink-0 font-mono uppercase">{event.kind}</span>
-                  <span className="min-w-0 break-words font-mono">{line(event, t)}</span>
+              const text = line(event, t);
+              return text === "" ? null : (
+                <li key={event.seq} data-testid={`${event.kind}-line`} className="flex items-center gap-1.5 text-xs text-fg-muted">
+                  <span aria-hidden className="h-px flex-1 bg-border" />
+                  <span className="min-w-0 break-words">{text}</span>
+                  <span aria-hidden className="h-px flex-1 bg-border" />
                 </li>
               );
             }

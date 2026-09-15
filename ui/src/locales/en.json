@@ -1378,7 +1378,7 @@
   "assistant": {
     "navigated": "Opened {page}",
     "pageNamed": "{page}: {name}",
-    "anotherPage": "The assistant opened another page",
+    "anotherPage": "another page",
     "dismiss": "Dismiss",
     "close": "Close the assistant",
     "title": "Assistant",

@@ -1378,7 +1378,7 @@
   "assistant": {
     "navigated": "Geöffnet: {page}",
     "pageNamed": "{page}: {name}",
-    "anotherPage": "Der Assistent hat eine andere Seite geöffnet",
+    "anotherPage": "eine andere Seite",
     "dismiss": "Ausblenden",
     "close": "Assistent schließen",
     "title": "Assistent",

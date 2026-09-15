@@ -11,8 +11,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
-import { ConversationPanel, answeredSearches } from "../src/pages/apps/ConversationPanel";
-import { openQuestions } from "../src/pages/apps/useAgentRun";
+import { ConversationPanel, answeredSearches, line } from "../src/pages/apps/ConversationPanel";
+import { EVENT_KINDS, openQuestions } from "../src/pages/apps/useAgentRun";
 import type { RunEvent } from "../src/pages/apps/useAgentRun";
 
 const sent = vi.fn();
@@ -66,9 +66,33 @@ describe("the conversation panel", () => {
     const rows = within(
       screen.getByRole("list", { name: en.agentRun.conversation.title }),
     ).getAllByRole("listitem");
-    expect(rows).toHaveLength(3);
-    // The unknown kind still shows as its own name rather than an empty row.
-    expect(rows[2]).toHaveTextContent("somethingNew");
+    // A kind this Portal has no words for draws nothing: a kind name is machinery (T-0772).
+    expect(rows).toHaveLength(2);
+    expect(screen.queryByText(/somethingNew/)).not.toBeInTheDocument();
+  });
+
+  it("leaves the page the assistant opened to the dock's notice, never a line with the event's kind (T-0772)", () => {
+    panel([
+      { seq: 1, kind: "thought", payload: { text: "Drafted the grant." } },
+      {
+        seq: 2,
+        kind: "navigate",
+        payload: { route: "/projects/helsinki/access?grant=jana-kovacova-steward-helsinki" },
+      },
+    ]);
+
+    const rows = within(
+      screen.getByRole("list", { name: en.agentRun.conversation.title }),
+    ).getAllByRole("listitem");
+    expect(rows).toHaveLength(1);
+    expect(screen.queryByText(/navigate/i)).not.toBeInTheDocument();
+  });
+
+  it("never puts the name of an event's kind on screen", () => {
+    const t = i18n.t.bind(i18n) as (key: string, options?: Record<string, unknown>) => string;
+    for (const kind of EVENT_KINDS) {
+      expect(line({ seq: 1, kind, payload: {} }, t), kind).not.toBe(kind);
+    }
   });
 
   it("keeps the turns in stream order, each under whoever said it", () => {
