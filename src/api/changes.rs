@@ -150,6 +150,13 @@ pub struct BranchInfo {
 pub fn parse_branch_name(branch: &str) -> Option<BranchInfo> {
     let clean = branch.strip_prefix("refs/heads/").unwrap_or(branch);
     let rest = clean.strip_prefix("portal/")?;
+    // A retry after a rejection carries `_{nonce}` after the hash (T-0887); the name is the same.
+    let rest = match rest.rsplit_once('_') {
+        Some((base, nonce)) if nonce.len() == 8 && nonce.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            base
+        }
+        _ => rest,
+    };
     let mut parts: Vec<&str> = rest.split('-').collect();
     if parts.len() < 4 {
         return None;
@@ -1070,6 +1077,12 @@ mod tests {
         assert!(parse_branch_name("main").is_none());
         assert!(parse_branch_name("portal/invalid").is_none());
         assert!(parse_branch_name("portal/foo-bar-baz-123").is_none());
+        // A retry's nonce (T-0887) is not part of the name.
+        let b4 = parse_branch_name("portal/update-pipeline-hel-news-0711bca4_144d2358").unwrap();
+        assert_eq!(b4.operation, Operation::Update);
+        assert_eq!(b4.kind_lower, "pipeline");
+        assert_eq!(b4.resource_name, "hel-news");
+        assert_eq!(b4.hash, "0711bca4");
     }
 
     #[test]

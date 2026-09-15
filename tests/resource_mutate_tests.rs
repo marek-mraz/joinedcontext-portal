@@ -974,7 +974,7 @@ async fn an_open_change_on_a_suffixed_branch_still_blocks_a_proposal() {
         .mount(&server)
         .await;
     let open_branch = format!(
-        "{}-0badf00d",
+        "{}_0badf00d",
         branch_name("ovzdusie", "ContextSpace", "mobility", Operation::Create)
     );
     Mock::given(method("GET"))
@@ -1225,7 +1225,7 @@ async fn a_stale_proposal_branch_is_recreated_from_main() {
         .collect();
     assert_eq!(names[0], branch, "the deterministic name is tried first");
     assert!(
-        names[1].starts_with(&format!("{branch}-")) && names[1] != branch,
+        names[1].starts_with(&format!("{branch}_")) && names[1] != branch,
         "the retry opens on a fresh name: {}",
         names[1]
     );

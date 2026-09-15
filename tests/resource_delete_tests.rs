@@ -673,7 +673,7 @@ async fn a_stale_branch_is_recreated_from_main_before_the_removal_is_written() {
         .collect();
     assert_eq!(names[0], branch, "the deterministic name is tried first");
     assert!(
-        names[1].starts_with(&format!("{branch}-")) && names[1] != branch,
+        names[1].starts_with(&format!("{branch}_")) && names[1] != branch,
         "the retry opens on a fresh name: {}",
         names[1]
     );

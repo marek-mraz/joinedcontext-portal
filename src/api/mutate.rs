@@ -135,7 +135,7 @@ pub(crate) async fn open_change_on(
         Err(err) => return Err(err.into()),
     };
     // A retry after a rejection opens on `{branch}-{nonce}` (T-0887): the same resource.
-    let suffixed = format!("{branch}-");
+    let suffixed = format!("{branch}_");
     Ok(pulls
         .into_iter()
         .find(|pr| pr.head_branch == branch || pr.head_branch.starts_with(&suffixed))
@@ -154,7 +154,7 @@ pub(crate) async fn create_or_reuse_branch(
     match gitea.create_branch(branch, default_branch).await {
         Ok(()) => Ok(branch.to_string()),
         Err(GitError::Conflict(_)) => {
-            let suffixed = format!("{branch}-");
+            let suffixed = format!("{branch}_");
             if let Some(open) = gitea
                 .list_pull_requests("open")
                 .await?
@@ -168,7 +168,8 @@ pub(crate) async fn create_or_reuse_branch(
             }
             // The forge closes, a moment later, every pull request whose head is a branch that
             // was deleted, matched by name: a request opened on the recreated name is closed at
-            // birth (T-0887). The stale branch goes, the change opens on a fresh name.
+            // birth (T-0887). The stale branch goes, the change opens on a fresh name; `_` is
+            // no character of a resource name, so the list still reads the name (T-0889).
             let nanos = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.subsec_nanos())
