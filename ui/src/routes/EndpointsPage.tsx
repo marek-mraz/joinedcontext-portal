@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
-import { asManifests, isChange, localized, plainTitle } from "../api/manifest";
+import { asManifests, isChange, localized, overlay, plainTitle } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import type { Verdict } from "../api/drafts";
 import { useProjects } from "../api/projects";
@@ -98,16 +98,30 @@ function toSpec(
   };
 }
 
-function toEnvelope(
+/** The spec keys the form writes; the rest of an edited manifest travels as it is (T-0885). */
+const OWNED_SPEC = [
+  "contextSpaceRef",
+  "slug",
+  "audience",
+  "enabledRepresentations",
+  "allowedProjects",
+  "rateLimits",
+  "caching",
+  "projection",
+  "projectionRef",
+];
+
+export function toEnvelope(
   project: string,
   form: EndpointForm,
   slug: string,
   hiddenAttributes: string[],
   projectionRefName?: string,
-) {
+  base?: Manifest,
+): Manifest {
   const { name, title } = form;
   const spec = toSpec(form, slug, hiddenAttributes, projectionRefName);
-  return {
+  const next: Manifest = {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "Endpoint",
     metadata: {
@@ -118,9 +132,10 @@ function toEnvelope(
     },
     spec,
   };
+  return overlay(base, next, OWNED_SPEC);
 }
 
-function toForm(endpoint: Manifest): EndpointForm {
+export function toForm(endpoint: Manifest): EndpointForm {
   const spec = endpoint.spec as {
     contextSpaceRef?: string;
     slug?: string;
@@ -230,6 +245,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const [isNew, setIsNew] = useState(
     prefill?.existing !== true && (prefill !== null || urlDraftName !== undefined),
   );
+  // The manifest the form edits, from the list or from the YAML view: what it does not show
+  // travels with the proposal unchanged (T-0885).
+  const [base, setBase] = useState<Manifest | null>(null);
   // The endpoint whose slug, hidden attributes and projection the page took over, once.
   const [adopted, setAdopted] = useState<string | null>(null);
   const mayPropose = usePermissions(project).can("Endpoint", "propose");
@@ -266,6 +284,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   if (opened && adopted !== opened.metadata.name) {
     setAdopted(opened.metadata.name);
     setIsNew(false);
+    setBase(opened);
     const own = toForm(opened);
     const ownSlug = own.slug || (typeof prefill?.slug === "string" ? prefill.slug : "");
     if (ownSlug) {
@@ -381,6 +400,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       activeSlug,
       hidden,
       projecting ? projectionNameOf(form) : pickerState.selectedProjectionRef,
+      base ?? undefined,
     );
 
   const buildManifests = (form: EndpointForm) => {
@@ -700,6 +720,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             onClick={() => {
               setFormError(null);
               setIsNew(true);
+              setBase(null);
               setUrlDraftName(undefined);
               setHidden([]);
               const newSlug = generateSlug();
@@ -805,6 +826,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                           onClick={() => {
                             setFormError(null);
                             setIsNew(false);
+                            setBase(endpoint);
                             setUrlDraftName(endpoint.metadata.name);
                             setHidden(hiddenOf(endpoint));
                             const parsedForm = toForm(endpoint);
@@ -983,7 +1005,10 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         onVerdictChange={setVerdict}
         source={{
           toManifest: endpointOf,
-          fromManifest: (manifest) => toForm(manifest as Manifest),
+          fromManifest: (manifest) => {
+            setBase(manifest as Manifest);
+            return toForm(manifest as Manifest);
+          },
         }}
         title={isNew ? t("endpoints.add") : t("endpoints.edit")}
         description={t("endpoints.addHint")}

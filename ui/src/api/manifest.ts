@@ -60,6 +60,43 @@ export function plainTitle(title: unknown): string | undefined {
 }
 
 /**
+ * The manifest a form proposes for one it edits (AG-77, PF-57): `next`, what the form wrote,
+ * over `base`, what is in Git. The spec keys the form owns come from `next` alone (a cleared
+ * field is removed); every other key of the base travels unchanged, so an edit of one field
+ * never proposes the loss of a `policyRef` or a `publish` block the form has no control for.
+ * A localized title keeps its map, the form's plain text replacing the entry it showed.
+ * Without a base (a new resource) `next` is the manifest.
+ */
+export function overlay(base: Manifest | undefined, next: Manifest, owned: string[]): Manifest {
+  if (!base) {
+    return next;
+  }
+  const spec: Record<string, unknown> = { ...base.spec };
+  for (const key of owned) {
+    delete spec[key];
+  }
+  Object.assign(spec, next.spec);
+  const metadata: Record<string, unknown> = { ...base.metadata, ...next.metadata };
+  const title = next.metadata.title;
+  const baseTitle = base.metadata.title;
+  if (typeof title === "string" && baseTitle && typeof baseTitle === "object") {
+    const shown = Object.entries(baseTitle as Record<string, unknown>).find(
+      ([, text]) => typeof text === "string" && text === plainTitle(baseTitle),
+    );
+    metadata.title = { ...(baseTitle as Record<string, unknown>), [shown?.[0] ?? "en"]: title };
+  } else if (title === undefined) {
+    delete metadata.title;
+  }
+  // The space label is the form's convenience, not a change to propose on a manifest without it.
+  if (base.metadata.labels) {
+    metadata.labels = { ...base.metadata.labels, ...next.metadata.labels };
+  } else {
+    delete metadata.labels;
+  }
+  return { ...next, metadata: metadata as Manifest["metadata"], spec };
+}
+
+/**
  * The value without the empty leaves a form leaves behind: rjsf keeps an empty object for
  * every group the user opened and left alone, and an empty string for every field they
  * cleared, none of which a manifest should carry.

@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../../api/client";
-import { asManifests, plainTitle, prune } from "../../api/manifest";
+import { asManifests, overlay, plainTitle, prune } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
 import { useBranding } from "../../branding";
 import { ResourceFormDialog } from "../../components/ResourceFormDialog";
@@ -70,13 +70,27 @@ export function endpointUrn(orgDomain: string, endpoint: Manifest): string | und
   return `urn:ngsi-ld:Endpoint:${orgDomain}:${space}:${endpoint.metadata.name}`;
 }
 
+/** The spec keys the form writes; the rest of an edited manifest travels as it is (T-0885). */
+const OWNED_SPEC = [
+  "class",
+  "schedule",
+  "period",
+  "source",
+  "compute",
+  "targetEndpoint",
+  "output",
+  "allowFeedback",
+  "secretRefs",
+  "quotas",
+];
+
 /**
  * The manifest a form produces (PL-04, PL-31, PL-33, PL-39). `base` is the manifest being
- * edited: what the form does not show (`enabled`, set by the pause button) survives an edit.
+ * edited, from the list or from the YAML view: what the form does not show (`enabled`, set by
+ * the pause button, or any field it has no control for) survives an edit.
  */
-export function toEnvelope(project: string, form: PipelineForm, base?: Manifest) {
+export function toEnvelope(project: string, form: PipelineForm, base?: Manifest): Manifest {
   const { name, title, source, compute, allowFeedback, secretRefs, quotas, ...rest } = form;
-  const enabled = base?.spec.enabled;
   const spec = prune({
     class: rest.class,
     schedule: rest.schedule,
@@ -96,9 +110,8 @@ export function toEnvelope(project: string, form: PipelineForm, base?: Manifest)
     allowFeedback: allowFeedback ? true : undefined,
     secretRefs,
     quotas,
-    ...(typeof enabled === "boolean" ? { enabled } : {}),
-  });
-  return {
+  }) as Record<string, unknown>;
+  const next: Manifest = {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "Pipeline",
     metadata: {
@@ -108,6 +121,7 @@ export function toEnvelope(project: string, form: PipelineForm, base?: Manifest)
     },
     spec,
   };
+  return overlay(base, next, OWNED_SPEC);
 }
 
 /** The form one manifest fills, so editing starts from what is in Git rather than from blank. */
@@ -196,6 +210,10 @@ export function PipelineEditorDialog({
   const [draft, setDraft] = useState<PipelineForm | undefined>(() =>
     editing ? toForm(editing) : initial,
   );
+  // The document typed in the YAML view is the manifest proposed, not only the fields the form
+  // models (T-0885): `enabled: false` typed there is a pause.
+  const [typed, setTyped] = useState<Manifest | null>(null);
+  const base = typed ?? editing ?? undefined;
   // The last test's answer, tied to the mapping it ran (PL-49): a Bloblang pipeline proposes
   // only while the text in the editor is the text that went green.
   const [verdict, setVerdict] = useState<{
@@ -265,10 +283,14 @@ export function PipelineEditorDialog({
   );
   const source = useMemo<ManifestSource<PipelineForm>>(
     () => ({
-      toManifest: (form) => toEnvelope(project, form, editing ?? undefined),
-      fromManifest,
+      toManifest: (form) => toEnvelope(project, form, base),
+      fromManifest: (document) => {
+        const form = fromManifest(document);
+        setTyped(document as Manifest);
+        return form;
+      },
     }),
-    [project, editing],
+    [project, base],
   );
 
   // The mapping is `compute.bloblang` in the form (PL-41); left empty it stays in `bento.yaml`
@@ -291,7 +313,7 @@ export function PipelineEditorDialog({
       error={error}
       source={source}
       onChange={(form) => setDraft(completeOutput(form))}
-      onSubmit={(form) => onSubmit(toEnvelope(project, form, editing ?? undefined))}
+      onSubmit={(form) => onSubmit(toEnvelope(project, form, base))}
     >
       <PipelineStudio
         project={project}
