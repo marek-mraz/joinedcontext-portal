@@ -39,6 +39,15 @@ describe("locale style", () => {
     expect(strings(bundle).filter(([, text]) => text.includes("!"))).toEqual([]);
   });
 
+  it.each([
+    ["en", en],
+    ["sk", sk],
+    ["cs", cs],
+    ["de", de],
+  ])("writes every placeholder of the %s strings with the single braces ICU reads", (_, bundle) => {
+    expect(strings(bundle).filter(([, text]) => /\{\{\w+\}\}/.test(text))).toEqual([]);
+  });
+
   it("fails on the phrases it bans", () => {
     const bad = { a: { b: "I have stored it" }, c: "Let's continue where we left off.", d: "Saved successfully" };
     expect(strings(bad).filter(([, text]) => BANNED.some((pattern) => pattern.test(text)))).toHaveLength(3);

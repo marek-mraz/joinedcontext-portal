@@ -933,16 +933,18 @@
       "close": "Zavrieť"
     },
     "source": {
-      "loading": "Loading model source…",
-      "saveCheck": "Check",
-      "save": "Save model",
+      "loading": "Načítava sa zdroj modelu…",
+      "saveCheck": "Skontrolovať",
+      "save": "Uložiť model",
       "severity": {
-        "none": "No change",
-        "additive": "Additive change",
-        "breaking": "Breaking change"
+        "none": "Bez zmeny",
+        "additive": "Rozširujúca zmena",
+        "breaking": "Nekompatibilná zmena"
       },
-      "willBecome": "Saves as version {{version}}",
-      "refused": "The change was refused: {{reason}}"
+      "willBecome": "Uloží sa ako verzia {version}",
+      "refused": "Zmena bola odmietnutá: {reason}",
+      "confirmBreaking": "Uložiť ako verziu {version}, nekompatibilná zmena",
+      "handOffRefused": "Zmenu od asistenta sa do tohto modelu nepodarilo použiť:"
     }
   },
   "apps": {
@@ -1484,12 +1486,12 @@
       "title": "Prístup agentov",
       "lead": "Čo smie urobiť agent, ktorého spustíte: povolenie profilu a vaše vlastné oprávnenie pre každú operáciu. Beh dostane len to, čo povolia obe.",
       "none": "Nie je nastavený žiadny profil agenta.",
-      "available": "Dostupné pre vás: {{count}} z {{total}} operácií",
+      "available": "Dostupné pre vás: {count} z {total} operácií",
       "declared": "Profil deklaruje svoj prístup.",
       "readOnlyDefault": "Profil nedeklaruje prístup, jeho agenti smú používať len operácie na čítanie.",
       "egress": "Internetové hostiteľské servery",
       "noEgress": "žiadne",
-      "caption": "Operácie profilu {{name}}",
+      "caption": "Operácie profilu {name}",
       "operation": "Operácia",
       "profile": "Profil",
       "you": "Vy",
@@ -1501,7 +1503,7 @@
       "blockHint": "operations, kinds s read alebo propose, endpoints s read alebo write. Prázdny blok odstráni. Úprava je zmena, ktorú posúdi schvaľovateľ.",
       "propose": "Navrhnúť zmenu",
       "cancel": "Zrušiť",
-      "yamlError": "Neplatný YAML: {{message}}"
+      "yamlError": "Neplatný YAML: {message}"
     },
     "states": {
       "failed": "Zlyhalo",

@@ -1,3 +1,4 @@
+import { isMap, isScalar } from "yaml";
 import type { Document } from "yaml";
 import {
   DEFAULT_KIND,
@@ -31,6 +32,8 @@ export type Operation =
       is_a?: string;
     }
   | { op: "removeClass"; name: string }
+  /** Renames the class in every `is_a` and every slot `range` that names it. */
+  | { op: "renameClass"; name: string; to: string }
   | { op: "setClass"; name: string; field: "class_uri" | "description"; value: string }
   | {
       op: "addSlot";
@@ -42,6 +45,8 @@ export type Operation =
       kind?: NgsiLdKind;
     }
   | { op: "removeSlot"; name: string }
+  /** Renames the slot in every class that lists it, keeping its place there. */
+  | { op: "renameSlot"; name: string; to: string }
   | { op: "attachSlot"; class: string; slot: string }
   | { op: "detachSlot"; class: string; slot: string }
   | { op: "setSlot"; name: string; field: SlotField; value: unknown }
@@ -199,6 +204,17 @@ function classSlots(document: Document, name: string): string[] {
   return Array.isArray(values) ? values.filter((s): s is string => typeof s === "string") : [];
 }
 
+/** Renames a key of a top-level section in place, so its value, its comments and its position stay. */
+function renameKey(document: Document, section: string, name: string, to: string): void {
+  const entries = document.get(section, true);
+  const pair = isMap(entries)
+    ? entries.items.find((item) => (isScalar(item.key) ? item.key.value : item.key) === name)
+    : undefined;
+  if (pair && isScalar(pair.key)) {
+    pair.key.value = to;
+  }
+}
+
 function mutate(document: Document, model: LinkmlModel, operation: Operation): void {
   switch (operation.op) {
     case "addClass": {
@@ -218,6 +234,26 @@ function mutate(document: Document, model: LinkmlModel, operation: Operation): v
       classOf(model, operation.name);
       document.deleteIn(["classes", operation.name]);
       return;
+    case "renameClass": {
+      classOf(model, operation.name);
+      requireName(operation.to, "class");
+      if (model.classes.some((klass) => klass.name === operation.to)) {
+        refuse(`class '${operation.to}' already exists`);
+      }
+      renameKey(document, "classes", operation.name, operation.to);
+      for (const klass of model.classes) {
+        const name = klass.name === operation.name ? operation.to : klass.name;
+        if (document.getIn(["classes", name, "is_a"]) === operation.name) {
+          document.setIn(["classes", name, "is_a"], operation.to);
+        }
+      }
+      for (const slot of model.slots) {
+        if (slot.range === operation.name) {
+          document.setIn(["slots", slot.name, "range"], operation.to);
+        }
+      }
+      return;
+    }
     case "setClass":
       classOf(model, operation.name);
       // An IRI never has whitespace; a description is typed, and trimming would eat every space.
@@ -267,6 +303,23 @@ function mutate(document: Document, model: LinkmlModel, operation: Operation): v
         }
       }
       return;
+    case "renameSlot": {
+      slotOf(model, operation.name);
+      requireName(operation.to, "slot");
+      if (model.slots.some((slot) => slot.name === operation.to)) {
+        refuse(`slot '${operation.to}' already exists`);
+      }
+      renameKey(document, "slots", operation.name, operation.to);
+      for (const klass of model.classes) {
+        if (klass.slots.includes(operation.name)) {
+          document.setIn(
+            ["classes", klass.name, "slots"],
+            klass.slots.map((slot) => (slot === operation.name ? operation.to : slot)),
+          );
+        }
+      }
+      return;
+    }
     case "attachSlot": {
       const owner = classOf(model, operation.class);
       slotOf(model, operation.slot);

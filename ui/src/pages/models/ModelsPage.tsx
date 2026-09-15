@@ -17,6 +17,8 @@ import { ModelFileDrop } from "./ModelFileDrop";
 import { SmartDataModelsImport } from "./SmartDataModelsImport";
 import type { CatalogueModel } from "./SmartDataModelsImport";
 import { blankSource, parseModel } from "./linkml";
+import { applyOperations } from "./operations";
+import type { Operation } from "./operations";
 import {
   bumpVersion,
   classifyChanges,
@@ -61,13 +63,22 @@ export function ModelsPage({
   mappable = [],
 }: ModelsPageProps): JSX.Element {
   const { t } = useTranslation();
-  // A draft left by the assistant's dock (a dropped file) opens straight in the editor.
-  const [prefilled] = useState(() => {
-    const prefill = takePrefill(window.location.pathname) as { source?: unknown } | null;
-    return typeof prefill?.source === "string" ? prefill.source : undefined;
+  // What the assistant's dock left for this page: a draft from a dropped file opens straight in
+  // the editor, and a model it changed (`?edit=<name>`, AG-77) opens with its operations, which
+  // are applied to the source once it is loaded (DM-13).
+  const [handedOff] = useState(() => {
+    const prefill = takePrefill(window.location.pathname) as { source?: unknown; operations?: unknown } | null;
+    return {
+      edit: new URLSearchParams(window.location.search).get("edit") ?? undefined,
+      source: typeof prefill?.source === "string" ? prefill.source : undefined,
+      operations: Array.isArray(prefill?.operations) ? (prefill.operations as Operation[]) : undefined,
+    };
   });
-  const [tab, setTab] = useState<Tab>(baseline || prefilled ? "editor" : "import");
-  const [published, setPublished] = useState(baseline);
+  const prefilled = handedOff.source;
+  const [editing, setEditing] = useState(baseline ? undefined : handedOff.edit);
+  const [tab, setTab] = useState<Tab>(baseline || prefilled || editing ? "editor" : "import");
+  const [chosen, setChosen] = useState(baseline);
+  const [breakingConfirmed, setBreakingConfirmed] = useState(false);
   // What the person typed; before the first keystroke the source is the loaded or blank one.
   const [edited, setEdited] = useState<string | undefined>(baseline?.source ?? prefilled);
   const [saving, setSaving] = useState(false);
@@ -76,7 +87,36 @@ export function ModelsPage({
   const [checkInfo, setCheckInfo] = useState<{ severity: string; version: string } | null>(null);
   const [changeNotice, setChangeNotice] = useState<Change | null>(null);
 
-  const activeModelName = published?.name ?? baseline?.name;
+  // The list keys are shared with every page that lists these kinds, so the cache holds the list
+  // as the API answers it and the manifests are read off it here (T-0625).
+  const listOf = async (plural: string) =>
+    unwrap(
+      await api.GET("/api/v1/projects/{project}/{plural}", {
+        params: { path: { project, plural } },
+      }),
+    );
+  const models = useQuery({
+    queryKey: queryKeys.list(project, "datamodels"),
+    enabled: editing !== undefined,
+    retry: false,
+    queryFn: () => listOf("datamodels"),
+    select: (list) => asManifests(list.items ?? []),
+  });
+  const opened = useMemo((): ModelsPageProps["baseline"] => {
+    const spec = models.data?.find((model) => model.metadata.name === editing)?.spec as
+      | { version?: unknown; lifecycle?: unknown }
+      | undefined;
+    return editing && spec
+      ? {
+          name: editing,
+          version: typeof spec.version === "string" ? spec.version : "0.1.0",
+          lifecycle: (typeof spec.lifecycle === "string" ? spec.lifecycle : "draft") as Lifecycle,
+        }
+      : undefined;
+  }, [models.data, editing]);
+  const published = chosen ?? opened;
+
+  const activeModelName = published?.name ?? baseline?.name ?? editing;
   // A published model's source lives in the repository and is read through DM-56's route.
   const loaded = useQuery({
     queryKey: ["datamodel-source", project, activeModelName],
@@ -94,7 +134,13 @@ export function ModelsPage({
   });
   const loadingSource = loaded.isLoading;
   const loadError = loaded.error instanceof Error ? loaded.error.message : null;
-  const source = edited ?? loaded.data ?? blankSource(`${project}.sk`, "new-model");
+  const handedOperations = editing === undefined ? undefined : handedOff.operations;
+  const applied = useMemo(
+    () =>
+      handedOperations && loaded.data !== undefined ? applyOperations(loaded.data, handedOperations) : undefined,
+    [handedOperations, loaded.data],
+  );
+  const source = edited ?? applied?.source ?? loaded.data ?? blankSource(`${project}.sk`, "new-model");
   const setSource = setEdited;
   const publishedSource = published?.source ?? loaded.data;
 
@@ -113,14 +159,6 @@ export function ModelsPage({
 
   // Who breaks when this model's major changes (DM-25). A space names its model, and an
   // endpoint names its space, so the consumers of a model are the endpoints behind it.
-  // The list keys are shared with every page that lists these kinds, so the cache holds the list
-  // as the API answers it and the manifests are read off it here (T-0625).
-  const listOf = async (plural: string) =>
-    unwrap(
-      await api.GET("/api/v1/projects/{project}/{plural}", {
-        params: { path: { project, plural } },
-      }),
-    );
   const spaces = useQuery({
     queryKey: queryKeys.list(project, "spaces"),
     retry: false,
@@ -154,7 +192,7 @@ export function ModelsPage({
 
   const onImport = (imported: string, catalogueModel: CatalogueModel) => {
     setSource(imported);
-    setPublished({
+    setChosen({
       source: imported,
       version: "1.0.0",
       lifecycle: "draft",
@@ -166,7 +204,8 @@ export function ModelsPage({
   // A model inferred from a file is a new draft: nothing published to compare against.
   const onPopulate = (draft: string) => {
     setSource(draft);
-    setPublished(undefined);
+    setChosen(undefined);
+    setEditing(undefined);
     setTab("editor");
   };
 
@@ -261,7 +300,22 @@ export function ModelsPage({
               <Button size="sm" onClick={handleCheck} disabled={checking || saving}>
                 {t("models.source.saveCheck")}
               </Button>
-              <Button size="sm" variant="primary" onClick={handleSave} disabled={saving || checking}>
+              {severity === "breaking" ? (
+                <label className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={breakingConfirmed}
+                    onChange={(event) => setBreakingConfirmed(event.target.checked)}
+                  />
+                  {t("models.source.confirmBreaking", { version: nextVersion })}
+                </label>
+              ) : null}
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={handleSave}
+                disabled={saving || checking || (severity === "breaking" && !breakingConfirmed)}
+              >
                 {t("models.source.save")}
               </Button>
               {published ? (
@@ -284,6 +338,17 @@ export function ModelsPage({
       ) : null}
 
       {changeNotice ? <ChangeNotice change={changeNotice} project={project} /> : null}
+
+      {applied && applied.refused.length > 0 ? (
+        <div role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm text-danger-fg">
+          <p>{t("models.source.handOffRefused")}</p>
+          <ul className="mt-1 list-disc pl-5">
+            {applied.refused.map((refusal) => (
+              <li key={refusal.index}>{refusal.reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {saveError || loadError ? (
         <div role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm text-danger-fg">

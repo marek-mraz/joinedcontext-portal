@@ -25,7 +25,9 @@ use crate::agents::preview;
 use crate::agents::profile::Profile;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
 use crate::agents::store::now_rfc3339;
-use crate::agents::{change, data_query, fields, grant, kpi, kpi_pipeline, share, verification};
+use crate::agents::{
+    change, data_query, fields, grant, kpi, kpi_pipeline, model_change, share, verification,
+};
 use crate::auth::session::Identity;
 use crate::git::gitea::{Author, FileWrite, GitError};
 use crate::resource::Scope;
@@ -1818,6 +1820,28 @@ A pipeline's schedule is `spec.period` ("run it every 5 minutes": `"5m"`), its m
 of `spec.compute.bloblang` ("map num_bikes_available to availableBikeNumber": the whole mapping
 with that line changed), and a data source's address `spec.http.url` ("use this URL instead").
 
+A data model's classes and attributes are changed by the model editor's operations instead of a
+patch, applied in order:
+
+```json
+{{
+  "tool": "change_resource",
+  "kind": "DataModel",
+  "name": "<a data model listed above>",
+  "operations": [
+    {{ "op": "addSlot", "name": "bikeType", "class": "BikeHireDockingStation", "range": "string" }},
+    {{ "op": "renameSlot", "name": "<an attribute>", "to": "<its new name>" }},
+    {{ "op": "removeSlot", "name": "<an attribute>" }}
+  ]
+}}
+```
+
+The other operations are `addClass` {{name, is_a: "Entity"}}, `removeClass` {{name}}, `renameClass`
+{{name, to}}, `attachSlot` and `detachSlot` {{class, slot}}, and `setSlot` {{name, field, value}} for
+`range`, `required`, `multivalued` or `description`. A range is `string`, `integer`, `float`,
+`boolean`, `date`, `datetime`, `uri` or a class of the model. When you do not know the model's
+classes and attributes, send the call without `operations` first: the platform answers with them.
+
 The platform checks the change, runs a changed pipeline on a page of its source and fetches a
 changed data source's URL once, and opens the resource's form with it filled in, or its removal
 dialog; the person reviews it there and proposes it. A test that is not green comes back to you
@@ -3430,19 +3454,6 @@ a removal of its binding with change_resource.
                 )
                 .await;
         };
-        // A model's classes and attributes live in its LinkML source, not in the manifest.
-        if info.kind == "DataModel" && !params.delete {
-            let reason = "a data model's classes and attributes are changed in its editor on the \
-                          Models page, not by a manifest patch";
-            self.event("tool", failed(&input, reason)).await?;
-            return self
-                .again(
-                    last,
-                    format!("error: {reason}"),
-                    format!("That could not be changed here: {reason}."),
-                )
-                .await;
-        }
         let verb = if params.delete {
             Verb::Delete
         } else {
@@ -3479,6 +3490,13 @@ a removal of its binding with change_resource.
                 .await;
         };
         let route = change::route(&self.project, info.kind, info.plural, name, params.delete);
+        // A model's classes and attributes live in its LinkML source, not in the manifest.
+        if info.kind == "DataModel" && !params.delete {
+            let operations = params.operations.as_deref().unwrap_or_default();
+            return self
+                .change_model(name, operations, answer, input, started, last, route)
+                .await;
+        }
         let draft = json!({ "kind": info.kind, "name": name });
 
         if params.delete {
@@ -3534,6 +3552,124 @@ a removal of its binding with change_resource.
             info, name, manifest, answer, TOOL, input, started, last, route, draft,
         )
         .await
+    }
+
+    /// A data model changed by the editor's operations (AG-77, DM-13): applied to the LinkML
+    /// source the repository holds and put through the source's dry run, which compiles it and
+    /// classifies the change, a breaking one included; the Models page opens on the same
+    /// operations and applies them to the text. What the model got wrong goes back to it with the
+    /// model's classes and their slots.
+    #[allow(clippy::too_many_arguments)]
+    async fn change_model(
+        &self,
+        name: &str,
+        operations: &[model_change::Operation],
+        answer: &str,
+        input: Value,
+        started: std::time::Instant,
+        last: bool,
+        route: String,
+    ) -> Result<Worked, String> {
+        const TOOL: &str = "change_resource";
+        let home = self.home("DataModel");
+        let spec = self
+            .state
+            .mirror
+            .get(home, "DataModel", name)
+            .map(|envelope| envelope.spec)
+            .unwrap_or(Value::Null);
+        let model = match crate::api::datamodels::read_source(&self.state, home, name)
+            .await
+            .map_err(|err| err.to_string())
+            .and_then(|source| {
+                serde_yaml_ng::from_str::<Value>(&source).map_err(|err| err.to_string())
+            }) {
+            Ok(model) => model,
+            Err(reason) => {
+                let reason =
+                    format!("the source of data model '{name}' could not be read: {reason}");
+                self.event("tool", failed_step(TOOL, started, &input, &reason))
+                    .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}"),
+                        format!("The data model '{name}' could not be changed: {reason}"),
+                    )
+                    .await;
+            }
+        };
+        let outline = model_change::outline(&model);
+        if operations.is_empty() {
+            return self
+                .again(
+                    last,
+                    format!("the classes of data model '{name}' and their slots: {outline}; answer with change_resource and the operations that change it"),
+                    format!("What should change in the data model '{name}'?"),
+                )
+                .await;
+        }
+        let checked = match model_change::apply(&model, operations) {
+            Ok(changed) => match serde_yaml_ng::to_string(&changed) {
+                Ok(source) => crate::api::datamodels::check_source(
+                    &self.state,
+                    home,
+                    name,
+                    &spec,
+                    &source,
+                    None,
+                )
+                .await
+                .map(|(checked, _)| checked)
+                .map_err(|err| format!("the platform's check refuses the change: {err}")),
+                Err(err) => Err(err.to_string()),
+            },
+            Err(reason) => Err(reason),
+        };
+        let checked = match checked {
+            Ok(checked) => checked,
+            Err(reason) => {
+                self.event("tool", failed_step(TOOL, started, &input, &reason))
+                    .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}; the classes of data model '{name}' and their slots: {outline}"),
+                        format!("The data model '{name}' could not be changed: {reason}"),
+                    )
+                    .await;
+            }
+        };
+        self.event(
+            "tool",
+            json!({
+                "tool": TOOL,
+                "status": "ok",
+                "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                "input": input,
+                "output": {
+                    "kind": "DataModel",
+                    "name": name,
+                    "checked": true,
+                    "severity": checked.severity,
+                    "changes": checked.changes,
+                    "version": checked.version,
+                },
+            }),
+        )
+        .await?;
+        let mut prose = share::prose_of(answer);
+        if prose.is_empty() {
+            prose =
+                format!("Opened the data model '{name}' with the change; review it and save it.");
+        }
+        self.thought(&prose).await?;
+        self.event(
+            "navigate",
+            json!({ "route": route, "prefill": { "operations": operations } }),
+        )
+        .await?;
+        Ok(Worked::Done(prose))
     }
 
     /// A role for people or a group (AG-77, PF-52): the binding named and checked like any

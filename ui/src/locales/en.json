@@ -891,8 +891,10 @@
         "additive": "Additive change",
         "breaking": "Breaking change"
       },
-      "willBecome": "Saves as version {{version}}",
-      "refused": "The change was refused: {{reason}}"
+      "willBecome": "Saves as version {version}",
+      "refused": "The change was refused: {reason}",
+      "confirmBreaking": "Save it as version {version}, a breaking change",
+      "handOffRefused": "The assistant's change could not be applied to this model:"
     },
     "sdm": {
       "browse": "Smart Data Models catalogue",
@@ -1484,12 +1486,12 @@
       "title": "Agent access",
       "lead": "What an agent run you start may do: the profile's grant and your own permission, per operation. A run gets only what both allow.",
       "none": "No agent profile is configured.",
-      "available": "Available to you: {{count}} of {{total}} operations",
+      "available": "Available to you: {count} of {total} operations",
       "declared": "The profile declares its access.",
       "readOnlyDefault": "The profile declares no access, so its agents may use read-only operations only.",
       "egress": "Internet hosts",
       "noEgress": "none",
-      "caption": "Operations of {{name}}",
+      "caption": "Operations of {name}",
       "operation": "Operation",
       "profile": "Profile",
       "you": "You",
@@ -1501,7 +1503,7 @@
       "blockHint": "operations, kinds with read or propose, endpoints with read or write. Empty removes the block. The edit is a change an approver reviews.",
       "propose": "Propose change",
       "cancel": "Cancel",
-      "yamlError": "Not valid YAML: {{message}}"
+      "yamlError": "Not valid YAML: {message}"
     },
     "states": {
       "failed": "Failed",

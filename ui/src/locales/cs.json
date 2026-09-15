@@ -933,16 +933,18 @@
       "close": "Zavřít"
     },
     "source": {
-      "loading": "Loading model source…",
-      "saveCheck": "Check",
-      "save": "Save model",
+      "loading": "Načítá se zdroj modelu…",
+      "saveCheck": "Zkontrolovat",
+      "save": "Uložit model",
       "severity": {
-        "none": "No change",
-        "additive": "Additive change",
-        "breaking": "Breaking change"
+        "none": "Beze změny",
+        "additive": "Rozšiřující změna",
+        "breaking": "Nekompatibilní změna"
       },
-      "willBecome": "Saves as version {{version}}",
-      "refused": "The change was refused: {{reason}}"
+      "willBecome": "Uloží se jako verze {version}",
+      "refused": "Změna byla odmítnuta: {reason}",
+      "confirmBreaking": "Uložit jako verzi {version}, nekompatibilní změna",
+      "handOffRefused": "Změnu od asistenta se do tohoto modelu nepodařilo použít:"
     }
   },
   "apps": {
@@ -1484,12 +1486,12 @@
       "title": "Přístup agentů",
       "lead": "Co smí udělat agent, kterého spustíte: oprávnění profilu a vaše vlastní oprávnění pro každou operaci. Běh dostane jen to, co povolí obojí.",
       "none": "Není nastaven žádný profil agenta.",
-      "available": "Dostupné pro vás: {{count}} z {{total}} operací",
+      "available": "Dostupné pro vás: {count} z {total} operací",
       "declared": "Profil deklaruje svůj přístup.",
       "readOnlyDefault": "Profil nedeklaruje přístup, jeho agenti smí používat jen operace pro čtení.",
       "egress": "Internetové servery",
       "noEgress": "žádné",
-      "caption": "Operace profilu {{name}}",
+      "caption": "Operace profilu {name}",
       "operation": "Operace",
       "profile": "Profil",
       "you": "Vy",
@@ -1501,7 +1503,7 @@
       "blockHint": "operations, kinds s read nebo propose, endpoints s read nebo write. Prázdný blok odstraní. Úprava je změna, kterou posoudí schvalovatel.",
       "propose": "Navrhnout změnu",
       "cancel": "Zrušit",
-      "yamlError": "Neplatný YAML: {{message}}"
+      "yamlError": "Neplatný YAML: {message}"
     },
     "states": {
       "failed": "Selhalo",

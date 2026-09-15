@@ -10,11 +10,14 @@ use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
 use axum::response::IntoResponse;
 use axum_extra::extract::cookie::PrivateCookieJar;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
 use http_body_util::BodyExt;
 use joinedcontext_portal::agents::run::AgentRunEvent;
 use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
 use joinedcontext_portal::auth::session::{self, Identity, Session};
 use joinedcontext_portal::config::Config;
+use joinedcontext_portal::git::GiteaClient;
 use joinedcontext_portal::permissions::ORG_NAMESPACE;
 use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 use joinedcontext_portal::server;
@@ -1536,18 +1539,8 @@ fn bikes_pipeline() -> Vec<ResourceEnvelope> {
 /// tests all run in helsinki.
 static ON_THE_RUNNER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// A change conversation against a runner: the model's answers in order, and what the harness
-/// posts back for each test the runner is given, in order. Answers the run's events once the model
-/// has given its last answer and the run's last event is `until`, the model's requests, and the
-/// harnesses the runner received.
-async fn change_on_the_runner(
-    access: Value,
-    message: &str,
-    answers: &[&str],
-    captures: Vec<Vec<Value>>,
-    until: &str,
-) -> (AppState, Vec<AgentRunEvent>, Vec<String>, Vec<Value>) {
-    let _one_at_a_time = ON_THE_RUNNER.lock().await;
+/// A model that gives `answers` in order, one per request.
+async fn model_answering(answers: &[&str]) -> MockServer {
     let proxy = MockServer::start().await;
     for answer in answers {
         Mock::given(method("POST"))
@@ -1561,6 +1554,46 @@ async fn change_on_the_runner(
             .mount(&proxy)
             .await;
     }
+    proxy
+}
+
+/// Starts a conversation in helsinki as an administrator and answers the run's id.
+async fn start_conversation(state: &AppState, config: &Config, message: &str) -> String {
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/assistant/conversations")
+                .header(
+                    header::COOKIE,
+                    cookie(config, person("admin@hel.fi", &["portal-approver"])),
+                )
+                .header(CSRF_HEADER, CSRF)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({ "message": message }).to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let created: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    created["id"].as_str().expect("run id").to_owned()
+}
+
+/// A change conversation against a runner: the model's answers in order, and what the harness
+/// posts back for each test the runner is given, in order. Answers the run's events once the model
+/// has given its last answer and the run's last event is `until`, the model's requests, and the
+/// harnesses the runner received.
+async fn change_on_the_runner(
+    access: Value,
+    message: &str,
+    answers: &[&str],
+    captures: Vec<Vec<Value>>,
+    until: &str,
+) -> (AppState, Vec<AgentRunEvent>, Vec<String>, Vec<Value>) {
+    let _one_at_a_time = ON_THE_RUNNER.lock().await;
+    let proxy = model_answering(answers).await;
     let runner = MockServer::start().await;
     Mock::given(method("POST"))
         .and(wiremock::matchers::path_regex(
@@ -1579,27 +1612,7 @@ async fn change_on_the_runner(
         mirror.upsert(envelope);
     }
     let state = AppState::new(config.clone(), None).with_mirror(mirror);
-
-    let response = server::app(state.clone())
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects/helsinki/assistant/conversations")
-                .header(
-                    header::COOKIE,
-                    cookie(&config, person("admin@hel.fi", &["portal-approver"])),
-                )
-                .header(CSRF_HEADER, CSRF)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(json!({ "message": message }).to_string()))
-                .expect("request"),
-        )
-        .await
-        .expect("response");
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let created: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    let id = created["id"].as_str().expect("run id").to_owned();
+    let id = start_conversation(&state, &config, message).await;
 
     // The runner's side: each harness it is given is answered with the next captured messages,
     // until the model has given its last answer and the run has said or opened something.
@@ -1785,4 +1798,133 @@ async fn a_data_source_moved_to_a_url_that_does_not_answer_goes_back_to_the_mode
         .await
         .expect("drafts")
         .is_none());
+}
+
+const HELSINKI_LINKML: &str = "id: https://hel.fi/models/helsinki\nname: helsinki\n# The HSL city bike stations.\nclasses:\n  BikeHireDockingStation:\n    is_a: Entity\n    slots:\n      - name\n      - status\nslots:\n  name:\n    range: string\n  status:\n    range: string\n";
+
+/// A data model changed from the chat (T-0738, AG-77, DM-13): an operation naming a class the
+/// model does not have goes back to the model with the model's classes, the corrected operations
+/// pass the source's dry run, and the Models page opens on them. Nothing is proposed.
+#[tokio::test]
+async fn a_data_model_is_changed_by_the_editors_operations_once_the_source_check_passes() {
+    let refused = "```json\n{\"tool\":\"change_resource\",\"kind\":\"DataModel\",\"name\":\"helsinki\",\"operations\":[{\"op\":\"addSlot\",\"name\":\"bikeType\",\"class\":\"BikeStation\"}]}\n```";
+    let corrected = "Adding bikeType to the stations.\n```json\n{\"tool\":\"change_resource\",\"kind\":\"DataModel\",\"name\":\"helsinki\",\"operations\":[{\"op\":\"addSlot\",\"name\":\"bikeType\",\"class\":\"BikeHireDockingStation\",\"range\":\"string\"}]}\n```";
+    let proxy = model_answering(&[refused, corrected]).await;
+    let forge = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&forge)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/owner/repo/contents/projects/helsinki/spaces/helsinki/datamodels/helsinki.linkml.yaml"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(HELSINKI_LINKML)
+        })))
+        .mount(&forge)
+        .await;
+    let tools = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/generate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "jsonSchema": { "title": "BikeHireDockingStation" },
+            "generatorVersion": "linkml-1.11.1",
+            "errors": []
+        })))
+        .mount(&tools)
+        .await;
+    let config = Config {
+        model_tools_url: Some(tools.uri()),
+        ..config(&proxy.uri())
+    };
+    let mirror = mirror(Some(json!({
+        "operations": ["jc_catalog_search", "jc_resource_propose"],
+        "kinds": [{ "kind": "DataModel", "verbs": ["read", "propose"] }]
+    })));
+    mirror.upsert(envelope(
+        "DataModel",
+        "helsinki",
+        "helsinki",
+        json!({
+            "contextSpaceRef": "helsinki",
+            "linkml": "./helsinki.linkml.yaml",
+            "version": "1.1.0",
+            "lifecycle": "published",
+            "classes": ["BikeHireDockingStation"]
+        }),
+    ));
+    let gitea = GiteaClient::new(forge.uri().parse().expect("url"), "owner", "repo", "token")
+        .expect("client");
+    let state = AppState::new(config.clone(), None)
+        .with_mirror(mirror)
+        .with_gitea(Arc::new(gitea));
+
+    let id = start_conversation(
+        &state,
+        &config,
+        "Add a bikeType attribute (text) to BikeHireDockingStation",
+    )
+    .await;
+    let mut events = Vec::new();
+    for _ in 0..300 {
+        events = state.agents.events_since(&id, 0).await.expect("events");
+        if events.iter().any(|e| e.kind == "navigate") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+
+    let steps: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.kind == "tool" && e.payload["tool"] == "change_resource")
+        .map(|e| &e.payload)
+        .collect();
+    assert_eq!(steps.len(), 2, "{steps:?}");
+    assert_eq!(steps[0]["status"], "failed");
+    assert_eq!(
+        steps[0]["error"],
+        "operation 0: unknown class 'BikeStation'"
+    );
+    let prompts: Vec<String> = proxy
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|r| String::from_utf8_lossy(&r.body).into_owned())
+        .collect();
+    assert!(
+        prompts[1].contains("BikeHireDockingStation: name, status"),
+        "the model is told the model's classes and slots"
+    );
+    assert_eq!(steps[1]["status"], "ok", "{}", steps[1]);
+    assert_eq!(steps[1]["output"]["checked"], true);
+    assert_eq!(steps[1]["output"]["severity"], "additive");
+    assert_eq!(steps[1]["output"]["version"], "1.2.0");
+    assert_eq!(steps[1]["output"]["changes"][0]["subject"], "bikeType");
+    let compiled = tools.received_requests().await.unwrap_or_default();
+    assert!(
+        String::from_utf8_lossy(&compiled[0].body).contains("bikeType"),
+        "Model Tools compiles the changed source"
+    );
+
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the Models page opens");
+    assert_eq!(
+        navigate.payload["route"],
+        "/projects/helsinki/models?edit=helsinki"
+    );
+    assert_eq!(
+        navigate.payload["prefill"],
+        json!({ "operations": [{ "op": "addSlot", "name": "bikeType", "class": "BikeHireDockingStation", "range": "string" }] })
+    );
+    let written = forge.received_requests().await.unwrap_or_default();
+    assert!(
+        written
+            .iter()
+            .all(|r| r.method == wiremock::http::Method::GET),
+        "nothing is written to the repository"
+    );
 }

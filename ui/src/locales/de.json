@@ -933,16 +933,18 @@
       "close": "Schließen"
     },
     "source": {
-      "loading": "Loading model source…",
-      "saveCheck": "Check",
-      "save": "Save model",
+      "loading": "Modellquelle wird geladen…",
+      "saveCheck": "Prüfen",
+      "save": "Modell speichern",
       "severity": {
-        "none": "No change",
-        "additive": "Additive change",
-        "breaking": "Breaking change"
+        "none": "Keine Änderung",
+        "additive": "Erweiternde Änderung",
+        "breaking": "Inkompatible Änderung"
       },
-      "willBecome": "Saves as version {{version}}",
-      "refused": "The change was refused: {{reason}}"
+      "willBecome": "Wird als Version {version} gespeichert",
+      "refused": "Die Änderung wurde abgelehnt: {reason}",
+      "confirmBreaking": "Als Version {version} speichern, eine inkompatible Änderung",
+      "handOffRefused": "Die Änderung des Assistenten ließ sich nicht auf dieses Modell anwenden:"
     }
   },
   "apps": {
@@ -1484,12 +1486,12 @@
       "title": "Agentenzugriff",
       "lead": "Was ein von Ihnen gestarteter Agent tun darf: die Freigabe des Profils und Ihre eigene Berechtigung, je Operation. Ein Lauf erhält nur, was beide erlauben.",
       "none": "Kein Agentenprofil ist konfiguriert.",
-      "available": "Für Sie verfügbar: {{count}} von {{total}} Operationen",
+      "available": "Für Sie verfügbar: {count} von {total} Operationen",
       "declared": "Das Profil deklariert seinen Zugriff.",
       "readOnlyDefault": "Das Profil deklariert keinen Zugriff, seine Agenten dürfen nur lesende Operationen nutzen.",
       "egress": "Internet-Hosts",
       "noEgress": "keine",
-      "caption": "Operationen von {{name}}",
+      "caption": "Operationen von {name}",
       "operation": "Operation",
       "profile": "Profil",
       "you": "Sie",
@@ -1501,7 +1503,7 @@
       "blockHint": "operations, kinds mit read oder propose, endpoints mit read oder write. Leer entfernt den Block. Die Änderung prüft eine freigebende Person.",
       "propose": "Änderung vorschlagen",
       "cancel": "Abbrechen",
-      "yamlError": "Kein gültiges YAML: {{message}}"
+      "yamlError": "Kein gültiges YAML: {message}"
     },
     "states": {
       "failed": "Fehlgeschlagen",

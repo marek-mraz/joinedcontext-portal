@@ -97,6 +97,35 @@ describe("LinkML operations", () => {
     expect(parseModel(gone).classes).toEqual([]);
   });
 
+  it("renames a slot in every class and a class in every reference, keeping places and comments", () => {
+    const withReference = SOURCE.replace(
+      "enums: {}\n",
+      "  station:\n    range: AirQualityObserved\nenums: {}\n",
+    ).replace("    class_uri: bb:AirQualityObserved\n", "    class_uri: bb:AirQualityObserved\n    is_a: Entity\n");
+    const { source, refused } = applyOperations(withReference, [
+      { op: "addClass", name: "Reading", is_a: "AirQualityObserved" },
+      { op: "renameSlot", name: "pm10", to: "particles" },
+      { op: "renameClass", name: "AirQualityObserved", to: "AirQuality" },
+    ]);
+    expect(refused).toEqual([]);
+    const model = parseModel(source);
+    expect(model.classes.map((klass) => klass.name)).toEqual(["AirQuality", "Reading"]);
+    expect(model.classes[0].slots).toEqual(["particles"]);
+    expect(model.slots.map((slot) => slot.name)).toEqual(["particles", "station"]);
+    expect(slotNamed(source, "particles")?.range).toBe("float");
+    expect(slotNamed(source, "station")?.range).toBe("AirQuality");
+    expect(source).toContain("is_a: Entity");
+    expect(source).toContain("  Reading:\n    is_a: AirQuality");
+    expect(source).toContain("# the model the city publishes");
+
+    expect(
+      applyOperations(SOURCE, [
+        { op: "renameSlot", name: "pm25", to: "x" },
+        { op: "renameClass", name: "AirQualityObserved", to: "AirQualityObserved" },
+      ]).refused.map((refusal) => refusal.reason),
+    ).toEqual(["unknown slot 'pm25'", "class 'AirQualityObserved' already exists"]);
+  });
+
   it("adds a slot with its kind and an entity class in one operation each", () => {
     // T-0599: inference answers `addSlot` with a kind and `addClass` with `is_a`, so the two
     // must land in one operation, not need a second `setSlot`.

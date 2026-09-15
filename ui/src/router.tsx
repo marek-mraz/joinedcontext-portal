@@ -158,7 +158,9 @@ const modelsRoute = createRoute({
     const { project } = modelsRoute.useParams();
     return (
       <Shell project={project}>
-        <ModelsPage project={project} />
+        <HandOff>
+          <ModelsPage project={project} />
+        </HandOff>
       </Shell>
     );
   },

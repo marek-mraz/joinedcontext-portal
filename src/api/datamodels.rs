@@ -352,6 +352,79 @@ pub(crate) async fn compile_artifacts(
     })
 }
 
+/// What saving `source` as the model `name` would do (DM-22, DM-24): the changes against the
+/// published source, the version it takes (`version`, or the published one bumped by the
+/// severity) and what Model Tools compiles, with the source parsed. A breaking change under the
+/// published major and a source Model Tools refuses are errors. The route and the assistant's
+/// `change_resource` check a source the same way (AG-77).
+pub(crate) async fn check_source(
+    state: &AppState,
+    project: &str,
+    name: &str,
+    spec: &Value,
+    source: &str,
+    version: Option<&str>,
+) -> Result<(SourceDryRunResult, Value), ApiError> {
+    let next_val: Value = serde_yaml_ng::from_str(source)
+        .map_err(|e| ApiError::BadRequest(format!("invalid yaml body: {e}")))?;
+
+    let published_source = read_source(state, project, name).await.ok();
+    let prev_val: Value = published_source
+        .as_deref()
+        .and_then(|s| serde_yaml_ng::from_str(s).ok())
+        .unwrap_or(Value::Null);
+
+    let changes = classify_linkml_changes(&prev_val, &next_val);
+    let severity = overall_severity(&changes);
+
+    let current_version_str = spec
+        .get("version")
+        .and_then(Value::as_str)
+        .unwrap_or("0.1.0");
+    let published_version = SemVer::new(current_version_str)
+        .map_err(|e| ApiError::BadRequest(format!("invalid current version: {e}")))?;
+
+    let target_version = match version {
+        Some(v) => {
+            SemVer::new(v).map_err(|e| ApiError::BadRequest(format!("invalid version: {e}")))?
+        }
+        None => bump_version(&published_version, severity)?,
+    };
+
+    if severity == "breaking" && target_version.major() <= published_version.major() {
+        let breaking_reasons: Vec<String> = changes
+            .iter()
+            .filter(|c| c.severity == "breaking")
+            .map(|c| c.reason.clone())
+            .collect();
+        let suggested = bump_version(&published_version, "breaking")?;
+        return Err(ApiError::Invalid {
+            detail: format!(
+                "a breaking change cannot be saved under version {target_version}; publish it as {suggested}"
+            ),
+            errors: breaking_reasons,
+        });
+    }
+
+    let artifacts = compile_artifacts(state, source).await?;
+    if !artifacts.errors.is_empty() {
+        return Err(ApiError::Invalid {
+            detail: artifacts.errors.join("; "),
+            errors: artifacts.errors.clone(),
+        });
+    }
+
+    Ok((
+        SourceDryRunResult {
+            severity: severity.to_string(),
+            changes,
+            version: target_version.to_string(),
+            artifacts,
+        },
+        next_val,
+    ))
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/projects/{project}/datamodels/{name}/source",
@@ -459,68 +532,28 @@ pub async fn put_source(
         .map_err(|e| ApiError::BadRequest(format!("invalid utf-8 body: {e}")))?
         .to_string();
 
-    let next_val: Value = serde_yaml_ng::from_str(&source_str)
-        .map_err(|e| ApiError::BadRequest(format!("invalid yaml body: {e}")))?;
-
-    let published_source = read_source(&state, &project, &name).await.ok();
-    let prev_val: Value = published_source
-        .as_deref()
-        .and_then(|s| serde_yaml_ng::from_str(s).ok())
-        .unwrap_or(Value::Null);
-
-    let changes = classify_linkml_changes(&prev_val, &next_val);
-    let severity = overall_severity(&changes);
-
-    let current_version_str = envelope
-        .spec
-        .get("version")
-        .and_then(Value::as_str)
-        .unwrap_or("0.1.0");
-    let published_version = SemVer::new(current_version_str)
-        .map_err(|e| ApiError::BadRequest(format!("invalid current version: {e}")))?;
-
-    let target_version = match query.version.as_deref() {
-        Some(v) => {
-            SemVer::new(v).map_err(|e| ApiError::BadRequest(format!("invalid version: {e}")))?
-        }
-        None => bump_version(&published_version, severity)?,
-    };
-
-    if severity == "breaking" && target_version.major() <= published_version.major() {
-        let breaking_reasons: Vec<String> = changes
-            .iter()
-            .filter(|c| c.severity == "breaking")
-            .map(|c| c.reason.clone())
-            .collect();
-        let suggested = bump_version(&published_version, "breaking")?;
-        return Err(ApiError::Invalid {
-            detail: format!(
-                "a breaking change cannot be saved under version {target_version}; publish it as {suggested}"
-            ),
-            errors: breaking_reasons,
-        });
-    }
-
-    let artifacts = compile_artifacts(&state, &source_str).await?;
-    if !artifacts.errors.is_empty() {
-        return Err(ApiError::Invalid {
-            detail: artifacts.errors.join("; "),
-            errors: artifacts.errors.clone(),
-        });
-    }
+    let (checked, next_val) = check_source(
+        &state,
+        &project,
+        &name,
+        &envelope.spec,
+        &source_str,
+        query.version.as_deref(),
+    )
+    .await?;
 
     if is_dry {
-        return Ok((
-            StatusCode::OK,
-            Json(SourceDryRunResult {
-                severity: severity.to_string(),
-                changes,
-                version: target_version.to_string(),
-                artifacts,
-            }),
-        )
-            .into_response());
+        return Ok((StatusCode::OK, Json(checked)).into_response());
     }
+    let SourceDryRunResult {
+        severity,
+        version,
+        artifacts,
+        ..
+    } = checked;
+    let severity = severity.as_str();
+    let target_version =
+        SemVer::new(&version).map_err(|e| ApiError::BadRequest(format!("invalid version: {e}")))?;
 
     let major = target_version.major();
     let empty_map = serde_json::Map::new();

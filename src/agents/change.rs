@@ -19,6 +19,9 @@ pub struct ChangeResource {
     /// The fields that change, as a JSON merge patch of the manifest; `null` removes a field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patch: Option<Value>,
+    /// A data model's change: the model editor's operations on its LinkML source (DM-13).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operations: Option<Vec<crate::agents::model_change::Operation>>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub delete: bool,
 }

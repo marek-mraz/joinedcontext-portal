@@ -10,6 +10,7 @@ pub mod kit;
 pub mod kpi;
 pub mod kpi_pipeline;
 pub mod kube;
+pub mod model_change;
 pub mod needs;
 pub mod oneshot;
 pub mod patch;

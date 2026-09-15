@@ -6,6 +6,8 @@ import { I18nextProvider } from "react-i18next";
 import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import i18n from "../src/i18n";
 import { queryKeys } from "../src/api/client";
+import { rememberPrefill } from "../src/assistant/state";
+import en from "../src/locales/en.json";
 import { ModelsPage } from "../src/pages/models/ModelsPage";
 
 const PUBLISHED_LINKML = `id: https://example.org/models/air-quality
@@ -256,6 +258,75 @@ describe("ModelsPage save and source loading (DM-56)", () => {
       expect(
         screen.getByText(/a breaking change cannot be saved under version 1.0.0/i),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe("a model the assistant changed (T-0738, AG-77)", () => {
+    afterEach(() => {
+      window.history.pushState({}, "", "/");
+    });
+
+    /** The published model, its manifest in the list, and every PUT the page sends. */
+    function forge() {
+      const puts: string[] = [];
+      global.fetch = vi.fn().mockImplementation((req: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof req === "string" ? req : req instanceof Request ? req.url : req.toString();
+        const method = init?.method ?? (req instanceof Request ? req.method : "GET");
+        if (url.includes("/datamodels/air-quality/source") && method === "PUT") {
+          puts.push(String(init?.body));
+          return Promise.resolve(new Response(JSON.stringify({ kind: "Change", metadata: { name: "mr-9" } }), { status: 202 }));
+        }
+        if (url.includes("/datamodels/air-quality/source")) {
+          return Promise.resolve(new Response(PUBLISHED_LINKML, { status: 200 }));
+        }
+        if (url.includes("/datamodels")) {
+          const model = {
+            apiVersion: "joinedcontext.com/v1alpha1",
+            kind: "DataModel",
+            metadata: { name: "air-quality", namespace: "ovzdusie" },
+            spec: { version: "1.0.0", lifecycle: "published" },
+          };
+          return Promise.resolve(new Response(JSON.stringify({ kind: "List", items: [model] }), { status: 200 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify({ kind: "List", items: [] }), { status: 200 }));
+      });
+      return puts;
+    }
+
+    it("opens with the operations applied, and a removal saves only once the breaking change is confirmed", async () => {
+      const user = userEvent.setup();
+      const puts = forge();
+      rememberPrefill("/", { operations: [{ op: "removeSlot", name: "dateObserved" }] });
+      window.history.pushState({}, "", "/?edit=air-quality");
+
+      renderWithClient(<ModelsPage project="ovzdusie" />);
+
+      expect(
+        await screen.findByRole("heading", { name: `${en.models.severity.breaking} · ${en.lane.red}` }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("the slot was removed; a renamed slot is a removal and an addition", { exact: false })).toBeInTheDocument();
+      const save = screen.getByRole("button", { name: en.models.source.save });
+      expect(save).toBeDisabled();
+
+      await user.click(screen.getByRole("checkbox", { name: "Save it as version 2.0.0, a breaking change" }));
+      expect(save).toBeEnabled();
+      await user.click(save);
+      await waitFor(() => expect(puts).toHaveLength(1));
+      expect(puts[0]).not.toContain("dateObserved");
+      expect(puts[0]).toContain("class_uri: https://example.org/aq/AirQualityObserved");
+    });
+
+    it("says which operation the model refused, and keeps the source as it is", async () => {
+      forge();
+      rememberPrefill("/", { operations: [{ op: "removeSlot", name: "pm25" }] });
+      window.history.pushState({}, "", "/?edit=air-quality");
+
+      renderWithClient(<ModelsPage project="ovzdusie" />);
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent(en.models.source.handOffRefused);
+      expect(alert).toHaveTextContent("unknown slot 'pm25'");
+      expect(screen.getByRole("button", { name: en.models.source.save })).toBeEnabled();
     });
   });
 });
