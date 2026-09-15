@@ -27,6 +27,24 @@ describe("the Endpoint form", () => {
     expect(out).toEqual({ ...stored, spec: { ...stored.spec, rateLimits: { requestsPerMinute: 300 } } });
   });
 
+  it("removes what the YAML view's document no longer holds", () => {
+    // The typed document is the base: a policyRef deleted there is proposed as a removal.
+    const { policyRef: _gone, ...spec } = stored.spec;
+    void _gone;
+    const typed = { ...stored, spec };
+    const out = endpointEnvelope("helsinki", endpointForm(typed), "helsinki-bikes", [], undefined, typed);
+    expect(out.spec).not.toHaveProperty("policyRef");
+    expect(out.spec.publish).toEqual(stored.spec.publish);
+  });
+
+  it("drops a title the form cleared and keeps one it never showed", () => {
+    const form = endpointForm(stored);
+    form.title = "";
+    expect(endpointEnvelope("helsinki", form, "helsinki-bikes", [], undefined, stored).metadata).not.toHaveProperty("title");
+    const described = { ...stored, metadata: { ...stored.metadata, description: { en: "Dock stations" } } };
+    expect(endpointEnvelope("helsinki", endpointForm(described), "helsinki-bikes", [], undefined, described).metadata.description).toEqual({ en: "Dock stations" });
+  });
+
   it("writes a new endpoint from the form alone", () => {
     const out = endpointEnvelope("helsinki", endpointForm(stored), "helsinki-bikes", []);
     expect(out.metadata.labels).toEqual({ "joinedcontext.com/space": "helsinki" });
