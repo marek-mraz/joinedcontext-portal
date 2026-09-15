@@ -620,7 +620,12 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
                 ...form,
                 secrets: Object.values(collectedSecrets),
               }),
-            fromManifest: (manifest) => toForm(manifest as Manifest),
+            // A draft or YAML read back declares its own type, and the form follows it: a
+            // `?draft=` of an HTTP source must not open in the page's first type's form.
+            fromManifest: (manifest) => {
+              setType(typeOf((manifest as Manifest).spec ?? {}));
+              return toForm(manifest as Manifest);
+            },
           }}
           title={editing ? t("datasources.dialog.edit") : t("datasources.dialog.create")}
           description={

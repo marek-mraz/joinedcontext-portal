@@ -69,7 +69,7 @@ const DRY_RUN = {
   probe: { records: 1, bytes: 512, sample: { last_updated: 1789314850, data: { bikes: [] } } },
 };
 
-function renderDataSources() {
+function renderDataSources(drafts: Record<string, unknown> = {}) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -83,6 +83,10 @@ function renderDataSources() {
 
     if (url.pathname.endsWith("/auth/me")) {
       return json(IDENTITY);
+    }
+    const drafted = drafts[url.pathname];
+    if (request.method === "GET" && drafted) {
+      return json(drafted);
     }
     if (request.method === "POST" || request.method === "PUT") {
       return url.searchParams.get("dryRun") === "All" ? json(DRY_RUN) : json(CHANGE, 202);
@@ -310,6 +314,30 @@ describe("data sources view", () => {
     await expect(request.clone().json()).resolves.toMatchObject({
       spec: { type: "mqtt", mqtt: { username: "bb-reader" } },
     });
+  });
+
+  it("opens the draft the address names in its own type's form, not the page's first type", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/datasources?draft=aq-opendata");
+    const manifest = toEnvelope("banskabystrica", "http", {
+      name: "aq-opendata",
+      http: { url: "https://opendata.banskabystrica.sk/aq.json", verb: "GET" },
+    });
+    renderDataSources({
+      "/api/v1/projects/banskabystrica/drafts/DataSource/aq-opendata": {
+        project: "banskabystrica",
+        kind: "DataSource",
+        name: "aq-opendata",
+        manifest,
+        touchedBy: "jana.kovacova",
+        touchedKind: "person",
+        version: 2,
+        updatedAt: "2026-09-15T05:00:00Z",
+      },
+    });
+
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByLabelText(/^URL/)).toHaveValue("https://opendata.banskabystrica.sk/aq.json");
+    expect(within(dialog).queryByLabelText(/Broker URLs/)).not.toBeInTheDocument();
   });
 
   it("opens a source's editor on the change the assistant made, and sends nothing until proposed (AG-77)", async () => {
