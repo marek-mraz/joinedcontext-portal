@@ -3,7 +3,7 @@
     "title": "joinedcontext Portal",
     "loading": "Wird geladen...",
     "error": {
-      "generic": "Ein unerwarteter Fehler ist aufgetreten.",
+      "generic": "Das Portal hat nicht geantwortet. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
       "retry": "Erneut versuchen"
     }
   },
@@ -201,7 +201,7 @@
       "noModel": "Dieser Raum nennt kein Datenmodell, seine Entitätstypen sind daher unbekannt.",
       "noTypes": "Das Datenmodell {model} definiert keinen Entitätstyp.",
       "readThrough": "gelesen über Endpoint {endpoint}",
-      "noEndpoint": "kein Endpoint ohne Policy oder mit öffentlichem Publikum, Zählungen können nicht gelesen werden",
+      "noEndpoint": "Zählungen brauchen einen öffentlichen Endpoint oder einen ohne Policy",
       "noEntities": "Noch keine Entität dieses Typs.",
       "notReadable": "anonym nicht lesbar",
       "noEndpoints": "Dieser Raum hat noch keinen Endpoint.",
@@ -239,7 +239,7 @@
       },
       "onApproval": "Alle vorschlagen sendet diese Entwürfe gemeinsam zur Freigabe. Nach der Freigabe wird die Quelle abgerufen und der Raum füllt sich.",
       "title": "Complete this space",
-      "lead": "Provide a sample file or an endpoint URL; the Portal completes the Context Space with LinkML, and builds the data source and pipeline if described.",
+      "lead": "Geben Sie eine Beispieldatei oder die Adresse eines Feeds an. Das Portal entwirft das Datenmodell, den Raum, die Datenquelle und die Pipeline und prüft jeden Entwurf.",
       "space": "Space name",
       "url": "Endpoint URL",
       "files": "Files",
@@ -585,7 +585,7 @@
       "running": "Wird getestet…",
       "noMapping": "Zuerst ein Bloblang-Mapping schreiben.",
       "tooLarge": "Die Probe ist größer als 5 MiB; kürzen.",
-      "failed": "Der Test lief nicht (Status {status}).",
+      "failed": "Der Test lief nicht (Status {status}). Versuchen Sie es gleich noch einmal.",
       "input": "Eingabe",
       "events": "{events} Nachrichten, {bytes} Bytes",
       "mapping": "Mapping-Ausgabe",
@@ -713,7 +713,7 @@
       "onceWarning": "Der Schlüssel wird nur dieses eine Mal angezeigt. Gespeichert wird nur sein Hash, er ist nicht wiederherstellbar.",
       "token": "API-Schlüssel",
       "copy": "Kopieren",
-      "done": "Ich habe ihn gespeichert",
+      "done": "Schließen",
       "rotate": "Erneuern",
       "rotateHint": "Erzeugt einen Nachfolger; der aktuelle Schlüssel gilt noch 24 Stunden.",
       "revoke": "Widerrufen",
@@ -747,7 +747,7 @@
       "unconstrained": "keine Einschränkung",
       "prohibitions": "Ausdrücklich verboten",
       "forbidden": "Dieser Endpunkt antwortet Ihnen nicht; melden Sie sich mit einem berechtigten Konto an.",
-      "unavailable": "Das Zugriffsdokument ist gerade nicht verfügbar."
+      "unavailable": "Das Zugriffsdokument konnte nicht gelesen werden. Versuchen Sie es gleich noch einmal."
     },
     "panel": {
       "title": "Ihr Zugriff",
@@ -784,7 +784,7 @@
       "submit": "Erstellen",
       "hint": "Beim Speichern wird eine Änderung vorgeschlagen; sie wirkt nach der Freigabe.",
       "noSchema": "Diese Vorlage hat keine Parameter.",
-      "failed": "Die Parameter wurden nicht akzeptiert."
+      "failed": "Die Parameter wurden nicht akzeptiert. Korrigieren Sie die markierten Felder und erstellen Sie erneut."
     }
   },
   "export": {
@@ -893,7 +893,7 @@
       "noMatches": "Kein Modell passt.",
       "preview": "Fremdmodell",
       "pick": "Wählen Sie ein Modell, um zu sehen, was importiert würde.",
-      "previewFailed": "Das Modell konnte nicht geladen werden.",
+      "previewFailed": "Das Modell konnte nicht aus dem Katalog geladen werden. Versuchen Sie es erneut oder importieren Sie es über die Kennung.",
       "keepAll": "Alle fremden Attribute bleiben erhalten; nicht gewählte werden als veraltet markiert.",
       "import": "{name} importieren",
       "loading": "Fremdmodell wird geladen…"
@@ -914,9 +914,9 @@
       "drop": "Datei hier ablegen oder auswählen",
       "chooseFile": "Beispieldatei wählen",
       "reading": "Lese {name}…",
-      "tooLarge": "Die Datei ist größer als 10 MiB.",
+      "tooLarge": "Die Datei ist größer als 10 MiB. Verwenden Sie eine kleinere Probe.",
       "failed": "Die Datei konnte nicht gelesen werden: {detail}",
-      "unreadable": "Die Antwort war kein Modellentwurf.",
+      "unreadable": "Aus dieser Datei ließ sich kein Modell entwerfen. Versuchen Sie eine CSV- oder JSON-Probe.",
       "preview": "Entwurf aus {name}",
       "previewLead": "{rows} Zeilen gelesen, {classes} Klassen entworfen. Jeder Wert ist eine Annahme, die im Editor korrigiert wird.",
       "class": "Klasse",
@@ -1079,7 +1079,7 @@
     "target": "Zielmodell",
     "lane": "Prüfspur:",
     "canvas": "Slot-Ableitungen",
-    "unfilled": "Pflicht-Zielslots, die nichts füllt: {slots}. Model Tools lehnt dieses Mapping ab (DM-34).",
+    "unfilled": "Pflicht-Zielslots, die nichts füllt: {slots}. Füllen Sie jeden, bevor das Mapping gespeichert werden kann.",
     "targetSlot": "Zielslot",
     "sourceSlot": "Quellslot",
     "origin": "Vorbelegt aus",
@@ -1094,7 +1094,7 @@
     "output": "Transformierte Ausgabe",
     "unchecked": "Hier nicht ausgewertet, sie stammen aus nativem Bloblang: {slots}. CI führt sie über Bento aus.",
     "missing": "Das Eingabebeispiel enthält keinen Wert für: {slots}.",
-    "laneRaised": "{count} native Blöcke heben die Prüfspur um eine Stufe (DM-38).",
+    "laneRaised": "{count} native Blöcke heben die Prüfspur um eine Stufe.",
     "exampleNotJson": "Das Beispiel ist kein gültiges JSON.",
     "exampleNotAnObject": "Das Beispiel muss ein JSON-Objekt sein.",
     "originOf": {
@@ -1176,7 +1176,7 @@
     "detail": "Entität",
     "open": "Öffnen",
     "close": "Schließen",
-    "loadFailed": "Laden fehlgeschlagen"
+    "loadFailed": "Die Entitäten konnten nicht geladen werden. Versuchen Sie es erneut oder lesen Sie über einen anderen Endpunkt."
   },
   "agentRun": {
     "loading": "Lese den Lauf…",
@@ -1204,7 +1204,7 @@
     },
     "conversation": {
       "details": "{count, plural, one {Details (# Zeile)} other {Details (# Zeilen)}}",
-      "title": "Der Bau als Gespräch",
+      "title": "Gespräch",
       "live": "Live",
       "offline": "Nicht verbunden",
       "empty": "Noch nichts. Die ersten Zeilen kommen, wenn der Arbeitsbereich startet.",
@@ -1280,7 +1280,8 @@
     },
     "catalog": {
       "title": "Was der Assistent gefunden hat",
-      "none": "In diesem Projekt passt nichts zu diesen Wörtern.",
+      "none": "Nichts in diesem Projekt passt zur Suche. Versuchen Sie ein einzelnes Wort, etwa einen Typ oder einen Ort.",
+      "noneFor": "Nichts in diesem Projekt passt zu „{words}“. Versuchen Sie ein einzelnes Wort, etwa einen Typ oder einen Ort.",
       "allowed": "Zugänglich",
       "restricted": "Eingeschränkt",
       "fresh": "Vor {when} gespeist durch {pipeline}",
@@ -1464,7 +1465,7 @@
     },
     "open": "Öffnen",
     "continue": "Fortsetzen",
-    "continueMessage": "Machen wir dort weiter, wo wir aufgehört haben.",
+    "continueMessage": "Setze dieses Gespräch fort.",
     "continues": "setzt eine frühere Unterhaltung fort",
     "empty": "Noch nichts. Fragen Sie den Assistenten oder beginnen Sie unten eine Arbeit.",
     "newWork": {

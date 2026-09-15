@@ -3,7 +3,7 @@
     "title": "joinedcontext Portal",
     "loading": "Loading...",
     "error": {
-      "generic": "An unexpected error occurred.",
+      "generic": "The Portal did not answer. Check the connection and try again.",
       "retry": "Retry"
     }
   },
@@ -201,7 +201,7 @@
       "noModel": "This space names no data model, so its entity types are unknown.",
       "noTypes": "The data model {model} defines no entity type.",
       "readThrough": "read through endpoint {endpoint}",
-      "noEndpoint": "no endpoint without a policy or with a public audience, so counts cannot be read",
+      "noEndpoint": "counts need an endpoint that is public or has no policy",
       "noEntities": "No entity of this type yet.",
       "notReadable": "not readable anonymously",
       "noEndpoints": "This space has no endpoint yet.",
@@ -239,7 +239,7 @@
       },
       "onApproval": "Propose all sends these drafts for approval together. Once a person approves them, the source is fetched and the space fills.",
       "title": "Complete this space",
-      "lead": "Provide a sample file or an endpoint URL; the Portal completes the Context Space with LinkML, and builds the data source and pipeline if described.",
+      "lead": "Give a sample file or the address of a feed. The Portal drafts the data model, the space, the data source and the pipeline, and checks each draft.",
       "space": "Space name",
       "url": "Endpoint URL",
       "files": "Files",
@@ -585,7 +585,7 @@
       "running": "Testing…",
       "noMapping": "Write a Bloblang mapping first.",
       "tooLarge": "The sample is over 5 MiB; cut it down.",
-      "failed": "The test did not run (status {status}).",
+      "failed": "The test did not run (status {status}). Try again in a moment.",
       "input": "Input",
       "events": "{events} messages, {bytes} bytes",
       "mapping": "Mapping output",
@@ -713,7 +713,7 @@
       "onceWarning": "This is the only time the key is shown. It is stored as a hash and cannot be recovered.",
       "token": "API key",
       "copy": "Copy",
-      "done": "I have stored it",
+      "done": "Close",
       "rotate": "Rotate",
       "rotateHint": "Issues a successor; the current key keeps working for 24 hours.",
       "revoke": "Revoke",
@@ -747,7 +747,7 @@
       "unconstrained": "no constraint",
       "prohibitions": "Explicitly denied",
       "forbidden": "This endpoint does not answer you; sign in with an account that has a grant.",
-      "unavailable": "The access document is not available right now."
+      "unavailable": "The access document could not be read. Try again in a moment."
     },
     "panel": {
       "title": "Your access",
@@ -784,7 +784,7 @@
       "submit": "Create",
       "hint": "Saving proposes a change; it takes effect once the change is approved.",
       "noSchema": "This blueprint declares no parameters.",
-      "failed": "The parameters were not accepted."
+      "failed": "The parameters were not accepted. Correct the marked fields and create again."
     }
   },
   "export": {
@@ -905,7 +905,7 @@
       "noMatches": "No model matches.",
       "preview": "Upstream model",
       "pick": "Pick a model to see what would be imported.",
-      "previewFailed": "The model could not be fetched.",
+      "previewFailed": "The model could not be fetched from the catalogue. Try again, or import it by identifier.",
       "keepAll": "Every upstream slot is kept; unpicked ones are marked deprecated.",
       "import": "Import {name}",
       "loading": "Fetching the upstream model…"
@@ -926,9 +926,9 @@
       "drop": "Drop a file here or choose one",
       "chooseFile": "Choose a sample file",
       "reading": "Reading {name}…",
-      "tooLarge": "The file is larger than 10 MiB.",
+      "tooLarge": "The file is larger than 10 MiB. Use a smaller sample.",
       "failed": "The sample could not be read: {detail}",
-      "unreadable": "The answer was not a draft model.",
+      "unreadable": "No model could be drafted from this file. Try a CSV or JSON sample.",
       "preview": "Draft from {name}",
       "previewLead": "{rows} rows read, {classes} classes drafted. Every value is a guess to correct in the editor.",
       "class": "Class",
@@ -1079,7 +1079,7 @@
     "target": "Target model",
     "lane": "Review lane:",
     "canvas": "Slot derivations",
-    "unfilled": "Required target slots nothing fills: {slots}. Model Tools refuses this mapping (DM-34).",
+    "unfilled": "Required target slots nothing fills: {slots}. Fill each one before the mapping can be saved.",
     "targetSlot": "Target slot",
     "sourceSlot": "Source slot",
     "origin": "Pre-filled from",
@@ -1094,7 +1094,7 @@
     "output": "Transformed output",
     "unchecked": "Not evaluated here, they come from native bloblang: {slots}. CI runs them through Bento.",
     "missing": "The input example carries no value for: {slots}.",
-    "laneRaised": "{count} native block(s) raise the review lane by one (DM-38).",
+    "laneRaised": "{count} native block(s) raise the review lane by one.",
     "exampleNotJson": "The example is not valid JSON.",
     "exampleNotAnObject": "The example has to be a JSON object.",
     "originOf": {
@@ -1176,7 +1176,7 @@
     "detail": "Entity",
     "open": "Open",
     "close": "Close",
-    "loadFailed": "Loading failed"
+    "loadFailed": "The entities could not be loaded. Try again, or read through another endpoint."
   },
   "agentRun": {
     "loading": "Reading the run…",
@@ -1204,7 +1204,7 @@
     },
     "conversation": {
       "details": "{count, plural, one {Details (# line)} other {Details (# lines)}}",
-      "title": "The build, as a conversation",
+      "title": "Conversation",
       "live": "Live",
       "offline": "Not connected",
       "empty": "Nothing yet. The first lines arrive when the workspace starts.",
@@ -1280,7 +1280,8 @@
     },
     "catalog": {
       "title": "What the assistant found",
-      "none": "Nothing in this project matches those words.",
+      "none": "Nothing in this project matches the search. Try a single word, such as a type or a place.",
+      "noneFor": "Nothing in this project matches “{words}”. Try a single word, such as a type or a place.",
       "allowed": "Allowed",
       "restricted": "Restricted",
       "fresh": "Fed {when} by {pipeline}",
@@ -1308,7 +1309,7 @@
       "policies": "Draft policies ({n})",
       "copyPolicy": "Copy policy YAML",
       "copied": "Copied",
-      "review": "Review & propose",
+      "review": "Review and propose",
       "failed": "The proposal could not be rendered: {reason}",
       "projects": "shared with {projects}"
     },
@@ -1464,7 +1465,7 @@
     },
     "open": "Open",
     "continue": "Continue",
-    "continueMessage": "Let's continue where we left off.",
+    "continueMessage": "Continue this conversation.",
     "continues": "continues an earlier conversation",
     "empty": "Nothing yet. Ask the assistant or start work below.",
     "newWork": {

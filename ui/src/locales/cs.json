@@ -3,7 +3,7 @@
     "title": "joinedcontext Portal",
     "loading": "Načítá se...",
     "error": {
-      "generic": "Došlo k neočekávané chybě.",
+      "generic": "Portál neodpověděl. Zkontrolujte připojení a zkuste to znovu.",
       "retry": "Zkusit znovu"
     }
   },
@@ -201,7 +201,7 @@
       "noModel": "Prostor neuvádí datový model, takže jeho typy entit nejsou známy.",
       "noTypes": "Datový model {model} nedefinuje žádný typ entity.",
       "readThrough": "čteno přes endpoint {endpoint}",
-      "noEndpoint": "žádný endpoint bez politiky ani s veřejným publikem, počty nelze přečíst",
+      "noEndpoint": "počty potřebují veřejný endpoint nebo endpoint bez politiky",
       "noEntities": "Zatím žádná entita tohoto typu.",
       "notReadable": "nelze číst anonymně",
       "noEndpoints": "Prostor zatím nemá endpoint.",
@@ -239,7 +239,7 @@
       },
       "onApproval": "Navrhnout vše pošle tyto koncepty ke schválení společně. Po schválení se zdroj začne načítat a prostor se naplní.",
       "title": "Complete this space",
-      "lead": "Provide a sample file or an endpoint URL; the Portal completes the Context Space with LinkML, and builds the data source and pipeline if described.",
+      "lead": "Zadejte vzorový soubor nebo adresu zdroje. Portál navrhne datový model, prostor, zdroj dat a pipeline a každý návrh zkontroluje.",
       "space": "Space name",
       "url": "Endpoint URL",
       "files": "Files",
@@ -585,7 +585,7 @@
       "running": "Testuje se…",
       "noMapping": "Nejprve napište Bloblang mapování.",
       "tooLarge": "Vzorek má více než 5 MiB; zkraťte jej.",
-      "failed": "Test se nespustil (stav {status}).",
+      "failed": "Test se nespustil (stav {status}). Zkuste to za chvíli znovu.",
       "input": "Vstup",
       "events": "{events} zpráv, {bytes} B",
       "mapping": "Výstup mapování",
@@ -713,7 +713,7 @@
       "onceWarning": "Klíč se zobrazuje jen jednou. Ukládá se pouze jeho otisk a už ho nelze obnovit.",
       "token": "API klíč",
       "copy": "Kopírovat",
-      "done": "Uložil jsem si ho",
+      "done": "Zavřít",
       "rotate": "Vyměnit",
       "rotateHint": "Vydá nástupce; současný klíč funguje ještě 24 hodin.",
       "revoke": "Zneplatnit",
@@ -747,7 +747,7 @@
       "unconstrained": "bez omezení",
       "prohibitions": "Výslovně zakázáno",
       "forbidden": "Tento endpoint vám neodpovídá; přihlaste se účtem, který má oprávnění.",
-      "unavailable": "Dokument o přístupu teď není dostupný."
+      "unavailable": "Dokument o přístupu se nepodařilo přečíst. Zkuste to za chvíli znovu."
     },
     "panel": {
       "title": "Váš přístup",
@@ -784,7 +784,7 @@
       "submit": "Vytvořit",
       "hint": "Uložením navrhnete změnu; projeví se po jejím schválení.",
       "noSchema": "Tato šablona nemá žádné parametry.",
-      "failed": "Parametry nebyly přijaty."
+      "failed": "Parametry nebyly přijaty. Opravte označená pole a vytvořte znovu."
     }
   },
   "export": {
@@ -893,7 +893,7 @@
       "noMatches": "Žádný model neodpovídá.",
       "preview": "Převzatý model",
       "pick": "Vyberte model a uvidíte, co se naimportuje.",
-      "previewFailed": "Model se nepodařilo načíst.",
+      "previewFailed": "Model se nepodařilo načíst z katalogu. Zkuste to znovu nebo ho importujte podle identifikátoru.",
       "keepAll": "Všechny převzaté atributy zůstávají; nevybrané se označí jako zastaralé.",
       "import": "Importovat {name}",
       "loading": "Načítá se převzatý model…"
@@ -914,9 +914,9 @@
       "drop": "Přetáhněte sem soubor nebo jej vyberte",
       "chooseFile": "Vybrat vzorový soubor",
       "reading": "Čtu {name}…",
-      "tooLarge": "Soubor je větší než 10 MiB.",
+      "tooLarge": "Soubor je větší než 10 MiB. Použijte menší vzorek.",
       "failed": "Vzorek se nepodařilo přečíst: {detail}",
-      "unreadable": "Odpověď nebyla návrh modelu.",
+      "unreadable": "Z tohoto souboru se nepodařilo navrhnout model. Zkuste vzorek CSV nebo JSON.",
       "preview": "Návrh ze souboru {name}",
       "previewLead": "Přečteno {rows} řádků, navrženo {classes} tříd. Každá hodnota je odhad k opravě v editoru.",
       "class": "Třída",
@@ -1079,7 +1079,7 @@
     "target": "Cílový model",
     "lane": "Kontrolní dráha:",
     "canvas": "Odvození slotů",
-    "unfilled": "Povinné cílové sloty, které nic nenaplňuje: {slots}. Model Tools takové mapování odmítne (DM-34).",
+    "unfilled": "Povinné cílové sloty, které nic nenaplňuje: {slots}. Naplňte každý z nich, jinak se mapování neuloží.",
     "targetSlot": "Cílový slot",
     "sourceSlot": "Zdrojový slot",
     "origin": "Předvyplněno podle",
@@ -1094,7 +1094,7 @@
     "output": "Transformovaný výstup",
     "unchecked": "Zde se nevyhodnocují, pocházejí z nativního bloblangu: {slots}. CI je spustí přes Bento.",
     "missing": "Vstupní příklad neobsahuje hodnotu pro: {slots}.",
-    "laneRaised": "Nativní bloky ({count}) zvyšují kontrolní dráhu o jeden stupeň (DM-38).",
+    "laneRaised": "Nativní bloky ({count}) zvyšují kontrolní dráhu o jeden stupeň.",
     "exampleNotJson": "Příklad není platný JSON.",
     "exampleNotAnObject": "Příklad musí být objekt JSON.",
     "originOf": {
@@ -1176,7 +1176,7 @@
     "detail": "Entita",
     "open": "Otevřít",
     "close": "Zavřít",
-    "loadFailed": "Načtení selhalo"
+    "loadFailed": "Entity se nepodařilo načíst. Zkuste to znovu nebo čtěte přes jiný endpoint."
   },
   "agentRun": {
     "loading": "Čtu spuštění…",
@@ -1204,7 +1204,7 @@
     },
     "conversation": {
       "details": "{count, plural, one {Podrobnosti (# řádek)} few {Podrobnosti (# řádky)} other {Podrobnosti (# řádků)}}",
-      "title": "Stavba jako rozhovor",
+      "title": "Rozhovor",
       "live": "Naživo",
       "offline": "Nepřipojeno",
       "empty": "Zatím nic. První řádky přijdou, když se spustí pracovní prostor.",
@@ -1280,7 +1280,8 @@
     },
     "catalog": {
       "title": "Co asistent našel",
-      "none": "V tomto projektu se nic neshoduje s těmito slovy.",
+      "none": "V tomto projektu nic neodpovídá hledání. Zkuste jedno slovo, například typ nebo místo.",
+      "noneFor": "V tomto projektu nic neodpovídá „{words}“. Zkuste jedno slovo, například typ nebo místo.",
       "allowed": "Přístupné",
       "restricted": "Omezené",
       "fresh": "Plněno před {when} přes {pipeline}",
@@ -1464,7 +1465,7 @@
     },
     "open": "Otevřít",
     "continue": "Pokračovat",
-    "continueMessage": "Pokračujme tam, kde jsme skončili.",
+    "continueMessage": "Pokračuj v tomto rozhovoru.",
     "continues": "navazuje na starší konverzaci",
     "empty": "Zatím nic. Zeptejte se asistenta nebo začněte práci níže.",
     "newWork": {

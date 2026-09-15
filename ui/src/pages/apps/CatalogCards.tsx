@@ -91,6 +91,7 @@ export function CatalogCards({
   now,
   onUseEndpoint,
   usedEndpoints = [],
+  words = "",
 }: {
   project: string;
   items: CatalogItem[];
@@ -100,13 +101,19 @@ export function CatalogCards({
   onUseEndpoint?: (name: string) => void;
   /** The endpoints the conversation already reads, whose "Use" is spent. */
   usedEndpoints?: string[];
+  /** The words the search ran on, named when nothing matched them. */
+  words?: string;
 }): JSX.Element {
   const { t } = useTranslation();
   const [mounted] = useState(() => Date.now());
   const [expanded, setExpanded] = useState(false);
   const at = now ?? mounted;
   if (items.length === 0) {
-    return <p className="text-sm text-fg-muted">{t("agentRun.catalog.none")}</p>;
+    return (
+      <p className="text-sm text-fg-muted">
+        {words.trim() === "" ? t("agentRun.catalog.none") : t("agentRun.catalog.noneFor", { words: words.trim() })}
+      </p>
+    );
   }
   const shown = expanded ? items : items.slice(0, FIRST_ROWS);
   const hidden = items.length - FIRST_ROWS;

@@ -50,7 +50,7 @@ const ITEMS: CatalogItem[] = [
 
 function renderCards(
   items: CatalogItem[] = ITEMS,
-  props: { onUseEndpoint?: (name: string) => void; usedEndpoints?: string[] } = {},
+  props: { onUseEndpoint?: (name: string) => void; usedEndpoints?: string[]; words?: string } = {},
 ) {
   const rootRoute = createRootRoute({
     component: () => <CatalogCards project="helsinki" items={items} now={NOW} {...props} />,
@@ -191,7 +191,16 @@ describe("the catalog results", () => {
     expect(document.querySelector("script")).toBeNull();
   });
 
-  it("says when nothing matched", async () => {
+  it("says when nothing matched, naming the words it searched for", async () => {
+    renderCards([], { words: " electric scooters " });
+    expect(
+      await screen.findByText(
+        "Nothing in this project matches “electric scooters”. Try a single word, such as a type or a place.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says when nothing matched a search whose words it does not know", async () => {
     renderCards([]);
     expect(await screen.findByText(en.agentRun.catalog.none)).toBeInTheDocument();
   });

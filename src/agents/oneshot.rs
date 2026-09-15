@@ -123,11 +123,15 @@ fn provider_said(body: &str) -> String {
 /// Kit capabilities JSON loaded directly from sdk/kit.json (AP-65).
 pub static KIT_CAPABILITIES: &str = include_str!("../../sdk/kit.json");
 
-/// The system prompt of a conversation turn: prose or one tool call, never a file (AG-67).
+/// The system prompt of a conversation turn: prose or one tool call, never a file (AG-67), in
+/// the Portal's own plain voice (UI-45).
 const CONVERSATION_SYSTEM: &str =
     "You are the joinedcontext Portal assistant. Answer the person in \
      plain prose, or with exactly one tool call when the user message describes it. Never write \
-     files or SEARCH/REPLACE blocks.";
+     files or SEARCH/REPLACE blocks. Write like a tool, not a chatbot: at most two short \
+     sentences before a card or a tool call, saying what was found, drafted or is still needed \
+     and naming it; no greeting, no apology, no \"I'll\", \"I've\", \"Let me\", \
+     \"successfully\", \"seamless\" or \"powerful\", and no exclamation marks.";
 
 static SYSTEM: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -1420,8 +1424,8 @@ impl Driver {
             let calls = data_query::tool_calls(&answer);
             if !searches.is_empty() || !calls.is_empty() {
                 if data_query::MAX_CALLS <= results.len() {
-                    let prose = "I could not finish from the data within the calls one message \
-                                 may make; ask a narrower question."
+                    let prose = "The data did not answer this within the calls one message may \
+                                 make; ask a narrower question."
                         .to_owned();
                     self.thought(&prose).await?;
                     return Ok(prose);
@@ -1487,8 +1491,8 @@ impl Driver {
                 )
                 .await?;
                 if last {
-                    let prose = "The data I read holds an instruction to change something or \
-                                 open a page; I did not follow it."
+                    let prose = "The data read for this message holds an instruction to change \
+                                 something or open a page; it was not followed."
                         .to_owned();
                     self.thought(&prose).await?;
                     return Ok(prose);
@@ -1610,7 +1614,7 @@ impl Driver {
         }
 
         let prose = if answer.trim().is_empty() {
-            "I am ready to help.".to_owned()
+            "Ask about the project's data, share it, or have something built.".to_owned()
         } else {
             answer.trim().to_owned()
         };
@@ -3509,7 +3513,7 @@ a removal of its binding with change_resource.
                 .again(
                     last,
                     format!("the manifest of {} '{name}' as it is: {current}; answer with change_resource and a patch of the fields that change", info.kind),
-                    format!("I could not tell what to change in '{name}'; say which field and value."),
+                    format!("Which field of '{name}' should change, and to what value?"),
                 )
                 .await;
         };
@@ -4702,6 +4706,19 @@ mod tests {
             "what is the average PM10 now",
         ] {
             assert!(!asks_for_pipeline(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn the_conversation_prompt_asks_for_a_short_plain_reply() {
+        for rule in [
+            "at most two short sentences",
+            "no greeting, no apology",
+            "\"I'll\", \"I've\", \"Let me\"",
+            "\"successfully\", \"seamless\" or \"powerful\"",
+            "no exclamation marks",
+        ] {
+            assert!(CONVERSATION_SYSTEM.contains(rule), "{rule}");
         }
     }
 

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
+import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { onOpenRequest } from "../src/assistant/state";
 
@@ -142,7 +143,7 @@ function renderAssistantPage(
           visibility: "private",
           kind: "conversation",
           unattended: false,
-          prompt: "Let's continue where we left off.",
+          prompt: en.assistantPage.continueMessage,
           status: "interviewing",
           steps: 0,
           tokensUsed: 0,

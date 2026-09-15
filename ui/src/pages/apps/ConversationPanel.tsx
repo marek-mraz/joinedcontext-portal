@@ -72,6 +72,12 @@ export function answeredSearches(events: RunEvent[]): Set<number> {
   return answered;
 }
 
+/** The words a catalog search ran on, as its step's input carries them. */
+function wordsOf(input: unknown): string {
+  const q = typeof input === "object" && input !== null ? (input as { q?: unknown }).q : undefined;
+  return typeof q === "string" ? q : "";
+}
+
 /** A row of the transcript: one event, or the machinery lines between two of them. */
 type Row = { event: RunEvent; count: number } | { details: RunEvent[] };
 
@@ -323,6 +329,7 @@ export function ConversationPanel({
                       items={found}
                       onUseEndpoint={live ? onUseEndpoint : undefined}
                       usedEndpoints={usedEndpoints}
+                      words={wordsOf(event.payload.input)}
                     />
                   ) : null}
                   {proposal !== null ? (
