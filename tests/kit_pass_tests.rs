@@ -2849,3 +2849,176 @@ async fn the_step_limit_ends_the_turn_with_a_message() {
         "two first-run passes, three tool turns, no call past the limit"
     );
 }
+
+/// `preview_errors` reads what the frame reported since the version on screen; `call_function`
+/// runs one of the run's functions in jc-functions as the person who started the run and
+/// reports a function the run does not have (SDK-14, SDK-18, SDK-20).
+#[tokio::test]
+async fn preview_errors_and_call_function_answer_the_model_as_tool_results() {
+    use joinedcontext_portal::auth::oidc::OidcClient;
+    use wiremock::matchers::{body_partial_json, header as has_header};
+
+    let realm = MockServer::start().await;
+    let issuer = format!("{}/realms/helsinki", realm.uri());
+    Mock::given(method("GET"))
+        .and(path("/realms/helsinki/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "issuer": issuer,
+            "authorization_endpoint": format!("{issuer}/protocol/openid-connect/auth"),
+            "token_endpoint": format!("{issuer}/protocol/openid-connect/token"),
+            "jwks_uri": format!("{issuer}/protocol/openid-connect/certs"),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["ES256"]
+        })))
+        .mount(&realm)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/realms/helsinki/protocol/openid-connect/certs"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "keys": [] })))
+        .mount(&realm)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/realms/helsinki/protocol/openid-connect/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "the-portals-own-token", "token_type": "Bearer", "expires_in": 300
+        })))
+        .mount(&realm)
+        .await;
+    let runtime = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/invoke"))
+        .and(has_header("authorization", "Bearer the-portals-own-token"))
+        .and(body_partial_json(json!({
+            "entry": "@app/functions/summary.ts",
+            "request": { "method": "POST", "body": { "types": ["Station"] }, "user": { "email": format!("{STEWARD}@hel.fi") } },
+            "token": null
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": 201, "body": { "types": [] }, "logs": ["summary 1 types"]
+        })))
+        .mount(&runtime)
+        .await;
+
+    let forge = code_forge().await;
+    let proxy = MockServer::start().await;
+    let proxy_base = proxy.uri();
+    let model_tools = format!("{proxy_base}/model-tools");
+    let runtime_uri = runtime.uri();
+    let config = Config::from_vars(|key| {
+        match key {
+            "JC_AGENTS_NAMESPACE" => Some("agents"),
+            "JC_AGENT_PROXY_BASE" => Some(proxy_base.as_str()),
+            "JC_PORTAL_MODEL_TOOLS_URL" => Some(model_tools.as_str()),
+            "JC_AGENT_PROXY_TOKEN" => Some("the-token-only-jc-agent-proxy-has"),
+            "JC_PORTAL_BOOTSTRAP_ADMINS" => Some("portal-approver"),
+            "JC_PORTAL_PUBLIC_URL" => Some("https://portal.example.com"),
+            "JC_OIDC_ISSUER" => Some(issuer.as_str()),
+            "JC_OIDC_CLIENT_ID" => Some("joinedcontext-portal"),
+            "JC_OIDC_CLIENT_SECRET" => Some("test-secret"),
+            "JC_FUNCTIONS_URL" => Some(runtime_uri.as_str()),
+            _ => None,
+        }
+        .map(str::to_owned)
+    })
+    .expect("config");
+    let oidc = OidcClient::discover(
+        config.oidc.as_ref().expect("a realm"),
+        "https://portal.test/api/v1/auth/callback",
+    )
+    .await
+    .expect("discovery");
+    // The sample rows and the row types, as `portal_state_with` mounts them.
+    Mock::given(method("GET"))
+        .and(path("/v1/data/ngsi-ld/v1/entities"))
+        .and(header_regex("authorization", "^Bearer jcr_"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "id": "urn:ngsi-ld:BikeHireDockingStation:001", "type": "BikeHireDockingStation", "name": "Kaivopuisto", "availableBikeNumber": 4 }
+        ])))
+        .mount(&proxy)
+        .await;
+    mount_types(&proxy).await;
+    let client = GiteaClient::new(forge.uri().parse().expect("url"), "org", "manifests", "t")
+        .expect("a forge client");
+    let state = AppState::new(config.clone(), Some(oidc))
+        .with_mirror(mirror("anthropic"))
+        .with_gitea(Arc::new(client));
+    let app = server::app(state.clone());
+    let cookie = session_cookie(&config, STEWARD);
+
+    let first = code_answer("A page listing the stations.", &stations_app(STATIONS));
+    let complete = code_answer("Complete.", &[]);
+    mount_tool_answers(
+        &proxy,
+        "anthropic",
+        &[anthropic(&first), anthropic(&complete)],
+    )
+    .await;
+    mount_tool_answers(
+        &proxy,
+        "anthropic",
+        &[
+            tool_answer("anthropic", &[("e", "preview_errors", json!({}))]),
+            tool_answer(
+                "anthropic",
+                &[(
+                    "c",
+                    "call_function",
+                    json!({ "name": "summary", "body": { "types": ["Station"] } }),
+                )],
+            ),
+            tool_answer(
+                "anthropic",
+                &[("n", "call_function", json!({ "name": "nope" }))],
+            ),
+            tool_answer(
+                "anthropic",
+                &[("f", "finish", json!({ "message": "Looked at the errors." }))],
+            ),
+        ],
+    )
+    .await;
+    let id = create_application(&app, &cookie).await;
+    wait_for_version(&app, &cookie, &id, 1).await;
+    wait_for_thought(&app, &cookie, &id, "Complete.").await;
+    let (status, body) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/preview-errors"),
+        Some(json!({ "message": "boom in Stations", "file": "src/pages/Stations.tsx", "line": 3 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    send_message(&app, &cookie, &id, "What is wrong with the page?").await;
+    wait_for_thought(&app, &cookie, &id, "Looked at the errors.").await;
+
+    let tools = tool_events(&events(&app, &cookie, &id).await);
+    let names: Vec<&str> = tools.iter().map(|(name, _, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["preview_errors", "call_function", "call_function", "finish"],
+        "{tools:?}"
+    );
+    assert_eq!(tools[0].1, "ok");
+    assert!(
+        tools[0].2.contains("boom in Stations") && tools[0].2.contains("src/pages/Stations.tsx"),
+        "the frame's error reaches the model: {}",
+        tools[0].2
+    );
+    if kit::functions_server().is_some() {
+        assert_eq!(tools[1].1, "ok", "{}", tools[1].2);
+        assert!(
+            tools[1].2.starts_with("status 201") && tools[1].2.contains("summary 1 types"),
+            "{}",
+            tools[1].2
+        );
+        let invoked = runtime.received_requests().await.unwrap_or_default();
+        assert_eq!(invoked.len(), 1, "the function ran once");
+    } else {
+        assert_eq!(tools[1].1, "failed");
+        assert!(tools[1].2.contains("SDK server module"), "{}", tools[1].2);
+    }
+    assert_eq!(tools[2].1, "failed");
+    assert!(tools[2].2.contains("no function 'nope'"), "{}", tools[2].2);
+}
