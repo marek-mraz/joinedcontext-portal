@@ -227,8 +227,10 @@ pub async fn call(
     (op.run)(caller, state, project, input).await
 }
 
-/// The person's half of a call (PF-50): the operation's verb on its kind, or any grant in the
-/// project for a verbless operation.
+/// The person's half of a call (PF-50), as the REST route of the same action decides it: the
+/// operation's verb on its kind; for a decision on a change, the verb on any kind, the change's own
+/// kind being checked when the change is read; for a resource operation, the check its route
+/// function makes (AG-77); for any other verbless operation, a grant in the project.
 pub fn permitted(
     op: &Operation,
     identity: &crate::auth::session::Identity,
@@ -236,32 +238,25 @@ pub fn permitted(
     project: &str,
 ) -> Result<(), OpError> {
     let effective = crate::permissions::for_request(state, identity, project);
-    if let Some(verb) = op.verb {
-        effective.check(op.kind, verb, None)?;
-    } else if !effective.bootstrap && effective.grants.is_empty() {
-        return Err(OpError::Api(ApiError::Denied(format!(
-            "no role grants access in project {project} (PF-50)"
-        ))));
+    match (op.kind, op.verb) {
+        ("Change", Some(_)) => crate::api::changes::may_approve_anything(state, identity, project)?,
+        (kind, Some(verb)) => effective.check(kind, verb, None)?,
+        (_, None) if resources::CHECKED_BY_THE_ROUTE.contains(&op.name) => {}
+        (_, None) if !effective.bootstrap && effective.grants.is_empty() => {
+            return Err(OpError::Api(ApiError::Denied(format!(
+                "no role grants access in project {project} (PF-50)"
+            ))));
+        }
+        (_, None) => {}
     }
     Ok(())
 }
 
+/// The operations this caller may run in the project: the ones [`permitted`] lets through.
 pub fn listing(caller: &Caller, state: &AppState, project: &str) -> Vec<OperationSummary> {
-    let effective = crate::permissions::for_request(state, &caller.identity, project);
-    if !effective.bootstrap && effective.grants.is_empty() {
-        return Vec::new();
-    }
     registry()
         .iter()
-        .filter(|op| {
-            if effective.bootstrap {
-                return true;
-            }
-            match op.verb {
-                Some(verb) => effective.check(op.kind, verb, None).is_ok(),
-                None => true,
-            }
-        })
+        .filter(|op| permitted(op, &caller.identity, state, project).is_ok())
         .map(|op| OperationSummary {
             name: op.name.to_string(),
             title: op.title.to_string(),
@@ -1718,8 +1713,10 @@ mod tests {
         };
         let viewer_caller = Caller::new(viewer_id, Via::Session);
 
+        // Without a binding: the resource operations, which check the caller as their routes do.
         let list = listing(&viewer_caller, &state, "ovzdusie");
-        assert!(list.is_empty(), "caller with no binding gets empty list");
+        let names: Vec<_> = list.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, resources::CHECKED_BY_THE_ROUTE);
 
         // Add role & binding for pipeline-developer
         let role = ResourceEnvelope {

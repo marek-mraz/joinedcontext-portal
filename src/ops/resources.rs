@@ -52,6 +52,15 @@ pub struct ChangeRejectInput {
     pub reason: Option<String>,
 }
 
+/// The operations whose function is the REST route's own and checks the caller as the route does:
+/// reading needs a signed-in person, proposing and deleting the verb on the kind (AG-77, PF-50).
+pub const CHECKED_BY_THE_ROUTE: [&str; 4] = [
+    "jc_resource_list",
+    "jc_resource_get",
+    "jc_resource_propose",
+    "jc_resource_delete",
+];
+
 /// The catalogue row of a kind an input names; an unknown kind is answered with the kinds there are.
 fn kind_named(kind: &str) -> Result<&'static KindInfo, OpError> {
     resource::by_kind(kind).ok_or_else(|| OpError::InvalidInput {

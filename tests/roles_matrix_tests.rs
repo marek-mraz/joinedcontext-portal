@@ -1,0 +1,769 @@
+//! One matrix of who may do what (T-0751, PF-50, PF-58, AG-11, CC-34, AG-77): the roles of the
+//! taxonomy (Architecture/12 §2a) and an agent run against every resource route and operation,
+//! for one kind of each family. The expected table is data; a cell that differs is reported with
+//! the answer it got, and every refusal must carry the words of its reason.
+
+use std::sync::Arc;
+
+use axum::body::Body;
+use axum::http::{header, Request, StatusCode};
+use axum::response::IntoResponse;
+use axum_extra::extract::cookie::PrivateCookieJar;
+use http_body_util::BodyExt;
+use serde_json::{json, Value};
+use tower::ServiceExt;
+use wiremock::matchers::{method, path, path_regex, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
+use joinedcontext_portal::auth::session::{self, Identity, Session};
+use joinedcontext_portal::config::Config;
+use joinedcontext_portal::git::GiteaClient;
+use joinedcontext_portal::ops::{self, Caller, OpError, Via};
+use joinedcontext_portal::permissions::ORG_NAMESPACE;
+use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+use joinedcontext_portal::server;
+use joinedcontext_portal::state::AppState;
+
+const CSRF: &str = "test-csrf-token-matrix";
+const REPO: &str = "/api/v1/repos/test-owner/test-repo";
+const PROJECT: &str = "helsinki";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Who {
+    /// No binding: reads the project, proposes nothing.
+    Viewer,
+    /// `propose` on every kind of the matrix, like the editor roles.
+    Editor,
+    /// `propose` and `approve`: approves the yellow lane, never their own change.
+    Steward,
+    /// `propose`, `approve` and `delete`: may approve their own change (PF-58).
+    Admin,
+}
+
+const PEOPLE: [Who; 4] = [Who::Viewer, Who::Editor, Who::Steward, Who::Admin];
+
+impl Who {
+    fn name(self) -> &'static str {
+        match self {
+            Who::Viewer => "viewer",
+            Who::Editor => "editor",
+            Who::Steward => "steward",
+            Who::Admin => "admin",
+        }
+    }
+
+    fn identity(self) -> Identity {
+        let name = self.name();
+        Identity {
+            subject: format!("sub-{name}"),
+            username: name.to_owned(),
+            email: Some(format!("{name}@hel.fi")),
+            name: Some(name.to_owned()),
+            roles: Vec::new(),
+            groups: Vec::new(),
+        }
+    }
+
+    fn verbs(self) -> &'static [&'static str] {
+        match self {
+            Who::Viewer => &[],
+            Who::Editor => &["propose"],
+            Who::Steward => &["propose", "approve"],
+            Who::Admin => &["propose", "approve", "delete"],
+        }
+    }
+
+    fn may(self, verb: &str) -> bool {
+        self.verbs().contains(&verb)
+    }
+}
+
+/// One kind of each family: where it lives, and a manifest the platform accepts.
+struct Family {
+    kind: &'static str,
+    plural: &'static str,
+    /// The project segment of its routes: `org` for an organization-scoped kind.
+    project: &'static str,
+    spec: fn() -> Value,
+}
+
+const FAMILIES: [Family; 7] = [
+    Family {
+        kind: "Endpoint",
+        plural: "endpoints",
+        project: PROJECT,
+        spec: || {
+            json!({
+                "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
+                "slug": "zt4qm7ge2xdv6ksb3ncf5arw2y",
+                "audience": "organization",
+                "enabledRepresentations": ["ngsi-ld", "geojson"]
+            })
+        },
+    },
+    Family {
+        kind: "Pipeline",
+        plural: "pipelines",
+        project: PROJECT,
+        spec: || {
+            json!({
+                "class": "resident",
+                "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:helsinki-all",
+                "quotas": { "maxMemoryMb": 128, "cpuMillicores": 250 }
+            })
+        },
+    },
+    Family {
+        kind: "DataSource",
+        plural: "datasources",
+        project: PROJECT,
+        spec: || {
+            json!({
+                "type": "mqtt",
+                "mqtt": {
+                    "urls": ["tls://mqtt.hel.fi:8883"],
+                    "topics": ["sensors/+/reading"],
+                    "passwordRef": { "name": "mqtt-hel", "key": "password" }
+                }
+            })
+        },
+    },
+    Family {
+        kind: "DataModel",
+        plural: "datamodels",
+        project: PROJECT,
+        spec: || {
+            json!({
+                "version": "1.0.0",
+                "lifecycle": "draft",
+                "contextSpaceRef": "helsinki",
+                "linkml": "./bikes.linkml.yaml",
+                "classes": ["BikeHireDockingStation"]
+            })
+        },
+    },
+    Family {
+        kind: "RoleBinding",
+        plural: "rolebindings",
+        project: ORG_NAMESPACE,
+        spec: || {
+            json!({
+                "subjects": [{ "group": "bikes-team" }],
+                "role": "editor",
+                "scope": { "project": PROJECT }
+            })
+        },
+    },
+    Family {
+        kind: "Dashboard",
+        plural: "dashboards",
+        project: PROJECT,
+        spec: || {
+            json!({
+                "title": { "en": "Bikes" },
+                "visibility": "project",
+                "pages": [{ "layout": "full-map", "layers": ["bikes"] }]
+            })
+        },
+    },
+    Family {
+        kind: "App",
+        plural: "apps",
+        project: PROJECT,
+        spec: || {
+            json!({
+                "kind": "fullstack",
+                "source": { "path": "./src" },
+                "build": { "rust": "1.90", "node": "22" },
+                "visibility": "project",
+                "lifecycle": "published",
+                "dataNeeds": [{
+                    "contextSpaceRef": { "kind": "ContextSpace", "name": "helsinki" },
+                    "types": ["BikeHireDockingStation"],
+                    "attrs": ["availableBikeNumber"],
+                    "operations": ["queryEntity"],
+                    "representations": ["ngsi-ld"]
+                }],
+                "limits": { "requestsPerMinute": 600, "maxFileRows": 20000 }
+            })
+        },
+    },
+];
+
+fn manifest(family: &Family, name: &str) -> Value {
+    json!({
+        "apiVersion": API_VERSION,
+        "kind": family.kind,
+        "metadata": { "name": name, "namespace": family.project },
+        "spec": (family.spec)(),
+    })
+}
+
+fn envelope(kind: &str, name: &str, namespace: &str, spec: Value) -> ResourceEnvelope {
+    ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: kind.to_owned(),
+        metadata: ObjectMeta::new(name, namespace),
+        spec,
+        status: None,
+    }
+}
+
+/// The resource of a family every cell reads, changes or removes.
+fn existing(family: &Family) -> String {
+    format!("{}-existing", family.kind.to_ascii_lowercase())
+}
+
+/// A merge request of the forge, numbered by family and author so each cell has its own.
+fn pull(family_index: usize, author: Option<Who>) -> u64 {
+    let by = author.map_or(0, |who| {
+        1 + PEOPLE.iter().position(|p| *p == who).unwrap_or(0)
+    });
+    100 + (family_index as u64) * 10 + by as u64
+}
+
+fn branch(family: &Family, number: u64) -> String {
+    format!(
+        "portal/create-{}-proposed-{number:08x}",
+        family.kind.to_ascii_lowercase()
+    )
+}
+
+async fn forge() -> MockServer {
+    let gitea = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(REPO))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&gitea)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("{REPO}/branches")))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&gitea)
+        .await;
+    for verb in ["PUT", "POST", "DELETE"] {
+        Mock::given(method(verb))
+            .and(path_regex(format!("^{REPO}/contents/.*")))
+            .respond_with(
+                ResponseTemplate::new(201)
+                    .set_body_json(json!({ "commit": { "sha": "commit-1" } })),
+            )
+            .mount(&gitea)
+            .await;
+    }
+    Mock::given(method("POST"))
+        .and(path(format!("{REPO}/pulls")))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 9, "html_url": "https://gitea.example/pulls/9", "state": "open",
+            "mergeable": true, "merged": false
+        })))
+        .mount(&gitea)
+        .await;
+    Mock::given(path_regex(format!("^{REPO}/pulls/[0-9]+/(merge|reviews)$")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&gitea)
+        .await;
+    Mock::given(method("PATCH"))
+        .and(path_regex(format!("^{REPO}/pulls/[0-9]+$")))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "state": "closed" })))
+        .mount(&gitea)
+        .await;
+
+    // Every existing resource has its file; a new one has none.
+    for family in &FAMILIES {
+        let file = serde_yaml_ng::to_string(&manifest(family, &existing(family))).expect("yaml");
+        Mock::given(method("GET"))
+            .and(path_regex(format!(
+                "^{REPO}/contents/.*/{}(/[a-z-]+)?\\.yaml$",
+                existing(family)
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sha": "sha-existing", "content": encode(&file)
+            })))
+            .with_priority(2)
+            .mount(&gitea)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path_regex(format!("^{REPO}/contents/.*")))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .with_priority(9)
+        .mount(&gitea)
+        .await;
+
+    // The merge requests the approval cells decide: one by somebody else and one by each person.
+    for (index, family) in FAMILIES.iter().enumerate() {
+        let authors = std::iter::once(None).chain(PEOPLE.iter().copied().map(Some));
+        for author in authors {
+            let number = pull(index, author);
+            let head = branch(family, number);
+            let (login, email) = match author {
+                Some(who) => (who.name().to_owned(), format!("{}@hel.fi", who.name())),
+                None => ("someone".to_owned(), "someone@hel.fi".to_owned()),
+            };
+            Mock::given(method("GET"))
+                .and(path(format!("{REPO}/pulls/{number}")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "number": number,
+                    "html_url": format!("https://gitea.example/pulls/{number}"),
+                    "state": "open",
+                    "title": format!("create {} proposed", family.kind),
+                    "head": { "ref": head },
+                    "base": { "ref": "main" },
+                    "created_at": "2026-09-14T09:00:00Z",
+                    "user": { "login": login, "full_name": login, "email": email },
+                    "mergeable": true,
+                    "merged": false
+                })))
+                .mount(&gitea)
+                .await;
+            let file = serde_yaml_ng::to_string(&manifest(family, "proposed")).expect("yaml");
+            Mock::given(method("GET"))
+                .and(path_regex(format!("^{REPO}/contents/.*")))
+                .and(query_param("ref", head.as_str()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "sha": "sha-proposed", "content": encode(&file)
+                })))
+                .with_priority(1)
+                .mount(&gitea)
+                .await;
+        }
+    }
+    gitea
+}
+
+fn encode(text: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(text)
+}
+
+/// The organization's roles and a binding of each person over the whole organization, the
+/// context space the manifests read, and one existing resource of each family.
+fn state_with(gitea: &MockServer) -> AppState {
+    let client = GiteaClient::new(
+        gitea.uri().parse().expect("mock url"),
+        "test-owner",
+        "test-repo",
+        "token-xyz",
+    )
+    .expect("client");
+    let state = AppState::new(Config::for_tests(), None).with_gitea(Arc::new(client));
+    let kinds: Vec<&str> = FAMILIES.iter().map(|family| family.kind).collect();
+    for who in [Who::Editor, Who::Steward, Who::Admin] {
+        state.mirror.upsert(envelope(
+            "Role",
+            who.name(),
+            ORG_NAMESPACE,
+            json!({ "rules": [{ "kinds": kinds, "verbs": who.verbs() }] }),
+        ));
+        state.mirror.upsert(envelope(
+            "RoleBinding",
+            &format!("{}-binding", who.name()),
+            ORG_NAMESPACE,
+            json!({
+                "subjects": [{ "user": format!("{}@hel.fi", who.name()) }],
+                "role": who.name(),
+                "scope": { "organization": "hel" }
+            }),
+        ));
+    }
+    state.mirror.upsert(envelope(
+        "ContextSpace",
+        "helsinki",
+        PROJECT,
+        json!({ "isSandbox": false }),
+    ));
+    state.mirror.upsert(envelope(
+        "Layer",
+        "bikes",
+        PROJECT,
+        json!({ "sourceEndpointRef": "endpoint-existing", "entityType": "BikeHireDockingStation", "style": "circle" }),
+    ));
+    for family in &FAMILIES {
+        state.mirror.upsert(envelope(
+            family.kind,
+            &existing(family),
+            family.project,
+            (family.spec)(),
+        ));
+    }
+    state
+}
+
+fn cookie(config: &Config, identity: Identity) -> String {
+    let now = session::now_unix();
+    let session = Session {
+        identity,
+        expires_at: now + 3600,
+        issued_at: now,
+        id_token: "id".into(),
+        access_expires_at: now + 3600,
+        refresh_token: None,
+    };
+    let jar =
+        session::store(PrivateCookieJar::new(config.cookie_key.clone()), &session).expect("store");
+    let response = (jar, StatusCode::OK).into_response();
+    let mut parts: Vec<String> = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .map(|raw| raw.split(';').next().unwrap_or_default().to_owned())
+        .collect();
+    parts.push(format!("{CSRF_COOKIE}={CSRF}"));
+    parts.join("; ")
+}
+
+async fn send(state: &AppState, who: Who, http: &str, uri: &str, body: Option<Value>) -> Answer {
+    let content_type = if http == "PATCH" {
+        "application/merge-patch+json"
+    } else {
+        "application/json"
+    };
+    let config = state.config.clone();
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method(http)
+                .uri(uri)
+                .header(header::COOKIE, cookie(&config, who.identity()))
+                .header(CSRF_HEADER, CSRF)
+                .header(header::CONTENT_TYPE, content_type)
+                .body(body.map_or_else(Body::empty, |body| Body::from(body.to_string())))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    Answer {
+        status,
+        text: String::from_utf8_lossy(&bytes).into_owned(),
+    }
+}
+
+struct Answer {
+    status: StatusCode,
+    text: String,
+}
+
+/// What a cell expects: the status, and for a refusal the words its reason must carry.
+struct Expect {
+    status: StatusCode,
+    reason: Option<String>,
+}
+
+fn allowed(status: StatusCode) -> Expect {
+    Expect {
+        status,
+        reason: None,
+    }
+}
+
+fn refused(reason: impl Into<String>) -> Expect {
+    Expect {
+        status: StatusCode::FORBIDDEN,
+        reason: Some(reason.into()),
+    }
+}
+
+/// The documented table (Architecture/12 §2a, API/01 §20): a verb the role lacks is refused
+/// naming it; reading needs no binding.
+fn when(may: bool, then: StatusCode, verb: &str, kind: &str) -> Expect {
+    if may {
+        allowed(then)
+    } else {
+        refused(format!("no role grants {verb} on {kind}"))
+    }
+}
+
+fn check(misses: &mut Vec<String>, cell: &str, answer: &Answer, expect: &Expect) {
+    let reason_ok = expect
+        .reason
+        .as_deref()
+        .is_none_or(|words| answer.text.contains(words));
+    if answer.status != expect.status || !reason_ok {
+        misses.push(format!(
+            "{cell}: expected {} {}, got {} {}",
+            expect.status.as_u16(),
+            expect.reason.as_deref().unwrap_or(""),
+            answer.status.as_u16(),
+            answer.text.chars().take(240).collect::<String>()
+        ));
+    }
+}
+
+#[tokio::test]
+async fn every_role_meets_every_route_and_operation_exactly_as_the_table_says() {
+    let gitea = forge().await;
+    let state = state_with(&gitea);
+    let mut misses = Vec::new();
+
+    for (index, family) in FAMILIES.iter().enumerate() {
+        let (kind, plural, project) = (family.kind, family.plural, family.project);
+        let resources = format!("/api/v1/projects/{project}/{plural}");
+        let one = format!("{resources}/{}", existing(family));
+        let changed = {
+            let mut manifest = manifest(family, &existing(family));
+            manifest["metadata"]["labels"] = json!({ "joinedcontext.com/matrix": "changed" });
+            manifest
+        };
+        let ops = format!("/api/v1/projects/{project}/ops");
+
+        for who in PEOPLE {
+            let cell = |action: &str| format!("{} {kind} {action}", who.name());
+            let other = format!("chg-{:08x}", pull(index, None));
+            let own = format!("chg-{:08x}", pull(index, Some(who)));
+            let decide = json!({ "confirm": "proposed" });
+
+            let answer = send(&state, who, "GET", &resources, None).await;
+            check(
+                &mut misses,
+                &cell("list"),
+                &answer,
+                &allowed(StatusCode::OK),
+            );
+            let answer = send(&state, who, "GET", &one, None).await;
+            check(&mut misses, &cell("get"), &answer, &allowed(StatusCode::OK));
+
+            let propose = when(who.may("propose"), StatusCode::ACCEPTED, "propose", kind);
+            let fresh = manifest(family, &format!("new-{}", who.name()));
+            let answer = send(&state, who, "POST", &resources, Some(fresh.clone())).await;
+            check(&mut misses, &cell("POST"), &answer, &propose);
+            let answer = send(&state, who, "PUT", &one, Some(changed.clone())).await;
+            check(&mut misses, &cell("PUT"), &answer, &propose);
+            let answer = send(
+                &state,
+                who,
+                "PATCH",
+                &one,
+                Some(
+                    json!({ "metadata": { "labels": { "joinedcontext.com/matrix": "patched" } } }),
+                ),
+            )
+            .await;
+            check(&mut misses, &cell("PATCH"), &answer, &propose);
+
+            let remove = when(who.may("delete"), StatusCode::ACCEPTED, "delete", kind);
+            let answer = send(&state, who, "DELETE", &one, None).await;
+            check(&mut misses, &cell("DELETE"), &answer, &remove);
+
+            let approve_other = if who.may("approve") {
+                allowed(StatusCode::ACCEPTED)
+            } else {
+                refused("no role grants approve in project")
+            };
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("/api/v1/projects/{project}/changes/{other}/approve"),
+                Some(decide.clone()),
+            )
+            .await;
+            check(
+                &mut misses,
+                &cell("approve another's change"),
+                &answer,
+                &approve_other,
+            );
+            let approve_own = match who {
+                Who::Admin => allowed(StatusCode::ACCEPTED),
+                Who::Steward => refused("cannot approve their own change"),
+                _ => refused("no role grants approve in project"),
+            };
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("/api/v1/projects/{project}/changes/{own}/approve"),
+                Some(decide.clone()),
+            )
+            .await;
+            check(
+                &mut misses,
+                &cell("approve own change"),
+                &answer,
+                &approve_own,
+            );
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("/api/v1/projects/{project}/changes/{other}/reject"),
+                Some(json!({ "reason": "not now" })),
+            )
+            .await;
+            check(&mut misses, &cell("reject"), &answer, &approve_other);
+
+            // The same actions through the operations registry answer the same.
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("{ops}/jc_resource_list"),
+                Some(json!({ "kind": kind })),
+            )
+            .await;
+            check(
+                &mut misses,
+                &cell("jc_resource_list"),
+                &answer,
+                &allowed(StatusCode::OK),
+            );
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("{ops}/jc_resource_get"),
+                Some(json!({ "kind": kind, "name": existing(family) })),
+            )
+            .await;
+            check(
+                &mut misses,
+                &cell("jc_resource_get"),
+                &answer,
+                &allowed(StatusCode::OK),
+            );
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("{ops}/jc_resource_propose"),
+                Some(json!({ "manifest": fresh })),
+            )
+            .await;
+            check(&mut misses, &cell("jc_resource_propose"), &answer, &propose);
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("{ops}/jc_resource_delete"),
+                Some(
+                    json!({ "kind": kind, "name": existing(family), "confirm": existing(family) }),
+                ),
+            )
+            .await;
+            check(&mut misses, &cell("jc_resource_delete"), &answer, &remove);
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("{ops}/jc_change_approve"),
+                Some(json!({ "id": other, "confirm": "proposed" })),
+            )
+            .await;
+            check(
+                &mut misses,
+                &cell("jc_change_approve another's"),
+                &answer,
+                &approve_other,
+            );
+            // An operation never approves its caller's own change, an administrator's neither (AG-11).
+            let approve_own_by_operation = if who.may("approve") {
+                refused("cannot approve their own change")
+            } else {
+                refused("no role grants approve in project")
+            };
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("{ops}/jc_change_approve"),
+                Some(json!({ "id": own, "confirm": "proposed" })),
+            )
+            .await;
+            check(
+                &mut misses,
+                &cell("jc_change_approve own"),
+                &answer,
+                &approve_own_by_operation,
+            );
+            let answer = send(
+                &state,
+                who,
+                "POST",
+                &format!("{ops}/jc_change_reject"),
+                Some(json!({ "id": other, "reason": "not now" })),
+            )
+            .await;
+            check(
+                &mut misses,
+                &cell("jc_change_reject"),
+                &answer,
+                &approve_other,
+            );
+        }
+
+        // An agent run acts for the administrator who started it and still never decides (AG-11).
+        let agent = Caller::new(Who::Admin.identity(), Via::Agent);
+        let other = format!("chg-{:08x}", pull(index, None));
+        for (name, input) in [
+            (
+                "jc_change_approve",
+                json!({ "id": other, "confirm": "proposed" }),
+            ),
+            (
+                "jc_change_reject",
+                json!({ "id": other, "reason": "not now" }),
+            ),
+        ] {
+            let op = ops::find(name).expect("registered");
+            let result = ops::call(op, &agent, &state, project, input).await;
+            let answer = match result {
+                Err(OpError::Api(err)) => Answer {
+                    status: StatusCode::FORBIDDEN,
+                    text: err.to_string(),
+                },
+                other => Answer {
+                    status: StatusCode::OK,
+                    text: format!("{other:?}"),
+                },
+            };
+            check(
+                &mut misses,
+                &format!("agent {kind} {name}"),
+                &answer,
+                &refused("an agent never approves or rejects a change"),
+            );
+        }
+        let propose = ops::find("jc_resource_propose").expect("registered");
+        let answer = match ops::call(
+            propose,
+            &agent,
+            &state,
+            project,
+            json!({ "manifest": manifest(family, "new-agent") }),
+        )
+        .await
+        {
+            Ok(_) => Answer {
+                status: StatusCode::ACCEPTED,
+                text: String::new(),
+            },
+            Err(err) => Answer {
+                status: StatusCode::FORBIDDEN,
+                text: format!("{err:?}"),
+            },
+        };
+        check(
+            &mut misses,
+            &format!("agent {kind} jc_resource_propose"),
+            &answer,
+            &allowed(StatusCode::ACCEPTED),
+        );
+    }
+
+    assert!(
+        misses.is_empty(),
+        "{} cell(s) differ from the table:\n{}",
+        misses.len(),
+        misses.join("\n")
+    );
+}
