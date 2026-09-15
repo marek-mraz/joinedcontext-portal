@@ -1184,6 +1184,13 @@ mod tests {
             })))
             .mount(&server)
             .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/repos/test-owner/test-repo/pulls/1/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                { "filename": "projects/ovzdusie/spaces/mobility/space.yaml", "status": "added" }
+            ])))
+            .mount(&server)
+            .await;
 
         let author_approver = test_user("approver@example.sk", vec!["portal-approver"]);
         let err_self = approve_change(
@@ -1239,6 +1246,13 @@ mod tests {
                 "sha": "blob-1",
                 "content": b64
             })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/repos/test-owner/test-repo/pulls/2/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                { "filename": "projects/ovzdusie/spaces/mobility/space.yaml", "status": "deleted" }
+            ])))
             .mount(&server)
             .await;
 
