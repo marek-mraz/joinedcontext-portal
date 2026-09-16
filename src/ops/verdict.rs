@@ -73,20 +73,17 @@ impl Verdict {
     }
 }
 
-/// Computes a stable 64-bit FNV-1a hex digest (16 lowercase hex characters) of canonical JSON.
+/// The digest a verdict is fresh for: `sha256:{hex}` over canonical JSON (API/01 §20).
 ///
 /// Keys are sorted recursively so the digest is order-independent across key insertions.
-/// Matches the client-side `digestOf` in `ui/src/api/drafts.ts` byte-for-byte.
+/// Matches the client-side `digestOf` in `ui/src/api/digest.ts` byte-for-byte. The strict gate
+/// (PF-57) compares drafts by this value, so it is collision-resistant rather than a fast hash:
+/// a draft cannot be made to carry a different manifest under a green verdict (T-0844).
 pub fn digest_of(input: &Value) -> String {
+    use sha2::{Digest, Sha256};
     let canonical = canonicalize(input);
     let s = serde_json::to_string(&canonical).unwrap_or_default();
-    let mut hash: u64 = 0xcbf29ce484222325;
-    const PRIME: u64 = 0x100000001b3;
-    for byte in s.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(PRIME);
-    }
-    format!("{hash:016x}")
+    format!("sha256:{:x}", Sha256::digest(s.as_bytes()))
 }
 
 fn canonicalize(val: &Value) -> Value {
@@ -117,7 +114,24 @@ mod tests {
         let a = json!({ "name": "foo", "spec": { "url": "https://example.com", "port": 80 } });
         let b = json!({ "spec": { "port": 80, "url": "https://example.com" }, "name": "foo" });
         assert_eq!(digest_of(&a), digest_of(&b));
-        assert_eq!(digest_of(&a).len(), 16);
+        // `sha256:` and 64 lowercase hex characters, as API/01 §20 publishes it.
+        let digest = digest_of(&a);
+        let hex = digest
+            .strip_prefix("sha256:")
+            .expect("the documented prefix");
+        assert_eq!(hex.len(), 64);
+        assert!(hex
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+    }
+
+    #[test]
+    fn a_known_document_hashes_to_its_recorded_value() {
+        // The canonical form is `{"a":1,"b":"x"}`; the client hashes the same bytes.
+        assert_eq!(
+            digest_of(&json!({ "b": "x", "a": 1 })),
+            "sha256:ecf9e98ec0641e23113ff3ce8bdc78d0ddd249886517fd4a7f68cc83d4e65667"
+        );
     }
 
     #[test]

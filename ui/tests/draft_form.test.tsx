@@ -8,6 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { digestOf } from "../src/api/digest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { useState } from "react";
@@ -74,37 +75,6 @@ class MockEventSource {
       this.onmessage(msg);
     }
   }
-}
-
-function canonicalJson(val: unknown): string {
-  if (val === null || typeof val !== "object") {
-    return JSON.stringify(val);
-  }
-  if (Array.isArray(val)) {
-    return `[${val.map(canonicalJson).join(",")}]`;
-  }
-  const keys = Object.keys(val).sort();
-  const pairs = keys.map(
-    (k) =>
-      `${JSON.stringify(k)}:${canonicalJson((val as Record<string, unknown>)[k])}`,
-  );
-  return `{${pairs.join(",")}}`;
-}
-
-function fnv1a64Hex(str: string): string {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  const mask = 0xffffffffffffffffn;
-  const bytes = new TextEncoder().encode(str);
-  for (let i = 0; i < bytes.length; i++) {
-    hash ^= BigInt(bytes[i]);
-    hash = (hash * prime) & mask;
-  }
-  return hash.toString(16).padStart(16, "0");
-}
-
-function digestOf(val: unknown): string {
-  return fnv1a64Hex(canonicalJson(val));
 }
 
 interface TestFormData {
