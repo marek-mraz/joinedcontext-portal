@@ -25,7 +25,6 @@
     "models": "Datové modely",
     "ckan": "Otevřená data",
     "allEndpoints": "Všechny koncové body",
-    "shared": "Sdílené odkazy",
     "explore": "Procházet data",
     "assistant": "Asistent"
   },
@@ -345,7 +344,9 @@
       "reference": "Odkaz",
       "use": "Použít v tomto projektu",
       "referenced": "Odkazováno",
-      "alias": "alias"
+      "alias": "alias",
+      "gone": "Endpoint už není sdílený",
+      "goneSource": "Zdroj nedostupný"
     },
     "audienceOption": {
       "project-list": "Selected projects: only the projects you tick",

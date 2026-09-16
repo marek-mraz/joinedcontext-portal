@@ -25,7 +25,6 @@
     "models": "Datenmodelle",
     "ckan": "Offene Daten",
     "allEndpoints": "Alle Endpunkte",
-    "shared": "Geteilte Referenzen",
     "explore": "Daten erkunden",
     "assistant": "Assistent"
   },
@@ -326,7 +325,9 @@
       "reference": "Referenz",
       "use": "In diesem Projekt verwenden",
       "referenced": "Referenziert",
-      "alias": "Alias"
+      "alias": "Alias",
+      "gone": "Endpunkt nicht mehr geteilt",
+      "goneSource": "Quelle nicht verfügbar"
     },
     "slugHint": "The address is created for you and never changes, even when the endpoint is renamed.",
     "picker": {

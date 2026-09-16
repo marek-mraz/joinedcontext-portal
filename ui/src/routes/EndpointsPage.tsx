@@ -702,6 +702,15 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       .filter((endpoint) => admits(endpoint, source, project))
       .map((endpoint) => ({ source, endpoint })),
   );
+  // A reference whose endpoint no longer shows above: unshared, deleted, or in a project this
+  // person may not read. It stays visible here, because this is the only page that shows the
+  // references now and a row nothing lists is a grant nobody can remove (T-0706, EP-15).
+  const orphaned = references.filter((reference) => {
+    const slug = (reference.spec as { endpointSlug?: string }).endpointSlug ?? "";
+    return !shared.some(
+      ({ endpoint }) => (endpoint.spec as { slug?: string }).slug === slug,
+    );
+  });
   const pickable =
     others.length > 0
       ? [
@@ -889,7 +898,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             <TableHeaderCell align="right">{t("endpoints.shared.reference")}</TableHeaderCell>
           </TableHead>
           <TableBody>
-            {shared.length === 0 ? (
+            {shared.length === 0 && orphaned.length === 0 ? (
               <TableEmpty columns={SHARED_COLUMNS}>
                 <EmptyState bare icon="globe" title={t("endpoints.shared.empty")} />
               </TableEmpty>
@@ -962,12 +971,21 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                     </TableCell>
                     <TableCell align="right">
                       {declared ? (
-                        <div className="flex flex-col items-end gap-0.5">
+                        <div className="flex flex-col items-end gap-1">
                           <Badge tone="success">{t("endpoints.shared.referenced")}</Badge>
                           <span className="font-mono text-caption text-fg-muted">
                             {t("endpoints.shared.alias")}:{" "}
                             {String((declared.spec as { alias?: string }).alias ?? "")}
                           </span>
+                          <DeleteResourceAction
+                            target={{
+                              project,
+                              kind: "SharedSpaceReference",
+                              plural: "shared",
+                              name: declared.metadata.name,
+                              label: `${source}/${endpoint.metadata.name}`,
+                            }}
+                          />
                         </div>
                       ) : (
                         <Button
@@ -986,6 +1004,38 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                 );
               })
             )}
+            {orphaned.map((reference) => {
+              const alias = String((reference.spec as { alias?: string }).alias ?? "");
+              return (
+                <TableRow key={`orphan/${reference.metadata.name}`}>
+                  <TableCell>
+                    <span className="text-fg-muted">{t("endpoints.shared.goneSource")}</span>
+                  </TableCell>
+                  <TableCell primary>
+                    <div>{reference.metadata.name}</div>
+                    <div className="mt-1">
+                      <Badge tone="warning">{t("endpoints.shared.gone")}</Badge>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-mono text-caption text-fg-muted">
+                      {t("endpoints.shared.alias")}: {alias}
+                    </span>
+                  </TableCell>
+                  <TableCell align="right">
+                    <DeleteResourceAction
+                      target={{
+                        project,
+                        kind: "SharedSpaceReference",
+                        plural: "shared",
+                        name: reference.metadata.name,
+                        label: alias || reference.metadata.name,
+                      }}
+                    />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
         {reference.isError ? (

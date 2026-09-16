@@ -270,6 +270,25 @@ const assistantRoute = createRoute({
   },
 });
 
+// The shared references had a page of their own; they live in the Endpoints page's
+// "Shared with this project" section now. The old URL still lands there, so a bookmark and the
+// assistant's `navigate` are not broken (T-0706, EP-15).
+const sharedRedirectRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/shared",
+  component: function SharedRedirectRoute() {
+    const { project } = sharedRedirectRoute.useParams();
+    return (
+      <Navigate
+        replace
+        to="/projects/$project/$plural"
+        params={{ project, plural: "endpoints" }}
+        hash="shared-with-project"
+      />
+    );
+  },
+});
+
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
@@ -301,6 +320,7 @@ export const routeTree = rootRoute.addChildren([
     spaceInsideRoute,
     appRoute,
     assistantRoute,
+    sharedRedirectRoute,
     resourceListRoute,
   ]),
 ]);

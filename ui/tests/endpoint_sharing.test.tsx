@@ -285,13 +285,22 @@ describe("endpoint sharing", () => {
     expect(dns1123("a".repeat(40), "b".repeat(40))).toHaveLength(63);
   });
 
-  it("lists the shared references as their own section of the sidebar", async () => {
+  it("keeps the references in the Endpoints page and off the sidebar (T-0706)", async () => {
     renderAt("/projects/espoo/endpoints");
 
     const nav = await screen.findByRole("navigation", { name: "Main navigation" });
-    expect(within(nav).getByRole("link", { name: en.nav.shared })).toHaveAttribute(
-      "href",
-      "/projects/espoo/shared",
-    );
+    expect(within(nav).queryByRole("link", { name: /shared/i })).toBeNull();
+    expect(
+      await screen.findByRole("heading", { name: en.endpoints.shared.title }),
+    ).toBeInTheDocument();
+  });
+
+  it("the old references URL lands on the Endpoints page (T-0706)", async () => {
+    renderAt("/projects/espoo/shared");
+
+    expect(
+      await screen.findByRole("heading", { name: en.endpoints.shared.title }),
+    ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/projects/espoo/endpoints");
   });
 });

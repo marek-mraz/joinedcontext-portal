@@ -25,7 +25,6 @@
     "models": "Data models",
     "ckan": "Open data",
     "allEndpoints": "All endpoints",
-    "shared": "Shared references",
     "explore": "Explore data",
     "assistant": "Assistant"
   },
@@ -345,7 +344,9 @@
       "reference": "Reference",
       "use": "Use in this project",
       "referenced": "Referenced",
-      "alias": "alias"
+      "alias": "alias",
+      "gone": "Endpoint no longer shared",
+      "goneSource": "Source unavailable"
     },
     "audienceOption": {
       "project-list": "Selected projects: only the projects you tick",

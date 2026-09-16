@@ -150,10 +150,14 @@ test.describe("sharing", () => {
     await expect(bikes.getByText("alias: helsinki-liikenne")).toBeVisible();
     await expect(bikes.getByRole("button", { name: /Use in this project/ })).toHaveCount(0);
 
-    // And the sidebar lists the references as their own section.
+    // The references have no page of their own any more: the sidebar does not offer one, and
+    // the old URL lands on this section (T-0706).
     await expect(
       page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Shared references" }),
-    ).toHaveAttribute("href", "/projects/espoo/shared");
+    ).toHaveCount(0);
+    await page.goto("/projects/espoo/shared");
+    await expect(page.getByRole("heading", { name: "Shared with this project" })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe("/projects/espoo/endpoints");
   });
 
   test("the endpoints route with a shared section has no axe violations", async ({ page }) => {
