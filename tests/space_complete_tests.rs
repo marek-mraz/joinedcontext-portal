@@ -714,7 +714,10 @@ async fn a_drafted_space_carries_the_write_and_the_read_its_endpoint_needs() {
         .iter()
         .find(|p| p["manifest"]["spec"]["operations"][0] == "upsertBatch")
         .expect("a write grant");
-    assert_eq!(write["manifest"]["spec"]["assignee"]["kind"], "serviceAccount");
+    assert_eq!(
+        write["manifest"]["spec"]["assignee"]["kind"],
+        "serviceAccount"
+    );
     assert_eq!(
         write["manifest"]["spec"]["contextSpaceRef"]["name"], "city-bikes",
         "the grant is the new space's, never the project's other spaces"
