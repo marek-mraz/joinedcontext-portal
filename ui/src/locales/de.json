@@ -1501,7 +1501,8 @@
       "id": "Entität",
       "rows": "Zeilen: {count}",
       "someRows": "{shown} von {total} Zeilen"
-    }
+    },
+    "trail": "Pages the assistant opened"
   },
   "permissions": {
     "denied": "Deaktiviert: Ihre Rolle erlaubt ''{verb}'' auf ''{kind}'' in diesem Projekt nicht"

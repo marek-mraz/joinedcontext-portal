@@ -1501,7 +1501,8 @@
       "id": "Entity",
       "rows": "{count, plural, one {# row} other {# rows}}",
       "someRows": "{shown} of {total} rows"
-    }
+    },
+    "trail": "Pages the assistant opened"
   },
   "permissions": {
     "denied": "Disabled: your role does not permit ''{verb}'' on ''{kind}'' in this project"

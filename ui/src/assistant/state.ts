@@ -12,6 +12,10 @@ const PREFILL_KEY = "jc.assistant.prefill";
 const NOTICE_KEY = "jc.assistant.notice";
 const NAVIGATED_KEY = "jc.assistant.navigated";
 const NOTICE_SEEN_KEY = "jc.assistant.noticeSeen";
+const TRAIL_KEY = "jc.assistant.trail";
+
+/** How many of the assistant's pages the panel offers back (UI-59). */
+export const TRAIL_LENGTH = 3;
 const CHANGED = "jc:assistant";
 const OPEN_REQUEST = "jc:assistant-open";
 
@@ -102,7 +106,19 @@ export function rememberPrefill(route: string, prefill: Record<string, unknown>)
   handPrefill(route, prefill);
   write(NOTICE_KEY, route);
   write(NOTICE_SEEN_KEY, null);
+  write(TRAIL_KEY, pushTrail(trail(), route));
   window.dispatchEvent(new Event(CHANGED));
+}
+
+/** The pages the assistant opened, newest first, at most [`TRAIL_LENGTH`] (UI-59). */
+export function trail(): string[] {
+  const value = read(TRAIL_KEY);
+  return Array.isArray(value) ? value.filter(isPortalRoute) : [];
+}
+
+/** The trail with `route` on top, each page once: walking back is a short list, not a history. */
+export function pushTrail(known: string[], route: string): string[] {
+  return [route, ...known.filter((seen) => seen !== route)].slice(0, TRAIL_LENGTH);
 }
 
 /**

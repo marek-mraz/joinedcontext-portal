@@ -36,6 +36,7 @@ import {
   runSnapshot,
   settleNotice,
   settlePrefill,
+  trail,
 } from "./state";
 
 /**
@@ -48,6 +49,16 @@ import {
  * When a run is remembered, connects the live conversation panel. Open, it sits beside the page,
  * floats over it, or fills the screen; the choice lasts for the tab.
  */
+/** A stable array between renders: `useSyncExternalStore` compares by identity. */
+let trailCache: string[] = [];
+function trailSnapshot(): string[] {
+  const next = trail();
+  if (next.length !== trailCache.length || next.some((route, i) => route !== trailCache[i])) {
+    trailCache = next;
+  }
+  return trailCache;
+}
+
 export function AssistantDock({ project }: { project: string }): JSX.Element | null {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -55,6 +66,8 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   const run = useMemo(() => parseRun(raw), [raw]);
   const activeProject = run?.project ?? project;
   const navigated = useSyncExternalStore(onAssistantChange, noticeSnapshot);
+  // The pages the assistant opened, so the person walks back without losing the conversation.
+  const opened = useSyncExternalStore(onAssistantChange, trailSnapshot);
   // The notice goes once the person moves on from the page it names.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   useEffect(() => {
@@ -377,6 +390,27 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
             {t("assistant.dismiss")}
           </button>
         </div>
+      ) : null}
+
+      {opened.length > 1 ? (
+        <nav
+          aria-label={t("assistant.trail")}
+          data-testid="assistant-trail"
+          className="flex w-full flex-wrap items-center gap-2 px-1 text-caption text-fg-muted"
+        >
+          {opened.map((route) => (
+            <button
+              key={route}
+              type="button"
+              onClick={() => {
+                void navigate({ href: route });
+              }}
+              className="rounded px-2 py-0.5 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
+            >
+              {pageOf(route, t)}
+            </button>
+          ))}
+        </nav>
       ) : null}
 
       {building ? (

@@ -1501,7 +1501,8 @@
       "id": "Entita",
       "rows": "Řádky: {count}",
       "someRows": "{shown} z {total} řádků"
-    }
+    },
+    "trail": "Pages the assistant opened"
   },
   "permissions": {
     "denied": "Vypnuto: vaše role nedovoluje ''{verb}'' na ''{kind}'' v tomto projektu"

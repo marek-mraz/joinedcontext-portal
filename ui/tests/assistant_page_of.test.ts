@@ -3,6 +3,7 @@
  * route names, never the address or its query.
  */
 import { beforeEach, describe, expect, it } from "vitest";
+import { pushTrail, TRAIL_LENGTH } from "../src/assistant/state";
 import i18n from "../src/i18n";
 import { pageOf } from "../src/assistant/pageOf";
 
@@ -32,5 +33,20 @@ describe("the page the assistant opened", () => {
       expect(said).toBe("another page");
       expect(said).not.toContain("/");
     }
+  });
+});
+
+describe("the trail of pages the assistant opened (UI-59)", () => {
+  it("keeps the newest three, each page once", () => {
+    let known: string[] = [];
+    for (const route of ["/a", "/b", "/c", "/d"]) {
+      known = pushTrail(known, route);
+    }
+    expect(known).toEqual(["/d", "/c", "/b"]);
+    expect(known).toHaveLength(TRAIL_LENGTH);
+  });
+
+  it("moves a page already opened to the top instead of repeating it", () => {
+    expect(pushTrail(["/b", "/a"], "/a")).toEqual(["/a", "/b"]);
   });
 });
