@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,15 +16,16 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
 }));
 
-function renderComponent() {
+function renderComponent(strict = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const page = (
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
         <SpaceComplete project="helsinki" />
       </I18nextProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  return render(strict ? <StrictMode>{page}</StrictMode> : page);
 }
 
 describe("SpaceComplete page", () => {
@@ -175,6 +177,36 @@ describe("SpaceComplete page", () => {
     expect(screen.getByLabelText(/Endpoint URL/i)).toHaveValue("https://example.com/free_bike_status.json");
     expect(screen.getByRole("button", { name: /Propose all/i })).toBeEnabled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the handed drafts when React renders the page twice before it commits (T-0894)", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    window.history.replaceState(null, "", "/projects/helsinki/spaces/complete?space=city-bikes");
+    rememberPrefill("/projects/helsinki/spaces/complete?space=city-bikes", {
+      url: "https://example.com/free_bike_status.json",
+      result: {
+        space: "city-bikes",
+        found: [],
+        drafts: [
+          {
+            kind: "Pipeline",
+            name: "city-bikes-load",
+            inferred: true,
+            manifest: { kind: "Pipeline", metadata: { name: "city-bikes-load" } },
+            verdict: { ok: true, findings: [], inputDigest: "abc" },
+          },
+        ],
+        proposeReady: true,
+        lane: "yellow",
+        change: null,
+      },
+    });
+
+    // StrictMode renders and mounts twice, as a navigation the dock's own updates interrupt does.
+    renderComponent(true);
+
+    expect(await screen.findByTestId("complete-draft-Pipeline")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Endpoint URL/i)).toHaveValue("https://example.com/free_bike_status.json");
   });
 
   it("opens each draft on its kind's page with the draft in hand (T-0771)", async () => {

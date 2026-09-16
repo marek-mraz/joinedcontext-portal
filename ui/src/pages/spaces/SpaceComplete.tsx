@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
@@ -113,20 +113,27 @@ function handedOver(prefill: Record<string, unknown> | null): { result: Complete
 export function SpaceComplete({ project }: { project: string }): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  // The agent already completed the space (AG-73): its drafts open here ready to propose.
-  const [handed] = useState(() =>
-    handedOver(typeof window === "undefined" ? null : takePrefill(window.location.pathname)),
-  );
-
   const [spaceName, setSpaceName] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("space") ?? "";
   });
-  const [url, setUrl] = useState(handed.url);
+  const [url, setUrl] = useState("");
   const [files, setFiles] = useState<{ name: string; content: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<CompleteResult | null>(handed.result);
+  const [result, setResult] = useState<CompleteResult | null>(null);
+  // The agent already completed the space (AG-73): its drafts open here ready to propose. Taken
+  // once the page is on screen: a render React throws away and starts over (the dock's stream
+  // updates while the navigation is pending) would otherwise take them and show nothing (T-0894).
+  useEffect(() => {
+    const handed = handedOver(takePrefill(window.location.pathname));
+    if (handed.result === null && handed.url === "") {
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUrl(handed.url);
+    setResult(handed.result);
+  }, []);
 
   const handleFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files;
