@@ -1245,3 +1245,45 @@ async fn a_stale_proposal_branch_is_recreated_from_main() {
         "the pull request opens on the fresh name"
     );
 }
+
+#[tokio::test]
+async fn a_kind_the_platform_cannot_load_is_refused_before_anything_is_written() {
+    // T-0833: `Subscription` is declared in Architecture/06 and jc-core does not define it yet.
+    // Every loader refuses an unknown kind and refuses the whole repository with it, so one
+    // such file committed here would stop configuration reaching every endpoint.
+    let config = Config::for_tests();
+    let app = server::app(AppState::new(config.clone(), None));
+    let body = json!({
+        "apiVersion": API_VERSION,
+        "kind": "Subscription",
+        "metadata": { "name": "air-alerts", "namespace": "ovzdusie" },
+        "spec": { "entities": [{ "type": "AirQualityObserved" }] }
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/subscriptions")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&body).expect("json")))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    let problem: serde_json::Value = serde_json::from_slice(&bytes).expect("problem json");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("Subscription") && detail.contains("not defined"),
+        "{detail}"
+    );
+}

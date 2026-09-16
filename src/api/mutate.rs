@@ -375,6 +375,19 @@ pub async fn propose_with_identity(
         )));
     }
 
+    // 4a'. A kind jc-core does not define is a kind no loader can read: `jcctl`, the Portal's
+    //       own sync and the gateway's store all refuse an unknown kind and refuse the whole
+    //       repository with it, so one such file stops configuration reaching every endpoint.
+    //       `Subscription` is declared in Architecture/06 and not defined yet; a seed entity is
+    //       a plain `.json` NGSI-LD entity (CC-72), never a `kind: Entity` manifest (T-0833).
+    if jc_core::registry::by_kind(kind_info.kind).is_none() {
+        return Err(ApiError::BadRequest(format!(
+            "kind '{}' is declared but not defined by the platform yet, and a repository holding \
+             one stops loading for every component; it cannot be written (CC-72, T-0833)",
+            kind_info.kind
+        )));
+    }
+
     // 4b. The kind's own parse and invariants (T-0412, CC-08, MF-24). `jcctl apply` would
     //     refuse this manifest on `main`, after an approval; refusing it here turns a broken
     //     repository into a form error that names the field. Kinds without a jc-core type
