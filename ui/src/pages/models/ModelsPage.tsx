@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { JSX } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, readCsrfToken, unwrap } from "../../api/client";
 import type { ProblemDetails } from "../../api/client";
@@ -168,6 +168,43 @@ export function ModelsPage({
   const publishedSource = published?.source ?? loaded.data;
 
   const model = useMemo(() => parseModel(source), [source]);
+
+  // The project's other models, each with its source, so the Mappings tab has a pair to map
+  // between (T-0795). A model the manifest carries inline is read from the manifest.
+  const otherModels = (models.data ?? []).filter((manifest) => manifest.metadata.name !== activeModelName);
+  const otherSources = useQueries({
+    queries: otherModels.map((manifest) => ({
+      queryKey: ["datamodel-source", project, manifest.metadata.name],
+      retry: false,
+      queryFn: async () => {
+        const res = await fetch(
+          `/api/v1/projects/${encodeURIComponent(project)}/datamodels/${encodeURIComponent(manifest.metadata.name)}/source`,
+          { credentials: "same-origin", headers: { Accept: "text/yaml, text/plain, */*" } },
+        );
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        return res.text();
+      },
+    })),
+  });
+  const others: MappingModel[] = [
+    ...mappable,
+    ...otherModels.flatMap((manifest, index) => {
+      const spec = manifest.spec as { version?: unknown; linkml?: unknown };
+      const inline = typeof spec.linkml === "string" && spec.linkml.includes("\n") ? spec.linkml : undefined;
+      const text = inline ?? otherSources[index]?.data;
+      return text === undefined
+        ? []
+        : [
+            {
+              name: manifest.metadata.name,
+              version: typeof spec.version === "string" ? spec.version : "1.0.0",
+              source: text,
+            },
+          ];
+    }),
+  ];
 
   const changes = useMemo(
     () => (publishedSource ? classifyChanges(parseModel(publishedSource), model) : []),
@@ -522,10 +559,17 @@ export function ModelsPage({
         ) : null}
         {tab === "mappings" ? (
           <MappingsEditor
+            project={project}
             models={[
               { name: model.name ?? "draft", version: nextVersion, source },
-              ...mappable.filter((candidate) => candidate.name !== model.name),
+              ...others.filter((candidate) => candidate.name !== model.name),
             ]}
+            spaceOf={(name) =>
+              (spaces.data ?? []).find(
+                (space) => refName((space.spec as { dataModelRef?: unknown })?.dataModelRef) === name,
+              )?.metadata.name
+            }
+            onProposed={setChangeNotice}
           />
         ) : null}
       </div>

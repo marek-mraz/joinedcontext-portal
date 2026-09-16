@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
+import { parse as parseYaml } from "yaml";
+import { useProposal } from "../../api/proposal";
+import type { Change } from "../../api/manifest";
 import { UNIT_CODES, parseModel } from "./linkml";
 import type { LinkmlModel } from "./linkml";
 import {
@@ -16,6 +19,7 @@ import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import {
   Alert,
   Badge,
+  Button,
   Input,
   Select,
   Table,
@@ -57,6 +61,47 @@ export interface MappingsEditorProps {
   alignments?: Alignment[];
   /** Called whenever the specification changes, for the page that saves it. */
   onChange?: (spec: string) => void;
+  /** The project the Mapping is proposed into; without one the tab only aligns (T-0795). */
+  project?: string;
+  /** The space a model belongs to: a Mapping belongs to the same one (DM-33). */
+  spaceOf?: (modelName: string) => string | undefined;
+  /** The Change the proposal opened, for the page that shows it. */
+  onProposed?: (change: Change) => void;
+}
+
+/** The served major of a model version: what a `DataModelRef` carries (DM-22, DM-33). */
+function major(version: string): string {
+  return version.split(".")[0] || "1";
+}
+
+/**
+ * The `kind: Mapping` the editor's alignment describes (DM-33, DM-38, DM-39). The
+ * transformation is the same YAML the tab shows, read back as the object the manifest carries.
+ */
+export function mappingManifest(
+  project: string,
+  space: string,
+  source: MappingModel,
+  target: MappingModel,
+  transformation: string,
+  native: { targetSlot: string; language: "bloblang"; source: string }[],
+) {
+  const name = `${source.name}-to-${target.name}`;
+  return {
+    apiVersion: "joinedcontext.com/v1alpha1",
+    kind: "Mapping",
+    metadata: { name, namespace: project },
+    spec: {
+      contextSpaceRef: space,
+      source: { name: source.name, version: major(source.version) },
+      target: { name: target.name, version: major(target.version) },
+      transformation: parseYaml(transformation) as unknown,
+      ...(native.length > 0 ? { native } : {}),
+      // DM-39: a Mapping carries at least one golden test. The pair is the example this tab
+      // shows and what it produced, committed beside the manifest.
+      tests: [{ input: `./tests/${name}.input.json`, expect: `./tests/${name}.expect.json` }],
+    },
+  };
 }
 
 const EXAMPLE = `{\n  "id": "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:st-1",\n  "type": "AirQualityObserved"\n}`;
@@ -65,6 +110,9 @@ export function MappingsEditor({
   models,
   alignments = [],
   onChange,
+  project,
+  spaceOf,
+  onProposed,
 }: MappingsEditorProps): JSX.Element {
   const { t } = useTranslation();
   const [sourceName, setSourceName] = useState(models[0]?.name ?? "");
@@ -95,6 +143,20 @@ export function MappingsEditor({
   const missingRequired = unfilledRequired(target, rows);
   const lane = laneOf(rows);
   const blocks = nativeBlocks(rows);
+
+  // A Mapping is a manifest like any other: it is proposed, reviewed and merged (CC-32, DM-33).
+  const proposal = useProposal(project ?? "", "mappings", (change) => onProposed?.(change));
+  const sourceModel = models.find((model) => model.name === sourceName);
+  const targetModel = models.find((model) => model.name === targetName);
+  const space = spaceOf?.(targetName) ?? spaceOf?.(sourceName);
+  const refusal =
+    sourceName === targetName
+      ? t("mappings.sameModel")
+      : missingRequired.length > 0
+        ? t("mappings.unfilled", { slots: missingRequired.join(", ") })
+        : space === undefined
+          ? t("mappings.noSpace")
+          : null;
 
   const parsedExample = useMemo(() => {
     try {
@@ -153,7 +215,49 @@ export function MappingsEditor({
           <span className="text-fg-muted">{t("mappings.lane")}</span>
           <LifecycleBadge kind="lane" value={lane} />
         </div>
+        {project ? (
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={refusal !== null || proposal.mutation.isPending}
+            onClick={() => {
+              if (refusal !== null || !sourceModel || !targetModel || !space) {
+                return;
+              }
+              proposal.mutation.mutate({
+                body: mappingManifest(
+                  project,
+                  space,
+                  sourceModel,
+                  targetModel,
+                  toTransformationSpec(rows, className(source), className(target)),
+                  blocks,
+                ),
+                create: true,
+              });
+            }}
+          >
+            {t("mappings.propose")}
+          </Button>
+        ) : null}
       </section>
+
+      {project ? (
+        <>
+          {refusal && missingRequired.length === 0 ? (
+            <p role="status" className="text-body text-fg-muted">
+              {refusal}
+            </p>
+          ) : refusal ? null : (
+            <p className="text-body text-fg-muted">{t("mappings.goldenHint")}</p>
+          )}
+          {proposal.error ? (
+            <Alert role="alert" tone="danger">
+              {proposal.error}
+            </Alert>
+          ) : null}
+        </>
+      ) : null}
 
       {missingRequired.length > 0 ? (
         <Alert role="alert" tone="danger">

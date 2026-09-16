@@ -1131,7 +1131,11 @@
       "close": "blízká shoda",
       "alignment": "zarovnání SSSOM",
       "manual": "zvoleno vámi"
-    }
+    },
+    "propose": "Navrhnout mapování",
+    "sameModel": "Mapování potřebuje dva různé modely.",
+    "noSpace": "Tento model neobsluhuje žádný prostor, mapování tedy nemá kam patřit.",
+    "goldenHint": "Návrh otevře změnu s mapováním. Jeho zlatý test čte ./tests/<name>.input.json a ./tests/<name>.expect.json, které se commitují vedle něj."
   },
   "syncSources": {
     "title": "Zdroje synchronizace",

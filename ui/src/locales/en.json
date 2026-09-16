@@ -1131,7 +1131,11 @@
       "close": "close match",
       "alignment": "SSSOM alignment",
       "manual": "chosen by you"
-    }
+    },
+    "propose": "Propose the mapping",
+    "sameModel": "A mapping needs two different models.",
+    "noSpace": "No space serves this model, so the mapping has nowhere to belong.",
+    "goldenHint": "Proposing opens a change with the mapping. Its golden test reads ./tests/<name>.input.json and ./tests/<name>.expect.json, which are committed beside it."
   },
   "syncSources": {
     "title": "Sync sources",

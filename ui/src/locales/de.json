@@ -1131,7 +1131,11 @@
       "close": "nahe Übereinstimmung",
       "alignment": "SSSOM-Abgleich",
       "manual": "von Ihnen gewählt"
-    }
+    },
+    "propose": "Mapping vorschlagen",
+    "sameModel": "Ein Mapping braucht zwei verschiedene Modelle.",
+    "noSpace": "Kein Raum bedient dieses Modell, das Mapping hat also keinen Ort.",
+    "goldenHint": "Der Vorschlag öffnet eine Änderung mit dem Mapping. Sein Golden Test liest ./tests/<name>.input.json und ./tests/<name>.expect.json, die daneben committet werden."
   },
   "syncSources": {
     "title": "Synchronisierungsquellen",

@@ -1131,7 +1131,11 @@
       "close": "blízka zhoda",
       "alignment": "zarovnanie SSSOM",
       "manual": "zvolené vami"
-    }
+    },
+    "propose": "Navrhnúť mapovanie",
+    "sameModel": "Mapovanie potrebuje dva rôzne modely.",
+    "noSpace": "Tento model neobsluhuje žiadny priestor, mapovanie teda nemá kam patriť.",
+    "goldenHint": "Návrh otvorí zmenu s mapovaním. Jeho zlatý test číta ./tests/<name>.input.json a ./tests/<name>.expect.json, ktoré sa commitujú vedľa neho."
   },
   "syncSources": {
     "title": "Zdroje synchronizácie",
