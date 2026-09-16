@@ -431,25 +431,48 @@ impl GiteaClient {
 
     /// Browser URL of one file at a git ref, the page a "Source" link opens (never the API URL).
     pub fn browse_url(&self, path: &str, git_ref: &str) -> String {
-        format!(
+        self.signed_in(&format!(
             "{}/{}/{}/src/branch/{}/{}",
             self.public_base.as_str().trim_end_matches('/'),
             self.owner,
             self.repo,
             git_ref,
             path.trim_start_matches('/'),
-        )
+        ))
     }
 
     /// Browser URL of a pull request. Gitea's own `html_url` carries its ROOT_URL, which on a
     /// cluster is the internal service name no browser resolves.
     pub fn pull_url(&self, number: u64) -> String {
-        format!(
+        self.signed_in(&format!(
             "{}/{}/{}/pulls/{number}",
             self.public_base.as_str().trim_end_matches('/'),
             self.owner,
             self.repo,
-        )
+        ))
+    }
+
+    /// A forge page behind the forge's own sign-in (PF-81). A Portal session is not a forge
+    /// session, and the configuration repository is private, so a link straight to the file
+    /// answers 404 instead of offering the Keycloak button. `redirect_to` carries the path
+    /// back; Gitea returns only to a local one, which is why the host is dropped here.
+    fn signed_in(&self, url: &str) -> String {
+        let Ok(target) = Url::parse(url) else {
+            return url.to_owned();
+        };
+        let mut login = self.public_base.clone();
+        // `join` resolves against the last path segment, so a base without the trailing slash
+        // would put /user/login beside the prefix instead of inside it.
+        if !login.path().ends_with('/') {
+            login.set_path(&format!("{}/", login.path()));
+        }
+        let Ok(mut login) = login.join("user/login") else {
+            return url.to_owned();
+        };
+        login
+            .query_pairs_mut()
+            .append_pair("redirect_to", target.path());
+        login.into()
     }
 
     /// A pull request as the Portal hands it on: with a public forge configured, its link is
@@ -898,15 +921,17 @@ mod browse_url_tests {
         }
     }
 
-    /// A "Source" link opens in a browser, which resolves no cluster-internal name.
+    /// A "Source" link opens in a browser, which resolves no cluster-internal name — and
+    /// carries the forge's sign-in, because a Portal session is not a forge session and the
+    /// repository is private (PF-81).
     #[test]
-    fn the_source_link_uses_the_public_forge_url() {
+    fn the_source_link_uses_the_public_forge_url_behind_the_sign_in() {
         let client = GiteaClient::from_env(env(Some("https://city.example/git")))
             .expect("config")
             .expect("configured");
         assert_eq!(
             client.browse_url("projects/helsinki/pipelines/p/pipeline.yaml", "main"),
-            "https://city.example/git/joinedcontext/configuration/src/branch/main/projects/helsinki/pipelines/p/pipeline.yaml"
+            "https://city.example/git/user/login?redirect_to=%2Fgit%2Fjoinedcontext%2Fconfiguration%2Fsrc%2Fbranch%2Fmain%2Fprojects%2Fhelsinki%2Fpipelines%2Fp%2Fpipeline.yaml"
         );
     }
 
@@ -916,9 +941,11 @@ mod browse_url_tests {
         let client = GiteaClient::from_env(env(None))
             .expect("config")
             .expect("configured");
-        assert!(client
-            .browse_url("a.yaml", "main")
-            .starts_with("http://gitea-http.dev.svc.cluster.local:3000/joinedcontext/configuration/src/branch/main/"));
+        assert_eq!(
+            client.browse_url("a.yaml", "main"),
+            "http://gitea-http.dev.svc.cluster.local:3000/user/login\
+             ?redirect_to=%2Fjoinedcontext%2Fconfiguration%2Fsrc%2Fbranch%2Fmain%2Fa.yaml"
+        );
     }
 
     /// The merge request a change links is opened in a browser too (AP-71).
@@ -929,7 +956,8 @@ mod browse_url_tests {
             .expect("configured");
         assert_eq!(
             client.pull_url(110),
-            "https://city.example/git/joinedcontext/configuration/pulls/110"
+            "https://city.example/git/user/login\
+             ?redirect_to=%2Fgit%2Fjoinedcontext%2Fconfiguration%2Fpulls%2F110"
         );
     }
 
