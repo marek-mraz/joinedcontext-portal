@@ -29,18 +29,17 @@ use jc_core::kinds::Verb;
 use jcctl::pipeline_test::Sample;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use utoipa::{PartialSchema, ToSchema};
+use utoipa::ToSchema;
 
 use crate::agents::kpi;
 use crate::agents::share;
 use crate::api::assistant;
 use crate::api::changes;
-use crate::api::changes::ChangeProposal;
 use crate::api::dry_run;
 use crate::api::mutate;
 use crate::api::pipeline_test;
 use crate::auth::session::Identity;
-use crate::change::{Change, Lane, Operation as ChangeOp};
+use crate::change::{Lane, Operation as ChangeOp};
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::tools::model_tools;
@@ -573,8 +572,48 @@ fn draft_get_input_schema() -> Value {
     })
 }
 
+/// The verdict a check leaves on a draft, written out for the clients that read it (AG-62).
+fn verdict_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "ok": { "type": "boolean" },
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "level": { "type": "string", "enum": ["error", "warning", "info"] },
+                        "path": { "type": "string" },
+                        "message": { "type": "string" }
+                    }
+                }
+            },
+            "trace": { "type": "object" },
+            "checkedAt": { "type": "string", "format": "date-time" },
+            "inputDigest": { "type": "string", "description": "`sha256:` and the digest of the manifest checked" }
+        },
+        "required": ["ok", "findings", "checkedAt", "inputDigest"]
+    })
+}
+
+/// One draft as the operations answer it (T-0838: no `$ref` a client cannot resolve).
 fn draft_schema() -> Value {
-    serde_json::to_value(Draft::schema()).unwrap_or_else(|_| json!({ "type": "object" }))
+    json!({
+        "type": "object",
+        "properties": {
+            "project": { "type": "string" },
+            "kind": { "type": "string" },
+            "name": { "type": "string" },
+            "manifest": { "type": "object" },
+            "verdict": verdict_schema(),
+            "touchedBy": { "type": "string" },
+            "touchedKind": { "type": "string", "description": "person, assistant, mcp, api-key or agent" },
+            "version": { "type": "integer" },
+            "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["project", "kind", "name", "manifest", "version"]
+    })
 }
 
 fn draft_list_output_schema() -> Value {
@@ -656,16 +695,52 @@ fn model_infer_input_schema() -> Value {
     })
 }
 
+/// What a check answers: whether the manifest is valid, the lane it would take, the fields it
+/// would change, what one fetch of a source returned, and the verdict filed on the draft.
 fn dry_run_output_schema() -> Value {
-    let mut val = serde_json::to_value(dry_run::DryRunResult::schema())
-        .unwrap_or_else(|_| json!({ "type": "object" }));
-    if let Some(props) = val
-        .pointer_mut("/properties")
-        .and_then(Value::as_object_mut)
-    {
-        props.insert("verdict".into(), json!({ "type": "object" }));
-    }
-    val
+    json!({
+        "type": "object",
+        "properties": {
+            "valid": { "type": "boolean" },
+            "lane": { "type": "string", "enum": ["green", "yellow", "red"] },
+            "plan": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "object",
+                        "properties": {
+                            "create": { "type": "integer" },
+                            "update": { "type": "integer" },
+                            "delete": { "type": "integer" }
+                        }
+                    },
+                    "fields": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string" },
+                                "from": {},
+                                "to": {}
+                            }
+                        }
+                    }
+                }
+            },
+            "probe": {
+                "type": "object",
+                "description": "One fetch of an http DataSource (MF-39); absent for every other kind",
+                "properties": {
+                    "records": { "type": "integer" },
+                    "bytes": { "type": "integer" },
+                    "sample": {},
+                    "skipped": { "type": "string" }
+                }
+            },
+            "verdict": verdict_schema()
+        },
+        "required": ["valid", "lane", "plan"]
+    })
 }
 
 fn pipeline_test_output_schema() -> Value {
@@ -681,24 +756,114 @@ fn pipeline_test_output_schema() -> Value {
     })
 }
 
-fn change_proposal_schema() -> Value {
-    serde_json::to_value(ChangeProposal::schema()).unwrap_or_else(|_| json!({ "type": "object" }))
-}
-
-fn change_schema() -> Value {
-    serde_json::to_value(Change::schema()).unwrap_or_else(|_| json!({ "type": "object" }))
-}
-
-fn proposal_output_schema() -> Value {
+/// The `Change` resource as an MCP client reads it (T-0838).
+///
+/// Written out rather than derived from the OpenAPI document: utoipa's schema points at
+/// `#/components/schemas/…`, a pointer no MCP client resolves, so a tool that published it
+/// described nothing (AG-60).
+fn change_document_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "lane": { "type": "string" },
-            "slug": { "type": "string" },
-            "endpoint": { "type": "object" },
-            "policies": { "type": "array" },
-            "prefill": { "type": "object" }
-        }
+            "apiVersion": { "type": "string" },
+            "kind": { "type": "string", "enum": ["Change"] },
+            "metadata": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "`chg-` and eight hex characters; what `jc_change_approve` takes as `id`" },
+                    "namespace": { "type": "string" }
+                },
+                "required": ["name", "namespace"]
+            },
+            "status": {
+                "type": "object",
+                "properties": {
+                    "lane": { "type": "string", "enum": ["green", "yellow", "red"] },
+                    "phase": { "type": "string", "enum": ["PendingApproval", "Deploying", "Merged", "Applied", "Rejected"] },
+                    "mergeRequest": { "type": "string" },
+                    "plan": {
+                        "type": "object",
+                        "properties": {
+                            "create": { "type": "integer" },
+                            "update": { "type": "integer" },
+                            "delete": { "type": "integer" }
+                        }
+                    }
+                },
+                "required": ["lane", "phase", "plan"]
+            }
+        },
+        "required": ["apiVersion", "kind", "metadata", "status"]
+    })
+}
+
+/// What every propose, the resource delete and a rejection answer: the id and the lane beside
+/// the `Change` itself, which is what the caller gets, not the bare resource (T-0838).
+fn change_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "changeId": { "type": "string", "description": "The change's name; `jc_change_approve` takes it as `id`" },
+            "lane": { "type": "string", "enum": ["green", "yellow", "red"] },
+            "url": { "type": "string", "description": "The merge request to review, when the forge has one" },
+            "change": change_document_schema(),
+            "warning": { "type": "string", "description": "Present when the draft was proposed without a fresh green verdict" }
+        },
+        "required": ["changeId", "lane", "change"]
+    })
+}
+
+/// What `jc_change_list` answers: the list envelope, not one proposal (T-0838).
+fn change_list_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "apiVersion": { "type": "string" },
+            "kind": { "type": "string", "enum": ["ChangeList"] },
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "title": { "type": "string" },
+                        "lane": { "type": "string", "enum": ["green", "yellow", "red"] },
+                        "phase": { "type": "string" },
+                        "mergeRequest": { "type": "string" },
+                        "proposedBy": { "type": "string" }
+                    }
+                }
+            }
+        },
+        "required": ["apiVersion", "kind", "items"]
+    })
+}
+
+/// The `Change` the approval answers: the resource itself, with no wrapper around it.
+fn approved_change_schema() -> Value {
+    change_document_schema()
+}
+
+/// What `jc_endpoint_propose` answers: a Change when it was given a manifest or a draft, and
+/// the rendered Endpoint with its draft policies when it was given the parameters to share
+/// data (T-0838). One tool, two answers, both published.
+fn proposal_output_schema() -> Value {
+    json!({
+        "oneOf": [
+            change_schema(),
+            {
+                "type": "object",
+                "description": "The rendered proposal a form fills itself from; nothing is written yet",
+                "properties": {
+                    "lane": { "type": "string", "enum": ["green", "yellow", "red"] },
+                    "slug": { "type": "string" },
+                    "endpoint": { "type": "object" },
+                    "policies": { "type": "array", "items": { "type": "object" } },
+                    "prefill": { "type": "object" }
+                },
+                "required": ["endpoint"]
+            }
+        ]
     })
 }
 
@@ -1254,7 +1419,7 @@ fn core_operations() -> Vec<Operation> {
             title: "List Changes",
             description: "Lists open change proposals and merge requests for review",
             input: empty_input_schema,
-            output: change_proposal_schema,
+            output: change_list_output_schema,
             annotations: OperationAnnotations {
                 read_only_hint: true,
                 destructive_hint: false,
@@ -1287,7 +1452,7 @@ fn core_operations() -> Vec<Operation> {
             title: "Approve Change",
             description: "Approves and merges a change proposal",
             input: change_approve_input_schema,
-            output: change_schema,
+            output: approved_change_schema,
             annotations: OperationAnnotations {
                 read_only_hint: false,
                 destructive_hint: true,

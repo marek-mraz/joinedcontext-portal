@@ -380,3 +380,77 @@ async fn jc_catalog_search_matches_assistant_route() {
     assert_eq!(asst_items[0]["name"], ops_items[0]["name"]);
     assert_eq!(ops_items[0]["name"], "public-air");
 }
+
+/// AG-60, CC-47, T-0838: what a tool publishes as its output is what the tool answers.
+///
+/// A schema pointing at `#/components/schemas/…` describes nothing to an MCP client: the
+/// pointer has no document to resolve against, so every published schema is self-contained.
+#[test]
+fn no_published_schema_points_at_a_document_the_caller_never_has() {
+    fn refs(value: &Value, path: &str, found: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, inner) in map {
+                    if key == "$ref" {
+                        found.push(format!("{path}: {inner}"));
+                    }
+                    refs(inner, &format!("{path}/{key}"), found);
+                }
+            }
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    refs(item, &format!("{path}/{index}"), found);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for op in ops::registry() {
+        refs(&(op.input)(), &format!("{}.input", op.name), &mut found);
+        refs(&(op.output)(), &format!("{}.output", op.name), &mut found);
+    }
+    assert!(found.is_empty(), "{}", found.join("\n"));
+}
+
+/// The propose and delete operations answer the wrapper, not the bare `Change`: what the
+/// schema names as required is what the answer carries (T-0838).
+#[test]
+fn the_change_operations_publish_the_wrapper_they_answer() {
+    for name in [
+        "jc_resource_propose",
+        "jc_resource_delete",
+        "jc_datasource_propose",
+        "jc_pipeline_propose",
+        "jc_space_propose",
+        "jc_model_propose",
+        "jc_change_reject",
+    ] {
+        let op = ops::find(name).expect("registered");
+        let schema = (op.output)();
+        let required: Vec<&str> = schema["required"]
+            .as_array()
+            .map(|names| names.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        assert_eq!(
+            required,
+            vec!["changeId", "lane", "change"],
+            "{name} answers ProposeOutcome::Change"
+        );
+        assert!(schema["properties"]["change"]["properties"]["status"].is_object());
+    }
+
+    // `jc_endpoint_propose` renders a proposal from parameters and answers a Change from a
+    // manifest or a draft: both shapes are published, neither is hidden.
+    let endpoint = (ops::find("jc_endpoint_propose").expect("registered").output)();
+    let shapes = endpoint["oneOf"].as_array().expect("both shapes");
+    assert_eq!(shapes[0]["required"], json!(["changeId", "lane", "change"]));
+    assert!(shapes[1]["properties"]["endpoint"].is_object());
+
+    // The approval answers the `Change` itself, and the list its envelope.
+    let approve = (ops::find("jc_change_approve").expect("registered").output)();
+    assert_eq!(approve["properties"]["kind"]["enum"], json!(["Change"]));
+    let list = (ops::find("jc_change_list").expect("registered").output)();
+    assert_eq!(list["properties"]["kind"]["enum"], json!(["ChangeList"]));
+    assert_eq!(list["properties"]["items"]["type"], json!("array"));
+}
