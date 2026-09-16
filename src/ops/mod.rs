@@ -1444,13 +1444,14 @@ fn core_operations() -> Vec<Operation> {
                         OpError::InvalidInput { path, message }
                     })
             },
-            run: |_, state, project, val| {
+            run: |caller, state, project, val| {
                 Box::pin(async move {
                     let _: EmptyInput = serde_json::from_value(val).map_err(|e| {
                         let (path, message) = serde_error_path_and_message(&e);
                         OpError::InvalidInput { path, message }
                     })?;
-                    let list = changes::list_changes_for(state, project).await?;
+                    let list =
+                        changes::list_changes_readable(state, &caller.identity, project).await?;
                     Ok(serde_json::to_value(list)?)
                 })
             },

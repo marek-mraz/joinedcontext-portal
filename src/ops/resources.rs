@@ -60,10 +60,12 @@ pub struct ChangeRejectInput {
 /// The order is the registry's own, so [`super::listing`] answers these in this order for a
 /// caller with no bindings at all.
 pub const CHECKED_BY_THE_ROUTE: &[&str] = &[
+    "jc_change_list",
     "jc_resource_list",
     "jc_resource_get",
     "jc_resource_propose",
     "jc_resource_delete",
+    "jc_change_get",
     "jc_run_list",
     "jc_run_get",
     "jc_service_account_key_list",

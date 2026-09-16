@@ -1670,3 +1670,165 @@ async fn a_native_file_of_a_granted_kind_travels_with_the_bundle() {
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
     assert!(merged(&server).await);
 }
+
+// ---------------------------------------------------------------------------
+// A change carries the manifests, so reading one is reading the resource (T-0918, PF-59)
+// ---------------------------------------------------------------------------
+
+/// The `own_change_of` fixture plus the listing call, so both change reads can be asked of the
+/// same open merge request.
+async fn readable_changes_fixture(kinds: &[&str]) -> (MockServer, AppState) {
+    use joinedcontext_portal::permissions::ORG_NAMESPACE;
+    use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+
+    let (server, state) = own_change_of(&["read"]).await;
+    // A second person, bound to the kinds named here and to nothing else.
+    state.mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: "Role".to_owned(),
+        metadata: ObjectMeta::new("narrow-role", ORG_NAMESPACE),
+        spec: json!({ "rules": [{ "kinds": kinds, "verbs": ["read"] }] }),
+        status: None,
+    });
+    state.mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: "RoleBinding".to_owned(),
+        metadata: ObjectMeta::new("narrow-binding", ORG_NAMESPACE),
+        spec: json!({
+            "subjects": [{ "user": "peter.narrow@banskabystrica.sk" }],
+            "role": "narrow-role",
+            "scope": { "organization": "bb" }
+        }),
+        status: None,
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {
+                "number": 1,
+                "html_url": "https://gitea.example.sk/pulls/1",
+                "state": "open",
+                "title": "create ContextSpace mobility",
+                "head": { "ref": "portal/create-contextspace-mobility-11111111" },
+                "base": { "ref": "main" },
+                "created_at": "2026-09-06T09:14:22Z",
+                "user": {
+                    "login": "jana.kovacova",
+                    "full_name": "Jana Kováčová",
+                    "email": "jana.kovacova@banskabystrica.sk"
+                },
+                "mergeable": true,
+                "merged": false
+            }
+        ])))
+        .mount(&server)
+        .await;
+    (server, state)
+}
+
+async fn read_as(state: &AppState, username: &str, email: &str, path: &str) -> (StatusCode, Value) {
+    let cookies = session_and_csrf_cookies(&state.config, username, Some(email), None, vec![]);
+    let app = server::app(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header(header::COOKIE, cookies)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn a_person_no_binding_covers_reads_no_change_at_all() {
+    let (_server, state) = readable_changes_fixture(&["ContextSpace"]).await;
+
+    let (status, body) = read_as(
+        &state,
+        "nobody",
+        "nobody@banskabystrica.sk",
+        "/api/v1/projects/ovzdusie/changes",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+
+    let (status, body) = read_as(
+        &state,
+        "nobody",
+        "nobody@banskabystrica.sk",
+        "/api/v1/projects/ovzdusie/changes/chg-00000001",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
+#[tokio::test]
+async fn a_change_to_a_kind_the_caller_does_not_read_is_not_there() {
+    let (_server, state) = readable_changes_fixture(&["Pipeline"]).await;
+
+    // The person bound to ContextSpace sees the change the fixture opened.
+    let (status, body) = read_as(
+        &state,
+        "jana.kovacova",
+        "jana.kovacova@banskabystrica.sk",
+        "/api/v1/projects/ovzdusie/changes",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let list: ChangeList = serde_json::from_value(body).expect("a change list");
+    assert_eq!(list.items.len(), 1);
+    assert_eq!(list.items[0].metadata.name, "chg-00000001");
+
+    let (status, body) = read_as(
+        &state,
+        "jana.kovacova",
+        "jana.kovacova@banskabystrica.sk",
+        "/api/v1/projects/ovzdusie/changes/chg-00000001",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let one: ChangeProposal = serde_json::from_value(body).expect("a change");
+    assert_eq!(one.summary.params.get("kind"), Some(&json!("ContextSpace")));
+
+    // The person bound to Pipeline alone reads the project, and no ContextSpace in it: the
+    // change is out of the list, and asking for it by name is a 404, not a 403 (R20).
+    let (status, body) = read_as(
+        &state,
+        "peter.narrow",
+        "peter.narrow@banskabystrica.sk",
+        "/api/v1/projects/ovzdusie/changes",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let list: ChangeList = serde_json::from_value(body).expect("a change list");
+    assert!(list.items.is_empty(), "{list:?}");
+
+    let (status, body) = read_as(
+        &state,
+        "peter.narrow",
+        "peter.narrow@banskabystrica.sk",
+        "/api/v1/projects/ovzdusie/changes/chg-00000001",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let problem: ProblemDetails = serde_json::from_value(body).expect("a problem");
+    let detail = problem.detail.unwrap_or_default();
+    assert!(
+        !detail.to_lowercase().contains("contextspace"),
+        "the refusal names the kind it hid: {detail}"
+    );
+}

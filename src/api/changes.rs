@@ -512,11 +512,71 @@ fn build_proposal(
     )
 )]
 pub async fn list_changes(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path(project): Path<String>,
 ) -> Result<Json<ChangeList>, ApiError> {
-    Ok(Json(list_changes_for(&state, &project).await?))
+    Ok(Json(
+        list_changes_readable(&state, &user.0.identity, &project).await?,
+    ))
+}
+
+/// The open changes this caller may read: the ones whose resource a binding of theirs reads
+/// (PF-59, T-0918).
+///
+/// A change carries the head and base manifests, so reading one is reading the resource. A
+/// project no binding covers is `404`, the one answer for "not there" and "not yours" (R20);
+/// inside a project the caller reads, a change to a kind they do not read is simply not in the
+/// list, the way the resource itself is not.
+pub async fn list_changes_readable(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+) -> Result<ChangeList, ApiError> {
+    let effective = crate::permissions::for_request(state, identity, project);
+    if !effective.may_read_project() {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
+    let list = list_changes_for(state, project).await?;
+    let items = list
+        .items
+        .into_iter()
+        .filter(|proposal| match kind_of(proposal) {
+            Some(kind) => effective.may_read(kind),
+            // A change whose manifest names no kind is unreadable rather than open to all.
+            None => false,
+        })
+        .collect();
+    Ok(ChangeList::new(items))
+}
+
+/// One change this caller may read, or the `404` that says nothing about which of the two
+/// reasons it was (PF-59, R20, T-0918).
+pub async fn change_readable(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    id: &str,
+) -> Result<ChangeProposal, ApiError> {
+    let missing = || {
+        ApiError::NotFound(format!(
+            "change proposal '{id}' not found in project '{project}'"
+        ))
+    };
+    let effective = crate::permissions::for_request(state, identity, project);
+    if !effective.may_read_project() {
+        return Err(missing());
+    }
+    let proposal = change_for(state, project, id).await?;
+    match kind_of(&proposal) {
+        Some(kind) if effective.may_read(kind) => Ok(proposal),
+        _ => Err(missing()),
+    }
+}
+
+/// The kind of the resource a change proposes, as `build_proposal` records it.
+fn kind_of(proposal: &ChangeProposal) -> Option<&str> {
+    proposal.summary.params.get("kind").and_then(Value::as_str)
 }
 
 /// Core proposal listing reusable by the REST route, operations registry and MCP.
@@ -565,11 +625,13 @@ pub async fn list_changes_for(state: &AppState, project: &str) -> Result<ChangeL
     )
 )]
 pub async fn get_change(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
 ) -> Result<Json<ChangeProposal>, ApiError> {
-    Ok(Json(change_for(&state, &project, &id).await?))
+    Ok(Json(
+        change_readable(&state, &user.0.identity, &project, &id).await?,
+    ))
 }
 
 /// One change with its plan; the read behind the change route and the assistant's
