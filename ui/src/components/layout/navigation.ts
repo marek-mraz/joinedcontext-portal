@@ -19,5 +19,8 @@ export const NAV_SECTIONS = [
   { plural: "syncsources", labelKey: "nav.sync", icon: "refresh" },
   { plural: "assistant", labelKey: "nav.assistant", icon: "chat" },
   { plural: "approvals", labelKey: "nav.approvals", icon: "approvals" },
+  // What the reconciler, the pipelines, the gateway, the broker and the catalogue did, in one
+  // place, so "is it working" has an answer that is not a Grafana login (UI-31).
+  { plural: "activity", labelKey: "nav.activity", icon: "refresh" },
   { plural: "access", labelKey: "nav.access", icon: "access" },
 ] as const satisfies ReadonlyArray<{ plural: string; labelKey: string; icon: IconName }>;

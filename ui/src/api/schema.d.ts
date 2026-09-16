@@ -2505,7 +2505,20 @@ export interface operations {
     };
     list_activity: {
         parameters: {
-            query?: never;
+            query?: {
+                space?: string;
+                /** @description One or more kinds, repeated or comma-separated. */
+                kind?: string;
+                source?: string;
+                /** @description `info`, `warning` or `error`; a value includes everything above it. */
+                severity?: string;
+                /** @description RFC 3339 instant, the oldest event to return. */
+                since?: string;
+                /** @description One object the events belong to, as `{plural}/{name}`. */
+                object?: string;
+                limit?: number;
+                cursor?: string;
+            };
             header?: never;
             path: {
                 /** @description Project name */
@@ -2555,7 +2568,20 @@ export interface operations {
     };
     stream_activity: {
         parameters: {
-            query?: never;
+            query?: {
+                space?: string;
+                /** @description One or more kinds, repeated or comma-separated. */
+                kind?: string;
+                source?: string;
+                /** @description `info`, `warning` or `error`; a value includes everything above it. */
+                severity?: string;
+                /** @description RFC 3339 instant, the oldest event to return. */
+                since?: string;
+                /** @description One object the events belong to, as `{plural}/{name}`. */
+                object?: string;
+                limit?: number;
+                cursor?: string;
+            };
             header?: never;
             path: {
                 /** @description Project name */

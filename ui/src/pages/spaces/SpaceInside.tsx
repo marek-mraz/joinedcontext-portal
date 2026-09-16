@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized, refName } from "../../api/manifest";
 import type { Manifest } from "../../api/manifest";
+import { ActivityFeed } from "../../components/ActivityFeed";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import {
   catalogueUrl,
@@ -449,6 +450,10 @@ export function SpaceInside({ project, name }: { project: string; name: string }
             </TableBody>
           </Table>
         )}
+      </Section>
+
+      <Section title={t("activity.panelTitle")}>
+        <ActivityFeed project={project} compact fixed={{ space: name }} limit={10} />
       </Section>
     </div>
   );

@@ -13,6 +13,7 @@ import { EmptyState } from "./components/ui";
 import { AllEndpointsPage } from "./routes/AllEndpointsPage";
 import { LoginPage } from "./routes/LoginPage";
 import { ResourceListPage } from "./routes/ResourceListPage";
+import { ActivityPage } from "./routes/ActivityPage";
 import { ApprovalsPage } from "./routes/ApprovalsPage";
 import { ApprovalDetailPage } from "./routes/ApprovalDetailPage";
 import { ModelsPage } from "./pages/models/ModelsPage";
@@ -101,6 +102,19 @@ const indexRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/",
   component: IndexRedirect,
+});
+
+const activityRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/activity",
+  component: function ActivityRoute() {
+    const { project } = activityRoute.useParams();
+    return (
+      <Shell project={project}>
+        <ActivityPage project={project} />
+      </Shell>
+    );
+  },
 });
 
 const approvalsRoute = createRoute({
@@ -314,6 +328,7 @@ export const routeTree = rootRoute.addChildren([
   loginRoute,
   protectedRoute.addChildren([
     indexRoute,
+    activityRoute,
     approvalsRoute,
     approvalDetailRoute,
     playgroundRoute,

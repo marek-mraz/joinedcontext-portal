@@ -27,7 +27,8 @@
     "allEndpoints": "Alle Endpunkte",
     "explore": "Daten erkunden",
     "assistant": "Assistent",
-    "sync": "Sync"
+    "sync": "Sync",
+    "activity": "Activity"
   },
   "auth": {
     "lead": "Melden Sie sich mit dem Konto Ihrer Organisation an, um diese Plattform zu verwalten.",
@@ -1586,5 +1587,34 @@
       "expired": "Beendet"
     },
     "timings": "Zeiten"
+  },
+  "activity": {
+    "title": "Activity",
+    "lead": "What is happening in this project: the reconciler, the pipelines, the gateway, the broker and the catalogue, newest first.",
+    "empty": "Nothing has happened here yet.",
+    "time": "When",
+    "kind": "What",
+    "source": "Who says so",
+    "summary": "What happened",
+    "object": "Object",
+    "tail": "Live tail",
+    "tailOn": "Following",
+    "tailOff": "Paused",
+    "filter": {
+      "kind": "Kind",
+      "source": "Source",
+      "severity": "Severity",
+      "space": "Context Space",
+      "all": "Any"
+    },
+    "severity": {
+      "info": "Info",
+      "warning": "Warning",
+      "error": "Error"
+    },
+    "more": "Show older",
+    "panelTitle": "Recent activity",
+    "panelEmpty": "Nothing has happened to this one yet.",
+    "announce": "{count, plural, one {# new error} other {# new errors}}"
   }
 }

@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::activity::{ActivityEvent, ActivityFilter, Cursor, DEFAULT_LIMIT, MAX_LIMIT};
 use crate::auth::session::{CurrentUser, Front};
@@ -34,8 +34,9 @@ const API_VERSION: &str = "joinedcontext.com/v1alpha1";
 
 /// The parameters the list and the stream share, so a view switches between them without
 /// rewriting anything.
-#[derive(Debug, Clone, Default, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Default, Deserialize, ToSchema, IntoParams)]
 #[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
 pub struct ActivityQuery {
     pub space: Option<String>,
     /// One or more kinds, repeated or comma-separated.
@@ -125,6 +126,7 @@ fn member_of(state: &AppState, user: &CurrentUser, project: &str) -> Result<(), 
     tag = "activity",
     params(
         ("project" = String, Path, description = "Project name"),
+        ActivityQuery,
     ),
     responses(
         (status = 200, description = "What happened, newest first", body = ActivityList),
@@ -160,6 +162,7 @@ pub async fn list_activity(
     tag = "activity",
     params(
         ("project" = String, Path, description = "Project name"),
+        ActivityQuery,
     ),
     responses(
         (status = 200, description = "The same filter, as Server-Sent Events"),

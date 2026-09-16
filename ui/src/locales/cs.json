@@ -27,7 +27,8 @@
     "allEndpoints": "Všechny koncové body",
     "explore": "Procházet data",
     "assistant": "Asistent",
-    "sync": "Synchronizace"
+    "sync": "Synchronizace",
+    "activity": "Activity"
   },
   "auth": {
     "lead": "Přihlaste se účtem své organizace a spravujte tuto platformu.",
@@ -1586,5 +1587,34 @@
       "expired": "Skončeno"
     },
     "timings": "Časy"
+  },
+  "activity": {
+    "title": "Activity",
+    "lead": "What is happening in this project: the reconciler, the pipelines, the gateway, the broker and the catalogue, newest first.",
+    "empty": "Nothing has happened here yet.",
+    "time": "When",
+    "kind": "What",
+    "source": "Who says so",
+    "summary": "What happened",
+    "object": "Object",
+    "tail": "Live tail",
+    "tailOn": "Following",
+    "tailOff": "Paused",
+    "filter": {
+      "kind": "Kind",
+      "source": "Source",
+      "severity": "Severity",
+      "space": "Context Space",
+      "all": "Any"
+    },
+    "severity": {
+      "info": "Info",
+      "warning": "Warning",
+      "error": "Error"
+    },
+    "more": "Show older",
+    "panelTitle": "Recent activity",
+    "panelEmpty": "Nothing has happened to this one yet.",
+    "announce": "{count, plural, one {# new error} other {# new errors}}"
   }
 }
