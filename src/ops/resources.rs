@@ -171,9 +171,33 @@ fn home_of(info: &'static crate::resource::KindInfo, project: &str) -> String {
     }
 }
 
-async fn list(state: &AppState, project: &str, input: ResourceListInput) -> Result<Value, OpError> {
+/// What the caller may read is what they are answered (PF-59): a kind no binding of theirs
+/// reads is not there at all, the same answer as a kind that does not exist (R20). The REST
+/// list and get have said this since T-0906; this door says it too (T-0840).
+fn readable(
+    caller: &Caller,
+    state: &AppState,
+    project: &str,
+    info: &'static crate::resource::KindInfo,
+) -> Result<(), OpError> {
+    if crate::permissions::for_request(state, &caller.identity, project).may_read(info.kind) {
+        return Ok(());
+    }
+    Err(OpError::Api(ApiError::NotFound(format!(
+        "kind '{}' not found in project '{project}'",
+        info.kind
+    ))))
+}
+
+async fn list(
+    caller: &Caller,
+    state: &AppState,
+    project: &str,
+    input: ResourceListInput,
+) -> Result<Value, OpError> {
     let info = kind_named(&input.kind)?;
     let project = &home_of(info, project);
+    readable(caller, state, project, info)?;
     let page = state
         .mirror
         .list(project, info.kind, &ListOptions::default());
@@ -191,9 +215,15 @@ async fn list(state: &AppState, project: &str, input: ResourceListInput) -> Resu
     Ok(json!({ "items": items }))
 }
 
-async fn get(state: &AppState, project: &str, input: ResourceGetInput) -> Result<Value, OpError> {
+async fn get(
+    caller: &Caller,
+    state: &AppState,
+    project: &str,
+    input: ResourceGetInput,
+) -> Result<Value, OpError> {
     let info = kind_named(&input.kind)?;
     let project = &home_of(info, project);
+    readable(caller, state, project, info)?;
     match state.mirror.get(project, info.kind, &input.name) {
         Some(envelope) => Ok(serde_json::to_value(envelope)?),
         None => {
@@ -332,8 +362,8 @@ pub fn operations() -> Vec<Operation> {
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<ResourceListInput>(val.clone()).map(|_| ()),
-            run: |_, state, project, val| {
-                Box::pin(async move { list(state, project, parse_input(val)?).await })
+            run: |caller, state, project, val| {
+                Box::pin(async move { list(caller, state, project, parse_input(val)?).await })
             },
         },
         Operation {
@@ -351,8 +381,8 @@ pub fn operations() -> Vec<Operation> {
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<ResourceGetInput>(val.clone()).map(|_| ()),
-            run: |_, state, project, val| {
-                Box::pin(async move { get(state, project, parse_input(val)?).await })
+            run: |caller, state, project, val| {
+                Box::pin(async move { get(caller, state, project, parse_input(val)?).await })
             },
         },
         Operation {

@@ -658,3 +658,64 @@ async fn an_organization_kind_is_read_through_the_operations_of_any_project() {
     .expect_err("no such role");
     assert!(format!("{missing:?}").contains("editor"), "{missing:?}");
 }
+
+/// PF-59, R20, T-0840: the registry answers a kind the caller's bindings do not read exactly as
+/// it answers one that does not exist — the REST list has said so since T-0906.
+#[tokio::test]
+async fn a_kind_no_binding_reads_is_not_there_through_the_operations_either() {
+    let config = Config::for_tests();
+    let mirror = Arc::new(Mirror::new());
+    mirror.upsert(envelope(
+        "Endpoint",
+        "public-air",
+        "ovzdusie",
+        json!({ "slug": "publicair00000000000000000000", "audience": "public", "enabledRepresentations": ["ngsi-ld"] }),
+    ));
+    mirror.upsert(envelope(
+        "Role",
+        "pipelines-only",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": ["Pipeline"], "verbs": ["read"] }] }),
+    ));
+    mirror.upsert(envelope(
+        "RoleBinding",
+        "viewer-binding",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": "viewer@banskabystrica.sk" }],
+            "role": "pipelines-only",
+            "scope": { "project": "ovzdusie" }
+        }),
+    ));
+    let state = AppState::new(config, None).with_mirror(mirror);
+    let caller = Caller {
+        identity: identity("viewer", &[]),
+        via: Via::Mcp,
+    };
+
+    let list = ops::find("jc_resource_list").expect("registered");
+    let refused = ops::call(
+        list,
+        &caller,
+        &state,
+        "ovzdusie",
+        json!({ "kind": "Endpoint" }),
+    )
+    .await
+    .expect_err("a kind this binding does not read");
+    let said = format!("{refused:?}");
+    assert!(said.contains("not found"), "{said}");
+    assert!(!said.contains("403") && !said.contains("Denied"), "{said}");
+
+    // The kind it does read still answers.
+    let allowed = ops::call(
+        list,
+        &caller,
+        &state,
+        "ovzdusie",
+        json!({ "kind": "Pipeline" }),
+    )
+    .await
+    .expect("the kind the binding reads");
+    assert_eq!(allowed["items"], json!([]));
+}
