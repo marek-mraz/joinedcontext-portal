@@ -572,11 +572,10 @@ async fn propose_draft(
         ("pipelines", false) => "jc_pipeline_propose",
         ("spaces", false) => "jc_space_propose",
         ("datamodels", false) => "jc_model_propose",
-        _ => {
-            return Err(ApiError::BadRequest(format!(
-                "a draft cannot be proposed for '{plural}'; send the manifest itself"
-            )))
-        }
+        // Every other kind proposes through the registry's one propose (AG-77, ADR-N-021): the
+        // draft names its own kind, so a Dashboard, a Role or an App draft reaches the operation
+        // MCP and the assistant reach, instead of a 400 in the form alone (T-0842).
+        (_, false) => "jc_resource_propose",
     };
     let op = crate::ops::find(name)
         .ok_or_else(|| ApiError::Internal(format!("operation '{name}' is not registered")))?;

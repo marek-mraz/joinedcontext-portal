@@ -780,6 +780,66 @@ async fn rest_door_with_a_draft_reaches_the_check_and_the_gate() {
         .await
         .unwrap()
         .is_none());
+
+    // AG-77, T-0842: a kind without a propose operation of its own goes the same way. The form
+    // of a Dashboard sends its draft to the collection route and gets a Change, not a 400.
+    let dashboard = json!({
+        "apiVersion": API_VERSION,
+        "kind": "Dashboard",
+        "metadata": { "name": "bikes-board", "namespace": "ovzdusie" },
+        "spec": { "title": "Bikes", "pages": [{ "title": "Map", "layout": "grid-2x2",
+                     "widgets": [{ "widgetType": "value", "endpointRef": "bikes" }] }] }
+    });
+    state
+        .drafts
+        .put(
+            "ovzdusie",
+            "Dashboard",
+            "bikes-board",
+            dashboard.clone(),
+            None,
+            "steward",
+            "person",
+        )
+        .await
+        .unwrap();
+    let mut with_draft = dashboard.clone();
+    with_draft["draft"] = json!({ "kind": "Dashboard", "name": "bikes-board" });
+    let post = |uri: &str| {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(header::COOKIE, &steward_cookie)
+            .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&with_draft).unwrap()))
+            .unwrap()
+    };
+    let app = server::app(state.clone());
+    // The same gate holds for it: unchecked is a conflict, never a silent proposal.
+    let resp = app
+        .clone()
+        .oneshot(post("/api/v1/projects/ovzdusie/dashboards"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+    let resp = app
+        .clone()
+        .oneshot(post("/api/v1/projects/ovzdusie/dashboards?dryRun=All"))
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let resp = app
+        .oneshot(post("/api/v1/projects/ovzdusie/dashboards"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    let body: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(body["kind"], "Change", "{body}");
 }
 
 #[tokio::test]
