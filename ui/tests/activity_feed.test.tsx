@@ -7,6 +7,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { ActivityFeed } from "../src/components/ActivityFeed";
 import { mergeActivity, objectOf, TAIL_WINDOW } from "../src/api/activity";
+import { summarise } from "../src/components/ActivitySummary";
 import type { ActivityEvent } from "../src/api/activity";
 
 const PROJECT = "helsinki";
@@ -193,5 +194,27 @@ describe("the tail's reducer", () => {
     expect(objectOf(event())).toBe("endpoints/public-air");
     expect(objectOf(event({ details: { object: "no-slash" } }))).toBeUndefined();
     expect(objectOf(event({ details: {} }))).toBeUndefined();
+  });
+});
+
+describe("the last hour strip", () => {
+  it("counts what an event counted, and one for an event that counted nothing", () => {
+    expect(
+      summarise([
+        event({ kind: "pipeline.throughput", details: { count: 1200 } }),
+        event({ kind: "pipeline.throughput", details: { count: 300 } }),
+        event({ kind: "access.denied" }),
+        event({ kind: "access.denied" }),
+        event({ kind: "config.applied" }),
+        event({ kind: "change.merged" }),
+        event({ kind: "mcp.tool" }),
+      ]),
+    ).toEqual({ messages: 1500, changes: 2, requests: 0, forwards: 0, denials: 2 });
+  });
+
+  it("ignores a count that is not a number", () => {
+    expect(
+      summarise([event({ kind: "endpoint.traffic", details: { count: "many" } })]).requests,
+    ).toBe(1);
   });
 });

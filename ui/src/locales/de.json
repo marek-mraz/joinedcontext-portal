@@ -1615,6 +1615,14 @@
     "more": "Show older",
     "panelTitle": "Recent activity",
     "panelEmpty": "Nothing has happened to this one yet.",
-    "announce": "{count, plural, one {# new error} other {# new errors}}"
+    "announce": "{count, plural, one {# new error} other {# new errors}}",
+    "lastHour": "What happened in the last hour",
+    "bucket": {
+      "messages": "Messages ingested",
+      "changes": "Changes applied",
+      "requests": "Requests served",
+      "forwards": "Forwards",
+      "denials": "Refusals"
+    }
   }
 }
