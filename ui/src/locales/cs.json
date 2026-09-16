@@ -1562,7 +1562,8 @@
       "endpoint": "Endpoint",
       "prompt": "Co to má dělat?",
       "start": "Spustit",
-      "unattended": "Běží bez dotazů a na konci čeká na vaše schválení."
+      "unattended": "Běží bez dotazů a na konci čeká na vaše schválení.",
+      "noTypes": "Běh čte publikované typy tohoto endpointu. Vyberte endpoint, který publikuje alespoň jeden typ."
     },
     "started": "Začátek",
     "actions": "Akce",

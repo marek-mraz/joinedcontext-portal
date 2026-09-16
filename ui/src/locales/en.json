@@ -1562,7 +1562,8 @@
       "endpoint": "Endpoint",
       "prompt": "What should it do?",
       "start": "Start",
-      "unattended": "It runs without asking you and waits for your approval at the end."
+      "unattended": "It runs without asking you and waits for your approval at the end.",
+      "noTypes": "The run reads this endpoint's published types. Choose an endpoint that publishes at least one type."
     },
     "started": "Started",
     "actions": "Actions",

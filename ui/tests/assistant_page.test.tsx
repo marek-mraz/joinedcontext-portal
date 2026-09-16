@@ -88,7 +88,11 @@ const ENDPOINTS = {
       apiVersion: "joinedcontext.com/v1alpha1",
       kind: "Endpoint",
       metadata: { name: "bikes-endpoint" },
-      spec: { slug: "slug123" },
+      spec: {
+        slug: "slug123",
+        contextSpaceRef: { kind: "ContextSpace", name: "bikes" },
+        enabledRepresentations: ["ngsi-ld"],
+      },
     },
   ],
 };
@@ -102,9 +106,18 @@ class StubEventSource {
 let requests: Request[] = [];
 const fetchCalls = () => requests;
 
+/** What the endpoint publishes, as `/schema/v1/json-schema` answers it. */
+const SCHEMA = {
+  $defs: {
+    Entity: { properties: { id: {} } },
+    BikeHireDockingStation: { properties: { availableBikeNumber: {}, name: {} } },
+  },
+};
+
 function renderAssistantPage(
   runs: unknown[] = [CONV_RUN, WORK_RUN, CONTINUED_RUN],
   postRunHandler?: (req: Request) => Promise<Response>,
+  schema: unknown = SCHEMA,
 ) {
   requests = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -130,6 +143,12 @@ function renderAssistantPage(
     }
     if (path.endsWith("/endpoints")) {
       return json(ENDPOINTS);
+    }
+    if (path.endsWith("/schema/index.json")) {
+      return json({ models: [{ version: 1 }] });
+    }
+    if (path.endsWith("/json-schema")) {
+      return json(schema);
     }
     if (path.endsWith("/assistant/conversations") && request.method === "POST") {
       return json(
@@ -365,6 +384,37 @@ describe("Assistant page", () => {
     expect(body.appName).toBe("city-dashboard");
     expect(body.endpointName).toBe("bikes-endpoint");
     expect(body.prompt).toBe("Create bike dashboard");
+    // AP-44: a run with no dataNeeds is refused 400 before it starts (T-0835).
+    expect(body.dataNeeds).toEqual([
+      {
+        contextSpaceRef: { kind: "ContextSpace", name: "bikes" },
+        types: ["BikeHireDockingStation"],
+        attrs: ["availableBikeNumber", "name"],
+        operations: ["queryEntity", "retrieveEntity"],
+        representations: ["ngsi-ld"],
+      },
+    ]);
+  });
+
+  it("does not start work on an endpoint that publishes no type", async () => {
+    const user = userEvent.setup();
+    renderAssistantPage([CONV_RUN, WORK_RUN], undefined, { $defs: { Entity: { properties: {} } } });
+    await screen.findByText(i18n.t("assistantPage.newWork.title"));
+    await user.type(
+      screen.getByLabelText(i18n.t("assistantPage.newWork.name")),
+      "city-dashboard",
+    );
+    await user.type(
+      screen.getByLabelText(i18n.t("assistantPage.newWork.prompt")),
+      "Create bike dashboard",
+    );
+    expect(await screen.findByText(i18n.t("assistantPage.newWork.noTypes"))).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: i18n.t("assistantPage.newWork.start") }),
+    ).toBeDisabled();
+    expect(
+      fetchCalls().find((req) => req.method === "POST" && req.url.endsWith("/agent-runs")),
+    ).toBeUndefined();
   });
 
   it("shows the problem detail when new work is refused with 409", async () => {

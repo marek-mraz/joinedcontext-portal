@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, unwrap } from "../../api/client";
+import { asManifests } from "../../api/manifest";
 import { rememberRun, requestOpen } from "../../assistant/state";
 import {
   Badge,
@@ -21,6 +22,7 @@ import {
   TableRow,
   Textarea,
 } from "../../components/ui";
+import { concreteTypes, dataNeeds, endpointSchema } from "../apps/AppGenerator";
 import { appDisplayName, useEndpointTitles } from "../apps/appTitle";
 import { TERMINAL_STATES } from "../apps/useAgentRun";
 import { AgentAccess } from "./AgentAccess";
@@ -130,6 +132,27 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
   // The first endpoint until the person picks another.
   const chosenEndpoint = endpointName || (endpointNames[0] ?? "");
 
+  // What the run may read (AP-44): the chosen endpoint's own published types, the same list the
+  // app generator declares, never an empty one — `validate_data_needs` refuses that (T-0835).
+  const chosenManifest = useMemo(
+    () =>
+      asManifests(endpointsQuery.data?.items ?? []).find(
+        (item) => item.metadata.name === chosenEndpoint,
+      ),
+    [endpointsQuery.data?.items, chosenEndpoint],
+  );
+  const slug =
+    typeof chosenManifest?.spec.slug === "string" ? (chosenManifest.spec.slug as string) : undefined;
+  const schemaQuery = useQuery({
+    queryKey: ["endpoint-schema", slug],
+    enabled: Boolean(slug),
+    queryFn: () => endpointSchema(slug!),
+  });
+  const needs = useMemo(
+    () => (chosenManifest ? dataNeeds(chosenManifest, concreteTypes(schemaQuery.data), []) : []),
+    [chosenManifest, schemaQuery.data],
+  );
+
   const filteredRuns = useMemo(() => {
     const runs = (runsQuery.data?.items ?? []) as RunRecord[];
     return runs.filter((run) => {
@@ -213,7 +236,7 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
       appClass: "static",
       visibility: "project",
       prompt,
-      dataNeeds: [],
+      dataNeeds: needs,
       kind: newWorkKind,
       unattended: true,
     });
@@ -471,6 +494,10 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
             />
           </Field>
 
+          {needs.length === 0 && !schemaQuery.isPending ? (
+            <p className="text-caption text-fg-muted">{t("assistantPage.newWork.noTypes")}</p>
+          ) : null}
+
           {newWorkError ? (
             <p role="alert" className="text-caption font-medium text-danger">
               {newWorkError}
@@ -484,7 +511,8 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
             disabled={
               newWorkMutation.isPending ||
               !newWorkName.trim() ||
-              !newWorkPrompt.trim()
+              !newWorkPrompt.trim() ||
+              needs.length === 0
             }
           >
             {t("assistantPage.newWork.start")}

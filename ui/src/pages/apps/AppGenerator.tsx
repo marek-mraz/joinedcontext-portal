@@ -30,7 +30,7 @@ export const EXAMPLE_APPS = ["hsl-transport", "air-quality"] as const;
 export const MAX_ENDPOINTS = 5;
 
 /** The published model of one endpoint, read with the person's own session. */
-async function endpointSchema(slug: string): Promise<unknown> {
+export async function endpointSchema(slug: string): Promise<unknown> {
   const base = `${window.location.origin}/api/endpoint/${slug}/schema`;
   const index = (await fetchJson(`${base}/index.json`)) as { models?: { version?: number }[] };
   return fetchJson(`${base}/v${index.models?.[0]?.version ?? 1}/json-schema`);
