@@ -24,7 +24,11 @@
 //!   Yellow/Red proposals through MCP return the proposed Change directly (`{changeId, lane, url}`),
 //!   as the required approval by a human reviewer serves as the interaction gate.
 //!
-//! ponytail: per-token rate limiter not yet present in portal (AG-60); skipped per T-0637 instructions.
+//! Limits (AG-60), counted here and not only at the edge, whose bucket is keyed by the raw
+//! token string and does not exist for a caller inside the cluster (T-0839):
+//! - `MAX_CALLS_PER_MINUTE` per token subject; the call past it answers `429` with `Retry-After`.
+//! - `MAX_REQUEST_BYTES` on the request and `MAX_RESPONSE_BYTES` on the answer; either answers
+//!   `413` naming what to narrow, so one call cannot spend the Portal's memory on one client.
 
 use axum::body::{Body, Bytes};
 use axum::extract::State;
@@ -36,6 +40,15 @@ use serde_json::{json, Value};
 
 use crate::error::ApiError;
 use crate::state::AppState;
+
+/// Calls one bearer subject may make in a minute (AG-60). Generous for a working agent, far
+/// under what a loop costs: the edge's 1200 a minute is shared with the whole REST API.
+const MAX_CALLS_PER_MINUTE: u32 = 120;
+/// The largest request this route reads: a manifest, a draft or a bundle of arguments.
+const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+/// The largest answer it writes. A list that does not fit is narrowed by the caller, never
+/// streamed out of the Portal's memory in one piece.
+const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -108,6 +121,22 @@ pub async fn handle_mcp(
 
     if state.is_revoked(&session) {
         return unauthorized_response(&state);
+    }
+
+    if body.len() > MAX_REQUEST_BYTES {
+        return too_large(&format!(
+            "the request is {} bytes; this route reads at most {MAX_REQUEST_BYTES}. Send fewer \
+             arguments, or put a large manifest in a draft and name it",
+            body.len()
+        ));
+    }
+
+    if !state.mcp_call_allowed(
+        &session.identity.subject,
+        MAX_CALLS_PER_MINUTE,
+        crate::auth::session::now_unix(),
+    ) {
+        return rate_limited();
     }
 
     let caller = crate::ops::Caller {
@@ -545,11 +574,52 @@ fn parse_error() -> Response {
 }
 
 fn json_response(status: StatusCode, body: &Value) -> Response {
+    let bytes = serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec());
+    if bytes.len() > MAX_RESPONSE_BYTES {
+        return too_large(&format!(
+            "the answer is {} bytes; this route writes at most {MAX_RESPONSE_BYTES}. Ask for \
+             fewer items, one project, or one resource by name",
+            bytes.len()
+        ));
+    }
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec()),
-        ))
+        .body(Body::from(bytes))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// A request or an answer past the byte limit (AG-60): the status, and what to narrow.
+fn too_large(detail: &str) -> Response {
+    (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        [(header::CONTENT_TYPE, "application/json")],
+        Json(json!({
+            "jsonrpc": "2.0",
+            "error": { "code": -32001, "message": detail }
+        })),
+    )
+        .into_response()
+}
+
+/// One subject past its calls a minute (AG-60): the next minute is when it may call again.
+fn rate_limited() -> Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::RETRY_AFTER, "60"),
+        ],
+        Json(json!({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32000,
+                "message": format!(
+                    "this token has made {MAX_CALLS_PER_MINUTE} calls in a minute, the limit of \
+                     this route; the next minute opens a new budget (AG-60)"
+                )
+            }
+        })),
+    )
+        .into_response()
 }

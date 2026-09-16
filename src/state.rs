@@ -63,6 +63,11 @@ pub struct AppState {
     /// ponytail: per-replica map; move it to the preferences database when the portal
     /// runs more than one replica (the reconciler is leader-elected, the UI is not).
     revocations: Arc<RwLock<HashMap<String, i64>>>,
+    /// What each bearer subject has spent on `/api/v1/mcp` in the current minute (AG-60): the
+    /// unix second the window opened and the calls counted in it.
+    /// ponytail: per-replica map, like `revocations`; one bucket per subject is enough while
+    /// the Portal is one replica.
+    mcp_calls: Arc<RwLock<HashMap<String, (i64, u32)>>>,
 }
 
 impl AppState {
@@ -92,6 +97,7 @@ impl AppState {
             activity_events,
             kube: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
+            mcp_calls: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -239,6 +245,27 @@ impl AppState {
             let mark = marks.entry(subject.to_string()).or_insert(at);
             *mark = (*mark).max(at);
         }
+    }
+
+    /// Counts one MCP call of this subject and says whether it is within the minute's budget
+    /// (AG-60). The Portal counts for itself: the edge's bucket is keyed by the raw token and
+    /// does not exist for a caller inside the cluster.
+    pub fn mcp_call_allowed(&self, subject: &str, limit: u32, now: i64) -> bool {
+        let Ok(mut calls) = self.mcp_calls.write() else {
+            // A poisoned lock must not open the door wider than it was.
+            return false;
+        };
+        // ponytail: a fixed window that restarts a minute after its first call; a sliding
+        // window is the upgrade if bursts at the boundary ever matter.
+        let entry = calls.entry(subject.to_string()).or_insert((now, 0));
+        if now - entry.0 >= 60 {
+            *entry = (now, 0);
+        }
+        if entry.1 >= limit {
+            return false;
+        }
+        entry.1 += 1;
+        true
     }
 
     pub fn is_revoked(&self, session: &Session) -> bool {

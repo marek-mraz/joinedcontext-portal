@@ -666,3 +666,88 @@ async fn mcp_prompts_name_the_units_and_their_operations() {
     .await;
     assert_eq!(unknown["error"]["code"], -32602);
 }
+
+/// AG-60, T-0839: the route counts and bounds for itself, so a caller inside the cluster —
+/// where the edge's bucket does not exist — is bounded too.
+#[tokio::test]
+async fn the_mcp_route_bounds_the_calls_and_the_bytes_of_one_token() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "loop.bot",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+    let post = |body: Vec<u8>| {
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/mcp")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .unwrap()
+    };
+    let ping = serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })).unwrap();
+
+    // A request larger than the route reads is refused before it is parsed, naming what to do.
+    let huge = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "jc_catalog_search", "arguments": { "q": "x".repeat(1024 * 1024 + 16) } }
+    }))
+    .unwrap();
+    let resp = app.clone().oneshot(post(huge)).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("draft"),
+        "{body}"
+    );
+
+    // 120 calls a minute, and the one past it answers 429 with the minute to wait.
+    let mut last = StatusCode::OK;
+    for _ in 0..121 {
+        last = app
+            .clone()
+            .oneshot(post(ping.clone()))
+            .await
+            .unwrap()
+            .status();
+    }
+    assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+    let resp = app.clone().oneshot(post(ping.clone())).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(resp.headers().get(header::RETRY_AFTER).unwrap(), "60");
+
+    // The budget is the subject's own: another token still answers.
+    let other = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "second.bot",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/mcp")
+                .header(header::AUTHORIZATION, format!("Bearer {other}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(ping))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
