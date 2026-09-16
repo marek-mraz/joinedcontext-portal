@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { readCsrfToken } from "../../api/client";
+import { useOrgDomain } from "../../api/projects";
 import {
   Alert,
   Badge,
@@ -151,6 +152,8 @@ export function ModelFileDrop({
   icon?: boolean;
 }): JSX.Element {
   const { t } = useTranslation();
+  // The inferred model is minted under the organization's domain, as a hand-written one is.
+  const orgDomain = useOrgDomain(project);
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -185,7 +188,7 @@ export function ModelFileDrop({
         setProblem(t("models.infer.unreadable"));
         return;
       }
-      setDraft(draftOf(answer, `${project}.sk`, file.name));
+      setDraft(draftOf(answer, orgDomain, file.name));
     } catch {
       setProblem(t("models.infer.failed", { detail: "network" }));
     } finally {

@@ -179,7 +179,13 @@ const exploreRoute = createRoute({
     const { space, endpoint } = exploreRoute.useSearch();
     return (
       <Shell project={project}>
-        <ExplorePage project={project} initialSpace={space} initialEndpoint={endpoint} />
+        {/*
+          The page reads the space and the endpoint only as it mounts, so a second hand-off to
+          a card of the same page needs the mount HandOff gives it (T-0793, UI-46).
+        */}
+        <HandOff>
+          <ExplorePage project={project} initialSpace={space} initialEndpoint={endpoint} />
+        </HandOff>
       </Shell>
     );
   },

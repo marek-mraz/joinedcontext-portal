@@ -4,10 +4,12 @@
  * applies the operations through the editor's own seam.
  */
 import { render, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
+import { queryKeys } from "../src/api/client";
 import en from "../src/locales/en.json";
 import { ModelFileDrop, draftOf, inferAnswerOf, slotRows } from "../src/pages/models/ModelFileDrop";
 import type { InferAnswer } from "../src/pages/models/ModelFileDrop";
@@ -40,14 +42,42 @@ function csv(): File {
   });
 }
 
-function renderDrop(response: () => Response) {
-  const fetchMock = vi.fn(() => Promise.resolve(response()));
+/** A `Request`, a `URL` or a string: openapi-fetch sends one, the drop's own upload another. */
+function urlOf(input: unknown): string {
+  return typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+}
+
+/** The calls the drop itself makes, apart from the Organization list every page of the app reads. */
+function inferCalls(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter((call) => urlOf(call[0]).includes("/tools/infer-schema"));
+}
+
+function renderDrop(response: () => Response, organizations: unknown[] = []) {
+  const fetchMock = vi.fn((input: RequestInfo | URL) =>
+    urlOf(input).includes("/organizations")
+      ? Promise.resolve(
+          new Response(JSON.stringify({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: organizations }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+      : Promise.resolve(response()),
+  );
   vi.stubGlobal("fetch", fetchMock);
   const onPopulate = vi.fn();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The Organization list as another page of the app leaves it in the cache.
+  client.setQueryData(queryKeys.list("helsinki", "organizations"), {
+    apiVersion: "joinedcontext.com/v1alpha1",
+    kind: "List",
+    items: organizations,
+  });
   render(
-    <I18nextProvider i18n={i18n}>
-      <ModelFileDrop project="helsinki" onPopulate={onPopulate} />
-    </I18nextProvider>,
+    <QueryClientProvider client={client}>
+      <I18nextProvider i18n={i18n}>
+        <ModelFileDrop project="helsinki" onPopulate={onPopulate} />
+      </I18nextProvider>
+    </QueryClientProvider>,
   );
   return { fetchMock, onPopulate };
 }
@@ -70,8 +100,8 @@ describe("a model from a dropped file", () => {
     await userEvent.upload(screen.getByLabelText(en.models.infer.chooseFile), csv());
 
     const dialog = await screen.findByRole("dialog");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(inferCalls(fetchMock)).toHaveLength(1);
+    const [url, init] = inferCalls(fetchMock)[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/v1/tools/infer-schema");
     expect(init.method).toBe("POST");
     expect(init.credentials).toBe("same-origin");
@@ -122,7 +152,28 @@ describe("a model from a dropped file", () => {
     await userEvent.upload(screen.getByLabelText(en.models.infer.chooseFile), huge);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(en.models.infer.tooLarge);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(inferCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it("mints the draft under the organization's own domain, not a guess from the project (T-0794)", async () => {
+    const { onPopulate } = renderDrop(
+      () => new Response(JSON.stringify(ANSWER), { status: 200, headers: { "Content-Type": "application/json" } }),
+      [
+        {
+          apiVersion: "joinedcontext.com/v1alpha1",
+          kind: "Organization",
+          metadata: { name: "city-of-helsinki", namespace: "helsinki" },
+          spec: { domain: "hel.fi" },
+        },
+      ],
+    );
+    await userEvent.upload(screen.getByLabelText(en.models.infer.chooseFile), csv());
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.models.infer.populate }));
+
+    const [source] = onPopulate.mock.calls[0] as [string, InferAnswer];
+    expect(source).toContain("id: https://hel.fi/models/sensors");
+    expect(source).not.toContain("helsinki.sk");
   });
 
   it("shows the Portal's reason when the sample cannot be read", async () => {

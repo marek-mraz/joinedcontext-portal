@@ -8,7 +8,7 @@ import type { Manifest } from "../../api/manifest";
 import { useBranding } from "../../branding";
 import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
 import { EntityFilters } from "../../components/entities/EntityFilters";
-import { fetchEntities, filterSlotsOf } from "../../components/entities/filters";
+import { fetchEntities, filterSlotsOf, useModelSource } from "../../components/entities/filters";
 import type { Entity, EntityQuery, FilterSlot } from "../../components/entities/filters";
 import { Alert, Button, Field, Input, Select } from "../../components/ui";
 import { entityTypesOf, pickReadEndpoint, spaceOf } from "../spaces/SpaceInside";
@@ -459,7 +459,7 @@ export function PipelineStudio({
   const model = modelList.find((m) => m.metadata.name === refName(spaceManifest?.spec.dataModelRef));
   const types = model ? entityTypesOf(model) : [];
   const type = draft?.source?.query?.type as string | undefined;
-  const slots: FilterSlot[] = filterSlotsOf(model, type);
+  const slots: FilterSlot[] = filterSlotsOf(useModelSource(project, model), type);
   if (slots.length === 0) {
     // No inline model: the sample's own keys are the attributes there are.
     for (const row of sample ?? []) {

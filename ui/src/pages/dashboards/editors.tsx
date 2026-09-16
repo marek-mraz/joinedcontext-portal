@@ -6,7 +6,7 @@ import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { isChange, plainTitle, prune, refName } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { EntityFilters } from "../../components/entities/EntityFilters";
-import { filterSlotsOf } from "../../components/entities/filters";
+import { filterSlotsOf, useModelSource } from "../../components/entities/filters";
 import { ResourceFormDialog } from "../../components/ResourceFormDialog";
 import { dashboardSchema, dashboardUiSchema, layerSchema, layerUiSchema } from "../../schemas/kinds";
 import { entityTypesOf, spaceOf } from "../spaces/SpaceInside";
@@ -226,7 +226,7 @@ export function LayerEditor({
   const space = endpoint ? spaces.find((s) => s.metadata.name === spaceOf(endpoint)) : undefined;
   const model = models.find((m) => m.metadata.name === refName(space?.spec.dataModelRef));
   const types = useMemo(() => (model ? entityTypesOf(model) : []), [model]);
-  const slots = filterSlotsOf(model, editing?.entityType || undefined);
+  const slots = filterSlotsOf(useModelSource(project, model), editing?.entityType || undefined);
   const endpointNames = useMemo(() => endpoints.map((e) => e.metadata.name), [endpoints]);
   const schema = useMemo(() => layerSchema(t, endpointNames, types), [t, endpointNames, types]);
 

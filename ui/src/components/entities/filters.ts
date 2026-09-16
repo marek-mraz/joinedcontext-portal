@@ -4,6 +4,7 @@
  * is the only truth; the rows are a view of it, so the explorer, the pipeline studio and the
  * YAML view cannot disagree about what a pipeline reads (PL-42).
  */
+import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../../api/client";
 import type { Manifest } from "../../api/manifest";
 import { endpointUrl } from "../endpoints/links";
@@ -43,10 +44,48 @@ const NUMERIC = ["integer", "float", "double", "decimal"];
 const TEMPORAL = ["date", "datetime"];
 const RESERVED = ["id", "type", "@context"];
 
-/** The slots of one class of an inline LinkML model, `[]` when the model is not inline. */
-export function filterSlotsOf(model: Manifest | undefined, type: string | undefined): FilterSlot[] {
+/**
+ * The LinkML text a DataModel manifest carries itself, `undefined` when it only points at the
+ * file in the repository (a committed model's `spec.linkml` is a relative path).
+ */
+function inlineSource(model: Manifest | undefined): string | undefined {
   const source = model?.spec.linkml ?? model?.spec.source;
-  if (!type || typeof source !== "string" || !source.includes("\n")) {
+  return typeof source === "string" && source.includes("\n") ? source : undefined;
+}
+
+/**
+ * The LinkML of a DataModel: the manifest's own when it holds it, else the file the repository
+ * keeps, read through DM-56's source route and cached under the key the model editor already
+ * uses. Without the fetch a committed model offers no filter rows anywhere (T-0797).
+ */
+export function useModelSource(project: string, model: Manifest | undefined): string | undefined {
+  const inline = inlineSource(model);
+  const name = model?.metadata.name;
+  const loaded = useQuery({
+    queryKey: ["datamodel-source", project, name],
+    enabled: Boolean(name) && inline === undefined,
+    queryFn: async () => {
+      // A `Request` on this origin, as the gateway reads below: the user's session travels with it.
+      const path = `/api/v1/projects/${encodeURIComponent(project)}/datamodels/${encodeURIComponent(name ?? "")}/source`;
+      const response = await globalThis.fetch(
+        new Request(`${window.location.origin}${path}`, { headers: { Accept: "text/yaml, text/plain, */*" } }),
+      );
+      if (!response.ok) {
+        throw new ApiError(response.status, response.statusText || `HTTP ${response.status}`);
+      }
+      return response.text();
+    },
+  });
+  return inline ?? loaded.data;
+}
+
+/** The slots of one class of a LinkML model, from its text or an inline manifest; `[]` without one. */
+export function filterSlotsOf(
+  model: Manifest | string | undefined,
+  type: string | undefined,
+): FilterSlot[] {
+  const source = typeof model === "string" ? model : inlineSource(model);
+  if (!type || source === undefined) {
     return [];
   }
   const parsed = parseModel(source);

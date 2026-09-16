@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -8,7 +8,7 @@ import { api, ApiError, queryKeys, readCsrfToken, unwrap } from "../api/client";
 import { asManifests, isChange, localized, overlay, plainTitle } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import type { Verdict } from "../api/drafts";
-import { useProjects } from "../api/projects";
+import { useOrgDomain, useProjects } from "../api/projects";
 import { takePrefill } from "../assistant/state";
 import { PermissionGuard } from "../components/ui/PermissionGuard";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
@@ -319,16 +319,6 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     }
   }
 
-  const orgsQuery = useQuery({
-    queryKey: queryKeys.list(project, "organizations"),
-    queryFn: async () =>
-      unwrap(
-        await api.GET("/api/v1/projects/{project}/{plural}", {
-          params: { path: { project, plural: "organizations" } },
-        }),
-      ),
-  });
-
   const spacesQuery = useQuery({
     queryKey: queryKeys.list(project, "spaces"),
     queryFn: async () =>
@@ -376,11 +366,8 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
 
   const [verdict, setVerdict] = useState<Verdict | null>(null);
 
-  const orgDomain = useMemo(() => {
-    const orgs = asManifests(orgsQuery.data?.items ?? []);
-    const domain = (orgs[0]?.spec as { domain?: string })?.domain;
-    return domain || project;
-  }, [orgsQuery.data, project]);
+  // The policy's assigner is the organization, so the same domain the model editor mints under.
+  const orgDomain = useOrgDomain(project);
 
   const editedSpace = editing?.contextSpaceRef;
   const spaceHasModel =

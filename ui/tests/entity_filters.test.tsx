@@ -47,6 +47,11 @@ const MODEL: Manifest = {
   metadata: { name: "bb-air-quality", namespace: "banskabystrica" },
   spec: { linkml: AIR_MODEL, version: "1.0.0", classes: ["AirQualityObserved"] },
 };
+/** How a committed model reaches the UI: `spec.linkml` is the path of the file in the repository. */
+const COMMITTED: Manifest = {
+  ...MODEL,
+  spec: { linkml: "models/bb-air-quality.yaml", version: "1.0.0", classes: ["AirQualityObserved"] },
+};
 const SPACES = list([
   {
     apiVersion: "joinedcontext.com/v1alpha1",
@@ -83,6 +88,12 @@ describe("filters from the model", () => {
     expect(slots[3].kind).toBe("Relationship");
     expect(filterSlotsOf(MODEL, "Nope")).toEqual([]);
     expect(filterSlotsOf(undefined, "AirQualityObserved")).toEqual([]);
+  });
+
+  it("takes the model as text, and a manifest that only points at the file gives nothing (T-0797)", () => {
+    expect(filterSlotsOf(AIR_MODEL, "AirQualityObserved")).toEqual(slots);
+    expect(filterSlotsOf(COMMITTED, "AirQualityObserved")).toEqual([]);
+    expect(filterSlotsOf("", "AirQualityObserved")).toEqual([]);
   });
 
   it("offers the operators the range allows", () => {
@@ -129,7 +140,7 @@ describe("filters from the model", () => {
   });
 });
 
-function renderExplore() {
+function renderExplore(model: Manifest = MODEL) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -149,7 +160,11 @@ function renderExplore() {
     }
     if (url.pathname.endsWith("/spaces")) return json(SPACES);
     if (url.pathname.endsWith("/endpoints")) return json(ENDPOINTS);
-    if (url.pathname.endsWith("/datamodels")) return json(list([MODEL]));
+    if (url.pathname.endsWith("/datamodels")) return json(list([model]));
+    // The source route DM-56 serves for a model the repository holds as a file.
+    if (url.pathname.endsWith("/datamodels/bb-air-quality/source")) {
+      return Promise.resolve(new Response(AIR_MODEL, { status: 200, headers: { "Content-Type": "text/yaml" } }));
+    }
     return json(list([]));
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -214,5 +229,21 @@ describe("data explorer (UI-33)", () => {
     const detail = await screen.findByTestId("explore-entity");
     await within(detail).findByText(/observedAt/);
     expect(gatewayUrls(fetchMock).at(-1)!.pathname).toContain(encodeURIComponent(ROWS[1].id));
+  });
+
+  it("generates the rows of a model the repository holds as a file (T-0797)", async () => {
+    const fetchMock = renderExplore(COMMITTED);
+    await screen.findByRole("heading", { name: en.explore.title });
+    await userEvent.selectOptions(await screen.findByLabelText(en.explore.space), "ovzdusie");
+    await userEvent.selectOptions(await screen.findByLabelText(en.entities.type), "AirQualityObserved");
+
+    // The source route carried the LinkML the manifest only names, so the rows are typed.
+    await userEvent.click(screen.getByRole("button", { name: en.entities.addFilter }));
+    await waitFor(() => expect(screen.getByLabelText(en.entities.value)).toHaveAttribute("type", "number"));
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        new URL((call[0] as Request).url).pathname.endsWith("/datamodels/bb-air-quality/source"),
+      ),
+    ).toBe(true);
   });
 });

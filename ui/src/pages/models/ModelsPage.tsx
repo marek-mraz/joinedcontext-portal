@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, queryKeys, readCsrfToken, unwrap } from "../../api/client";
 import type { ProblemDetails } from "../../api/client";
 import { asManifests, refName } from "../../api/manifest";
+import { useOrgDomain } from "../../api/projects";
 import type { Change } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
@@ -63,6 +64,8 @@ export function ModelsPage({
   mappable = [],
 }: ModelsPageProps): JSX.Element {
   const { t } = useTranslation();
+  // A new model's IRIs are minted under the organization's own domain (DM-13), never a guess.
+  const orgDomain = useOrgDomain(project);
   // What the assistant's dock left for this page: a draft from a dropped file opens straight in
   // the editor, and a model it changed (`?edit=<name>`, AG-77) opens with its operations, which
   // are applied to the source once it is loaded (DM-13).
@@ -140,7 +143,7 @@ export function ModelsPage({
       handedOperations && loaded.data !== undefined ? applyOperations(loaded.data, handedOperations) : undefined,
     [handedOperations, loaded.data],
   );
-  const source = edited ?? applied?.source ?? loaded.data ?? blankSource(`${project}.sk`, "new-model");
+  const source = edited ?? applied?.source ?? loaded.data ?? blankSource(orgDomain, "new-model");
   const setSource = setEdited;
   const publishedSource = published?.source ?? loaded.data;
 

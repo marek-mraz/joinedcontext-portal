@@ -6,7 +6,7 @@ import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized, refName } from "../../api/manifest";
 import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
 import { EntityFilters } from "../../components/entities/EntityFilters";
-import { fetchEntities, fetchEntity, filterSlotsOf } from "../../components/entities/filters";
+import { fetchEntities, fetchEntity, filterSlotsOf, useModelSource } from "../../components/entities/filters";
 import type { EntityQuery } from "../../components/entities/filters";
 import {
   Alert,
@@ -90,7 +90,7 @@ export function ExplorePage({
     (m) => m.metadata.name === refName(spaceManifest?.spec.dataModelRef),
   );
   const types = model ? entityTypesOf(model) : [];
-  const slots = filterSlotsOf(model, query.type);
+  const slots = filterSlotsOf(useModelSource(project, model), query.type);
   const access = useAccess(slug);
   const denied = deniedAttributes(access.data, query.type, slots, t);
 
