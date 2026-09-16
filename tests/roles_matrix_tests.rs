@@ -21,7 +21,7 @@ const PROJECT: &str = "helsinki";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Who {
-    /// No binding: reads the project, proposes nothing.
+    /// The seeded `read` on every project kind: reads the project, proposes nothing (PF-59, PF-61).
     Viewer,
     /// `propose` on every kind of the matrix, like the editor roles.
     Editor,
@@ -49,7 +49,7 @@ impl Who {
 
     fn verbs(self) -> &'static [&'static str] {
         match self {
-            Who::Viewer => &[],
+            Who::Viewer => &["read"],
             Who::Editor => &["propose"],
             Who::Steward => &["propose", "approve"],
             Who::Admin => &["propose", "approve", "delete"],
@@ -274,7 +274,7 @@ async fn forge() -> MockServer {
 fn state_with(gitea: &MockServer) -> AppState {
     let state = common::state_on(gitea);
     let kinds: Vec<&str> = FAMILIES.iter().map(|family| family.kind).collect();
-    for who in [Who::Editor, Who::Steward, Who::Admin] {
+    for who in PEOPLE {
         state.mirror.upsert(envelope(
             "Role",
             who.name(),
