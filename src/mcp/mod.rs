@@ -24,8 +24,11 @@
 //!
 //! Note on interaction lanes (AG-61..AG-63):
 //! - Drafts (AG-61) and verdict gating (AG-62) are supported across operations.
-//!   Yellow/Red proposals through MCP return the proposed Change directly (`{changeId, lane, url}`),
-//!   as the required approval by a human reviewer serves as the interaction gate.
+//! - A call whose operation takes the Yellow or the Red lane, or carries `destructiveHint`,
+//!   asks the person first (AG-63): the first `tools/call` runs nothing and answers an
+//!   elicitation, the client repeats it with the person's answer, and the answer is written to
+//!   the project's activity. See [`elicitation`]. The approval of the change it opens is the
+//!   second gate, not the first.
 //!
 //! Limits (AG-60), counted here and not only at the edge, whose bucket is keyed by the raw
 //! token string and does not exist for a caller inside the cluster (T-0839):
@@ -44,6 +47,7 @@ use serde_json::{json, Value};
 use crate::error::ApiError;
 use crate::state::AppState;
 
+pub mod elicitation;
 pub mod tasks;
 
 /// Calls one bearer subject may make in a minute (AG-60). Generous for a working agent, far
@@ -286,6 +290,70 @@ pub async fn handle_mcp(
             let mut input = arguments.clone();
             if let Some(map) = input.as_object_mut() {
                 map.remove("project");
+            }
+
+            // AG-63: a Yellow or Red lane, or a destructive tool, asks the person before it
+            // runs. The first call answers the question; the second carries their answer.
+            if op.lane != crate::change::Lane::Green || op.annotations.destructive_hint {
+                let owner = caller.identity.subject.as_str();
+                let digest = elicitation::digest_of(&input);
+                match params.get("elicitation") {
+                    None => {
+                        let elicitation_id =
+                            state.mcp_elicitations.ask(owner, op.name, project, &digest);
+                        return json_response(
+                            StatusCode::OK,
+                            &result(
+                                id,
+                                elicitation::document(
+                                    &elicitation_id,
+                                    &format!(
+                                        "{} in project '{project}' ({} lane). Nothing has run: \
+                                         open the Portal, look at what this would change, and \
+                                         send this call again with the answer.",
+                                        op.title,
+                                        lane_word(op.lane)
+                                    ),
+                                    &confirm_url(&state, project, op.kind, &input),
+                                ),
+                            ),
+                        );
+                    }
+                    Some(sent) => match state
+                        .mcp_elicitations
+                        .answer(owner, op.name, project, &digest, sent)
+                    {
+                        elicitation::Answer::Accepted => {
+                            record_answer(&state, project, &caller, op.name, "accepted").await;
+                        }
+                        elicitation::Answer::Declined => {
+                            record_answer(&state, project, &caller, op.name, "declined").await;
+                            return json_response(
+                                StatusCode::OK,
+                                &result(
+                                    id,
+                                    failure_result(
+                                        "the person declined this call; nothing was run (AG-63)",
+                                    ),
+                                ),
+                            );
+                        }
+                        elicitation::Answer::Unknown => {
+                            return json_response(
+                                StatusCode::OK,
+                                &result(
+                                    id,
+                                    failure_result(
+                                        "that answer belongs to no open question of this call: \
+                                         an answer is spent once, expires in ten minutes and is \
+                                         bound to these arguments. Call again without \
+                                         `elicitation` to ask anew (AG-63)",
+                                    ),
+                                ),
+                            );
+                        }
+                    },
+                }
             }
 
             // A call that waits on the runner, on Model Tools or on somebody's feed answers a
@@ -628,6 +696,65 @@ fn parse_error() -> Response {
         "error": { "code": -32700, "message": "parse error" }
     });
     json_response(StatusCode::OK, &body)
+}
+
+/// The lane, as the sentence a person reads names it.
+fn lane_word(lane: crate::change::Lane) -> &'static str {
+    match lane {
+        crate::change::Lane::Green => "green",
+        crate::change::Lane::Yellow => "yellow",
+        crate::change::Lane::Red => "red",
+    }
+}
+
+/// Where the person looks at what the call would do: the project's page for that kind.
+///
+/// An operation of one kind names it; `jc_resource_*` takes any kind, so the arguments name it
+/// and the page is the one holding the resource the call is about.
+fn confirm_url(state: &AppState, project: &str, kind: &str, input: &Value) -> String {
+    let base = state.config.public_base_url.as_str().trim_end_matches('/');
+    let named = input
+        .get("kind")
+        .and_then(Value::as_str)
+        .or_else(|| input.pointer("/manifest/kind").and_then(Value::as_str))
+        .or_else(|| input.pointer("/draft/kind").and_then(Value::as_str));
+    let kind = match kind {
+        "*" => named.unwrap_or(kind),
+        named_by_operation => named_by_operation,
+    };
+    match crate::resource::by_kind(kind) {
+        Some(info) => format!("{base}/projects/{project}/{}", info.plural),
+        None => format!("{base}/projects/{project}"),
+    }
+}
+
+/// The person's answer, on the project's activity: who allowed what, and when (AG-56, AG-63).
+async fn record_answer(
+    state: &AppState,
+    project: &str,
+    caller: &crate::ops::Caller,
+    operation: &str,
+    decision: &str,
+) {
+    let event = crate::activity::ActivityEvent {
+        time: chrono::Utc::now(),
+        project: project.to_owned(),
+        space: None,
+        kind: "mcp.tool".to_owned(),
+        source: "portal".to_owned(),
+        summary: format!(
+            "{} {decision} {operation} asked through MCP",
+            caller.identity.username
+        ),
+        severity: "info".to_owned(),
+        correlation_id: None,
+        details: json!({
+            "operation": operation,
+            "decision": decision,
+            "subject": caller.identity.subject,
+        }),
+    };
+    let _ = state.activity.append(&[event]).await;
 }
 
 /// One operation's answer as a `tools/call` result.

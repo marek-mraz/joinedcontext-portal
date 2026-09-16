@@ -883,3 +883,110 @@ async fn a_long_call_answers_a_task_the_caller_polls_and_a_short_one_answers_inl
     );
     assert!(inline["result"].get("task").is_none());
 }
+
+/// AG-63, T-0836: a Red call runs nothing on the agent's word. The first call answers the
+/// question, the second carries the person's answer, and the answer is on the activity.
+#[tokio::test]
+async fn a_red_call_asks_the_person_before_it_runs_and_a_refusal_runs_nothing() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+    let call = |params: Value| {
+        let app = app.clone();
+        let token = token.clone();
+        async move {
+            let body =
+                json!({ "jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": params });
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/mcp")
+                        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+            serde_json::from_slice::<Value>(&bytes).unwrap()
+        }
+    };
+    let arguments = json!({
+        "project": "ovzdusie",
+        "kind": "Endpoint",
+        "name": "public-air",
+        "confirm": "public-air"
+    });
+
+    // 1. The call the model makes alone: a question, and nothing removed.
+    let asked = call(json!({ "name": "jc_resource_delete", "arguments": arguments })).await;
+    let elicitation = &asked["result"]["structuredContent"]["elicitation"];
+    let elicitation_id = elicitation["elicitationId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a question: {asked}"))
+        .to_owned();
+    assert_eq!(asked["result"]["status"], json!("input_required"));
+    assert_eq!(elicitation["mode"], json!("url"));
+    assert!(
+        elicitation["url"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("/projects/ovzdusie/endpoints"),
+        "{asked}"
+    );
+
+    // 2. An answer to a question nobody asked is refused, and still nothing runs.
+    let forged = call(json!({
+        "name": "jc_resource_delete",
+        "arguments": arguments,
+        "elicitation": { "elicitationId": "eli-0000000000000000", "action": "accept" }
+    }))
+    .await;
+    assert_eq!(forged["result"]["isError"], json!(true), "{forged}");
+
+    // 3. The person declines: the call is refused by name, nothing runs.
+    let declined = call(json!({
+        "name": "jc_resource_delete",
+        "arguments": arguments,
+        "elicitation": { "elicitationId": elicitation_id, "action": "decline" }
+    }))
+    .await;
+    assert_eq!(declined["result"]["isError"], json!(true));
+    assert!(
+        declined["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("declined"),
+        "{declined}"
+    );
+
+    // 4. The same id is spent: it cannot be answered a second time.
+    let again = call(json!({
+        "name": "jc_resource_delete",
+        "arguments": arguments,
+        "elicitation": { "elicitationId": elicitation_id, "action": "accept" }
+    }))
+    .await;
+    assert_eq!(again["result"]["isError"], json!(true), "{again}");
+
+    // 5. A green read is untouched by any of this.
+    let read = call(json!({
+        "name": "jc_catalog_search",
+        "project": "ovzdusie",
+        "arguments": { "q": "air" }
+    }))
+    .await;
+    assert!(read["result"]["structuredContent"].is_object(), "{read}");
+    assert!(read["result"]["structuredContent"]
+        .get("elicitation")
+        .is_none());
+}

@@ -71,6 +71,8 @@ pub struct AppState {
     /// The MCP calls that outlive their request (AG-60): a client starts one, polls it and
     /// reads its result through `tasks/*`.
     pub mcp_tasks: crate::mcp::tasks::McpTasks,
+    /// The questions a Yellow or Red MCP call is waiting on (AG-63).
+    pub mcp_elicitations: crate::mcp::elicitation::McpElicitations,
 }
 
 impl AppState {
@@ -102,6 +104,7 @@ impl AppState {
             revocations: Arc::new(RwLock::new(HashMap::new())),
             mcp_calls: Arc::new(RwLock::new(HashMap::new())),
             mcp_tasks: crate::mcp::tasks::McpTasks::new(),
+            mcp_elicitations: crate::mcp::elicitation::McpElicitations::new(),
         }
     }
 

@@ -39,7 +39,14 @@ pub const KINDS: &[&str] = &[
 ];
 
 /// Which component said so.
-pub const SOURCES: &[&str] = &["reconciler", "pipeline", "gateway", "broker", "ckan"];
+pub const SOURCES: &[&str] = &[
+    "reconciler",
+    "pipeline",
+    "gateway",
+    "broker",
+    "ckan",
+    "portal",
+];
 
 /// How long an event is kept (OPS-49). The per-minute counters it aggregates into live longer,
 /// and are not this table.
