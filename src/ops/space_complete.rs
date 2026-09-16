@@ -983,6 +983,25 @@ pub async fn run(
 
     // Save Endpoint draft
     if let Some(m) = endpoint_manifest {
+        // A new endpoint on a new space is a door nobody may pass yet: without a Policy the
+        // pipeline's upsert is refused and the space answers no read tool, so the space the
+        // agent just made holds nothing and shows nothing (T-0908). Two grants, no more: the
+        // service account that loads it writes, and the endpoint's own audience reads.
+        if inferred_endpoint {
+            let audience = m
+                .pointer("/spec/audience")
+                .and_then(Value::as_str)
+                .unwrap_or("organization")
+                .to_owned();
+            let name = m
+                .pointer("/metadata/name")
+                .and_then(Value::as_str)
+                .unwrap_or("endpoint")
+                .to_owned();
+            for policy in policies_for(state, project, &space_name, &name, &class_name, &audience) {
+                drafts.push(checked_draft(caller, state, project, policy, true).await?);
+            }
+        }
         drafts.push(checked_draft(caller, state, project, m, inferred_endpoint).await?);
     }
 
@@ -1211,6 +1230,73 @@ pub async fn run(
 /// The Layer and the Dashboard that draw the records over `endpoint`, or none when the project
 /// already has either name: circles coloured by the first measure of the model, the name and that
 /// measure in the popup, `project` visibility (UI-19).
+/// The two grants a space the agent just made needs to be loaded and read (T-0908, PF-31):
+/// the write for the account the runner authenticates as, taken from a write Policy the project
+/// already has so a project that renamed it keeps working, and the read for the audience the
+/// endpoint declares — the same mapping `propose_endpoint` uses (EP-72).
+fn policies_for(
+    state: &AppState,
+    project: &str,
+    space: &str,
+    endpoint: &str,
+    class: &str,
+    audience: &str,
+) -> Vec<Value> {
+    let org = crate::api::assistant::org_domain(state, project);
+    let writer = state
+        .mirror
+        .list(project, "Policy", &crate::store::ListOptions::default())
+        .items
+        .into_iter()
+        .find(|p| {
+            p.spec
+                .get("operations")
+                .and_then(Value::as_array)
+                .is_some_and(|ops| ops.iter().any(|op| op == "upsertBatch"))
+        })
+        .map(|p| p.spec.get("assignee").cloned().unwrap_or(Value::Null))
+        .filter(|assignee| assignee.is_object())
+        .unwrap_or_else(|| json!({ "kind": "serviceAccount", "id": "pipelines" }));
+    let reader = match audience {
+        "public" => json!({ "kind": "role", "id": "public" }),
+        _ => json!({ "kind": "group", "id": org }),
+    };
+    let policy = |name: String, title: String, assignee: Value, operations: Value, typed: bool| {
+        let mut spec = json!({
+            "contextSpaceRef": { "kind": "ContextSpace", "name": space },
+            "assigner": format!("did:web:{org}"),
+            "assignee": assignee,
+            "operations": operations,
+        });
+        if typed {
+            // A read grant that names no type matches nothing on a read (PL-45).
+            spec["information"] = json!([{ "entities": [{ "type": class }] }]);
+        }
+        json!({
+            "apiVersion": API_VERSION,
+            "kind": "Policy",
+            "metadata": { "name": name, "namespace": project, "title": { "en": title } },
+            "spec": spec,
+        })
+    };
+    vec![
+        policy(
+            format!("{space}-pipelines-write"),
+            format!("The pipeline writes {space}"),
+            writer,
+            json!(["upsertBatch", "createBatch", "queryBatch"]),
+            false,
+        ),
+        policy(
+            format!("{endpoint}-read"),
+            format!("Read {space} through {endpoint}"),
+            reader,
+            json!(["retrieveOps"]),
+            true,
+        ),
+    ]
+}
+
 fn map_of(
     state: &AppState,
     project: &str,

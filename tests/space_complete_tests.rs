@@ -688,3 +688,53 @@ async fn records_without_a_position_draw_no_map() {
     );
     assert!(mapping.contains("+ record.id.string()"), "{mapping}");
 }
+
+/// T-0908: the space the agent makes is loaded and read, not a door nobody may pass. The
+/// pipeline's upsert was refused 401 on dev and the assistant's own follow-up found no read
+/// tool on the endpoint it had just drafted, because `jc_space_complete` drafted no Policy.
+#[tokio::test]
+async fn a_drafted_space_carries_the_write_and_the_read_its_endpoint_needs() {
+    let (status, body) = complete_as_steward(json!({
+        "space": "city-bikes",
+        "typeName": "CityBike",
+        "url": "https://example.invalid/free_bike_status.json",
+    }))
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let policies: Vec<&Value> = body["drafts"]
+        .as_array()
+        .expect("drafts")
+        .iter()
+        .filter(|d| d["kind"] == "Policy")
+        .collect();
+    assert_eq!(policies.len(), 2, "one write, one read: {body}");
+
+    let write = policies
+        .iter()
+        .find(|p| p["manifest"]["spec"]["operations"][0] == "upsertBatch")
+        .expect("a write grant");
+    assert_eq!(write["manifest"]["spec"]["assignee"]["kind"], "serviceAccount");
+    assert_eq!(
+        write["manifest"]["spec"]["contextSpaceRef"]["name"], "city-bikes",
+        "the grant is the new space's, never the project's other spaces"
+    );
+
+    let read = policies
+        .iter()
+        .find(|p| p["manifest"]["spec"]["operations"][0] == "retrieveOps")
+        .expect("a read grant");
+    // The endpoint is organization-wide, so the audience is the organization's group, and the
+    // grant names the type: one that names none matches nothing on a read (PL-45, EP-72).
+    assert_eq!(read["manifest"]["spec"]["assignee"]["kind"], "group");
+    assert_eq!(
+        read["manifest"]["spec"]["information"][0]["entities"][0]["type"],
+        "CityBike"
+    );
+    assert!(
+        read["manifest"]["spec"]["operations"]
+            .as_array()
+            .is_some_and(|ops| ops.len() == 1),
+        "the audience reads and nothing else: {read}"
+    );
+}
