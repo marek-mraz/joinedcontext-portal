@@ -4,7 +4,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { usePermissions } from "../api/permissions";
-import { api, ApiError, queryKeys, unwrap } from "../api/client";
+import { api, ApiError, queryKeys, readCsrfToken, unwrap } from "../api/client";
 import { asManifests, isChange, localized, overlay, plainTitle } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import type { Verdict } from "../api/drafts";
@@ -513,7 +513,14 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         `${window.location.origin}/api/v1/projects/${encodeURIComponent(project)}/import${dryRun ? "?dryRun=All" : ""}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          // The import door mutates, so the session's double-submit token travels with it;
+          // without the header every Check and Propose of a projected endpoint is a bare 403
+          // and the dialog only says "not checked yet" (T-0898).
+          headers: {
+            "Content-Type": "application/json",
+            "x-csrf-token": readCsrfToken() ?? "",
+          },
           body: JSON.stringify({ manifests: buildManifests(form) }),
         },
       ),

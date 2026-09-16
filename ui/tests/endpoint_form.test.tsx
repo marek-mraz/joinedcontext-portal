@@ -172,6 +172,7 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     window.history.pushState({}, "", "/projects/banskabystrica/endpoints");
+    document.cookie = "jc_csrf=tok-1";
   });
 
   afterEach(() => {
@@ -231,6 +232,10 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
       const u = typeof c[0] === "string" ? c[0] : req.url;
       return u.includes("/import");
     })![0] as Request;
+
+    // The import door mutates, so it carries the session's double-submit token; without it the
+    // Portal answers a bare 403 and the dialog only says "not checked yet" (T-0898).
+    expect(importCall.headers.get("x-csrf-token")).toBe("tok-1");
 
     const payload = (await importCall.clone().json()) as { manifests: Record<string, unknown>[] };
     expect(payload.manifests).toBeDefined();
@@ -338,6 +343,10 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
       const u = typeof c[0] === "string" ? c[0] : req.url;
       return u.includes("/import");
     })![0] as Request;
+
+    // The import door mutates, so it carries the session's double-submit token; without it the
+    // Portal answers a bare 403 and the dialog only says "not checked yet" (T-0898).
+    expect(importCall.headers.get("x-csrf-token")).toBe("tok-1");
 
     const payload = (await importCall.clone().json()) as { manifests: Record<string, unknown>[] };
     expect(payload.manifests).toHaveLength(4); // ModelProjection, Endpoint, Read Policy, Write Policy
