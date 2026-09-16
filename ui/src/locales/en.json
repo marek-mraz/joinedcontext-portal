@@ -573,7 +573,8 @@
         "name": "Indicator name",
         "test": "Test on the endpoint's page",
         "testing": "Testing…",
-        "computedValue": "Computed value"
+        "computedValue": "Computed value",
+        "nothingRead": "Nothing was read from that endpoint for this type and attribute, so there is nothing to compute."
       },
       "process": "3. Process",
       "processHint": "A snippet writes the Bloblang below; edit it afterwards or pick another compute kind in the form.",

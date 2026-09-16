@@ -242,6 +242,57 @@ describe("PipelineStudio KPI preset", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Failed to fetch from endpoint");
   });
 
+  it("says nothing was read when the sample is empty and shows no value", async () => {
+    mockFetch({
+      status: 200,
+      body: { input: { events: 0, bytes: 0 }, mapping: [], validation: [], errors: [] },
+    });
+    const { onVerdict } = renderStudio();
+
+    await userEvent.selectOptions(screen.getByLabelText(en.pipelines.studio.preset.title), "kpi");
+    await userEvent.selectOptions(
+      await screen.findByLabelText(en.pipelines.studio.kpi.endpoint),
+      "helsinki-all",
+    );
+
+    await userEvent.click(screen.getByTestId("studio-kpi-test"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(en.pipelines.studio.kpi.nothingRead);
+    expect(screen.queryByTestId("studio-kpi-value")).toBeNull();
+    expect(onVerdict).toHaveBeenCalledWith(false, expect.any(String));
+  });
+
+  it("tests the draft's own mapping, so an ok trace opens Propose for what is proposed", async () => {
+    // The assistant (or the YAML view) wrote the mapping; a verdict on a regenerated one would
+    // belong to a text nobody proposes, and Propose would stay shut (PL-49, T-0911).
+    const written = 'root = {"id": "urn:ngsi-ld:KeyPerformanceIndicator:x", "hand": "written"}';
+    const fetchMock = mockFetch({ status: 200, body: KPI_TEST_ANSWER });
+    const { onVerdict } = renderStudio({
+      initial: {
+        name: "bikes-available-avg",
+        class: "auto",
+        period: "15m",
+        source: {
+          endpointRef: "helsinki-all",
+          query: { type: "BikeHireDockingStation", attrs: ["availableBikeNumber"] },
+        },
+        compute: { kind: "bloblang", bloblang: written },
+        output: { type: "KeyPerformanceIndicator", mode: "upsert" },
+        targetEndpoint: "urn:ngsi-ld:Endpoint:hel.fi:helsinki-kpi:kpi-writer",
+      } as PipelineForm,
+    });
+
+    await userEvent.click(await screen.findByTestId("studio-kpi-test"));
+
+    await waitFor(() => expect(onVerdict).toHaveBeenCalledWith(true, written));
+    const call = fetchMock.mock.calls.find(([input]) => String(input).includes("/pipelines/test"))!;
+    const body = JSON.parse((call[1] as RequestInit).body as string) as {
+      pipeline: { spec: PipelineForm };
+    };
+    expect(body.pipeline.spec.compute?.bloblang).toBe(written);
+    expect(await screen.findByTestId("studio-kpi-value")).toHaveTextContent("12.5");
+  });
+
   it("updates Bloblang and calls onChange when attribute or aggregate change", async () => {
     mockFetch();
     const { onChange } = renderStudio();

@@ -581,7 +581,8 @@
         "name": "Indicator name",
         "test": "Test on the endpoint's page",
         "testing": "Testing…",
-        "computedValue": "Computed value"
+        "computedValue": "Computed value",
+        "nothingRead": "Nothing was read from that endpoint for this type and attribute, so there is nothing to compute."
       }
     },
     "test": {

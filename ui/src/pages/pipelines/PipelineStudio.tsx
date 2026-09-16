@@ -342,16 +342,23 @@ export function PipelineStudio({
     }
 
     const sourceSpace = (chosenEndpoint ? spaceOf(chosenEndpoint) : undefined) ?? project;
-    const bloblang = kpiBloblang({
-      kpiName,
-      project,
-      sourceEndpoint: kpiEndpoint,
-      sourceSpace,
-      type: kpiType,
-      attribute: kpiAttribute,
-      aggregate: kpiAggregate,
-      period: kpiPeriod,
-    });
+    // The mapping the proposal will carry, not a fresh rendering of it: a draft written
+    // elsewhere — by the assistant, or typed in the YAML view — is what has to go green, or the
+    // verdict belongs to a text nobody proposes and Propose never opens (PL-49, T-0911).
+    const drafted = draft?.compute?.kind === "bloblang" ? (draft.compute.bloblang ?? "") : "";
+    const bloblang =
+      drafted.trim() !== ""
+        ? drafted
+        : kpiBloblang({
+            kpiName,
+            project,
+            sourceEndpoint: kpiEndpoint,
+            sourceSpace,
+            type: kpiType,
+            attribute: kpiAttribute,
+            aggregate: kpiAggregate,
+            period: kpiPeriod,
+          });
     const targetEndpoint =
       findKpiTargetEndpoint(project, endpoints, orgDomain) ?? draft?.targetEndpoint;
 
@@ -413,12 +420,21 @@ export function PipelineStudio({
       }
       const firstMapping = answer.mapping?.[0] as Record<string, unknown> | undefined;
       const currentValue = firstMapping?.currentValue as Record<string, unknown> | undefined;
-      const val = currentValue?.value ?? null;
-      setKpiValue(val);
       const isOk =
         answer.errors.length === 0 &&
         answer.validation.length > 0 &&
         answer.validation.every((v) => v.ok);
+      // A value beside a closed Propose reads as a working indicator; say what is wrong
+      // instead (UI-48, T-0911).
+      setKpiValue(isOk ? (currentValue?.value ?? null) : null);
+      if (!isOk) {
+        const problem = answer.validation.flatMap((v) => v.problems ?? [])[0];
+        setKpiTestError(
+          answer.validation.length === 0
+            ? t("pipelines.studio.kpi.nothingRead")
+            : (problem ?? t("pipelines.test.gate")),
+        );
+      }
       onVerdict?.(isOk, bloblang);
     } catch {
       setKpiTestError(t("pipelines.test.failed", { status: 0 }));
