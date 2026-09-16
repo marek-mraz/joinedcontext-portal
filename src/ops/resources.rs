@@ -160,8 +160,20 @@ fn reject_input_schema() -> Value {
     })
 }
 
+/// Where a kind's manifests live: an organization-scoped kind in `org`, every other in the
+/// project of the call (PF-59, T-0840). The assistant resolved this for itself; every door does
+/// it the same way now, so `jc_resource_list {kind: "Role"}` finds the roles there are.
+fn home_of(info: &'static crate::resource::KindInfo, project: &str) -> String {
+    if info.scope == jc_core::envelope::Scope::Organization {
+        crate::permissions::ORG_NAMESPACE.to_owned()
+    } else {
+        project.to_owned()
+    }
+}
+
 async fn list(state: &AppState, project: &str, input: ResourceListInput) -> Result<Value, OpError> {
     let info = kind_named(&input.kind)?;
+    let project = &home_of(info, project);
     let page = state
         .mirror
         .list(project, info.kind, &ListOptions::default());
@@ -181,6 +193,7 @@ async fn list(state: &AppState, project: &str, input: ResourceListInput) -> Resu
 
 async fn get(state: &AppState, project: &str, input: ResourceGetInput) -> Result<Value, OpError> {
     let info = kind_named(&input.kind)?;
+    let project = &home_of(info, project);
     match state.mirror.get(project, info.kind, &input.name) {
         Some(envelope) => Ok(serde_json::to_value(envelope)?),
         None => {
@@ -257,7 +270,7 @@ async fn remove(
     match delete::delete_with_identity(
         &caller.identity,
         state,
-        project,
+        &home_of(info, project),
         info.plural,
         &input.name,
         false,

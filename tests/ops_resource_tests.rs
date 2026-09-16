@@ -20,6 +20,7 @@ use joinedcontext_portal::ops::{self, Caller, Via};
 use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
+use joinedcontext_portal::store::Mirror;
 
 const CSRF_TOKEN: &str = "test-csrf-token-resources";
 const REPO: &str = "/api/v1/repos/test-owner/test-repo";
@@ -591,4 +592,69 @@ async fn listing_and_reading_answer_by_kind_and_space_and_an_unknown_name_gets_t
         unknown.to_string().contains("Endpoint"),
         "the kinds there are: {unknown}"
     );
+}
+
+/// PF-59, T-0840: an organization-level kind lives in `org`, and the operations find it there
+/// without the caller naming another project.
+#[tokio::test]
+async fn an_organization_kind_is_read_through_the_operations_of_any_project() {
+    let config = Config::for_tests();
+    let mirror = Arc::new(Mirror::new());
+    mirror.upsert(envelope(
+        "Role",
+        "editor",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": ["Pipeline"], "verbs": ["propose"] }] }),
+    ));
+    mirror.upsert(envelope(
+        "RoleBinding",
+        "editors",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": "steward@hel.fi" }],
+            "role": "editor",
+            "scope": { "organization": "hel" }
+        }),
+    ));
+    let state = AppState::new(config, None).with_mirror(mirror);
+    let caller = Caller {
+        identity: steward(),
+        via: Via::Mcp,
+    };
+
+    let list = ops::find("jc_resource_list").expect("registered");
+    let answer = ops::call(list, &caller, &state, "ovzdusie", json!({ "kind": "Role" }))
+        .await
+        .expect("the roles of the organization");
+    let names: Vec<&str> = answer["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    assert_eq!(names, vec!["editor"], "{answer}");
+
+    let get = ops::find("jc_resource_get").expect("registered");
+    let answer = ops::call(
+        get,
+        &caller,
+        &state,
+        "ovzdusie",
+        json!({ "kind": "RoleBinding", "name": "editors" }),
+    )
+    .await
+    .expect("the binding itself");
+    assert_eq!(answer["metadata"]["namespace"], json!("org"), "{answer}");
+
+    // A name that is not there still names the ones that are, from the same namespace.
+    let missing = ops::call(
+        get,
+        &caller,
+        &state,
+        "ovzdusie",
+        json!({ "kind": "Role", "name": "steward" }),
+    )
+    .await
+    .expect_err("no such role");
+    assert!(format!("{missing:?}").contains("editor"), "{missing:?}");
 }
