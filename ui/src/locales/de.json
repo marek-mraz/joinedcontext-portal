@@ -670,6 +670,16 @@
       "sizeBy": "Größe nach",
       "range": "Radius [min, max] px",
       "popup": "Attribute im Popup"
+    },
+    "pages": "Seiten",
+    "page": "Seite {number}",
+    "widgets": "Widgets",
+    "widget": {
+      "temporalChart": "{property} im Zeitverlauf",
+      "unsupported": "Diese Seite hat ein {type}-Widget, das das Portal noch nicht zeichnet.",
+      "noHistory": "Keine Historie zum Zeichnen.",
+      "latest": "Letzter Wert {property}: {value} ({count} Messungen)",
+      "chartLabel": "{property} von {entity} im Zeitverlauf"
     }
   },
   "access": {

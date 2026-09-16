@@ -15,6 +15,7 @@ import { rendersWithDeckGl } from "../components/dashboards/rendering";
 import { RAMP } from "../components/dashboards/MapLibreView";
 import type { Bbox, MapLayer } from "../components/dashboards/MapLibreView";
 import type { DenseLayer } from "../components/dashboards/DeckGlOverlay";
+import { TemporalChart } from "../components/dashboards/TemporalChart";
 import {
   DashboardEditor,
   dashboardFromManifest,
@@ -67,10 +68,18 @@ interface LayerSpec {
   popupProperties?: string[];
 }
 
+/** A widget of an analytics page (UI-18), as jc-core's `Widget` writes it. */
+interface WidgetSpec {
+  widgetType: string;
+  endpointRef?: string;
+  entityId?: string;
+  property?: string;
+}
+
 interface DashboardSpec {
   title?: Record<string, string>;
   visibility?: "private" | "project" | "organization" | "public";
-  pages?: { title?: string; layout?: string; layers?: string[] }[];
+  pages?: { title?: string; layout?: string; layers?: string[]; widgets?: WidgetSpec[] }[];
 }
 
 /**
@@ -158,6 +167,8 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   // The viewport after the reader moved the map, and the layers switched off in the legend.
   const [bbox, setBbox] = useState<Bbox | undefined>(undefined);
   const [hidden, setHidden] = useState<string[] | null>(null);
+  /** Which of the dashboard's pages is open; a dashboard of one page never shows the tabs. */
+  const [pageIndex, setPageIndex] = useState(0);
   const [change, setChange] = useState<Change | null>(null);
   const [editingDashboard, setEditingDashboard] = useState<DashboardForm | null>(null);
   const [editingLayer, setEditingLayer] = useState<LayerForm | null>(null);
@@ -225,9 +236,12 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   const spaceManifests = useMemo(() => asManifests(spaces.data?.items ?? []), [spaces.data]);
   const modelManifests = useMemo(() => asManifests(models.data?.items ?? []), [models.data]);
 
-  const { mapLayers, blocked, legend } = useMemo(() => {
+  const { mapLayers, blocked, legend, widgets } = useMemo(() => {
     const spec = (dashboard?.spec ?? {}) as DashboardSpec;
-    const page = spec.pages?.[0];
+    const pages = spec.pages ?? [];
+    // A dashboard with a second page used to end at the first one (T-0792): the reader
+    // chooses the page, and everything below is that page's.
+    const page = pages[Math.min(pageIndex, Math.max(pages.length - 1, 0))];
     const layerByName = new Map(layerManifests.map((item) => [item.metadata.name, item] as const));
     const endpointByName = new Map(endpointManifests.map((item) => [item.metadata.name, item] as const));
 
@@ -266,8 +280,19 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         popupProperties: layerSpec.popupProperties,
       });
     }
-    return { mapLayers: resolved, blocked: refused, legend: listed };
-  }, [dashboard, layerManifests, endpointManifests, hidden, bbox]);
+    // A widget reads through an Endpoint exactly as a layer does, UI-19 included.
+    const drawnWidgets: { widget: WidgetSpec; slug?: string }[] = [];
+    for (const widget of page?.widgets ?? []) {
+      const endpoint = widget.endpointRef ? endpointByName.get(widget.endpointRef) : undefined;
+      const endpointSpec = (endpoint?.spec ?? {}) as { slug?: string; audience?: string };
+      if (spec.visibility === "public" && endpointSpec.audience !== "public") {
+        refused.push(widget.endpointRef ?? widget.widgetType);
+        continue;
+      }
+      drawnWidgets.push({ widget, slug: endpointSpec.slug });
+    }
+    return { mapLayers: resolved, blocked: refused, legend: listed, widgets: drawnWidgets };
+  }, [dashboard, layerManifests, endpointManifests, hidden, bbox, pageIndex]);
 
   function toggle(name: string, on: boolean) {
     const current = hidden ?? legend.filter((entry) => entry.off).map((entry) => entry.name);
@@ -431,6 +456,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
                   onChange={(event) => {
                     setSelected(event.target.value);
                     setHidden(null);
+                    setPageIndex(0);
                   }}
                   className="min-w-[14rem]"
                 >
@@ -469,6 +495,30 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         </Alert>
       ) : null}
 
+      {(spec.pages ?? []).length > 1 ? (
+        <div role="tablist" aria-label={t("dashboards.pages")} className="flex flex-wrap gap-1">
+          {(spec.pages ?? []).map((page, index) => (
+            <button
+              key={page.title ?? index}
+              type="button"
+              role="tab"
+              aria-selected={index === pageIndex}
+              onClick={() => {
+                setPageIndex(index);
+                setHidden(null);
+              }}
+              className={
+                index === pageIndex
+                  ? "rounded border border-border bg-surface-subtle px-3 py-1 text-body font-medium"
+                  : "rounded border border-transparent px-3 py-1 text-body hover:bg-surface-subtle"
+              }
+            >
+              {page.title ?? t("dashboards.page", { number: index + 1 })}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <Card flush className="overflow-hidden">
         <Suspense fallback={<MapPlaceholder label={t("app.loading")} />}>
           {features.isPending && mapLayers.length > 0 ? (
@@ -485,6 +535,30 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
           )}
         </Suspense>
       </Card>
+
+      {widgets.length > 0 ? (
+        <div aria-label={t("dashboards.widgets")} className="grid gap-3 md:grid-cols-2">
+          {widgets.map(({ widget, slug }, index) =>
+            widget.widgetType === "temporal-chart" && slug && widget.entityId && widget.property ? (
+              <TemporalChart
+                key={`${widget.entityId}-${widget.property}-${index}`}
+                slug={slug}
+                entityId={widget.entityId}
+                property={widget.property}
+                title={t("dashboards.widget.temporalChart", { property: widget.property })}
+              />
+            ) : (
+              <p
+                key={`${widget.widgetType}-${index}`}
+                role="status"
+                className="rounded-lg border border-border bg-surface p-3 text-body text-fg-muted"
+              >
+                {t("dashboards.widget.unsupported", { type: widget.widgetType })}
+              </p>
+            ),
+          )}
+        </div>
+      ) : null}
 
       {legend.length > 0 ? (
         <ul aria-label={t("dashboards.legend")} className="flex flex-wrap gap-2">

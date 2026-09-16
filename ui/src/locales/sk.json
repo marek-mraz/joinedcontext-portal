@@ -670,6 +670,16 @@
       "sizeBy": "Veľkosť podľa",
       "range": "Polomer [min, max] px",
       "popup": "Atribúty v bubline"
+    },
+    "pages": "Stránky",
+    "page": "Stránka {number}",
+    "widgets": "Prvky",
+    "widget": {
+      "temporalChart": "{property} v čase",
+      "unsupported": "Táto stránka má prvok {type}, ktorý Portál zatiaľ nekreslí.",
+      "noHistory": "Niet histórie na vykreslenie.",
+      "latest": "Posledná hodnota {property}: {value} ({count} meraní)",
+      "chartLabel": "{property} entity {entity} v čase"
     }
   },
   "access": {

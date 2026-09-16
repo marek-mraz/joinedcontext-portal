@@ -670,6 +670,16 @@
       "sizeBy": "Size by",
       "range": "Radius [min, max] px",
       "popup": "Popup properties"
+    },
+    "pages": "Pages",
+    "page": "Page {number}",
+    "widgets": "Widgets",
+    "widget": {
+      "temporalChart": "{property} over time",
+      "unsupported": "This page has a {type} widget the Portal does not draw yet.",
+      "noHistory": "No history to draw.",
+      "latest": "Latest {property}: {value} ({count} readings)",
+      "chartLabel": "{property} of {entity} over time"
     }
   },
   "access": {
