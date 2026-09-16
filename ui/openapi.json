@@ -3015,6 +3015,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "No binding of the caller covers the project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }

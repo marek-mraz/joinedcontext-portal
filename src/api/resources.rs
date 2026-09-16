@@ -68,23 +68,23 @@ pub async fn list(
     Path((project, plural)): Path<(String, String)>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<ResourceList>, ApiError> {
-    // A project no binding of the caller covers is not there, whatever it holds (PF-59, R20).
-    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project() {
-        return Err(ApiError::NotFound(format!(
+    // One body for a plural that is not a kind, a kind no binding of the caller reads and a
+    // project no binding covers: what the caller may not read is not there (PF-59, R20).
+    let not_found = || {
+        ApiError::NotFound(format!(
             "plural '{plural}' not found in project '{project}'"
-        )));
+        ))
+    };
+    let kind_info = by_plural(&plural).ok_or_else(not_found)?;
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read(kind_info.kind)
+    {
+        return Err(not_found());
     }
     if query.revision.is_some() {
         return Err(ApiError::NotImplemented(
             "historical revisions are served from Git".into(),
         ));
     }
-
-    let kind_info = by_plural(&plural).ok_or_else(|| {
-        ApiError::NotFound(format!(
-            "plural '{plural}' not found in project '{project}'"
-        ))
-    })?;
 
     let limit = match query.limit {
         Some(0) => return Err(ApiError::BadRequest("limit must be greater than 0".into())),
@@ -160,10 +160,11 @@ pub async fn get_resource(
             "resource '{name}' not found in project '{project}'"
         ))
     };
-    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project() {
+    let kind_info = by_plural(&plural).ok_or_else(not_found)?;
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read(kind_info.kind)
+    {
         return Err(not_found());
     }
-    let kind_info = by_plural(&plural).ok_or_else(not_found)?;
     let envelope = state
         .mirror
         .get(&project, kind_info.kind, &name)

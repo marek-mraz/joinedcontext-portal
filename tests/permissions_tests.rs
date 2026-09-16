@@ -420,3 +420,135 @@ async fn permissions_me_lists_the_grants_of_the_caller() {
         "spec.audience"
     );
 }
+
+// --- PF-59: reading is a verb, per kind ------------------------------------------------------
+
+async fn get(app: axum::Router, config: &Config, who: Identity, uri: &str) -> (StatusCode, String) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(uri)
+                .header(header::COOKIE, cookies(config, who))
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// A developer proposes pipelines, so they read pipelines; nobody gave them the project's
+/// service accounts, and a kind they may not read is not there (PF-59, R20, T-0906).
+#[tokio::test]
+async fn a_list_answers_only_the_kinds_the_caller_reads() {
+    let config = Config::for_tests();
+    let envelopes = vec![
+        developer_role(),
+        binding(
+            "developers",
+            "pipeline-developer",
+            json!([{ "user": "jana@hel.fi" }]),
+            json!({ "project": "ovzdusie" }),
+            None,
+        ),
+    ];
+    let who = identity("jana@hel.fi", &[]);
+
+    let (status, body) = get(
+        app_with(&config, envelopes.clone()),
+        &config,
+        who.clone(),
+        "/api/v1/projects/ovzdusie/pipelines",
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "propose implies read (PF-59): {body}"
+    );
+
+    let (status, body) = get(
+        app_with(&config, envelopes.clone()),
+        &config,
+        who.clone(),
+        "/api/v1/projects/ovzdusie/serviceaccounts",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert!(
+        body.contains("serviceaccounts") && !body.contains("secretRef"),
+        "the refusal names what the caller typed and nothing else: {body}"
+    );
+
+    // The same rule on the single resource, and on the caller's own permissions document.
+    let (status, _) = get(
+        app_with(&config, envelopes.clone()),
+        &config,
+        who.clone(),
+        "/api/v1/projects/ovzdusie/serviceaccounts/gateway",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = get(
+        app_with(&config, envelopes),
+        &config,
+        who,
+        "/api/v1/projects/ovzdusie/permissions/me",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the project itself is readable");
+}
+
+/// PF-56, PF-61: the `viewer` role the platform seeds reads every project kind and changes
+/// nothing, which is what keeps every signed-in person's Portal readable (T-0906).
+#[tokio::test]
+async fn the_viewer_role_reads_every_kind_and_a_stranger_reads_none() {
+    let config = Config::for_tests();
+    let envelopes = vec![
+        org(
+            "Role",
+            "viewer",
+            json!({ "rules": [{ "kinds": ["Pipeline", "ServiceAccount", "Endpoint"], "verbs": ["read"] }] }),
+        ),
+        binding(
+            "viewers",
+            "viewer",
+            json!([{ "group": "platform-readers" }]),
+            json!({ "organization": "hel" }),
+            None,
+        ),
+    ];
+    for plural in ["pipelines", "serviceaccounts", "endpoints"] {
+        let (status, body) = get(
+            app_with(&config, envelopes.clone()),
+            &config,
+            identity("jana@hel.fi", &["platform-readers"]),
+            &format!("/api/v1/projects/ovzdusie/{plural}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{plural}: {body}");
+    }
+
+    // Nobody put this person in the group, so the project reads like a project that is not
+    // there — the one answer for "missing" and "not yours" (R20).
+    for uri in [
+        "/api/v1/projects/ovzdusie/pipelines",
+        "/api/v1/projects/ovzdusie/permissions/me",
+    ] {
+        let (status, _) = get(
+            app_with(&config, envelopes.clone()),
+            &config,
+            identity("stranger@hel.fi", &[]),
+            uri,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+    }
+}

@@ -4342,6 +4342,15 @@ export interface operations {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
+            /** @description No binding of the caller covers the project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     get_metrics: {

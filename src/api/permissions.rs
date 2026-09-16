@@ -18,6 +18,7 @@ use crate::state::AppState;
     responses(
         (status = 200, description = "The caller's effective rules in the project", body = Effective),
         (status = 401, description = "Unauthorized", body = crate::error::ProblemDetails),
+        (status = 404, description = "No binding of the caller covers the project", body = crate::error::ProblemDetails),
     )
 )]
 pub async fn permissions_me(
@@ -25,11 +26,13 @@ pub async fn permissions_me(
     State(state): State<AppState>,
     Path(project): Path<String>,
 ) -> Result<Json<Effective>, ApiError> {
-    Ok(Json(permissions::for_request(
-        &state,
-        &user.0.identity,
-        &project,
-    )))
+    let effective = permissions::for_request(&state, &user.0.identity, &project);
+    // A project no binding of the caller covers reads like a project that is not there, here
+    // as on every other read (PF-59, R20); the UI then renders the controls disabled.
+    if !effective.may_read_project() {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
+    Ok(Json(effective))
 }
 
 pub fn router() -> Router<AppState> {

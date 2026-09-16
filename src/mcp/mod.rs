@@ -292,6 +292,9 @@ pub async fn handle_mcp(
             }
             let mut resources = Vec::new();
             for info in crate::resource::kinds() {
+                if !may_read_kind(&state, &caller, &project, info.kind) {
+                    continue;
+                }
                 let page =
                     state
                         .mirror
@@ -438,8 +441,13 @@ fn project_of(params: &Value, state: &AppState, caller: &crate::ops::Caller) -> 
 }
 
 fn may_read(state: &AppState, caller: &crate::ops::Caller, project: &str) -> bool {
-    let eff = crate::permissions::for_request(state, &caller.identity, project);
-    eff.bootstrap || !eff.grants.is_empty()
+    crate::permissions::for_request(state, &caller.identity, project).may_read_project()
+}
+
+/// Whether the caller reads this kind here (PF-59): the same rule the REST list and get apply,
+/// so a resource the API hides is not handed out over MCP either.
+fn may_read_kind(state: &AppState, caller: &crate::ops::Caller, project: &str, kind: &str) -> bool {
+    crate::permissions::for_request(state, &caller.identity, project).may_read(kind)
 }
 
 /// `jc://schemas/{Kind}`, `jc://{project}/drafts/{Kind}/{name}` or `jc://{project}/{plural}/{name}`.
@@ -455,7 +463,7 @@ async fn read_resource(
             let schema = jc_core::registry::schema_of(kind)?;
             Some(("application/schema+json", schema.to_string()))
         }
-        [project, "drafts", kind, name] if may_read(state, caller, project) => {
+        [project, "drafts", kind, name] if may_read_kind(state, caller, project, kind) => {
             let draft = crate::ops::drafts::draft_store(state)
                 .get(project, kind, name)
                 .await
@@ -463,8 +471,11 @@ async fn read_resource(
                 .flatten()?;
             Some(("application/json", serde_json::to_string(&draft).ok()?))
         }
-        [project, plural, name] if may_read(state, caller, project) => {
+        [project, plural, name] => {
             let info = crate::resource::by_plural(plural)?;
+            if !may_read_kind(state, caller, project, info.kind) {
+                return None;
+            }
             let item = state.mirror.get(project, info.kind, name)?;
             Some(("application/json", serde_json::to_string(&item).ok()?))
         }
