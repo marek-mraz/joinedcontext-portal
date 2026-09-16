@@ -70,6 +70,15 @@ function leaves(units: OutputUnit[]): OutputUnit[] {
 
 const compiled = new WeakMap<object, Validator>();
 
+/**
+ * The data as it goes on the wire: a key holding `undefined` (a manifest read back into a form
+ * with a field it has no value for) is no key at all in JSON, and cfworker throws on an
+ * `undefined` instance instead of ignoring it (T-0890).
+ */
+function onTheWire(data: unknown): unknown {
+  return data === undefined ? undefined : (JSON.parse(JSON.stringify(data)) as unknown);
+}
+
 function validatorFor(schema: RJSFSchema): Validator {
   let validator = compiled.get(schema);
   if (!validator) {
@@ -82,7 +91,7 @@ function validatorFor(schema: RJSFSchema): Validator {
 class PortalValidator implements ValidatorType {
   rawValidation<Result = ErrorObject>(schema: RJSFSchema, formData?: unknown): { errors?: Result[]; validationError?: Error } {
     try {
-      const result = validatorFor(schema).validate(formData);
+      const result = validatorFor(schema).validate(onTheWire(formData));
       return { errors: result.valid ? undefined : (leaves(result.errors).map(toAjvError) as Result[]) };
     } catch (error) {
       return { validationError: error instanceof Error ? error : new Error(String(error)) };
@@ -104,7 +113,7 @@ class PortalValidator implements ValidatorType {
   // own validator rewrites `#/definitions` refs to the root when that day comes.
   isValid(schema: RJSFSchema, formData: unknown): boolean {
     try {
-      return new Validator(schema as Schema, DRAFT, true).validate(formData).valid;
+      return new Validator(schema as Schema, DRAFT, true).validate(onTheWire(formData)).valid;
     } catch {
       return false;
     }

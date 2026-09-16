@@ -54,6 +54,15 @@ describe("the Portal's schema validator", () => {
     }
   });
 
+  it("treats a key holding undefined as absent, the way the wire does (T-0890)", () => {
+    // A manifest read back into a form carries `undefined` for fields it has no value for;
+    // cfworker throws on an undefined instance, which used to surface as one "Invalid value".
+    const data = { name: "ok", spec: undefined, title: undefined };
+    expect(validator.validateFormData(data, schema).errors).toEqual([]);
+    expect(validator.isValid(schema, data, schema)).toBe(true);
+    expect(validator.validateFormData({ name: undefined }, schema).errors.map((e) => e.name)).toEqual(["required"]);
+  });
+
   it("hands transformErrors the raw errors and keeps the custom messages", () => {
     const { errors } = validator.validateFormData({}, schema, undefined, (list) =>
       list.map((e) => ({ ...e, message: `translated ${e.name}` })),

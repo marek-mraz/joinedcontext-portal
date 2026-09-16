@@ -1,10 +1,10 @@
 /** T-0497: a Pipeline from a form or its YAML, proposed through the change flow (PL-04, PL-31, PL-33, PL-39, UI-01, AP-13). */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import type { Manifest } from "../src/api/manifest";
@@ -157,7 +157,7 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { create: 1 } },
 };
 
-function renderPipelines() {
+function renderPipelines(pipelines: Manifest[] = [EXISTING]) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     // The client sends Requests; the pipeline test posts a plain URL string.
@@ -186,7 +186,7 @@ function renderPipelines() {
       return json(SAMPLE);
     }
     if (path.endsWith("/pipelines")) {
-      return json(list([EXISTING]));
+      return json(list(pipelines));
     }
     if (path.endsWith("/spaces")) {
       return json(SPACES);
@@ -577,6 +577,25 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     const body = (await request.clone().json()) as { spec: Record<string, unknown>; status?: unknown };
     expect(body.spec).toEqual({ ...EXISTING.spec, period: "10s" });
     expect(body.status).toBeUndefined();
+  });
+
+  it("proposes `enabled: false` pasted in the YAML view, as the REST route would (T-0885)", async () => {
+    // Stored running: the pause comes from the YAML alone, on the first click, with no Check.
+    const running = { ...EXISTING, spec: { ...EXISTING.spec, enabled: true } };
+    const fetchMock = renderPipelines([running]);
+    const row = (await screen.findByText("aq-mqtt-ingest")).closest("tr") as HTMLElement;
+    await userEvent.click(within(row).getByRole("button", { name: en.pipelines.edit }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("tab", { name: "YAML" }));
+    const editor = await within(dialog).findByLabelText("YAML");
+    const pasted = { ...running, status: undefined, spec: { ...running.spec, enabled: false } };
+    fireEvent.change(editor, { target: { value: stringifyYaml(pasted) } });
+    await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const body = (await writes(fetchMock)[0].clone().json()) as { spec: Record<string, unknown> };
+    expect(body.spec.enabled).toBe(false);
+    expect(body.spec.period).toBe(EXISTING.spec.period);
   });
 
   it("opens a pipeline's editor on the change the assistant made, and sends nothing until proposed (AG-77)", async () => {

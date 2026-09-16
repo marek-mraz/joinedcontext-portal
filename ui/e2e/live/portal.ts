@@ -42,7 +42,13 @@ export async function signIn(browser: Browser, who: { user: string; password: st
 /** The change a proposal answered with, read off the notice the page shows (UI-23). */
 export async function proposedChange(page: Page): Promise<string> {
   const review = page.getByRole("link", { name: "Review it in Approvals" });
-  await expect(review).toBeVisible({ timeout: 60_000 });
+  try {
+    await expect(review).toBeVisible({ timeout: 60_000 });
+  } catch (err) {
+    // What the page says instead of the notice: a verdict, a refusal, a dialog still open.
+    const said = await page.locator("[role=dialog], [role=alert], [role=status]").allInnerTexts();
+    throw new Error(`no proposal notice; the page says: ${JSON.stringify(said)}\n${String(err)}`);
+  }
   const href = (await review.getAttribute("href")) ?? "";
   const id = href.split("/approvals/")[1]?.split(/[?#]/)[0];
   if (!id) {

@@ -1,4 +1,5 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { stringify as stringifyYaml } from "yaml";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -6,6 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
+
+// Monaco draws on a canvas and starts a worker, neither of which exists in jsdom: the stand-in
+// is a textarea with the same contract, so the YAML view's own work is what runs.
+vi.mock("../src/pages/models/MonacoSourceView", () => ({
+  default: ({ value, onChange }: { value: string; onChange?: (value: string) => void }) => (
+    <textarea aria-label="YAML" value={value} onChange={(event) => onChange?.(event.target.value)} />
+  ),
+}));
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -350,6 +359,28 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(2));
     expect(writes(fetchMock)[1].line).toBe("PUT /api/v1/projects/banskabystrica/endpoints/vehicles-live");
     expect(writes(fetchMock).some((write) => write.line.includes("/import"))).toBe(false);
+  });
+
+  it("proposes a rate limit typed in the YAML view outside the classes, as the REST route would (T-0890)", async () => {
+    const stored = EXISTING.items[0];
+    const limited = { ...stored, spec: { ...stored.spec, rateLimits: { requestsPerMinute: 600, burst: 50 } } };
+    const fetchMock = setupTest({ ...EXISTING, items: [limited] });
+    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.edit }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("tab", { name: "YAML" }));
+    const editor = await within(dialog).findByLabelText("YAML");
+    // 300 is no class: the form's select offers 60, 600 and 6000, plus what is stored.
+    const pasted = { ...limited, status: undefined, spec: { ...limited.spec, rateLimits: { requestsPerMinute: 300, burst: 50 } } };
+    fireEvent.change(editor, { target: { value: stringifyYaml(pasted) } });
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    expect(writes(fetchMock)[0].line).toBe("PUT /api/v1/projects/banskabystrica/endpoints/vehicles-live");
+    const body = (await writes(fetchMock)[0].request.clone().json()) as {
+      spec: { rateLimits?: { requestsPerMinute?: number } };
+    };
+    expect(body.spec.rateLimits?.requestsPerMinute).toBe(300);
+    expect(within(dialog).queryByText(en.form.invalid)).toBeNull();
   });
 
   it("checks a new endpoint's bundle whole and then its endpoint with its draft, so the verdict is the form's (T-0763)", async () => {

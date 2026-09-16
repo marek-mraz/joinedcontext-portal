@@ -507,13 +507,30 @@ export function ResourceFormDialog<T>({
     </Button>
   ) : null;
 
-  /** The YAML view submits what the form view would: the same schema decides (UI-01). */
+  /**
+   * The YAML view submits what the form view would: the same schema decides (UI-01). One
+   * render later: the parent rebuilds its schema and its base manifest from the form it is
+   * handed (a rate limit outside the classes, a field the form has no control for), so what
+   * is checked and proposed is the document typed, not the render before it (T-0890).
+   */
+  const [queued, setQueued] = useState<T | null>(null);
   function submitYaml() {
     const form = readYaml();
     if (form === null) {
       return;
     }
-    const { errors } = validator.validateFormData(form, schema);
+    onChange?.(form);
+    setQueued(form);
+  }
+  useEffect(() => {
+    if (queued === null) {
+      return;
+    }
+    // The effect is the "one render later": it consumes the queue and reports the schema's
+    // answer, so the state it sets is the point of it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQueued(null);
+    const { errors } = validator.validateFormData(queued, schema);
     if (errors.length > 0) {
       setIssues(
         errors.map((issue) =>
@@ -523,9 +540,8 @@ export function ResourceFormDialog<T>({
       return;
     }
     setIssues([]);
-    onChange?.(form);
-    handleSubmit(form);
-  }
+    handleSubmit(queued);
+  }, [queued, schema, handleSubmit, t]);
 
   const verdictChip = (
     <span
