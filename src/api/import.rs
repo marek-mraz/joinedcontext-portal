@@ -721,6 +721,21 @@ pub async fn import(
     if query.dry_run.as_deref() == Some("All") {
         options.dry_run = true;
     }
+    let (status, body) = import_bundle(&state, &user.0.identity, &project, &bytes, options).await?;
+    Ok((status, Json(body)).into_response())
+}
+
+/// One bundle imported into a project: the plan when it is a dry run, the `Change` otherwise
+/// (MF-18…MF-21). The route and the `jc_project_import` operation both call this, so an MCP
+/// client and a browser import the same way (AG-59, T-0840).
+pub async fn import_bundle(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    bytes: &[u8],
+    options: ImportOptions,
+) -> Result<(StatusCode, Value), ApiError> {
+    let project = project.to_owned();
     if options.url.is_some() {
         // MF-20 allows a URL, and fetching one means the Portal opening a connection to a
         // host a caller named. That is an egress decision with no policy behind it yet, and
@@ -732,8 +747,8 @@ pub async fn import(
         ));
     }
 
-    let incoming = parse(&bytes)?;
-    authorize(&state, &user.0.identity, &project, &incoming)?;
+    let incoming = parse(bytes)?;
+    authorize(state, identity, &project, &incoming)?;
     let target = options
         .target_namespace
         .clone()
@@ -762,19 +777,22 @@ pub async fn import(
             }
             domain
         }
-        None => crate::api::assistant::org_domain(&state, &project),
+        None => crate::api::assistant::org_domain(state, &project),
     };
 
     let (report, files) = plan_import(
         &incoming,
-        &state,
+        state,
         &project,
         &target,
         &domain,
         options.conflict_policy,
     )?;
     if options.dry_run {
-        return Ok((StatusCode::OK, Json(report)).into_response());
+        return Ok((
+            StatusCode::OK,
+            serde_json::to_value(report).map_err(|e| ApiError::Internal(e.to_string()))?,
+        ));
     }
     if files.is_empty() {
         return Err(ApiError::BadRequest(
@@ -787,15 +805,18 @@ pub async fn import(
             .map(|envelope| (envelope.kind.clone(), envelope.metadata.name.clone()))
     });
     let change = propose_bundle(
-        &state,
-        &user.0.identity,
+        state,
+        identity,
         &project,
         report,
         files,
         headline.as_ref().map(|(k, n)| (k.as_str(), n.as_str())),
     )
     .await?;
-    Ok((StatusCode::ACCEPTED, Json(change)).into_response())
+    Ok((
+        StatusCode::ACCEPTED,
+        serde_json::to_value(change).map_err(|e| ApiError::Internal(e.to_string()))?,
+    ))
 }
 
 /// Commits a bundle of files and manifests as one merge request (MF-21, CC-63). `headline`

@@ -52,13 +52,26 @@ pub struct ChangeRejectInput {
     pub reason: Option<String>,
 }
 
-/// The operations whose function is the REST route's own and checks the caller as the route does:
-/// reading needs a signed-in person, proposing and deleting the verb on the kind (AG-77, PF-50).
-pub const CHECKED_BY_THE_ROUTE: [&str; 4] = [
+/// The operations whose function is the REST route's own and checks the caller as the route
+/// does: reading a resource needs a signed-in person, proposing and deleting the verb on the
+/// kind, a run answers only to whoever started it, and a service account's keys only to its
+/// owner or an approver (AG-77, PF-50, PF-34).
+///
+/// The order is the registry's own, so [`super::listing`] answers these in this order for a
+/// caller with no bindings at all.
+pub const CHECKED_BY_THE_ROUTE: &[&str] = &[
     "jc_resource_list",
     "jc_resource_get",
     "jc_resource_propose",
     "jc_resource_delete",
+    "jc_run_list",
+    "jc_run_get",
+    "jc_service_account_key_list",
+    "jc_project_export",
+    "jc_project_import",
+    "jc_service_account_key_mint",
+    "jc_service_account_key_rotate",
+    "jc_service_account_key_revoke",
 ];
 
 /// The catalogue row of a kind an input names; an unknown kind is answered with the kinds there are.

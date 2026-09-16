@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use super::runs::as_user;
 use super::{parse_input, Annotations, Caller, OpError, Operation};
 use crate::change::Lane;
 use crate::state::AppState;
@@ -42,6 +43,41 @@ pub struct ActivityInput {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EmptyInput {}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct IdInput {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RunListInput {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub app: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Only the caller's own runs.
+    #[serde(default)]
+    pub mine: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AccountInput {
+    pub account: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RevisionsInput {
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
 
 fn named_input_schema() -> Value {
     json!({
@@ -136,6 +172,148 @@ fn source_output_schema() -> Value {
             "source": { "type": "string", "description": "The model's LinkML, as the repository holds it" }
         },
         "required": ["name", "source"]
+    })
+}
+
+fn id_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"],
+        "additionalProperties": false
+    })
+}
+
+fn change_proposal_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "One proposed change: what it does, who wrote it and where it stands",
+        "properties": {
+            "apiVersion": { "type": "string" },
+            "kind": { "type": "string", "enum": ["Change"] },
+            "metadata": { "type": "object" },
+            "status": { "type": "object" },
+            "summary": { "type": "object" },
+            "author": { "type": "object" },
+            "createdAt": { "type": "string", "format": "date-time" },
+            "planFields": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["apiVersion", "kind", "metadata", "status"]
+    })
+}
+
+fn run_list_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "limit": { "type": "integer", "minimum": 1 },
+            "app": { "type": "string" },
+            "kind": { "type": "string", "enum": ["application", "dashboard", "analysis", "conversation"] },
+            "status": { "type": "string" },
+            "mine": { "type": "boolean", "description": "Only the runs this caller started" }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn run_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "project": { "type": "string" },
+            "appName": { "type": "string" },
+            "kind": { "type": "string" },
+            "status": { "type": "string" },
+            "createdBy": { "type": "string" },
+            "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "status"]
+    })
+}
+
+fn run_list_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "items": { "type": "array", "items": run_output_schema() } },
+        "required": ["items"]
+    })
+}
+
+fn account_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "account": { "type": "string", "description": "The ServiceAccount's name" } },
+        "required": ["account"],
+        "additionalProperties": false
+    })
+}
+
+fn key_list_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "Every key of the account as anyone but its minter ever sees it: no token (PF-36)",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "keyId": { "type": "string" },
+                        "credential": { "type": "string" },
+                        "createdAt": { "type": "string", "format": "date-time" },
+                        "createdBy": { "type": "string" },
+                        "expiresAt": { "type": "string", "format": "date-time" },
+                        "lastUsedAt": { "type": "string", "format": "date-time" },
+                        "revokedAt": { "type": "string", "format": "date-time" }
+                    },
+                    "required": ["keyId", "credential", "createdAt"]
+                }
+            }
+        },
+        "required": ["items"]
+    })
+}
+
+fn ckan_status_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "Every catalogue this project publishes to, and what each endpoint's publication is doing",
+        "properties": {
+            "instances": { "type": "array", "items": { "type": "object" } },
+            "publications": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["instances", "publications"]
+    })
+}
+
+fn revisions_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 100 } },
+        "additionalProperties": false
+    })
+}
+
+fn revisions_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "The project's history: who changed what, and the sha an export reads from",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "sha": { "type": "string" },
+                        "message": { "type": "string" },
+                        "author": { "type": "string" }
+                    },
+                    "required": ["sha"]
+                }
+            }
+        },
+        "required": ["items"]
     })
 }
 
@@ -278,6 +456,185 @@ pub fn operations() -> Vec<Operation> {
                         }
                     };
                     Ok(json!({ "name": input.name, "source": source }))
+                })
+            },
+        },
+        Operation {
+            name: "jc_change_get",
+            title: "Read One Change",
+            description: "One proposed change: what it does, who wrote it, its lane and where it stands",
+            input: id_input_schema,
+            output: change_proposal_output_schema,
+            annotations: Annotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "Change",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<IdInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: IdInput = parse_input(val)?;
+                    let axum::Json(proposal) = crate::api::changes::get_change(
+                        as_user(caller),
+                        axum::extract::State(state.clone()),
+                        axum::extract::Path((project.to_owned(), input.id)),
+                    )
+                    .await?;
+                    Ok(serde_json::to_value(proposal)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_run_list",
+            title: "List Runs",
+            description: "The project's agent runs, newest first, narrowed by app, kind or status",
+            input: run_list_input_schema,
+            output: run_list_output_schema,
+            annotations: Annotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "App",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<RunListInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: RunListInput = parse_input(val)?;
+                    let axum::Json(list) = crate::api::agent_runs::list_runs(
+                        as_user(caller),
+                        axum::extract::State(state.clone()),
+                        axum::extract::Path(project.to_owned()),
+                        axum::extract::Query(crate::api::agent_runs::ListRunsQuery {
+                            limit: input.limit,
+                            app: input.app,
+                            kind: input.kind,
+                            status: input.status,
+                            mine: input.mine,
+                        }),
+                    )
+                    .await?;
+                    Ok(serde_json::to_value(list)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_run_get",
+            title: "Read One Run",
+            description: "One of this caller's runs: what it is building, what it asks and where it stands",
+            input: id_input_schema,
+            output: run_output_schema,
+            annotations: Annotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "App",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<IdInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: IdInput = parse_input(val)?;
+                    let axum::Json(run) = crate::api::agent_runs::get_run(
+                        as_user(caller),
+                        axum::extract::State(state.clone()),
+                        axum::extract::Path((project.to_owned(), input.id)),
+                    )
+                    .await?;
+                    Ok(serde_json::to_value(run)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_service_account_key_list",
+            title: "List Service Account Keys",
+            description: "Every key of one ServiceAccount, with no token in the answer",
+            input: account_input_schema,
+            output: key_list_output_schema,
+            annotations: Annotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "ServiceAccount",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<AccountInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: AccountInput = parse_input(val)?;
+                    let axum::Json(list) = crate::api::service_accounts::list_keys(
+                        as_user(caller),
+                        axum::extract::State(state.clone()),
+                        axum::extract::Path((project.to_owned(), input.account)),
+                    )
+                    .await?;
+                    Ok(serde_json::to_value(list)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_ckan_status",
+            title: "Read Catalogue Publication",
+            description: "The catalogues this project publishes to, and what each endpoint's publication is doing",
+            input: nothing_input_schema,
+            output: ckan_status_output_schema,
+            annotations: Annotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "CkanInstance",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<EmptyInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let _: EmptyInput = parse_input(val)?;
+                    readable(caller, state, project, "CkanInstance")?;
+                    let axum::Json(status) = crate::api::ckan::get_status(
+                        axum::extract::State(state.clone()),
+                        as_user(caller),
+                        axum::extract::Path(project.to_owned()),
+                    )
+                    .await?;
+                    Ok(serde_json::to_value(status)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_project_revisions",
+            title: "List Project Revisions",
+            description: "The project's history: the commits an export can be read from",
+            input: revisions_input_schema,
+            output: revisions_output_schema,
+            annotations: Annotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "*",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<RevisionsInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: RevisionsInput = parse_input(val)?;
+                    let axum::Json(list) = crate::api::export::revisions(
+                        as_user(caller),
+                        axum::extract::State(state.clone()),
+                        axum::extract::Path(project.to_owned()),
+                        axum::extract::Query(crate::api::export::RevisionsQuery {
+                            limit: input.limit,
+                        }),
+                    )
+                    .await?;
+                    Ok(serde_json::to_value(list)?)
                 })
             },
         },
