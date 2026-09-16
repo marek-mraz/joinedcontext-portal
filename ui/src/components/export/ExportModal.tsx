@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import * as Dialog from "@radix-ui/react-dialog";
 import { api, ApiError, unwrap } from "../../api/client";
+import { Button, buttonClass, Select } from "../ui";
 
 export type ExportFormat = "yaml" | "json" | "zip";
 
@@ -134,10 +135,10 @@ export function ExportModal({
 
           <label className="mt-4 block text-sm font-medium">
             {t("export.revision")}
-            <select
+            <Select
               value={revision}
               onChange={(event) => setRevision(event.target.value)}
-              className="mt-1 block w-full rounded border border-border bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
+              className="mt-1"
             >
               <option value="">{t("export.currentRevision")}</option>
               {(revisions.data?.items ?? []).map((commit) => (
@@ -147,7 +148,7 @@ export function ExportModal({
                   }`}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           {revisions.isError ? (
             <p role="status" className="mt-1 text-xs text-surface-fg/60">
@@ -161,18 +162,15 @@ export function ExportModal({
 
           <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
             <Dialog.Close asChild>
-              <button
-                type="button"
-                className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-              >
+              <Button variant="secondary" size="sm">
                 {t("form.cancel")}
-              </button>
+              </Button>
             </Dialog.Close>
             <a
               href={exportUrl(project, format, target, revision || undefined)}
               download
               onClick={() => onOpenChange(false)}
-              className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
+              className={buttonClass("primary", "md")}
             >
               {t("export.download")}
             </a>

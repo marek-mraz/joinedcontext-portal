@@ -2,6 +2,19 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Alert,
+  Button,
+  Field,
+  Input,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui";
+import {
   DEFAULT_KIND,
   NGSI_LD_KINDS,
   RANGES,
@@ -32,31 +45,6 @@ export interface LinkmlVisualEditorProps {
   /** The organisation's configured locales, for the language maps of DM-15. */
   locales?: string[];
 }
-
-function Field({
-  label,
-  children,
-  hint,
-}: {
-  label: string;
-  children: JSX.Element;
-  hint?: string;
-}): JSX.Element {
-  // The hint sits outside the label: inside it, it would become part of the field's
-  // accessible name and a screen reader would read the whole sentence as the label.
-  return (
-    <div className="flex flex-col gap-1 text-sm">
-      <label className="flex flex-col gap-1">
-        <span className="font-medium">{label}</span>
-        {children}
-      </label>
-      {hint ? <span className="text-xs text-surface-fg/70">{hint}</span> : null}
-    </div>
-  );
-}
-
-const INPUT =
-  "rounded border border-border bg-surface px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-border-focus";
 
 export function LinkmlVisualEditor({
   source,
@@ -172,9 +160,9 @@ export function LinkmlVisualEditor({
   return (
     <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
       {refusal ? (
-        <p role="alert" className="text-sm text-danger-fg lg:col-span-2">
+        <Alert tone="danger" role="alert" className="lg:col-span-2">
           {t("models.refused", { reason: refusal })}
-        </p>
+        </Alert>
       ) : null}
       <div className="flex flex-col gap-6">
         <section aria-labelledby="models-classes">
@@ -200,21 +188,19 @@ export function LinkmlVisualEditor({
             ))}
           </ul>
           <div className="mt-2 flex gap-1">
-            <input
-              className={`${INPUT} w-full`}
+            <Input
               aria-label={t("models.newClass")}
               placeholder={t("models.newClass")}
               value={newClass}
               onChange={(event) => setNewClass(event.target.value)}
             />
-            <button
-              type="button"
+            <Button
+              size="sm"
               aria-label={t("models.addClass")}
-              className="rounded border border-border px-2 text-sm"
               onClick={addClass}
             >
               {t("models.add")}
-            </button>
+            </Button>
           </div>
         </section>
 
@@ -232,40 +218,36 @@ export function LinkmlVisualEditor({
                   ))}
                 </ul>
                 <div className="mt-1 flex gap-1">
-                  <input
-                    className={`${INPUT} w-full`}
+                  <Input
                     aria-label={t("models.newEnumValue", { name: entry.name })}
                     value={newValue}
                     onChange={(event) => setNewValue(event.target.value)}
                   />
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
                     aria-label={t("models.addValue", { name: entry.name })}
-                    className="rounded border border-border px-2 text-xs"
                     onClick={() => addEnumValue(entry.name)}
                   >
                     {t("models.add")}
-                  </button>
+                  </Button>
                 </div>
               </li>
             ))}
           </ul>
           <div className="mt-2 flex gap-1">
-            <input
-              className={`${INPUT} w-full`}
+            <Input
               aria-label={t("models.newEnum")}
               placeholder={t("models.newEnum")}
               value={newEnum}
               onChange={(event) => setNewEnum(event.target.value)}
             />
-            <button
-              type="button"
+            <Button
+              size="sm"
               aria-label={t("models.addEnum")}
-              className="rounded border border-border px-2 text-sm"
               onClick={addEnum}
             >
               {t("models.add")}
-            </button>
+            </Button>
           </div>
         </section>
       </div>
@@ -277,9 +259,9 @@ export function LinkmlVisualEditor({
               {activeClass.name}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label={t("models.classUri")}>
-                <input
-                  className={INPUT}
+              <Field id="class-uri" label={t("models.classUri")}>
+                <Input
+                  id="class-uri"
                   value={activeClass.class_uri ?? ""}
                   onChange={(event) =>
                     run({
@@ -291,9 +273,9 @@ export function LinkmlVisualEditor({
                   }
                 />
               </Field>
-              <Field label={t("models.description")}>
-                <input
-                  className={INPUT}
+              <Field id="class-description" label={t("models.description")}>
+                <Input
+                  id="class-description"
                   value={activeClass.description ?? ""}
                   onChange={(event) =>
                     run({
@@ -309,9 +291,9 @@ export function LinkmlVisualEditor({
             {locales.length > 0 ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 {locales.map((locale) => (
-                  <Field key={locale} label={t("models.titleIn", { locale })}>
-                    <input
-                      className={INPUT}
+                  <Field key={locale} id={`class-title-${locale}`} label={t("models.titleIn", { locale })}>
+                    <Input
+                      id={`class-title-${locale}`}
                       value={activeClass.title?.[locale] ?? ""}
                       onChange={(event) =>
                         setTitle("class", activeClass.name, locale, event.target.value)
@@ -337,24 +319,22 @@ export function LinkmlVisualEditor({
           <h2 id="models-slots" className="mb-2 text-sm font-semibold uppercase tracking-wide">
             {t("models.slots")}
           </h2>
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-xs uppercase text-surface-fg/70">
-                <th scope="col" className="py-1">{t("models.slot")}</th>
-                <th scope="col">{t("models.range")}</th>
-                <th scope="col">{t("models.kind")}</th>
-                <th scope="col">{t("models.unit")}</th>
-                <th scope="col">{t("models.affordanceLabel")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table caption={t("models.slots")}>
+            <TableHead>
+              <TableHeaderCell>{t("models.slot")}</TableHeaderCell>
+              <TableHeaderCell>{t("models.range")}</TableHeaderCell>
+              <TableHeaderCell>{t("models.kind")}</TableHeaderCell>
+              <TableHeaderCell>{t("models.unit")}</TableHeaderCell>
+              <TableHeaderCell>{t("models.affordanceLabel")}</TableHeaderCell>
+            </TableHead>
+            <TableBody>
               {(activeClass?.slots ?? []).map((name) => {
                 const slot: LinkmlSlot | undefined = model.slots.find(
                   (candidate) => candidate.name === name,
                 );
                 return (
-                  <tr key={name} className="border-t border-border">
-                    <th scope="row" className="py-1 font-normal">
+                  <TableRow key={name}>
+                    <TableCell primary>
                       <button
                         type="button"
                         className="underline-offset-2 hover:underline"
@@ -363,32 +343,31 @@ export function LinkmlVisualEditor({
                         {name}
                         {slot?.deprecated ? ` (${t("models.deprecated")})` : ""}
                       </button>
-                    </th>
-                    <td>{slot?.range ?? "—"}</td>
-                    <td>{slot?.kind ?? DEFAULT_KIND}</td>
-                    <td>{slot?.unit?.ucum_code ?? "—"}</td>
-                    <td>{slot ? t(`models.affordance.${slotAffordance(slot)}`) : "—"}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell>{slot?.range ?? "—"}</TableCell>
+                    <TableCell>{slot?.kind ?? DEFAULT_KIND}</TableCell>
+                    <TableCell>{slot?.unit?.ucum_code ?? "—"}</TableCell>
+                    <TableCell>{slot ? t(`models.affordance.${slotAffordance(slot)}`) : "—"}</TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           <div className="mt-2 flex gap-1">
-            <input
-              className={`${INPUT} w-64`}
+            <Input
+              className="w-64"
               aria-label={t("models.newSlot")}
               placeholder={t("models.newSlot")}
               value={newSlot}
               onChange={(event) => setNewSlot(event.target.value)}
             />
-            <button
-              type="button"
+            <Button
+              size="sm"
               aria-label={t("models.addSlot")}
-              className="rounded border border-border px-2 text-sm"
               onClick={addSlot}
             >
               {t("models.add")}
-            </button>
+            </Button>
           </div>
         </section>
 
@@ -398,9 +377,9 @@ export function LinkmlVisualEditor({
               {activeSlot.name}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label={t("models.range")}>
-                <select
-                  className={INPUT}
+              <Field id="slot-range" label={t("models.range")}>
+                <Select
+                  id="slot-range"
                   value={activeSlot.range ?? ""}
                   onChange={(event) => setSlotField(activeSlot.name, "range", event.target.value)}
                 >
@@ -415,11 +394,11 @@ export function LinkmlVisualEditor({
                       {entry.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
-              <Field label={t("models.kind")} hint={t("models.kindHint")}>
-                <select
-                  className={INPUT}
+              <Field id="slot-kind" label={t("models.kind")} help={t("models.kindHint")}>
+                <Select
+                  id="slot-kind"
                   value={activeSlot.kind}
                   onChange={(event) =>
                     setSlotField(activeSlot.name, "kind", event.target.value as NgsiLdKind)
@@ -430,18 +409,18 @@ export function LinkmlVisualEditor({
                       {kind}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
-              <Field label={t("models.slotUri")} hint={t("models.slotUriHint")}>
-                <input
-                  className={INPUT}
+              <Field id="slot-uri" label={t("models.slotUri")} help={t("models.slotUriHint")}>
+                <Input
+                  id="slot-uri"
                   value={iriDraft ?? activeSlot.slot_uri ?? ""}
                   onChange={(event) => setSlotIri(activeSlot.name, event.target.value)}
                 />
               </Field>
-              <Field label={t("models.unit")} hint={t("models.unitHint")}>
-                <select
-                  className={INPUT}
+              <Field id="slot-unit" label={t("models.unit")} help={t("models.unitHint")}>
+                <Select
+                  id="slot-unit"
                   value={unitCode(activeSlot.unit) ?? ""}
                   onChange={(event) => setSlotField(activeSlot.name, "unit", event.target.value)}
                 >
@@ -451,7 +430,7 @@ export function LinkmlVisualEditor({
                       {`${unit.code} · ${unit.ucum} · ${unit.label}`}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
             </div>
             <div className="flex flex-wrap gap-4 text-sm">
@@ -492,9 +471,9 @@ export function LinkmlVisualEditor({
               </p>
             ) : null}
             {iriError ? (
-              <p role="alert" className="text-sm text-danger-fg">
+              <Alert tone="danger" role="alert">
                 {iriError}
-              </p>
+              </Alert>
             ) : null}
             {messagesFor(`slots.${activeSlot.name}`).map((diagnostic) => (
               <p key={diagnostic.message} role="status" className="text-xs text-warning-fg">

@@ -4,6 +4,17 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
+import {
+  Badge,
+  Field,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui";
 
 /**
  * The AuthZEN grant document as the Context Gateway serves it today (EP-55, EP-56): one entry
@@ -55,13 +66,13 @@ function ConstraintList({ entry }: { entry: GrantEntry }): JSX.Element {
   const { t } = useTranslation();
   const residual = Object.entries(entry.constraints ?? {}).filter(([, value]) => Boolean(value));
   if (residual.length === 0) {
-    return <span className="text-sm text-surface-fg/60">{t("access.matrix.unconstrained")}</span>;
+    return <span className="text-body text-fg-muted">{t("access.matrix.unconstrained")}</span>;
   }
   return (
     <ul className="space-y-1">
       {residual.map(([name, value]) => (
-        <li key={name} className="font-mono text-xs">
-          <span className="text-surface-fg/60">{name}=</span>
+        <li key={name} className="font-mono text-caption">
+          <span className="text-fg-muted">{name}=</span>
           {value}
         </li>
       ))}
@@ -72,98 +83,79 @@ function ConstraintList({ entry }: { entry: GrantEntry }): JSX.Element {
 function GrantTable({ entries, caption }: { entries: GrantEntry[]; caption: string }): JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="overflow-x-auto rounded border border-border">
-      <table className="w-full border-collapse text-left text-sm">
-        <caption className="sr-only">{caption}</caption>
-        <thead>
-          <tr className="border-b border-border bg-surface-subtle">
-            <th scope="col" className="px-4 py-2 font-medium">
-              {t("access.matrix.type")}
-            </th>
-            <th scope="col" className="px-4 py-2 font-medium">
-              {t("access.matrix.read")}
-            </th>
-            <th scope="col" className="px-4 py-2 font-medium">
-              {t("access.matrix.write")}
-            </th>
-            <th scope="col" className="px-4 py-2 font-medium">
-              {t("access.matrix.attributes")}
-            </th>
-            <th scope="col" className="px-4 py-2 font-medium">
-              {t("access.matrix.residual")}
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {entries.map((entry, index) => {
-            const actions = entry.actions ?? [];
-            const reads = readsOf(actions);
-            const writes = writesOf(actions);
-            const attributes = entry.attributes;
-            return (
-              <tr key={`${entry.resource?.type ?? "?"}-${index}`}>
-                <th scope="row" className="px-4 py-3 text-left font-medium">
-                  {entry.resource?.type ?? "?"}
-                  {entry.resource?.idPatterns?.length ? (
-                    <div className="font-mono text-xs font-normal text-surface-fg/60">
-                      {entry.resource.idPatterns.join(", ")}
-                    </div>
-                  ) : null}
-                </th>
-                <td className="px-4 py-3">
-                  {reads.length === 0 ? (
-                    <span className="text-surface-fg/40">{t("access.matrix.none")}</span>
-                  ) : (
-                    <ul className="flex flex-wrap gap-1">
-                      {reads.map((action) => (
-                        <li
-                          key={action}
-                          className="inline-flex items-center rounded border border-border px-2 py-0.5 font-mono text-xs"
-                        >
+    <Table caption={caption}>
+      <TableHead>
+        <TableHeaderCell>{t("access.matrix.type")}</TableHeaderCell>
+        <TableHeaderCell>{t("access.matrix.read")}</TableHeaderCell>
+        <TableHeaderCell>{t("access.matrix.write")}</TableHeaderCell>
+        <TableHeaderCell>{t("access.matrix.attributes")}</TableHeaderCell>
+        <TableHeaderCell>{t("access.matrix.residual")}</TableHeaderCell>
+      </TableHead>
+      <TableBody>
+        {entries.map((entry, index) => {
+          const actions = entry.actions ?? [];
+          const reads = readsOf(actions);
+          const writes = writesOf(actions);
+          const attributes = entry.attributes;
+          return (
+            <TableRow key={`${entry.resource?.type ?? "?"}-${index}`}>
+              <th scope="row" className="px-4 py-3 text-left font-medium text-fg">
+                {entry.resource?.type ?? "?"}
+                {entry.resource?.idPatterns?.length ? (
+                  <div className="font-mono text-caption font-normal text-fg-muted">
+                    {entry.resource.idPatterns.join(", ")}
+                  </div>
+                ) : null}
+              </th>
+              <TableCell>
+                {reads.length === 0 ? (
+                  <span className="text-fg-subtle">{t("access.matrix.none")}</span>
+                ) : (
+                  <ul className="flex flex-wrap gap-1">
+                    {reads.map((action) => (
+                      <li key={action}>
+                        <Badge mono>{action}</Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </TableCell>
+              <TableCell>
+                {writes.length === 0 ? (
+                  <span className="text-fg-subtle">{t("access.matrix.none")}</span>
+                ) : (
+                  <ul className="flex flex-wrap gap-1">
+                    {writes.map((action) => (
+                      <li key={action}>
+                        <Badge mono tone="warning">
                           {action}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  {writes.length === 0 ? (
-                    <span className="text-surface-fg/40">{t("access.matrix.none")}</span>
-                  ) : (
-                    <ul className="flex flex-wrap gap-1">
-                      {writes.map((action) => (
-                        <li
-                          key={action}
-                          className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/20 px-2 py-0.5 font-mono text-xs"
-                        >
-                          {action}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  {attributes === "*" || attributes === undefined ? (
-                    <span className="text-sm">{t("access.matrix.allAttributes")}</span>
-                  ) : (
-                    <ul className="flex flex-wrap gap-1">
-                      {attributes.map((attribute) => (
-                        <li key={attribute} className="font-mono text-xs">
-                          {attribute}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <ConstraintList entry={entry} />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </TableCell>
+              <TableCell>
+                {attributes === "*" || attributes === undefined ? (
+                  <span>{t("access.matrix.allAttributes")}</span>
+                ) : (
+                  <ul className="flex flex-wrap gap-1">
+                    {attributes.map((attribute) => (
+                      <li key={attribute} className="font-mono text-caption">
+                        {attribute}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </TableCell>
+              <TableCell>
+                <ConstraintList entry={entry} />
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -211,20 +203,19 @@ export function EffectivePermissions({ project }: { project: string }): JSX.Elem
 
   return (
     <section className="space-y-4" aria-labelledby="effective-permissions-heading">
-      <h2 id="effective-permissions-heading" className="text-lg font-bold">
+      <h2 id="effective-permissions-heading" className="text-title font-semibold text-fg">
         {t("access.matrix.title")}
       </h2>
-      <p className="text-sm text-surface-fg/70">{t("access.matrix.hint")}</p>
+      <p className="text-body text-fg-muted">{t("access.matrix.hint")}</p>
 
       {published.length === 0 ? (
-        <p className="text-sm text-surface-fg/70">{t("access.matrix.noEndpoint")}</p>
+        <p className="text-body text-fg-muted">{t("access.matrix.noEndpoint")}</p>
       ) : (
-        <label className="block text-sm font-medium">
-          {t("access.matrix.endpoint")}
-          <select
+        <Field id="effective-permissions-endpoint" label={t("access.matrix.endpoint")} className="max-w-md">
+          <Select
+            id="effective-permissions-endpoint"
             value={selected ?? ""}
             onChange={(event) => setSlug(event.target.value)}
-            className="mt-1 block w-full max-w-md rounded border border-border bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-border-focus"
           >
             {published.map((endpoint) => (
               <option
@@ -234,12 +225,12 @@ export function EffectivePermissions({ project }: { project: string }): JSX.Elem
                 {localized(endpoint.metadata.title, locale, endpoint.metadata.name)}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
       )}
 
       {grants.isError ? (
-        <p role="status" className="text-sm text-surface-fg/70">
+        <p role="status" className="text-body text-fg-muted">
           {grants.error instanceof ApiError && grants.error.status === 403
             ? t("access.matrix.forbidden")
             : t("access.matrix.unavailable")}
@@ -250,14 +241,14 @@ export function EffectivePermissions({ project }: { project: string }): JSX.Elem
 
       {grants.data ? (
         <>
-          <p className="text-sm">
+          <p className="text-body">
             {t("access.matrix.subject", {
               subject: grants.data.subject?.id ?? t("access.matrix.anonymous"),
               space: grants.data.resource?.space ?? "",
             })}
           </p>
           {(grants.data.permissions ?? []).length === 0 ? (
-            <p className="text-sm text-surface-fg/70">{t("access.matrix.empty")}</p>
+            <p className="text-body text-fg-muted">{t("access.matrix.empty")}</p>
           ) : (
             <GrantTable
               entries={grants.data.permissions ?? []}
@@ -266,7 +257,7 @@ export function EffectivePermissions({ project }: { project: string }): JSX.Elem
           )}
           {(grants.data.prohibitions ?? []).length > 0 ? (
             <>
-              <h3 className="text-base font-medium">{t("access.matrix.prohibitions")}</h3>
+              <h3 className="text-title font-medium text-fg">{t("access.matrix.prohibitions")}</h3>
               <GrantTable
                 entries={grants.data.prohibitions ?? []}
                 caption={t("access.matrix.prohibitions")}

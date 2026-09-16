@@ -10,6 +10,7 @@ import { useBranding } from "../../branding";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
+import { dns1123 } from "../../components/endpoints/sharing";
 import {
   Alert,
   Button,
@@ -53,16 +54,6 @@ interface GrantForm {
   until: string;
 }
 
-/** A DNS-1123 label from free text, as the Portal names a binding the assistant drafts. */
-function label(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
-    .slice(0, 63)
-    .replace(/-+$/, "");
-}
-
 function placeOf(scope: Scope | undefined, project: string): Place {
   if (scope?.contextSpace) {
     return `space:${scope.contextSpace}`;
@@ -92,7 +83,7 @@ export function bindingOf(form: GrantForm, project: string, orgDomain: string): 
   return {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "RoleBinding",
-    metadata: { name: label(`${who.split("@")[0]}-${form.role}-${where}`), namespace: ORG_NAMESPACE },
+    metadata: { name: dns1123(who.split("@")[0], form.role, where), namespace: ORG_NAMESPACE },
     spec,
   } as Manifest;
 }
@@ -314,7 +305,7 @@ export function RoleBindings({ project }: { project: string }): JSX.Element {
     <section className="space-y-4" aria-labelledby="role-bindings-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 id="role-bindings-heading" className="text-lg font-bold">
+          <h2 id="role-bindings-heading" className="text-title font-semibold text-fg">
             {t("access.roles.title")}
           </h2>
           <p className="text-body text-fg-muted">{t("access.roles.lead")}</p>

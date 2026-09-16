@@ -175,12 +175,15 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   const models = useResourceList(project, "datamodels");
   const onMoveEnd = useCallback((next: Bbox) => setBbox(next), []);
 
-  const dashboard = useMemo(() => {
-    const items = asManifests(dashboards.data?.items ?? []).filter(
-      (item) => item.kind === "Dashboard",
-    );
-    return items.find((item) => item.metadata.name === selected) ?? items[0];
-  }, [dashboards.data, selected]);
+  const all = useMemo(
+    () => asManifests(dashboards.data?.items ?? []).filter((item) => item.kind === "Dashboard"),
+    [dashboards.data],
+  );
+
+  const dashboard = useMemo(
+    () => all.find((item) => item.metadata.name === selected) ?? all[0],
+    [all, selected],
+  );
 
   const layerManifests = useMemo(
     () => asManifests(layers.data?.items ?? []).filter((item) => item.kind === "Layer"),
@@ -190,7 +193,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
 
   // The lists say whether the resource exists: a dashboard the assistant drafted opens as new.
   const listed = dashboards.data && layers.data
-    ? [...asManifests(dashboards.data.items ?? []), ...layerManifests]
+    ? [...all, ...layerManifests]
     : undefined;
   const requested =
     request && listed
@@ -339,8 +342,6 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
       </div>
     );
   }
-
-  const all = asManifests(dashboards.data.items ?? []).filter((item) => item.kind === "Dashboard");
 
   const editors = (
     <>

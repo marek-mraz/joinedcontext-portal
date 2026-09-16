@@ -6,7 +6,7 @@ import { LinkmlSourceEditor } from "./LinkmlSourceEditor";
 import { LinkmlVisualEditor } from "./LinkmlVisualEditor";
 import { ModelSubsetPicker } from "./ModelSubsetPicker";
 import { diagnose, parseModel } from "./linkml";
-import { subsetSource } from "./subset";
+import { EMPTY_SUBSET, subsetSource } from "./subset";
 import type { Subset } from "./subset";
 
 /**
@@ -52,7 +52,7 @@ export function LinkmlEditor({
 
   const model = useMemo(() => parseModel(source), [source]);
   const diagnostics = useMemo(() => diagnose(source, locales), [source, locales]);
-  const chosen = useMemo(() => subset ?? { classes: [] }, [subset]);
+  const chosen = subset ?? EMPTY_SUBSET;
   const previewed = useMemo(
     () => (picking ? subsetSource(source, chosen) : source),
     [picking, source, chosen],
@@ -70,8 +70,8 @@ export function LinkmlEditor({
             onClick={() => setView(name)}
             className={
               view === name
-                ? "rounded border border-border bg-surface-subtle px-3 py-1 text-sm font-medium"
-                : "rounded border border-transparent px-3 py-1 text-sm hover:bg-surface-subtle"
+                ? "rounded-md border border-border bg-surface-subtle px-3 py-1 text-body font-medium text-fg"
+                : "rounded-md border border-transparent px-3 py-1 text-body text-fg-muted hover:bg-surface-subtle hover:text-fg"
             }
           >
             {t(`models.view.${name}`)}

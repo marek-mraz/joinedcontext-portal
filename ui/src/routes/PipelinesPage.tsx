@@ -288,14 +288,6 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
     setDialogOpen(true);
   }
 
-  const newButton = (
-    <PermissionGuard project={project} kind="Pipeline" verb="propose">
-      <Button variant="primary" icon={<Icon name="plus" className="size-4" />} onClick={() => openEditor(null)}>
-        {t("pipelines.add")}
-      </Button>
-    </PermissionGuard>
-  );
-
   const head = (
     <TableHead>
       <TableHeaderCell>{t("pipelines.field.name")}</TableHeaderCell>
@@ -352,7 +344,21 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
 
   return (
     <div className="flex flex-col gap-section">
-      <PageHeader title={t("pipelines.title")} description={t("pipelines.lead")} actions={newButton} />
+      <PageHeader
+        title={t("pipelines.title")}
+        description={t("pipelines.lead")}
+        actions={
+          <PermissionGuard project={project} kind="Pipeline" verb="propose">
+            <Button
+              variant="primary"
+              icon={<Icon name="plus" className="size-4" />}
+              onClick={() => openEditor(null)}
+            >
+              {t("pipelines.add")}
+            </Button>
+          </PermissionGuard>
+        }
+      />
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
       {error ? (

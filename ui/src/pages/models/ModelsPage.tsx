@@ -8,7 +8,7 @@ import { asManifests, refName } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
-import { Button } from "../../components/ui";
+import { Alert, Button, PageHeader } from "../../components/ui";
 import { takePrefill } from "../../assistant/state";
 import { LinkmlEditor } from "./LinkmlEditor";
 import { MappingsEditor } from "./MappingsEditor";
@@ -27,7 +27,6 @@ import {
   severityOf,
 } from "./breaking_detector";
 import type { Lifecycle } from "./breaking_detector";
-import { PageHeader } from "../../components/ui/PageHeader";
 
 /**
  * The models page: import a model, edit it, map it (DM-07, DM-13, DM-17, DM-23, DM-33).
@@ -293,11 +292,16 @@ export function ModelsPage({
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <PageHeader title={t("models.title")} />
-        <div className="flex items-center gap-3">
-          {activeModelName ? (
-            <div className="flex items-center gap-2">
+      <PageHeader
+        title={t("models.title")}
+        aside={
+          <p className="text-sm text-surface-fg/70">
+            {t("models.version", { version: nextVersion })}
+          </p>
+        }
+        actions={
+          activeModelName ? (
+            <>
               <Button size="sm" onClick={handleCheck} disabled={checking || saving}>
                 {t("models.source.saveCheck")}
               </Button>
@@ -324,13 +328,10 @@ export function ModelsPage({
                   target={{ project, kind: "DataModel", plural: "datamodels", name: published.name }}
                 />
               ) : null}
-            </div>
-          ) : null}
-          <p className="text-sm text-surface-fg/70">
-            {t("models.version", { version: nextVersion })}
-          </p>
-        </div>
-      </header>
+            </>
+          ) : null
+        }
+      />
 
       {loadingSource ? (
         <p role="status" className="text-sm text-surface-fg/70">
@@ -341,28 +342,28 @@ export function ModelsPage({
       {changeNotice ? <ChangeNotice change={changeNotice} project={project} /> : null}
 
       {applied && applied.refused.length > 0 ? (
-        <div role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm text-danger-fg">
+        <Alert role="alert" tone="danger">
           <p>{t("models.source.handOffRefused")}</p>
           <ul className="mt-1 list-disc pl-5">
             {applied.refused.map((refusal) => (
               <li key={refusal.index}>{refusal.reason}</li>
             ))}
           </ul>
-        </div>
+        </Alert>
       ) : null}
 
       {saveError || loadError ? (
-        <div role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm text-danger-fg">
+        <Alert role="alert" tone="danger">
           {saveError ?? loadError}
-        </div>
+        </Alert>
       ) : null}
 
       {checkInfo ? (
-        <div className="rounded border border-border bg-surface-subtle p-3 text-sm">
-          <p className="font-medium">
+        <Alert tone="info">
+          <span className="font-medium">
             {t(`models.source.severity.${checkInfo.severity}`)} · {t("models.source.willBecome", { version: checkInfo.version })}
-          </p>
-        </div>
+          </span>
+        </Alert>
       ) : null}
 
       {published ? (

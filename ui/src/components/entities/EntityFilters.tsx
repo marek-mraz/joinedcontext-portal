@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
+import { clsx } from "clsx";
 import { Button, Field, Input, Select } from "../ui";
 import { filtersFromQ, opsFor, qFromFilters } from "./filters";
 import type { EntityQuery, Filter, FilterSlot } from "./filters";
@@ -168,7 +169,10 @@ export function EntityFilters({ id, types, slots, value, onChange, denied = {} }
             <label
               key={slot.name}
               title={denied[slot.name]}
-              className={`inline-flex items-center gap-1 font-mono text-caption ${denied[slot.name] ? "text-fg-muted line-through" : ""}`}
+              className={clsx(
+                "inline-flex items-center gap-1 font-mono text-caption",
+                denied[slot.name] && "text-fg-muted line-through",
+              )}
             >
               <input
                 type="checkbox"

@@ -2,10 +2,20 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { readCsrfToken } from "../../api/client";
-import { Badge } from "../../components/ui/Badge";
-import { Button } from "../../components/ui/Button";
-import { Dialog } from "../../components/ui/Dialog";
-import { Icon } from "../../components/ui/icons";
+import {
+  Alert,
+  Badge,
+  Button,
+  buttonClass,
+  Dialog,
+  Icon,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui";
 import { blankSource } from "./linkml";
 import { applyOperations } from "./operations";
 import type { Operation, Refusal } from "./operations";
@@ -232,23 +242,25 @@ export function ModelFileDrop({
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           <label className="cursor-pointer text-body">
-            <span className="rounded-md border border-border bg-surface px-3 py-2">{t("models.infer.drop")}</span>
+            <span className={buttonClass("secondary", "md", "cursor-pointer")}>{t("models.infer.drop")}</span>
             {input}
           </label>
           {busy ? <span className="text-caption text-fg-muted">{t("models.infer.reading", { name: busy })}</span> : null}
         </div>
       )}
       {problem ? (
-        <p
-          role="alert"
-          className={
-            icon
-              ? "absolute bottom-full left-0 z-10 mb-1 w-56 rounded border border-border bg-surface p-2 text-xs text-danger-fg shadow"
-              : "text-sm text-danger-fg"
-          }
-        >
-          {problem}
-        </p>
+        icon ? (
+          <p
+            role="alert"
+            className="absolute bottom-full left-0 z-10 mb-1 w-56 rounded border border-border bg-surface p-2 text-xs text-danger-fg shadow"
+          >
+            {problem}
+          </p>
+        ) : (
+          <Alert tone="danger" role="alert">
+            {problem}
+          </Alert>
+        )
       ) : null}
       <Dialog
         open={draft !== null}
@@ -287,36 +299,32 @@ export function ModelFileDrop({
       >
         {draft ? (
           <div className="flex flex-col gap-3 text-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="text-fg-muted">
-                    <th className="pr-3">{t("models.infer.class")}</th>
-                    <th className="pr-3">{t("models.infer.column")}</th>
-                    <th className="pr-3">{t("models.infer.slot")}</th>
-                    <th className="pr-3">{t("models.infer.range")}</th>
-                    <th className="pr-3">{t("models.infer.kind")}</th>
-                    <th className="pr-3">{t("models.infer.unit")}</th>
-                    <th>{t("models.infer.match")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={`${row.klass}/${row.name}`} className="border-t border-border">
-                      <td className="pr-3 font-mono">{row.klass}</td>
-                      <td className="max-w-[16rem] break-words pr-3">{row.title ?? row.name}</td>
-                      <td className="pr-3 font-mono">{row.name}</td>
-                      <td className="pr-3">
-                        <Badge mono>{row.range ?? "string"}</Badge>
-                      </td>
-                      <td className="pr-3">{row.kind ?? "Property"}</td>
-                      <td className="pr-3 font-mono">{row.unit ?? ""}</td>
-                      <td className="break-all font-mono">{draft.answer.matches[row.name]?.model ?? ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table caption={t("models.infer.title")}>
+              <TableHead>
+                <TableHeaderCell>{t("models.infer.class")}</TableHeaderCell>
+                <TableHeaderCell>{t("models.infer.column")}</TableHeaderCell>
+                <TableHeaderCell>{t("models.infer.slot")}</TableHeaderCell>
+                <TableHeaderCell>{t("models.infer.range")}</TableHeaderCell>
+                <TableHeaderCell>{t("models.infer.kind")}</TableHeaderCell>
+                <TableHeaderCell>{t("models.infer.unit")}</TableHeaderCell>
+                <TableHeaderCell>{t("models.infer.match")}</TableHeaderCell>
+              </TableHead>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={`${row.klass}/${row.name}`}>
+                    <TableCell className="font-mono">{row.klass}</TableCell>
+                    <TableCell className="max-w-[16rem] break-words">{row.title ?? row.name}</TableCell>
+                    <TableCell className="font-mono">{row.name}</TableCell>
+                    <TableCell>
+                      <Badge mono>{row.range ?? "string"}</Badge>
+                    </TableCell>
+                    <TableCell>{row.kind ?? "Property"}</TableCell>
+                    <TableCell className="font-mono">{row.unit ?? ""}</TableCell>
+                    <TableCell className="break-all font-mono">{draft.answer.matches[row.name]?.model ?? ""}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
             {draft.answer.untyped.length > 0 ? (
               <div>
                 <p className="font-medium">{t("models.infer.untyped")}</p>
@@ -330,14 +338,14 @@ export function ModelFileDrop({
               </div>
             ) : null}
             {draft.refused.length > 0 ? (
-              <div role="alert" className="text-xs text-danger-fg">
+              <Alert tone="danger" role="alert">
                 <p>{t("models.infer.refused", { n: draft.refused.length })}</p>
                 <ul className="list-disc pl-5">
                   {draft.refused.map((refusal) => (
                     <li key={refusal.index}>{refusal.reason}</li>
                   ))}
                 </ul>
-              </div>
+              </Alert>
             ) : null}
           </div>
         ) : null}

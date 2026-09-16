@@ -12,6 +12,20 @@ import {
   unfilledRequired,
 } from "./mapping";
 import type { Alignment, Derivation } from "./mapping";
+import { LifecycleBadge } from "../../components/status/LifecycleBadge";
+import {
+  Alert,
+  Badge,
+  Input,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+  Textarea,
+} from "../../components/ui";
 
 /**
  * The Mappings tab: two models side by side and the derivations between them (T-0223, DM-33,
@@ -100,10 +114,9 @@ export function MappingsEditor({
         <h2 id="mappings-pair" className="sr-only">
           {t("mappings.pair")}
         </h2>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-body font-medium text-fg">
           {t("mappings.source")}
-          <select
-            className="rounded border border-border px-2 py-1"
+          <Select
             value={sourceName}
             onChange={(event) => {
               setSourceName(event.target.value);
@@ -115,15 +128,14 @@ export function MappingsEditor({
                 {model.name} {model.version}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
-        <span aria-hidden="true" className="pb-2 text-lg">
+        <span aria-hidden="true" className="pb-2 text-lg text-fg-muted">
           →
         </span>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-body font-medium text-fg">
           {t("mappings.target")}
-          <select
-            className="rounded border border-border px-2 py-1"
+          <Select
             value={targetName}
             onChange={(event) => {
               setTargetName(event.target.value);
@@ -135,48 +147,48 @@ export function MappingsEditor({
                 {model.name} {model.version}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
-        <p className="pb-1 text-sm">
-          {t("mappings.lane")} <span className={`font-semibold ${LANE[lane]}`}>{t(`lane.${lane}`)}</span>
-        </p>
+        <div className="flex items-center gap-1.5 pb-1 text-body">
+          <span className="text-fg-muted">{t("mappings.lane")}</span>
+          <LifecycleBadge kind="lane" value={lane} />
+        </div>
       </section>
 
       {missingRequired.length > 0 ? (
-        <p role="alert" className="rounded border border-danger p-2 text-sm text-danger-fg">
+        <Alert role="alert" tone="danger">
           {t("mappings.unfilled", { slots: missingRequired.join(", ") })}
-        </p>
+        </Alert>
       ) : null}
 
       <section aria-labelledby="mappings-canvas">
-        <h2 id="mappings-canvas" className="text-sm font-semibold">
+        <h2 id="mappings-canvas" className="text-title font-semibold text-fg">
           {t("mappings.canvas")}
         </h2>
-        <table className="mt-2 w-full text-sm">
-          <thead>
-            <tr className="text-left">
-              <th scope="col">{t("mappings.targetSlot")}</th>
-              <th scope="col">{t("mappings.sourceSlot")}</th>
-              <th scope="col">{t("mappings.origin")}</th>
-              <th scope="col">{t("mappings.unit")}</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table caption={t("mappings.canvas")} className="mt-2">
+          <TableHead>
+            <TableHeaderCell>{t("mappings.targetSlot")}</TableHeaderCell>
+            <TableHeaderCell>{t("mappings.sourceSlot")}</TableHeaderCell>
+            <TableHeaderCell>{t("mappings.origin")}</TableHeaderCell>
+            <TableHeaderCell>{t("mappings.unit")}</TableHeaderCell>
+          </TableHead>
+          <TableBody>
             {rows.map((row) => {
               const targetSlot = target.slots.find((slot) => slot.name === row.target);
               return (
-                <tr key={row.target} className="border-t border-border">
-                  <th scope="row" className="py-1 text-left font-mono font-normal">
-                    {row.target}
-                    {targetSlot?.required ? <span aria-hidden="true"> *</span> : null}
-                  </th>
-                  <td className="py-1">
+                <TableRow key={row.target}>
+                  <TableCell primary>
+                    <span className="font-mono">
+                      {row.target}
+                      {targetSlot?.required ? <span aria-hidden="true"> *</span> : null}
+                    </span>
+                  </TableCell>
+                  <TableCell>
                     <label className="sr-only" htmlFor={`from-${row.target}`}>
                       {t("mappings.sourceFor", { slot: row.target })}
                     </label>
-                    <select
+                    <Select
                       id={`from-${row.target}`}
-                      className="rounded border border-border px-1"
                       value={row.populatedFrom ?? ""}
                       onChange={(event) =>
                         update(row.target, { populatedFrom: event.target.value || undefined })
@@ -188,31 +200,30 @@ export function MappingsEditor({
                           {slot.name}
                         </option>
                       ))}
-                    </select>
-                  </td>
-                  <td className="py-1">
+                    </Select>
+                  </TableCell>
+                  <TableCell>
                     {row.native?.trim() ? (
-                      <span
+                      <Badge
+                        tone="warning"
                         data-testid={`native-${row.target}`}
-                        className="rounded bg-warning px-1 text-xs font-semibold text-warning-fg"
                       >
                         {t("mappings.native")}
-                      </span>
+                      </Badge>
                     ) : (
-                      <span className="text-xs text-surface-fg/70">
+                      <span className="text-caption text-fg-muted">
                         {t(`mappings.originOf.${row.origin}`)}
                       </span>
                     )}
-                  </td>
-                  <td className="py-1">
+                  </TableCell>
+                  <TableCell>
                     {row.unitConversion ? (
                       <span className="flex items-center gap-1">
                         <label className="sr-only" htmlFor={`unit-${row.target}`}>
                           {t("mappings.unitFor", { slot: row.target })}
                         </label>
-                        <select
+                        <Select
                           id={`unit-${row.target}`}
-                          className="rounded border border-border px-1"
                           value={row.unitConversion.toUnit ?? ""}
                           onChange={(event) =>
                             update(row.target, {
@@ -229,15 +240,15 @@ export function MappingsEditor({
                               {code.code} — {code.label}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                         <label className="sr-only" htmlFor={`factor-${row.target}`}>
                           {t("mappings.factorFor", { slot: row.target })}
                         </label>
-                        <input
+                        <Input
                           id={`factor-${row.target}`}
                           type="number"
                           step="any"
-                          className="w-20 rounded border border-border px-1"
+                          className="w-24"
                           value={row.unitConversion.factor}
                           onChange={(event) =>
                             update(row.target, {
@@ -251,33 +262,33 @@ export function MappingsEditor({
                         />
                       </span>
                     ) : null}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </section>
 
       <section aria-labelledby="mappings-golden" className="flex flex-col gap-2">
-        <h2 id="mappings-golden" className="text-sm font-semibold">
+        <h2 id="mappings-golden" className="text-title font-semibold text-fg">
           {t("mappings.golden")}
         </h2>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-body font-medium text-fg">
           {t("mappings.input")}
-          <textarea
-            className="h-32 rounded border border-border p-2 font-mono text-xs"
+          <Textarea
+            className="h-32 font-mono text-xs"
             value={example}
             onChange={(event) => setExample(event.target.value)}
           />
         </label>
         {parsedExample.error ? (
-          <p role="alert" className="text-sm text-danger-fg">
+          <Alert role="alert" tone="danger">
             {parsedExample.error}
-          </p>
+          </Alert>
         ) : (
           <output aria-label={t("mappings.output")} className="block">
-            <pre className="overflow-x-auto rounded border border-border bg-surface-subtle p-2 font-mono text-xs">
+            <pre className="overflow-x-auto rounded border border-border bg-surface-subtle p-2 font-mono text-xs text-fg">
               {JSON.stringify(result?.output ?? {}, null, 2)}
             </pre>
           </output>
@@ -285,27 +296,21 @@ export function MappingsEditor({
         {result && result.unchecked.length > 0 ? (
           // DM-38: the browser cannot run Bloblang, and a preview that quietly omitted these
           // would read as "this slot is empty" rather than "nobody checked this slot".
-          <p className="text-sm">{t("mappings.unchecked", { slots: result.unchecked.join(", ") })}</p>
+          <p className="text-body">{t("mappings.unchecked", { slots: result.unchecked.join(", ") })}</p>
         ) : null}
         {result && result.missing.length > 0 ? (
-          <p className="text-sm text-surface-fg/70">
+          <p className="text-body text-fg-muted">
             {t("mappings.missing", { slots: result.missing.join(", ") })}
           </p>
         ) : null}
       </section>
 
       {blocks.length > 0 ? (
-        <p className="text-sm">{t("mappings.laneRaised", { count: blocks.length })}</p>
+        <p className="text-body text-fg-muted">{t("mappings.laneRaised", { count: blocks.length })}</p>
       ) : null}
     </div>
   );
 }
-
-const LANE: Record<string, string> = {
-  green: "text-success-fg",
-  yellow: "text-warning-fg",
-  red: "text-danger-fg",
-};
 
 /** The named model, parsed; an empty model when nothing is selected yet. */
 function useParsed(models: MappingModel[], name: string): LinkmlModel {

@@ -167,7 +167,7 @@ function hiddenOf(endpoint: Manifest): string[] {
 function CopyUrlButton({ slug }: { slug: string }): JSX.Element {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
-  const url = `${window.location.origin}/api/endpoint/${slug}`;
+  const url = endpointUrl(slug, "");
 
   return (
     <Button
@@ -714,29 +714,29 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         description={t("endpoints.lead")}
         actions={
           <PermissionGuard project={project} kind="Endpoint" verb="propose">
-          <Button
-            variant="primary"
-            icon={<Icon name="plus" className="size-4" />}
-            onClick={() => {
-              setFormError(null);
-              setIsNew(true);
-              setBase(null);
-              setUrlDraftName(undefined);
-              setHidden([]);
-              const newSlug = generateSlug();
-              setActiveSlug(newSlug);
-              setPickerState({ projectionName: "", classes: {} });
-              setEditing({
-                name: "",
-                contextSpaceRef: spaceNames[0] ?? "",
-                audience: "project-list",
-                enabledRepresentations: ["ngsi-ld"],
-                allowedProjects: [],
-              });
-            }}
-          >
-            {t("endpoints.add")}
-          </Button>
+            <Button
+              variant="primary"
+              icon={<Icon name="plus" className="size-4" />}
+              onClick={() => {
+                setFormError(null);
+                setIsNew(true);
+                setBase(null);
+                setUrlDraftName(undefined);
+                setHidden([]);
+                const newSlug = generateSlug();
+                setActiveSlug(newSlug);
+                setPickerState({ projectionName: "", classes: {} });
+                setEditing({
+                  name: "",
+                  contextSpaceRef: spaceNames[0] ?? "",
+                  audience: "project-list",
+                  enabledRepresentations: ["ngsi-ld"],
+                  allowedProjects: [],
+                });
+              }}
+            >
+              {t("endpoints.add")}
+            </Button>
           </PermissionGuard>
         }
       />
@@ -793,16 +793,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                       <ul className="mt-1.5 flex flex-wrap gap-1">
                         {ENDPOINT_LINKS.map((link) => (
                           <li key={link.key}>
-                            <a
-                              href={endpointUrl(slug, link.path)}
-                              target="_blank"
-                              rel="noreferrer"
-                              title={endpointUrl(slug, link.path)}
-                              className="focus-ring inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 font-mono text-caption text-fg-muted hover:border-border-strong hover:bg-surface-muted hover:text-fg"
-                            >
+                            <EndpointLink muted href={endpointUrl(slug, link.path)}>
                               {t(`endpoints.link.${link.key}`)}
-                              <Icon name="external" className="size-3" />
-                            </a>
+                            </EndpointLink>
                           </li>
                         ))}
                       </ul>

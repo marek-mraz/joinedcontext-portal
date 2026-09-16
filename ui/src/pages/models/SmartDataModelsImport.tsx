@@ -2,9 +2,11 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { clsx } from "clsx";
 import { api, unwrap } from "../../api/client";
 import { edit, parseModel } from "./linkml";
 import type { Artifacts } from "./LinkmlPreviewPanel";
+import { Alert, Button, Input, Select } from "../../components/ui";
 
 /**
  * The primary path into a model: take an official Smart Data Model and adapt it (DM-07).
@@ -70,9 +72,6 @@ export function deprecateUnused(source: string, keep: string[]): string {
   });
 }
 
-const INPUT =
-  "rounded border border-border bg-surface px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-border-focus";
-
 export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps): JSX.Element {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
@@ -136,17 +135,16 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
         <h2 id="sdm-browse" className="text-base font-semibold">
           {t("models.sdm.browse")}
         </h2>
-        <div className="flex flex-wrap gap-2">
-          <input
-            className={`${INPUT} w-56`}
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            className="w-56"
             type="search"
             aria-label={t("models.sdm.search")}
             placeholder={t("models.sdm.search")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <select
-            className={INPUT}
+          <Select
             aria-label={t("models.sdm.subject")}
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
@@ -157,25 +155,24 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
                 {entry.title ?? entry.name}
               </option>
             ))}
-          </select>
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-1 text-sm"
+          </Select>
+          <Button
+            size="sm"
             onClick={() => setRefreshes((count) => count + 1)}
           >
             {t("models.sdm.refresh")}
-          </button>
+          </Button>
         </div>
 
         {catalogue.isError ? (
-          <p role="status" className="text-sm text-warning-fg">
+          <Alert tone="danger" role="status">
             {t("models.sdm.unavailable")}
-          </p>
+          </Alert>
         ) : null}
         {catalogue.data?.stale ? (
-          <p role="status" className="text-sm text-warning-fg">
+          <Alert tone="warning" role="status">
             {t("models.sdm.stale", { at: catalogue.data.refreshedAt ?? "—" })}
-          </p>
+          </Alert>
         ) : null}
 
         <ul className="flex flex-col gap-3">
@@ -192,15 +189,16 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
                         setKeep(null);
                       }}
                       aria-current={selected?.id === model.id ? "true" : undefined}
-                      className={
+                      className={clsx(
+                        "focus-ring w-full rounded-md px-2.5 py-1.5 text-left text-body transition-colors",
                         selected?.id === model.id
-                          ? "w-full rounded bg-surface-subtle px-2 py-1 text-left text-sm font-medium"
-                          : "w-full rounded px-2 py-1 text-left text-sm hover:bg-surface-subtle"
-                      }
+                          ? "bg-surface-muted font-medium text-fg"
+                          : "hover:bg-surface-subtle text-fg",
+                      )}
                     >
-                      <span className="block">{model.name}</span>
+                      <span className="block font-medium">{model.name}</span>
                       {model.description ? (
-                        <span className="block text-xs text-surface-fg/70">
+                        <span className="block text-caption text-fg-muted">
                           {model.description}
                         </span>
                       ) : null}
@@ -221,15 +219,15 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
           {t("models.sdm.preview")}
         </h2>
         {!selected ? (
-          <p className="text-sm text-surface-fg/70">{t("models.sdm.pick")}</p>
+          <p className="text-body text-fg-muted">{t("models.sdm.pick")}</p>
         ) : preview.isError ? (
-          <p role="status" className="text-sm text-warning-fg">
+          <Alert tone="danger" role="status">
             {t("models.sdm.previewFailed")}
-          </p>
+          </Alert>
         ) : imported ? (
           <>
-            <p className="text-sm">{t("models.sdm.keepAll")}</p>
-            <ul className="flex max-h-56 flex-col gap-1 overflow-auto text-sm">
+            <p className="text-body">{t("models.sdm.keepAll")}</p>
+            <ul className="flex max-h-56 flex-col gap-1 overflow-auto text-body">
               {upstreamSlots.map((name) => (
                 <li key={name}>
                   <label className="flex items-center gap-2">
@@ -249,19 +247,20 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
                 </li>
               ))}
             </ul>
-            <pre className="max-h-56 overflow-auto rounded border border-border bg-surface-subtle p-3 text-xs">
+            <pre className="max-h-56 overflow-auto rounded border border-border bg-surface-subtle p-3 font-mono text-xs text-fg">
               {imported}
             </pre>
-            <button
-              type="button"
-              className="self-start rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-fg"
+            <Button
+              variant="primary"
+              size="sm"
+              className="self-start"
               onClick={doImport}
             >
               {t("models.sdm.import", { name: selected.name })}
-            </button>
+            </Button>
           </>
         ) : (
-          <p className="text-sm text-surface-fg/70">{t("models.sdm.loading")}</p>
+          <p className="text-body text-fg-muted">{t("models.sdm.loading")}</p>
         )}
       </section>
     </div>

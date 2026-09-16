@@ -12,7 +12,7 @@ import {
   endpointUrl,
   REPRESENTATION_PATHS,
 } from "../components/endpoints/links";
-import { SharedWithBadge, SPACE_LABEL } from "../components/endpoints/sharing";
+import { SharedWithBadge, spaceOf } from "../components/endpoints/sharing";
 import {
   Alert,
   Badge,
@@ -125,11 +125,10 @@ export function AllEndpointsPage(): JSX.Element {
           ) : (
             rows.map(({ project, endpoint }) => {
               const spec = endpoint.spec as {
-                contextSpaceRef?: string;
                 slug?: string;
                 enabledRepresentations?: string[];
               };
-              const space = spec.contextSpaceRef ?? endpoint.metadata.labels?.[SPACE_LABEL];
+              const space = spaceOf(endpoint);
               const slug = spec.slug ?? "";
               const key = `${project}/${endpoint.metadata.name}`;
               return (

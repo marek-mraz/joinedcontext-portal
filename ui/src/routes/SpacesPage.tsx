@@ -278,17 +278,18 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                 ttlDays?: number;
               };
               const model = refName(spec.dataModelRef);
+              const title = localized(space.metadata.title, locale, space.metadata.name);
               const target = {
                 project,
                 kind: "ContextSpace",
                 plural: "spaces",
                 name: space.metadata.name,
-                label: localized(space.metadata.title, locale, space.metadata.name),
+                label: title,
               };
               return (
                 <TableRow key={space.metadata.name}>
                   <TableCell primary>
-                    <div>{localized(space.metadata.title, locale, space.metadata.name)}</div>
+                    <div>{title}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-caption text-fg-subtle">
                       {space.metadata.title ? <span>{space.metadata.name}</span> : null}
                       {spec.isSandbox ? (

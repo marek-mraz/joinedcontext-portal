@@ -36,6 +36,8 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
       ),
   });
 
+  const header = <PageHeader title={t("approvals.title")} description={t("approvals.lead")} />;
+
   const head = (
     <TableHead>
       <TableHeaderCell>{t("approvals.summary")}</TableHeaderCell>
@@ -49,7 +51,7 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
   if (list.isPending) {
     return (
       <div className="flex flex-col gap-section">
-        <PageHeader title={t("approvals.title")} description={t("approvals.lead")} />
+        {header}
         <Table caption={t("approvals.title")} status={t("app.loading")}>
           {head}
           <TableSkeleton columns={COLUMNS} />
@@ -65,7 +67,7 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
         : t("app.error.generic");
     return (
       <div className="flex flex-col gap-section">
-        <PageHeader title={t("approvals.title")} description={t("approvals.lead")} />
+        {header}
         <Alert
           role="alert"
           tone="danger"
@@ -92,15 +94,20 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
   if (items.length === 0) {
     return (
       <div className="flex flex-col gap-section">
-        <PageHeader title={t("approvals.title")} description={t("approvals.lead")} />
+        {header}
         <EmptyState icon="approvals" title={t("approvals.empty")} />
       </div>
     );
   }
 
+  const dateFormatter = new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+
   return (
     <div className="flex flex-col gap-section">
-      <PageHeader title={t("approvals.title")} description={t("approvals.lead")} />
+      {header}
       <Table caption={t("approvals.title")}>
         {head}
         <TableBody>
@@ -109,10 +116,7 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
               proposal.summary.key,
               proposal.summary.params as Record<string, unknown>,
             );
-            const formattedDate = new Intl.DateTimeFormat(locale, {
-              dateStyle: "medium",
-              timeStyle: "short",
-            }).format(new Date(proposal.createdAt));
+            const formattedDate = dateFormatter.format(new Date(proposal.createdAt));
 
             return (
               <TableRow key={proposal.metadata.name}>

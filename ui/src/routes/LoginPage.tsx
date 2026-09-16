@@ -1,9 +1,10 @@
+import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../auth/AuthProvider";
 import { useBranding } from "../branding";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { BrandMark } from "../components/layout/Shell";
-import { Button, Icon } from "../components/ui";
+import { Button, Card, Icon } from "../components/ui";
 
 /** Where to land after the login: the location the session ran out on, never another origin. */
 export function redirectTarget(search: string): string {
@@ -11,7 +12,7 @@ export function redirectTarget(search: string): string {
   return candidate && candidate.startsWith("/") && !candidate.startsWith("//") ? candidate : "/";
 }
 
-export function LoginPage(): React.JSX.Element {
+export function LoginPage(): JSX.Element {
   const { t } = useTranslation();
   const { signIn } = useAuth();
   const branding = useBranding();
@@ -32,7 +33,7 @@ export function LoginPage(): React.JSX.Element {
         <div className="mb-4 flex justify-end">
           <LanguageSwitcher />
         </div>
-        <div className="rounded-xl border border-border bg-surface p-8 shadow-2">
+        <Card flush className="rounded-xl p-8 shadow-2">
           <h1 className="text-title font-semibold">
             <BrandMark />
           </h1>
@@ -48,7 +49,7 @@ export function LoginPage(): React.JSX.Element {
           >
             {t("auth.signIn")}
           </Button>
-        </div>
+        </Card>
         {branding.organisation ? (
           <p className="mt-4 text-center text-caption text-fg-subtle">{branding.organisation}</p>
         ) : null}

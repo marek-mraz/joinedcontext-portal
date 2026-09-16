@@ -1,6 +1,6 @@
 import { useState } from "react";
+import type { JSX, ReactNode } from "react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
 import { LanguageSwitcher } from "../LanguageSwitcher";
@@ -103,7 +103,7 @@ function UserMenu() {
 }
 
 /** The instance name and its logo, which is what every page is titled with (UI-30). */
-export function BrandMark({ short = false }: { short?: boolean }): React.JSX.Element {
+export function BrandMark({ short = false }: { short?: boolean }): JSX.Element {
   const branding = useBranding();
   const logo = logoUrl(branding);
   const name = short ? (branding.shortName ?? branding.instanceName) : branding.instanceName;
@@ -143,7 +143,7 @@ export function Shell({
 }: {
   project: string;
   children: ReactNode;
-}): React.JSX.Element {
+}): JSX.Element {
   const { t } = useTranslation();
   const branding = useBranding();
   const matchRoute = useMatchRoute();

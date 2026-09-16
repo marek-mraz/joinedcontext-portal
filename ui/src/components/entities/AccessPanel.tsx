@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../../api/client";
 import { readsOf, writesOf } from "../../pages/access/EffectivePermissions";
+import { Badge } from "../ui";
 import type { FilterSlot } from "./filters";
 
 /** One entry of the gateway's AuthZEN permissions document (EP-55, EP-56). */
@@ -176,21 +177,17 @@ export function AccessPanel({
           ) : null}
           <ul className="flex flex-wrap gap-2" aria-label={t("access.panel.checks")}>
             {(checks.data ?? CHECKED_ACTIONS.map((action) => ({ action, decision: undefined }))).map((check) => (
-              <li
-                key={check.action}
-                className={`rounded border px-2 py-0.5 font-mono ${
-                  check.decision === undefined
-                    ? "border-border text-fg-muted"
+              <li key={check.action}>
+                <Badge
+                  mono
+                  tone={check.decision === undefined ? "neutral" : check.decision ? "success" : "danger"}
+                >
+                  {check.decision === undefined
+                    ? t("access.panel.checking", { action: check.action })
                     : check.decision
-                      ? "border-success bg-success/10 text-success"
-                      : "border-danger bg-danger/10 text-danger"
-                }`}
-              >
-                {check.decision === undefined
-                  ? t("access.panel.checking", { action: check.action })
-                  : check.decision
-                    ? t("access.panel.may", { action: check.action, type })
-                    : t("access.panel.mayNot", { action: check.action, type })}
+                      ? t("access.panel.may", { action: check.action, type })
+                      : t("access.panel.mayNot", { action: check.action, type })}
+                </Badge>
               </li>
             ))}
           </ul>

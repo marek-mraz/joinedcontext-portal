@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
+import { Alert } from "../../components/ui";
 import type { LinkmlModel } from "./linkml";
 import { IDENTITY_SLOTS, subsetProblems, toggleClass, toggleSlot } from "./subset";
 import type { Subset } from "./subset";
@@ -24,23 +25,25 @@ export function ModelSubsetPicker({ model, subset, onChange }: ModelSubsetPicker
   return (
     <div className="flex flex-col gap-3">
       {problems.length > 0 ? (
-        <ul role="alert" className="text-sm text-danger-fg">
-          {problems.map((problem) => (
-            <li key={problem}>{problem}</li>
-          ))}
-        </ul>
+        <Alert role="alert" tone="danger">
+          <ul className="flex flex-col gap-1">
+            {problems.map((problem) => (
+              <li key={problem}>{problem}</li>
+            ))}
+          </ul>
+        </Alert>
       ) : null}
       {subset.classes.length === 0 ? (
-        <p role="status" className="text-sm text-warning-fg">
+        <Alert role="status" tone="warning">
           {t("models.subset.nothing")}
-        </p>
+        </Alert>
       ) : null}
       <ul className="flex flex-col gap-2">
         {model.classes.map((klass) => {
           const picked = chosen.get(klass.name);
           return (
-            <li key={klass.name} className="rounded border border-border p-2">
-              <label className="flex items-center gap-2 text-sm font-medium">
+            <li key={klass.name} className="rounded-lg border border-border bg-surface p-3">
+              <label className="flex items-center gap-2 text-body font-medium text-fg">
                 <input
                   type="checkbox"
                   aria-label={klass.name}
@@ -49,12 +52,12 @@ export function ModelSubsetPicker({ model, subset, onChange }: ModelSubsetPicker
                 />
                 {klass.name}
               </label>
-              <ul className="ml-6 mt-1 flex flex-wrap gap-x-4 gap-y-1">
+              <ul className="ml-6 mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
                 {klass.slots.map((slot) => {
                   const identity = IDENTITY_SLOTS.includes(slot);
                   return (
                     <li key={slot}>
-                      <label className="flex items-center gap-1 text-sm">
+                      <label className="flex items-center gap-1.5 text-body">
                         <input
                           type="checkbox"
                           aria-label={`${klass.name}.${slot}`}
@@ -64,7 +67,7 @@ export function ModelSubsetPicker({ model, subset, onChange }: ModelSubsetPicker
                             onChange(toggleSlot(subset, klass.name, slot, event.target.checked))
                           }
                         />
-                        <span className="font-mono text-xs">{slot}</span>
+                        <span className="font-mono text-caption text-fg">{slot}</span>
                       </label>
                     </li>
                   );
@@ -74,7 +77,7 @@ export function ModelSubsetPicker({ model, subset, onChange }: ModelSubsetPicker
           );
         })}
       </ul>
-      <p className="text-xs text-surface-fg/70">{t("models.subset.identity")}</p>
+      <p className="text-caption text-fg-muted">{t("models.subset.identity")}</p>
     </div>
   );
 }

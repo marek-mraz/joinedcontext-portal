@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../api/client";
@@ -28,6 +29,25 @@ import { FlowGallery } from "../pages/flows/Gallery";
 import { AppsCatalog } from "../pages/apps/AppsCatalog";
 import { SyncSourcesPage } from "../pages/sync/SyncSourcesPage";
 
+const VIEWS: Record<string, (props: { project: string }) => JSX.Element> = {
+  spaces: SpacesPage,
+  endpoints: EndpointsPage,
+  pipelines: PipelinesPage,
+  datasources: DataSourcesPage,
+  dashboards: DashboardsPage,
+  // "flows" is a section too: the gallery reads organization-level Blueprints, not a project
+  // collection, and the wizard writes through /flows rather than a resource route (CC-30).
+  flows: FlowGallery,
+  // Apps are a kind, but a card catalogue with a preview frame and a publication action, not
+  // a manifest table (AP-18, AP-19, AP-20).
+  apps: AppsCatalog,
+  // A SyncSource is a running loop as well as a manifest, so its view carries the phase, the
+  // revision it carries and the three buttons of MF-30.
+  syncsources: SyncSourcesPage,
+  // "access" is a section, not a kind: ServiceAccounts and the caller's own grants (PF-40, EP-60).
+  access: AccessPage,
+};
+
 /** `/api/v1/projects/{project}/{plural}`: a kind's own page, or its resources in a table (MF-11…MF-15). */
 export function ResourceListPage({
   project,
@@ -35,41 +55,10 @@ export function ResourceListPage({
 }: {
   project: string;
   plural: string;
-}): React.JSX.Element {
-  // Some kinds have a view of their own; the rest fall back to the plain manifest table.
-  if (plural === "spaces") {
-    return <SpacesPage project={project} />;
-  }
-  if (plural === "endpoints") {
-    return <EndpointsPage project={project} />;
-  }
-  if (plural === "pipelines") {
-    return <PipelinesPage project={project} />;
-  }
-  if (plural === "datasources") {
-    return <DataSourcesPage project={project} />;
-  }
-  if (plural === "dashboards") {
-    return <DashboardsPage project={project} />;
-  }
-  // "flows" is a section too: the gallery reads organization-level Blueprints, not a project
-  // collection, and the wizard writes through /flows rather than a resource route (CC-30).
-  if (plural === "flows") {
-    return <FlowGallery project={project} />;
-  }
-  // Apps are a kind, but a card catalogue with a preview frame and a publication action, not
-  // a manifest table (AP-18, AP-19, AP-20).
-  if (plural === "apps") {
-    return <AppsCatalog project={project} />;
-  }
-  // A SyncSource is a running loop as well as a manifest, so its view carries the phase, the
-  // revision it carries and the three buttons of MF-30.
-  if (plural === "syncsources") {
-    return <SyncSourcesPage project={project} />;
-  }
-  // "access" is a section, not a kind: ServiceAccounts and the caller's own grants (PF-40, EP-60).
-  if (plural === "access") {
-    return <AccessPage project={project} />;
+}): JSX.Element {
+  const View = VIEWS[plural];
+  if (View) {
+    return <View project={project} />;
   }
   return <GenericListPage project={project} plural={plural} />;
 }
@@ -80,7 +69,7 @@ function GenericListPage({
 }: {
   project: string;
   plural: string;
-}): React.JSX.Element {
+}): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "en";
   const list = useQuery({

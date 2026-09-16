@@ -5,6 +5,15 @@ import { useTranslation } from "react-i18next";
 import { api, unwrap } from "../../api/client";
 import { SchemaForm } from "../../components/forms/SchemaForm";
 import type { JsonSchema } from "../../components/forms/types";
+import {
+  Alert,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui";
 import { parseModel, slotAffordance } from "./linkml";
 
 /**
@@ -131,21 +140,23 @@ export function LinkmlPreviewPanel({
       </div>
 
       {preview.isError ? (
-        <p role="status" className="text-sm text-warning-fg">
+        <Alert role="status" tone="warning">
           {t("models.previewUnavailable")}
-        </p>
+        </Alert>
       ) : null}
       {artifacts?.errors && artifacts.errors.length > 0 ? (
-        <ul role="status" className="flex flex-col gap-1 text-sm text-warning-fg">
-          {artifacts.errors.map((message) => (
-            <li key={message}>{message}</li>
-          ))}
-        </ul>
+        <Alert role="status" tone="warning">
+          <ul className="flex flex-col gap-1">
+            {artifacts.errors.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        </Alert>
       ) : null}
       {missing.length > 0 ? (
-        <p role="alert" className="text-sm text-danger-fg">
+        <Alert role="alert" tone="danger">
           {t("models.exampleUnmapped", { terms: missing.join(", ") })}
-        </p>
+        </Alert>
       ) : null}
 
       <div role="tabpanel">
@@ -162,42 +173,38 @@ export function LinkmlPreviewPanel({
               submitLabel={t("models.formPreview")}
             />
           ) : (
-            <p className="text-sm text-surface-fg/70">{t("models.noArtifact")}</p>
+            <p className="text-body text-fg-muted">{t("models.noArtifact")}</p>
           )
         ) : null}
         {tab === "options" ? (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-xs uppercase text-surface-fg/70">
-                <th scope="col" className="py-1">{t("models.slot")}</th>
-                <th scope="col">{t("models.affordanceLabel")}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table caption={t("models.tab.options")}>
+            <TableHead>
+              <TableHeaderCell>{t("models.slot")}</TableHeaderCell>
+              <TableHeaderCell>{t("models.affordanceLabel")}</TableHeaderCell>
+            </TableHead>
+            <TableBody>
               {model.slots.map((slot) => (
-                <tr key={slot.name} className="border-t border-border">
-                  <th scope="row" className="py-1 font-normal">
-                    {slot.name}
-                  </th>
-                  <td>{t(`models.affordance.${slotAffordance(slot)}`)}</td>
-                </tr>
+                <TableRow key={slot.name}>
+                  <TableCell primary>{slot.name}</TableCell>
+                  <TableCell>{t(`models.affordance.${slotAffordance(slot)}`)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         ) : null}
         {tab === "docs" ? (
           artifacts?.docs ? (
-            <pre className="max-h-96 overflow-auto rounded border border-border bg-surface-subtle p-3 text-xs">
+            <pre className="max-h-96 overflow-auto rounded-lg border border-border bg-surface-subtle p-3 font-mono text-xs text-fg">
               {artifacts.docs}
             </pre>
           ) : (
-            <p className="text-sm text-surface-fg/70">{t("models.noArtifact")}</p>
+            <p className="text-body text-fg-muted">{t("models.noArtifact")}</p>
           )
         ) : null}
       </div>
 
       {artifacts?.generatorVersion ? (
-        <p className="text-xs text-surface-fg/70">
+        <p className="text-caption text-fg-muted">
           {t("models.generatedBy", { version: artifacts.generatorVersion })}
         </p>
       ) : null}

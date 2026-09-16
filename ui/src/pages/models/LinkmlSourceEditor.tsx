@@ -174,8 +174,8 @@ export function LinkmlSourceEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded border border-border">
-        <Suspense fallback={<p className="p-3 text-sm">{t("models.loadingEditor")}</p>}>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <Suspense fallback={<p className="p-3 text-body text-fg-muted">{t("models.loadingEditor")}</p>}>
           <MonacoSourceView
             value={source}
             onChange={onChange}
@@ -185,21 +185,21 @@ export function LinkmlSourceEditor({
         </Suspense>
       </div>
       <section aria-labelledby="models-diagnostics">
-        <h2 id="models-diagnostics" className="text-sm font-semibold">
+        <h2 id="models-diagnostics" className="text-title font-semibold text-fg">
           {t("models.diagnostics", { errors: errors.length, warnings: warnings.length })}
         </h2>
         {diagnostics.length === 0 ? (
-          <p className="text-sm text-surface-fg/70">{t("models.noDiagnostics")}</p>
+          <p className="text-body text-fg-muted">{t("models.noDiagnostics")}</p>
         ) : (
-          <ul className="mt-1 flex flex-col gap-1 text-sm">
+          <ul className="mt-1 flex flex-col gap-1 text-body">
             {diagnostics.map((diagnostic, index) => (
               <li
                 key={`${diagnostic.line}-${index}`}
                 className={
-                  diagnostic.severity === "error" ? "text-danger-fg" : "text-warning-fg"
+                  diagnostic.severity === "error" ? "text-danger" : "text-warning"
                 }
               >
-                <span className="font-mono text-xs">
+                <span className="font-mono text-caption">
                   {t("models.atLine", { line: diagnostic.line, column: diagnostic.column })}
                 </span>{" "}
                 {diagnostic.message}

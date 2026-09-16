@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { clsx } from "clsx";
 import { Icon } from "../ui";
 
 /**
@@ -55,7 +56,10 @@ export function EndpointLink({
       target="_blank"
       rel="noreferrer"
       title={href}
-      className={`focus-ring inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-caption ${muted ? LINK_MUTED : LINK_PRIMARY}`}
+      className={clsx(
+        "focus-ring inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-caption",
+        muted ? LINK_MUTED : LINK_PRIMARY,
+      )}
     >
       {children}
       <Icon name="external" className="size-3" />

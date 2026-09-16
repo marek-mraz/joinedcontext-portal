@@ -9,7 +9,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { PlanDiffViewer } from "../components/diff/PlanDiffViewer";
 import type { components } from "../api/schema";
-import { PageHeader } from "../components/ui/PageHeader";
+import { Alert, Button, Input, PageHeader } from "../components/ui";
 
 type ChangeProposal = components["schemas"]["ChangeProposal"];
 
@@ -127,18 +127,22 @@ export function ApprovalDetailPage({
         ? detailQuery.error.problem?.detail ?? detailQuery.error.message
         : t("app.error.generic");
     return (
-      <div role="alert">
-        <p className="text-danger">{message}</p>
-        <button
-          type="button"
-          onClick={() => {
-            void detailQuery.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("app.error.retry")}
-        </button>
-      </div>
+      <Alert
+        role="alert"
+        tone="danger"
+        actions={
+          <Button
+            size="sm"
+            onClick={() => {
+              void detailQuery.refetch();
+            }}
+          >
+            {t("app.error.retry")}
+          </Button>
+        }
+      >
+        {message}
+      </Alert>
     );
   }
 
@@ -209,9 +213,9 @@ export function ApprovalDetailPage({
       </section>
 
       {actionError ? (
-        <div role="alert" className="rounded border border-danger bg-danger/10 p-3 text-sm text-danger">
+        <Alert role="alert" tone="danger">
           {actionError}
-        </div>
+        </Alert>
       ) : null}
 
       <section aria-labelledby="actions-heading" className="space-y-4 rounded border border-border p-4">
@@ -225,15 +229,14 @@ export function ApprovalDetailPage({
               {t("approvals.confirmPrompt")}{" "}
               <span className="font-mono font-semibold">{expectedName}</span>
             </label>
-            <input
+            <Input
               id="confirm-resource-name"
-              type="text"
               value={confirmInput}
               onChange={(e) => setConfirmInput(e.target.value)}
               aria-label={t("approvals.confirmLabel")}
               placeholder={expectedName}
               disabled={!canAct}
-              className="block w-full max-w-sm rounded border border-border bg-surface px-3 py-1.5 text-sm text-surface-fg placeholder:text-surface-fg/40 focus:border-border-focus focus:outline-none focus:ring-2 focus:ring-border-focus disabled:cursor-not-allowed disabled:opacity-50"
+              className="max-w-sm"
             />
           </div>
         ) : null}
@@ -245,26 +248,26 @@ export function ApprovalDetailPage({
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
+          <Button
+            variant="primary"
             disabled={!canApprove}
+            loading={approveMutation.isPending}
             onClick={() => approveMutation.mutate()}
-            className="inline-flex items-center justify-center rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {approveMutation.isPending ? t("approvals.approving") : t("approvals.approve")}
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="danger"
             disabled={!canReject}
+            loading={rejectMutation.isPending}
             onClick={() => rejectMutation.mutate()}
-            className="inline-flex items-center justify-center rounded border border-danger bg-surface px-4 py-2 text-sm font-medium text-danger hover:bg-danger/10 focus:outline-none focus:ring-2 focus:ring-danger focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {rejectMutation.isPending ? t("approvals.rejecting") : t("approvals.reject")}
-          </button>
+          </Button>
 
           {disabledReason ? (
-            <p className="text-sm text-surface-fg/70">{disabledReason}</p>
+            <p className="text-body text-fg-muted">{disabledReason}</p>
           ) : null}
         </div>
       </section>

@@ -2,13 +2,26 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import * as Dialog from "@radix-ui/react-dialog";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized } from "../../api/manifest";
 import { usePermissions } from "../../api/permissions";
 import { useIdentity } from "../../auth/AuthProvider";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
+import {
+  Alert,
+  Button,
+  Card,
+  Dialog,
+  Field,
+  Input,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui";
 import type { Identity } from "../../auth/AuthProvider";
 import type { Manifest } from "../../api/manifest";
 import type { components } from "../../api/schema";
@@ -64,7 +77,7 @@ function TokenDialog({
   const [copied, setCopied] = useState(false);
 
   return (
-    <Dialog.Root
+    <Dialog
       open={minted !== null}
       onOpenChange={(open) => {
         if (!open) {
@@ -72,58 +85,39 @@ function TokenDialog({
           onClose();
         }
       }}
+      title={t("access.keys.newTitle")}
+      description={t("access.keys.newHint")}
+      size="lg"
+      closeLabel={t("access.keys.done")}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(56rem,94vw)] -translate-x-1/2 -translate-y-1/2 rounded border border-border bg-surface p-6 text-surface-fg shadow-lg">
-          <Dialog.Title className="text-lg font-bold">{t("access.keys.newTitle")}</Dialog.Title>
-          <Dialog.Description className="mt-1 text-sm text-surface-fg/70">
-            {t("access.keys.newHint")}
-          </Dialog.Description>
+      <div className="flex flex-col gap-4">
+        <Alert role="alert" tone="danger">
+          {t("access.keys.onceWarning")}
+        </Alert>
 
-          <p
-            role="alert"
-            className="mt-4 rounded border border-danger bg-danger/10 p-3 text-sm text-danger"
-          >
-            {t("access.keys.onceWarning")}
-          </p>
-
-          <label className="mt-4 block text-sm font-medium" htmlFor="minted-token">
-            {t("access.keys.token")}
-          </label>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <input
+        <Field id="minted-token" label={t("access.keys.token")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
               id="minted-token"
               readOnly
               value={minted?.token ?? ""}
               onFocus={(event) => event.currentTarget.select()}
-              className="w-full flex-1 rounded border border-border bg-surface-subtle px-3 py-2 font-mono text-xs"
+              className="flex-1 font-mono text-caption"
             />
-            <button
-              type="button"
+            <Button
               onClick={() => {
                 void navigator.clipboard
                   ?.writeText(minted?.token ?? "")
                   .then(() => setCopied(true))
                   .catch(() => setCopied(false));
               }}
-              className="rounded border border-border px-3 py-1.5 text-sm font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
             >
               {copied ? t("endpoints.copied") : t("access.keys.copy")}
-            </button>
+            </Button>
           </div>
-
-          <Dialog.Close asChild>
-            <button
-              type="button"
-              className="mt-6 rounded bg-primary px-4 py-2 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2"
-            >
-              {t("access.keys.done")}
-            </button>
-          </Dialog.Close>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </Field>
+      </div>
+    </Dialog>
   );
 }
 
@@ -227,122 +221,104 @@ function KeyTable({
     <div className="mt-3 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {credentials.length === 0 ? (
-          <p className="text-sm text-surface-fg/70">{t("access.keys.noCredential")}</p>
+          <p className="text-body text-fg-muted">{t("access.keys.noCredential")}</p>
         ) : (
           credentials.map((credential) => (
-            <button
+            <Button
               key={credential.name}
-              type="button"
               disabled={busy}
+              variant="primary"
               onClick={() => create.mutate(credential.name ?? "")}
-              className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-primary-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus focus:ring-offset-2 disabled:opacity-50"
             >
               {t("access.keys.create", { credential: credential.name })}
-            </button>
+            </Button>
           ))
         )}
       </div>
 
       {keys.isError ? (
-        <p role="status" className="text-sm text-surface-fg/70">
+        <p role="status" className="text-body text-fg-muted">
           {keys.error instanceof ApiError && keys.error.status === 503
             ? t("access.keys.noStore")
             : t("app.error.generic")}
         </p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-surface-fg/70">{t("access.keys.empty")}</p>
+        <p className="text-body text-fg-muted">{t("access.keys.empty")}</p>
       ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full border-collapse text-left text-sm">
-            <caption className="sr-only">
-              {t("access.keys.tableCaption", { account })}
-            </caption>
-            <thead>
-              <tr className="border-b border-border bg-surface-subtle">
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("access.keys.field.keyId")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("access.keys.field.credential")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("access.keys.field.expires")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium">
-                  {t("access.keys.field.lastUsed")}
-                </th>
-                <th scope="col" className="px-4 py-2 font-medium text-right">
-                  {t("approvals.actions")}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {items.map((key) => (
-                <tr key={key.keyId} className="hover:bg-surface-subtle/50">
-                  <td className="px-4 py-3 font-mono text-xs">{key.keyId}</td>
-                  <td className="px-4 py-3">{key.credential}</td>
-                  <td className="px-4 py-3">
-                    {key.revokedAt
-                      ? t("access.keys.revoked", { date: formatDate(key.revokedAt, locale) })
-                      : (formatDate(key.expiresAt, locale) || t("access.keys.never"))}
-                  </td>
-                  <td className="px-4 py-3">
-                    {formatDate(key.lastUsedAt, locale) || t("access.keys.neverUsed")}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {key.revokedAt ? null : (
-                        <>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => rotate.mutate(key.keyId)}
-                            title={t("access.keys.rotateHint")}
-                            className="rounded border border-border px-2.5 py-1 text-xs font-medium hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
-                          >
-                            {t("access.keys.rotate")}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => setConfirming(key.keyId)}
-                            className="rounded border border-danger px-2.5 py-1 text-xs font-medium text-danger hover:bg-danger/10 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
-                          >
-                            {t("access.keys.revoke")}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    {confirming === key.keyId ? (
-                      <div
-                        role="alertdialog"
-                        aria-label={t("access.keys.revokeConfirm", { keyId: key.keyId })}
-                        className="mt-2 flex flex-wrap items-center justify-end gap-2 rounded border border-danger bg-danger/10 p-2 text-xs"
-                      >
-                        <span>{t("access.keys.revokeConfirm", { keyId: key.keyId })}</span>
-                        <button
-                          type="button"
+        <Table caption={t("access.keys.tableCaption", { account })}>
+          <TableHead>
+            <TableHeaderCell>{t("access.keys.field.keyId")}</TableHeaderCell>
+            <TableHeaderCell>{t("access.keys.field.credential")}</TableHeaderCell>
+            <TableHeaderCell>{t("access.keys.field.expires")}</TableHeaderCell>
+            <TableHeaderCell>{t("access.keys.field.lastUsed")}</TableHeaderCell>
+            <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
+          </TableHead>
+          <TableBody>
+            {items.map((key) => (
+              <TableRow key={key.keyId}>
+                <TableCell primary className="font-mono text-caption">
+                  {key.keyId}
+                </TableCell>
+                <TableCell>{key.credential}</TableCell>
+                <TableCell>
+                  {key.revokedAt
+                    ? t("access.keys.revoked", { date: formatDate(key.revokedAt, locale) })
+                    : (formatDate(key.expiresAt, locale) || t("access.keys.never"))}
+                </TableCell>
+                <TableCell>
+                  {formatDate(key.lastUsedAt, locale) || t("access.keys.neverUsed")}
+                </TableCell>
+                <TableCell align="right">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {key.revokedAt ? null : (
+                      <>
+                        <Button
+                          size="sm"
                           disabled={busy}
-                          onClick={() => revoke.mutate(key.keyId)}
-                          className="rounded bg-danger px-2.5 py-1 font-medium text-danger-fg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+                          onClick={() => rotate.mutate(key.keyId)}
+                          title={t("access.keys.rotateHint")}
                         >
-                          {t("access.keys.revokeNow")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirming(null)}
-                          className="rounded border border-border px-2.5 py-1 font-medium hover:bg-surface focus:outline-none focus:ring-2 focus:ring-border-focus"
+                          {t("access.keys.rotate")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={busy}
+                          onClick={() => setConfirming(key.keyId)}
                         >
-                          {t("form.cancel")}
-                        </button>
-                      </div>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                          {t("access.keys.revoke")}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {confirming === key.keyId ? (
+                    <div
+                      role="alertdialog"
+                      aria-label={t("access.keys.revokeConfirm", { keyId: key.keyId })}
+                      className="mt-2 flex flex-wrap items-center justify-end gap-2 rounded border border-danger bg-danger-soft p-2 text-caption"
+                    >
+                      <span>{t("access.keys.revokeConfirm", { keyId: key.keyId })}</span>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => revoke.mutate(key.keyId)}
+                      >
+                        {t("access.keys.revokeNow")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setConfirming(null)}
+                      >
+                        {t("form.cancel")}
+                      </Button>
+                    </div>
+                  ) : null}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
     </div>
   );
@@ -374,22 +350,19 @@ export function ServiceAccounts({ project }: { project: string }): JSX.Element {
   }
   if (list.isError) {
     return (
-      <div role="alert">
-        <p className="text-danger">
-          {list.error instanceof ApiError
-            ? (list.error.problem?.detail ?? list.error.message)
-            : t("app.error.generic")}
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            void list.refetch();
-          }}
-          className="mt-2 rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-border-focus"
-        >
-          {t("app.error.retry")}
-        </button>
-      </div>
+      <Alert
+        role="alert"
+        tone="danger"
+        actions={
+          <Button size="sm" onClick={() => void list.refetch()}>
+            {t("app.error.retry")}
+          </Button>
+        }
+      >
+        {list.error instanceof ApiError
+          ? (list.error.problem?.detail ?? list.error.message)
+          : t("app.error.generic")}
+      </Alert>
     );
   }
 
@@ -397,18 +370,18 @@ export function ServiceAccounts({ project }: { project: string }): JSX.Element {
 
   return (
     <section className="space-y-4" aria-labelledby="service-accounts-heading">
-      <h2 id="service-accounts-heading" className="text-lg font-bold">
+      <h2 id="service-accounts-heading" className="text-title font-semibold text-fg">
         {t("access.accounts.title")}
       </h2>
 
       {error ? (
-        <p role="alert" className="text-sm text-danger">
+        <Alert role="alert" tone="danger">
           {error}
-        </p>
+        </Alert>
       ) : null}
 
       {accounts.length === 0 ? (
-        <p className="text-sm text-surface-fg/70">{t("access.accounts.empty")}</p>
+        <p className="text-body text-fg-muted">{t("access.accounts.empty")}</p>
       ) : (
         <ul className="space-y-4">
           {accounts.map((account) => {
@@ -421,57 +394,56 @@ export function ServiceAccounts({ project }: { project: string }): JSX.Element {
               label: localized(account.metadata.title, locale, account.metadata.name),
             };
             return (
-              <li
-                key={account.metadata.name}
-                className="rounded border border-border p-4"
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h3 className="font-medium">
-                    {localized(account.metadata.title, locale, account.metadata.name)}
-                  </h3>
-                  {account.metadata.title ? (
-                    <span className="font-mono text-xs text-surface-fg/60">
-                      {account.metadata.name}
+              <li key={account.metadata.name}>
+                <Card>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="font-medium text-fg">
+                      {localized(account.metadata.title, locale, account.metadata.name)}
+                    </h3>
+                    {account.metadata.title ? (
+                      <span className="font-mono text-caption text-fg-muted">
+                        {account.metadata.name}
+                      </span>
+                    ) : null}
+                    <span className="flex items-center gap-1.5">
+                      <EditResourceAction target={accountTarget} />
+                      <DeleteResourceAction target={accountTarget} />
                     </span>
-                  ) : null}
-                  <span className="flex items-center gap-1.5">
-                    <EditResourceAction target={accountTarget} />
-                    <DeleteResourceAction target={accountTarget} />
-                  </span>
-                </div>
-                <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-                  <div className="flex gap-2">
-                    <dt className="text-surface-fg/60">{t("access.accounts.owner")}</dt>
-                    <dd>{spec.owner?.user ?? ""}</dd>
                   </div>
-                  <div className="flex gap-2">
-                    <dt className="text-surface-fg/60">{t("access.accounts.roles")}</dt>
-                    <dd>
-                      {(spec.roles ?? [])
-                        .map((role) => role.role)
-                        .filter(Boolean)
-                        .join(", ")}
-                    </dd>
-                  </div>
-                  {spec.purpose ? (
-                    <div className="flex gap-2 sm:col-span-2">
-                      <dt className="text-surface-fg/60">{t("access.accounts.purpose")}</dt>
-                      <dd>{spec.purpose}</dd>
+                  <dl className="mt-2 grid gap-x-6 gap-y-1 text-body sm:grid-cols-2">
+                    <div className="flex gap-2">
+                      <dt className="text-fg-muted">{t("access.accounts.owner")}</dt>
+                      <dd className="font-medium text-fg">{spec.owner?.user ?? ""}</dd>
                     </div>
-                  ) : null}
-                </dl>
+                    <div className="flex gap-2">
+                      <dt className="text-fg-muted">{t("access.accounts.roles")}</dt>
+                      <dd className="font-medium text-fg">
+                        {(spec.roles ?? [])
+                          .map((role) => role.role)
+                          .filter(Boolean)
+                          .join(", ")}
+                      </dd>
+                    </div>
+                    {spec.purpose ? (
+                      <div className="flex gap-2 sm:col-span-2">
+                        <dt className="text-fg-muted">{t("access.accounts.purpose")}</dt>
+                        <dd className="text-fg">{spec.purpose}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
 
-                {mayChange || ownedBy(spec, identity) ? (
-                  <KeyTable
-                    project={project}
-                    account={account.metadata.name}
-                    credentials={apiKeyCredentials(spec)}
-                    onMinted={setMinted}
-                    onError={setError}
-                  />
-                ) : (
-                  <p className="mt-3 text-sm text-surface-fg/70">{t("access.keys.notYours")}</p>
-                )}
+                  {mayChange || ownedBy(spec, identity) ? (
+                    <KeyTable
+                      project={project}
+                      account={account.metadata.name}
+                      credentials={apiKeyCredentials(spec)}
+                      onMinted={setMinted}
+                      onError={setError}
+                    />
+                  ) : (
+                    <p className="mt-3 text-body text-fg-muted">{t("access.keys.notYours")}</p>
+                  )}
+                </Card>
               </li>
             );
           })}
