@@ -915,6 +915,14 @@
       "nothing": "Nič nie je zaškrtnuté, endpoint by teda nič nezverejnil.",
       "identity": "id a type sú súčasťou každej entity a zostávajú zaškrtnuté."
     },
+    "create": {
+      "title": "Nový model",
+      "name": "Názov",
+      "space": "Priestor",
+      "chooseSpace": "Vyberte priestor",
+      "file": "Uloží sa ako {name}.linkml.yaml",
+      "taken": "Projekt už má model s názvom {name}. Zvoľte iný názov."
+    },
     "infer": {
       "title": "Model zo súboru",
       "lead": "Pretiahnite CSV, hárok Excelu, dokument JSON alebo PDF s tabuľkami. Portál ho prečíta raz, v pamäti, a navrhne model: trieda za hárok, slot za stĺpec, rozsahy a jednotky z hodnôt. Nič sa nepublikuje; návrh sa otvorí v editore na opravu.",

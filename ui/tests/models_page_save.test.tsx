@@ -329,4 +329,77 @@ describe("ModelsPage save and source loading (DM-56)", () => {
       expect(screen.getByRole("button", { name: en.models.source.save })).toBeEnabled();
     });
   });
+
+  it("names an inferred draft and a space, then creates the model through the same route (T-0789, DM-57)", async () => {
+    const user = userEvent.setup();
+    const list = (items: unknown[]) => ({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items });
+    const space = {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "ContextSpace",
+      metadata: { name: "mobility", namespace: "ovzdusie" },
+      spec: {},
+    };
+    const taken = {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "DataModel",
+      metadata: { name: "air-quality", namespace: "ovzdusie" },
+      spec: { contextSpaceRef: "mobility", linkml: "./air-quality.linkml.yaml" },
+    };
+    const fetchMock = vi.fn().mockImplementation((req: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = typeof req === "string" ? req : req instanceof Request ? req.url : req.toString();
+      const method = init?.method ?? (req instanceof Request ? req.method : "GET");
+      if (urlStr.includes("/datamodels/bikes/source") && method === "PUT") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              apiVersion: "joinedcontext.com/v1alpha1",
+              kind: "Change",
+              metadata: { name: "mr-91", namespace: "ovzdusie" },
+              status: {
+                phase: "PendingApproval",
+                lane: "green",
+                mergeRequest: "https://forge.example.sk/pulls/91",
+                plan: { create: 6, update: 0, delete: 0 },
+              },
+            }),
+            { status: 202, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      if (urlStr.includes("/spaces")) {
+        return Promise.resolve(new Response(JSON.stringify(list([space])), { status: 200 }));
+      }
+      if (urlStr.includes("/datamodels")) {
+        return Promise.resolve(new Response(JSON.stringify(list([taken])), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify(list([])), { status: 200 }));
+    });
+    global.fetch = fetchMock;
+
+    renderWithClient(<ModelsPage project="ovzdusie" />);
+
+    // A blank draft has no manifest, so nothing can be saved until it is named and placed.
+    expect(screen.queryByRole("button", { name: /save model/i })).not.toBeInTheDocument();
+
+    await user.click(await screen.findByRole("tab", { name: en.models.view.editor }));
+    const name = await screen.findByLabelText(en.models.create.name);
+    await user.type(name, "air-quality");
+    await user.selectOptions(await screen.findByLabelText(en.models.create.space), "mobility");
+
+    // A name the project already carries would fork a second model under one name.
+    expect(await screen.findByRole("alert")).toHaveTextContent(/already has a model named/i);
+    expect(screen.getByRole("button", { name: /save model/i })).toBeDisabled();
+
+    await user.clear(name);
+    await user.type(name, "Bikes");
+    await user.click(screen.getByRole("button", { name: /save model/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/v1/projects/ovzdusie/datamodels/bikes/source?space=mobility",
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+    expect(await screen.findByText(/mr-91/i)).toBeInTheDocument();
+  });
 });

@@ -929,6 +929,14 @@
       "nothing": "Nothing is ticked, so the endpoint would expose nothing.",
       "identity": "id and type are part of every entity and stay ticked."
     },
+    "create": {
+      "title": "A new model",
+      "name": "Name",
+      "space": "Space",
+      "chooseSpace": "Choose a space",
+      "file": "Saved as {name}.linkml.yaml",
+      "taken": "The project already has a model named {name}. Choose another name."
+    },
     "infer": {
       "title": "Model from a file",
       "lead": "Drop a CSV, an Excel sheet, a JSON document or a PDF with tables. The Portal reads it once, in memory, and drafts a model: one class per sheet, one slot per column, ranges and units from the values. Nothing is published; the draft opens in the editor for you to correct.",

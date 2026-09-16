@@ -1987,6 +1987,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "space",
+            "in": "query",
+            "description": "The space a model the project does not hold yet is created in (DM-57)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {

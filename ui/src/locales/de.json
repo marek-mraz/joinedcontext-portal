@@ -915,6 +915,14 @@
       "nothing": "Nichts ist angekreuzt, der Endpunkt würde also nichts veröffentlichen.",
       "identity": "id und type gehören zu jeder Entität und bleiben angekreuzt."
     },
+    "create": {
+      "title": "Ein neues Modell",
+      "name": "Name",
+      "space": "Raum",
+      "chooseSpace": "Raum wählen",
+      "file": "Wird als {name}.linkml.yaml gespeichert",
+      "taken": "Das Projekt hat bereits ein Modell namens {name}. Wählen Sie einen anderen Namen."
+    },
     "infer": {
       "title": "Modell aus einer Datei",
       "lead": "Legen Sie eine CSV, ein Excel-Blatt, ein JSON-Dokument oder ein PDF mit Tabellen ab. Das Portal liest es einmal im Speicher und entwirft ein Modell: eine Klasse je Blatt, ein Slot je Spalte, Wertebereiche und Einheiten aus den Werten. Nichts wird veröffentlicht; der Entwurf öffnet sich im Editor zur Korrektur.",

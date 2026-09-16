@@ -57,6 +57,19 @@ type Tab = "import" | "editor" | "mappings";
 
 const TABS: Tab[] = ["import", "editor", "mappings"];
 
+/**
+ * A free-typed or LinkML name as a manifest name: lower-case letters, digits and `-` (DM-57).
+ * `undefined` when nothing is left, which is what keeps Save out of reach for an unnamed draft.
+ */
+function manifestName(name: string): string | undefined {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug === "" ? undefined : slug;
+}
+
 export function ModelsPage({
   project,
   locales = ["sk", "en", "de", "cs"],
@@ -89,6 +102,8 @@ export function ModelsPage({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [checkInfo, setCheckInfo] = useState<{ severity: string; version: string } | null>(null);
   const [changeNotice, setChangeNotice] = useState<Change | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newSpace, setNewSpace] = useState("");
 
   // The list keys are shared with every page that lists these kinds, so the cache holds the list
   // as the API answers it and the manifests are read off it here (T-0625).
@@ -100,7 +115,6 @@ export function ModelsPage({
     );
   const models = useQuery({
     queryKey: queryKeys.list(project, "datamodels"),
-    enabled: editing !== undefined,
     retry: false,
     queryFn: () => listOf("datamodels"),
     select: (list) => asManifests(list.items ?? []),
@@ -120,6 +134,12 @@ export function ModelsPage({
   const published = chosen ?? opened;
 
   const activeModelName = published?.name ?? baseline?.name ?? editing;
+  // A draft nobody has published yet — inferred from a file, or started from blank — has no
+  // manifest, so saving it creates one: it needs a name and the space it belongs to (DM-57).
+  const creating = activeModelName === undefined;
+  const targetName = activeModelName ?? manifestName(newName);
+  const taken =
+    creating && (models.data ?? []).some((manifest) => manifest.metadata.name === targetName);
   // A published model's source lives in the repository and is read through DM-56's route.
   const loaded = useQuery({
     queryKey: ["datamodel-source", project, activeModelName],
@@ -204,16 +224,33 @@ export function ModelsPage({
     setTab("editor");
   };
 
-  // A model inferred from a file is a new draft: nothing published to compare against.
+  // A model inferred from a file is a new draft: nothing published to compare against. Its
+  // LinkML name is the obvious manifest name, and the person can change it before saving.
   const onPopulate = (draft: string) => {
     setSource(draft);
     setChosen(undefined);
     setEditing(undefined);
+    setNewName(parseModel(draft).name ?? "");
     setTab("editor");
   };
 
+  // The space travels with a create, and with nothing else: for a model that exists the route
+  // reads the space off its manifest (DM-56).
+  const sourceUrl = (dryRun: boolean): string => {
+    const params = new URLSearchParams();
+    if (dryRun) {
+      params.set("dryRun", "All");
+    }
+    if (creating && newSpace) {
+      params.set("space", newSpace);
+    }
+    const query = params.toString();
+    const path = `/api/v1/projects/${encodeURIComponent(project)}/datamodels/${encodeURIComponent(targetName ?? "")}/source`;
+    return query ? `${path}?${query}` : path;
+  };
+
   const handleCheck = async () => {
-    if (!activeModelName) return;
+    if (!targetName) return;
     setChecking(true);
     setSaveError(null);
     setCheckInfo(null);
@@ -226,7 +263,7 @@ export function ModelsPage({
         headers["x-csrf-token"] = csrf;
       }
       const res = await fetch(
-        `/api/v1/projects/${encodeURIComponent(project)}/datamodels/${encodeURIComponent(activeModelName)}/source?dryRun=All`,
+        sourceUrl(true),
         {
           method: "PUT",
           credentials: "same-origin",
@@ -254,7 +291,7 @@ export function ModelsPage({
   };
 
   const handleSave = async () => {
-    if (!activeModelName) return;
+    if (!targetName) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -266,7 +303,7 @@ export function ModelsPage({
         headers["x-csrf-token"] = csrf;
       }
       const res = await fetch(
-        `/api/v1/projects/${encodeURIComponent(project)}/datamodels/${encodeURIComponent(activeModelName)}/source`,
+        sourceUrl(false),
         {
           method: "PUT",
           credentials: "same-origin",
@@ -303,9 +340,9 @@ export function ModelsPage({
           </p>
         }
         actions={
-          activeModelName ? (
+          targetName && (!creating || newSpace) ? (
             <>
-              <Button size="sm" onClick={handleCheck} disabled={checking || saving}>
+              <Button size="sm" onClick={handleCheck} disabled={checking || saving || taken}>
                 {t("models.source.saveCheck")}
               </Button>
               {severity === "breaking" ? (
@@ -322,7 +359,9 @@ export function ModelsPage({
                 size="sm"
                 variant="primary"
                 onClick={handleSave}
-                disabled={saving || checking || (severity === "breaking" && !breakingConfirmed)}
+                disabled={
+                  saving || checking || taken || (severity === "breaking" && !breakingConfirmed)
+                }
               >
                 {t("models.source.save")}
               </Button>
@@ -432,7 +471,54 @@ export function ModelsPage({
           </div>
         ) : null}
         {tab === "editor" ? (
-          <LinkmlEditor source={source} onChange={setSource} locales={locales} />
+          <div className="flex flex-col gap-3">
+            {creating ? (
+              <section
+                aria-labelledby="models-new"
+                className="flex flex-col gap-2 rounded border border-border p-3"
+              >
+                <h2 id="models-new" className="text-sm font-semibold">
+                  {t("models.create.title")}
+                </h2>
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="flex flex-col gap-1 text-sm">
+                    {t("models.create.name")}
+                    <input
+                      className="rounded border border-border px-2 py-1"
+                      value={newName}
+                      onChange={(event) => setNewName(event.target.value)}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    {t("models.create.space")}
+                    <select
+                      className="rounded border border-border px-2 py-1"
+                      value={newSpace}
+                      onChange={(event) => setNewSpace(event.target.value)}
+                    >
+                      <option value="">{t("models.create.chooseSpace")}</option>
+                      {(spaces.data ?? []).map((space) => (
+                        <option key={space.metadata.name} value={space.metadata.name}>
+                          {space.metadata.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {targetName ? (
+                    <p className="text-sm text-surface-fg/70">
+                      {t("models.create.file", { name: targetName })}
+                    </p>
+                  ) : null}
+                </div>
+                {taken ? (
+                  <p role="alert" className="text-sm text-danger-fg">
+                    {t("models.create.taken", { name: targetName })}
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
+            <LinkmlEditor source={source} onChange={setSource} locales={locales} />
+          </div>
         ) : null}
         {tab === "mappings" ? (
           <MappingsEditor

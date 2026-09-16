@@ -3551,6 +3551,8 @@ export interface operations {
                 version?: string;
                 /** @description Set to 'All' for dry run */
                 dryRun?: string;
+                /** @description The space a model the project does not hold yet is created in (DM-57) */
+                space?: string;
             };
             header?: never;
             path: {

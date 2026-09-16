@@ -1,4 +1,4 @@
-//! Reading and saving DataModel LinkML source and compiled schema artifacts (DM-01, DM-02, DM-22, DM-24, DM-56).
+//! Reading and saving DataModel LinkML source and compiled schema artifacts (DM-01, DM-02, DM-22, DM-24, DM-56, DM-57).
 
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
@@ -46,6 +46,46 @@ pub struct SourcePutQuery {
     pub version: Option<String>,
     #[serde(default, rename = "dryRun")]
     pub dry_run: Option<String>,
+    /// The space a model the project does not hold yet is created in (DM-57).
+    pub space: Option<String>,
+}
+
+/// The manifest a `PUT` creates for a name the project does not hold yet (DM-57). The space
+/// decides the folder, so without one there is nowhere to write the file and nothing is created.
+fn new_model_envelope(
+    state: &AppState,
+    project: &str,
+    name: &str,
+    space: Option<&str>,
+) -> Result<crate::resource::ResourceEnvelope, ApiError> {
+    let space = space.map(str::trim).filter(|s| !s.is_empty()).ok_or_else(|| {
+        ApiError::BadRequest(format!(
+            "DataModel '{name}' not found in project '{project}'; to create it, name the space it belongs to with ?space="
+        ))
+    })?;
+    if !crate::resource::is_dns1123(name) {
+        return Err(ApiError::BadRequest(format!(
+            "'{name}' is not a manifest name: lower-case letters, digits and '-', starting and ending with a letter or a digit"
+        )));
+    }
+    if state.mirror.get(project, "ContextSpace", space).is_none() {
+        return Err(ApiError::NotFound(format!(
+            "ContextSpace '{space}' not found in project '{project}'"
+        )));
+    }
+    serde_json::from_value(json!({
+        "apiVersion": crate::resource::API_VERSION,
+        "kind": "DataModel",
+        "metadata": { "name": name, "namespace": project },
+        "spec": {
+            "contextSpaceRef": space,
+            "linkml": format!("./{name}.linkml.yaml"),
+            "version": "0.1.0",
+            "lifecycle": "draft",
+            "classes": [],
+        }
+    }))
+    .map_err(|e| ApiError::Internal(format!("build DataModel manifest: {e}")))
 }
 
 /// Confines `spec.linkml`: rejects absolute paths, `..` segments, and paths outside `datamodels/`.
@@ -464,6 +504,7 @@ pub async fn get_source(
         ("name" = String, Path, description = "DataModel name"),
         ("version" = Option<String>, Query, description = "Target semver"),
         ("dryRun" = Option<String>, Query, description = "Set to 'All' for dry run"),
+        ("space" = Option<String>, Query, description = "The space a model the project does not hold yet is created in (DM-57)"),
     ),
     request_body(
         content = String,
@@ -499,14 +540,12 @@ pub async fn put_source(
         .map(|s| s.eq_ignore_ascii_case("all") || s.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
-    let envelope = state
-        .mirror
-        .get(&project, "DataModel", &name)
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "DataModel '{name}' not found in project '{project}'"
-            ))
-        })?;
+    let existing = state.mirror.get(&project, "DataModel", &name);
+    let creating = existing.is_none();
+    let envelope = match existing {
+        Some(envelope) => envelope,
+        None => new_model_envelope(&state, &project, &name, query.space.as_deref())?,
+    };
 
     crate::permissions::for_request(&state, &user.0.identity, &project).check(
         "DataModel",
@@ -532,13 +571,20 @@ pub async fn put_source(
         .map_err(|e| ApiError::BadRequest(format!("invalid utf-8 body: {e}")))?
         .to_string();
 
+    // A model that is being created starts where DM-22 starts, not one additive bump above it.
+    let requested_version =
+        query
+            .version
+            .as_deref()
+            .or(if creating { Some("0.1.0") } else { None });
+
     let (checked, next_val) = check_source(
         &state,
         &project,
         &name,
         &envelope.spec,
         &source_str,
-        query.version.as_deref(),
+        requested_version,
     )
     .await?;
 
@@ -609,11 +655,20 @@ pub async fn put_source(
         .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
 
     let default_branch = gitea.default_branch().await?;
-    let branch = branch_name(&project, "datamodel", &name, Operation::Update);
+    let operation = if creating {
+        Operation::Create
+    } else {
+        Operation::Update
+    };
+    let branch = branch_name(&project, "datamodel", &name, operation);
     let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
     let (author_name, author_email) = author_credentials(&user.0.identity, &project);
-    let commit_msg = format!("update DataModel {name} source and artifacts");
+    let commit_msg = if creating {
+        format!("create DataModel {name} with its source and artifacts")
+    } else {
+        format!("update DataModel {name} source and artifacts")
+    };
 
     let manifest_path = format!("projects/{project}/spaces/{space}/datamodels/{name}.yaml");
     let source_path = format!("projects/{project}/spaces/{space}/datamodels/{confined_linkml}");
@@ -656,7 +711,9 @@ pub async fn put_source(
         gitea.put_file(&file_write).await?;
     }
 
+    // A model that did not exist has nothing to break, so it lands in the lane a draft gets.
     let lane = match severity {
+        _ if creating => Lane::Green,
         "breaking" => Lane::Red,
         "additive" => Lane::Yellow,
         _ => Lane::Green,
@@ -664,9 +721,14 @@ pub async fn put_source(
 
     crate::telemetry::proposed(lane, "DataModel");
 
-    let pr_title = format!("update DataModel {name}");
+    let pr_title = if creating {
+        format!("create DataModel {name}")
+    } else {
+        format!("update DataModel {name}")
+    };
     let pr_body = format!(
-        "Proposed update of DataModel `{name}` source, manifest and generated artifacts in project `{project}` via joinedcontext Portal."
+        "Proposed {} of DataModel `{name}` source, manifest and generated artifacts in project `{project}` via joinedcontext Portal.",
+        if creating { "creation" } else { "update" }
     );
 
     let pr = gitea
@@ -677,10 +739,18 @@ pub async fn put_source(
     let change_status = ChangeStatus::new(
         lane,
         ChangePhase::PendingApproval,
-        PlanSummary {
-            create: 0,
-            update: 6,
-            delete: 0,
+        if creating {
+            PlanSummary {
+                create: 6,
+                update: 0,
+                delete: 0,
+            }
+        } else {
+            PlanSummary {
+                create: 0,
+                update: 6,
+                delete: 0,
+            }
         },
     )
     .with_merge_request(pr.url);
