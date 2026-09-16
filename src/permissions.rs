@@ -181,9 +181,10 @@ impl Reach {
     }
 }
 
-fn roles(mirror: &Mirror) -> Vec<(String, RoleSpec)> {
+/// The roles of one namespace: the organization's `users/roles/`, or one project's own (PF-68).
+fn roles(mirror: &Mirror, namespace: &str) -> Vec<(String, RoleSpec)> {
     mirror
-        .list(ORG_NAMESPACE, "Role", &ListOptions::default())
+        .list(namespace, "Role", &ListOptions::default())
         .items
         .into_iter()
         .filter_map(|env| match serde_json::from_value::<RoleSpec>(env.spec) {
@@ -196,9 +197,41 @@ fn roles(mirror: &Mirror) -> Vec<(String, RoleSpec)> {
         .collect()
 }
 
+/// The project a context space belongs to, which is the project whose roles a binding scoped to
+/// that space may reach (PF-69).
+fn project_of_space(mirror: &Mirror, space: &str) -> Option<String> {
+    mirror
+        .find(|env| env.kind == "ContextSpace" && env.metadata.name == space)
+        .and_then(|env| env.metadata.namespace)
+}
+
+/// The role a binding names, looked up where the binding reaches it: the organization's roles
+/// first, then the roles of the project its scope names (PF-68, PF-69).
+///
+/// A name in both places is refused by `jcctl validate` before the manifest ever lands, so the
+/// organization's copy winning here is a tie that cannot happen, not a precedence rule.
+fn role_of(
+    mirror: &Mirror,
+    organization: &[(String, RoleSpec)],
+    reach: &Reach,
+    name: &str,
+) -> Option<(String, RoleSpec)> {
+    if let Some((found, spec)) = organization.iter().find(|(role, _)| role == name) {
+        return Some((found.clone(), spec.clone()));
+    }
+    let project = match reach {
+        Reach::Organization => return None,
+        Reach::Project(project) => project.clone(),
+        Reach::Space(space) => project_of_space(mirror, space)?,
+    };
+    roles(mirror, &project)
+        .into_iter()
+        .find(|(role, _)| role == name)
+}
+
 /// Every rule a binding in force at `now` gives the caller, with where the binding applies.
 fn in_force(mirror: &Mirror, identity: &Identity, now: DateTime<Utc>) -> Vec<(Reach, Grant)> {
-    let roles = roles(mirror);
+    let organization = roles(mirror, ORG_NAMESPACE);
     let mut grants = Vec::new();
     for env in mirror
         .list(ORG_NAMESPACE, "RoleBinding", &ListOptions::default())
@@ -220,8 +253,8 @@ fn in_force(mirror: &Mirror, identity: &Identity, now: DateTime<Utc>) -> Vec<(Re
         let Some(reach) = Reach::of(&binding.scope) else {
             continue;
         };
-        let Some((role_name, role)) = roles.iter().find(|(name, _)| *name == binding.role) else {
-            tracing::warn!(binding = %env.metadata.name, role = %binding.role, "RoleBinding names a Role the repository lacks");
+        let Some((role_name, role)) = role_of(mirror, &organization, &reach, &binding.role) else {
+            tracing::warn!(binding = %env.metadata.name, role = %binding.role, "RoleBinding names a Role it does not reach");
             continue;
         };
         for rule in &role.rules {
@@ -256,46 +289,56 @@ pub fn within_own_rights(
     let no_scope = || {
         ApiError::BadRequest("spec.scope names no organization, project or context space".into())
     };
-    let roles = roles(mirror);
-    let rules_of = |name: &str| {
-        roles
-            .iter()
-            .find(|(role, _)| role == name)
-            .map(|(_, spec)| spec.rules.clone())
+    let organization = roles(mirror, ORG_NAMESPACE);
+    // The role a manifest names, read where that manifest reaches it: a binding at project
+    // scope may name the project's own role, an organization one may not (PF-69).
+    let rules_at = |name: &str, target: &Reach| {
+        role_of(mirror, &organization, target, name).map(|(_, spec)| spec.rules)
     };
-    let (noun, grants): (&str, Vec<(Vec<Rule>, Reach)>) = match manifest
-        .get("kind")
-        .and_then(Value::as_str)
-    {
-        Some("Role") => {
-            let role: RoleSpec = serde_json::from_value(spec).map_err(unreadable)?;
-            ("role", vec![(role.rules, Reach::Organization)])
-        }
-        Some("RoleBinding") => {
-            let binding: RoleBindingSpec = serde_json::from_value(spec).map_err(unreadable)?;
-            let rules = rules_of(&binding.role).ok_or_else(|| {
+    let (noun, grants): (&str, Vec<(Vec<Rule>, Reach)>) =
+        match manifest.get("kind").and_then(Value::as_str) {
+            Some("Role") => {
+                let role: RoleSpec = serde_json::from_value(spec).map_err(unreadable)?;
+                // A role of a project is measured against what its proposer holds in that project,
+                // an organization role against what they hold organization-wide (PF-68).
+                let namespace = manifest
+                    .pointer("/metadata/namespace")
+                    .and_then(Value::as_str)
+                    .unwrap_or(ORG_NAMESPACE);
+                let at = match namespace {
+                    ORG_NAMESPACE | "" => Reach::Organization,
+                    project => Reach::Project(project.to_owned()),
+                };
+                ("role", vec![(role.rules, at)])
+            }
+            Some("RoleBinding") => {
+                let binding: RoleBindingSpec = serde_json::from_value(spec).map_err(unreadable)?;
+                let target = Reach::of(&binding.scope).ok_or_else(no_scope)?;
+                let rules = rules_at(&binding.role, &target).ok_or_else(|| {
                     ApiError::Denied(format!(
-                        "the organization has no role {}; propose the role before a binding to it (PF-52)",
+                        "no role {} is defined where this binding applies; propose the role \
+                     before a binding to it (PF-52, PF-69)",
                         binding.role
                     ))
                 })?;
-            let target = Reach::of(&binding.scope).ok_or_else(no_scope)?;
-            ("binding", vec![(rules, target)])
-        }
-        // A service account's other roles are the gateway's role templates, which grant data
-        // access through Policies and nothing here (CC-60).
-        Some("ServiceAccount") => {
-            let account: ServiceAccountSpec = serde_json::from_value(spec).map_err(unreadable)?;
-            let mut grants = Vec::new();
-            for granted in &account.roles {
-                if let Some(rules) = rules_of(&granted.role) {
-                    grants.push((rules, Reach::of(&granted.scope).ok_or_else(no_scope)?));
-                }
+                ("binding", vec![(rules, target)])
             }
-            ("service account", grants)
-        }
-        _ => return Ok(()),
-    };
+            // A service account's other roles are the gateway's role templates, which grant data
+            // access through Policies and nothing here (CC-60).
+            Some("ServiceAccount") => {
+                let account: ServiceAccountSpec =
+                    serde_json::from_value(spec).map_err(unreadable)?;
+                let mut grants = Vec::new();
+                for granted in &account.roles {
+                    let target = Reach::of(&granted.scope).ok_or_else(no_scope)?;
+                    if let Some(rules) = rules_at(&granted.role, &target) {
+                        grants.push((rules, target));
+                    }
+                }
+                ("service account", grants)
+            }
+            _ => return Ok(()),
+        };
     if in_group(identity, &state.config.bootstrap_admins) {
         return Ok(());
     }

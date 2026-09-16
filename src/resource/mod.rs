@@ -107,12 +107,14 @@ pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[
         plural: "subscriptions",
         scope: Scope::Project,
         path_template: "projects/{project}/spaces/{space}/subscriptions/{name}.yaml",
+        project_path_template: None,
     },
     KindInfo {
         kind: "Entity",
         plural: "entities",
         scope: Scope::Project,
         path_template: "projects/{project}/spaces/{space}/entities/seed/{name}.yaml",
+        project_path_template: None,
     },
 ];
 
@@ -128,6 +130,42 @@ pub fn by_plural(plural: &str) -> Option<&'static KindInfo> {
 
 pub fn by_kind(kind: &str) -> Option<&'static KindInfo> {
     kinds().find(|info| info.kind == kind)
+}
+
+/// Whether a manifest belongs to the organization rather than to one project (MF-06, PF-68).
+///
+/// A kind that lives in one place is answered by its scope alone. `Role` lives in either, so it
+/// is answered by the namespace the manifest carries: that is what keeps an imported
+/// organization role in `org` and a project's own role in its project (T-0820, T-0872).
+pub fn belongs_to_the_organization(kind: &str, namespace: Option<&str>) -> bool {
+    by_kind(kind).is_some_and(|info| match info.scope {
+        Scope::Organization => true,
+        Scope::Project => false,
+        Scope::OrganizationOrProject => {
+            namespace.is_none_or(|ns| ns.is_empty() || ns == crate::permissions::ORG_NAMESPACE)
+        }
+    })
+}
+
+/// The namespaces a kind's manifests live in for a call made inside `project`, nearest first.
+///
+/// One namespace for every kind that lives in one place. `Role` answers two, the project's own
+/// and the organization's, because both are in force inside a project and a caller asking for
+/// "the roles" there means both (PF-68, PF-69).
+pub fn homes(info: &KindInfo, project: &str) -> Vec<String> {
+    let org = crate::permissions::ORG_NAMESPACE.to_owned();
+    match info.scope {
+        Scope::Organization => vec![org],
+        Scope::Project => vec![project.to_owned()],
+        Scope::OrganizationOrProject if project == org => vec![org],
+        Scope::OrganizationOrProject => vec![project.to_owned(), org],
+    }
+}
+
+/// Where one manifest of this kind is written, for a call made inside `project`: the first of
+/// [`homes`], which is the project's own copy for a kind that may live in either.
+pub fn home(info: &KindInfo, project: &str) -> String {
+    homes(info, project).remove(0)
 }
 
 /// [`KindInfo::repo_path`] with one refusal on top: a placeholder must never be left behind, since

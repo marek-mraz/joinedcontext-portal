@@ -13,24 +13,25 @@ impl Driver {
                 "the agent profile does not grant propose on {kind} through jc_resource_propose (AG-70)"
             ));
         }
-        crate::permissions::for_request(&self.state, &self.identity, self.home(kind))
+        crate::permissions::for_request(&self.state, &self.identity, &self.home(kind))
             .check(kind, verb, None)
             .map_err(|err| err.to_string())
     }
 
-    /// Where a kind's resources live: the organization's namespace for a Role or a RoleBinding,
-    /// this project for everything else.
-    pub(super) fn home(&self, kind: &str) -> &str {
+    /// Where a kind's resources live: the organization's namespace for a RoleBinding, this
+    /// project for everything else, and this project for a `Role` the run writes, which is a
+    /// role of the project it works in (PF-68).
+    pub(super) fn home(&self, kind: &str) -> String {
         match crate::resource::by_kind(kind) {
-            Some(info) if info.scope == Scope::Organization => crate::permissions::ORG_NAMESPACE,
-            _ => &self.project,
+            Some(info) => crate::resource::home(info, &self.project),
+            None => self.project.clone(),
         }
     }
 
     /// The project's resources this run may change, by kind, so the model names one that exists.
     pub(super) fn changeable(&self) -> BTreeMap<&'static str, Vec<String>> {
         crate::resource::kinds()
-            .filter(|info| matches!(info.scope, Scope::Project | Scope::Organization))
+            .filter(|info| info.scope.allows_project() || info.scope.allows_organization())
             .filter(|info| self.may_change(info.kind, Verb::Propose).is_ok())
             .filter_map(|info| {
                 let names = self.names_of(info.kind);
@@ -39,13 +40,22 @@ impl Driver {
             .collect()
     }
 
+    /// The names of this kind the run may name, from every place the kind lives: for a `Role`
+    /// that is the project's own roles and the organization's, because both are in force here
+    /// (PF-68, T-0872).
     pub(super) fn names_of(&self, kind: &str) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .state
-            .mirror
-            .list(self.home(kind), kind, &crate::store::ListOptions::default())
-            .items
-            .into_iter()
+        let homes = match crate::resource::by_kind(kind) {
+            Some(info) => crate::resource::homes(info, &self.project),
+            None => vec![self.project.clone()],
+        };
+        let mut names: Vec<String> = homes
+            .iter()
+            .flat_map(|home| {
+                self.state
+                    .mirror
+                    .list(home, kind, &crate::store::ListOptions::default())
+                    .items
+            })
             .map(|envelope| envelope.metadata.name)
             .collect();
         names.sort();
@@ -81,7 +91,7 @@ impl Driver {
         let input = serde_json::to_value(&params).unwrap_or(Value::Null);
         let changeable = self.changeable();
         let Some(info) = crate::resource::by_kind(params.kind.trim())
-            .filter(|info| matches!(info.scope, Scope::Project | Scope::Organization))
+            .filter(|info| info.scope.allows_project() || info.scope.allows_organization())
         else {
             let kinds: Vec<&str> = changeable.keys().copied().collect();
             let reason = format!(
@@ -115,7 +125,11 @@ impl Driver {
                 .await;
         }
         let name = params.name.trim();
-        let Some(current) = self.state.mirror.get(self.home(info.kind), info.kind, name) else {
+        let Some(current) = self
+            .state
+            .mirror
+            .get(&self.home(info.kind), info.kind, name)
+        else {
             let names = self.names_of(info.kind);
             let reason = if names.is_empty() {
                 format!(
@@ -466,7 +480,7 @@ impl Driver {
         route: String,
     ) -> Result<Worked, String> {
         const TOOL: &str = "change_resource";
-        let home = self.home("DataModel");
+        let home = &self.home("DataModel");
         let spec = self
             .state
             .mirror
@@ -658,7 +672,7 @@ impl Driver {
         untested: bool,
     ) -> Result<Worked, String> {
         let millis = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let home = self.home(info.kind);
+        let home = &self.home(info.kind);
         let (refused, probe) = match crate::api::dry_run::execute_dry_run(
             &self.identity,
             &self.state,

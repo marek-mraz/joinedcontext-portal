@@ -995,3 +995,52 @@ spec:
     // Nothing of the bundle was written: a refusal is whole (MF-24).
     assert!(written(&server).await.is_empty());
 }
+
+/// PF-68, T-0872: a role the bundle wrote inside a project lands inside the destination project,
+/// while the organization's own role keeps `users/` — the namespace decides, not the kind alone.
+#[tokio::test]
+async fn a_role_of_a_project_lands_in_the_destination_project() {
+    const PROJECT_ROLE: &str = r#"apiVersion: joinedcontext.com/v1alpha1
+kind: Role
+metadata:
+  name: air-analyst
+  namespace: helsinki
+spec:
+  rules:
+    - kinds: [DataSource]
+      verbs: [propose]
+"#;
+
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let bundle = archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        ("users/roles/air-steward.yaml", ROLE),
+        ("projects/helsinki/roles/air-analyst.yaml", PROJECT_ROLE),
+        ("bundle.yaml", BUNDLE),
+    ]);
+    let (content_type, body) = multipart(&bundle, &[("conflictPolicy", "fail")]);
+    let (status, answer) = post(state, &cookie, &content_type, body).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+
+    let paths = written(&server).await;
+    assert!(
+        paths.iter().any(|p| p == "users/roles/air-steward.yaml"),
+        "{paths:?}"
+    );
+    assert!(
+        paths
+            .iter()
+            .any(|p| p == &format!("projects/{PROJECT}/roles/air-analyst.yaml")),
+        "{paths:?}"
+    );
+    let analyst = put_bodies(&server)
+        .await
+        .into_iter()
+        .find(|body| body.contains("air-analyst"))
+        .expect("the project role was written");
+    assert!(
+        analyst.contains(&format!("namespace: {PROJECT}")),
+        "{analyst}"
+    );
+}

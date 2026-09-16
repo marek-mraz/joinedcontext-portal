@@ -278,25 +278,32 @@ async fn load_manifest_data(
 
     let (base_envelope, head_envelope) = match branch_info.operation {
         Operation::Delete => {
-            let direct = kind_info.and_then(|info| {
-                crate::resource::repository_path(
-                    info,
-                    project,
-                    Some(project),
-                    &branch_info.resource_name,
-                )
-                .ok()
-            });
+            // A kind that lives in either place has two candidate paths; the one the base
+            // branch actually carries is the manifest (PF-68).
+            let candidates: Vec<String> = kind_info
+                .map(|info| {
+                    crate::resource::homes(info, project)
+                        .into_iter()
+                        .filter_map(|home| {
+                            crate::resource::repository_path(
+                                info,
+                                &home,
+                                Some(project),
+                                &branch_info.resource_name,
+                            )
+                            .ok()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
 
-            let path = if let Some(cand) = direct {
-                if let Ok(Some(_)) = gitea.get_file(&cand, &pr.base_branch).await {
-                    Some(cand)
-                } else {
-                    None
+            let mut path = None;
+            for candidate in candidates {
+                if let Ok(Some(_)) = gitea.get_file(&candidate, &pr.base_branch).await {
+                    path = Some(candidate);
+                    break;
                 }
-            } else {
-                None
-            };
+            }
 
             let path = match path {
                 Some(p) => Some(p),

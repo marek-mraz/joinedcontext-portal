@@ -323,7 +323,10 @@ async fn a_binding_is_refused_when_its_role_names_a_verb_its_proposer_lacks_on_i
         Some(binding("jana-ghost", "ghost", project("helsinki"))),
     )
     .await;
-    refused(&answer, "the organization has no role ghost");
+    refused(
+        &answer,
+        "no role ghost is defined where this binding applies",
+    );
 
     // The administrator holds everything over the organization: the grant is a red change.
     let answer = send(
@@ -586,4 +589,181 @@ async fn the_bootstrap_group_grants_the_first_administrator_into_an_empty_reposi
     )
     .await;
     red_change(&answer);
+}
+
+// ---------------------------------------------------------------------------
+// A role of a project, written and bound inside it alone (PF-68, PF-69, PF-70, T-0872)
+// ---------------------------------------------------------------------------
+
+/// A `Role` manifest in a project's namespace, proposed at that project's own roles path.
+fn project_role(project: &str, name: &str, rules: Value) -> Value {
+    json!({
+        "apiVersion": API_VERSION,
+        "kind": "Role",
+        "metadata": { "name": name, "namespace": project },
+        "spec": { "rules": rules },
+    })
+}
+
+#[tokio::test]
+async fn a_project_role_may_not_grant_a_verb_its_proposer_lacks_in_that_project() {
+    let gitea = forge().await;
+    let state = state_with(&gitea);
+
+    // The lead is steward on helsinki: propose and approve on Endpoint and Pipeline there, and
+    // no delete anywhere. A role of helsinki granting delete is above their own rights.
+    let answer = send(
+        &state,
+        person("lead"),
+        "POST",
+        "/api/v1/projects/helsinki/roles",
+        Some(project_role(
+            "helsinki",
+            "cleaner",
+            json!([{ "kinds": ["Pipeline"], "verbs": ["propose", "delete"] }]),
+        )),
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::FORBIDDEN, "{}", answer.text);
+    assert!(
+        answer.text.contains("delete on Pipeline"),
+        "the refusal names the verb: {}",
+        answer.text
+    );
+
+    // The same role without the verb they lack is theirs to write.
+    let answer = send(
+        &state,
+        person("lead"),
+        "POST",
+        "/api/v1/projects/helsinki/roles",
+        Some(project_role(
+            "helsinki",
+            "pipeline-writer",
+            json!([{ "kinds": ["Pipeline"], "verbs": ["propose"] }]),
+        )),
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::ACCEPTED, "{}", answer.text);
+
+    // And the same role in a project where they are nothing is refused there.
+    let answer = send(
+        &state,
+        person("lead"),
+        "POST",
+        "/api/v1/projects/espoo/roles",
+        Some(project_role(
+            "espoo",
+            "pipeline-writer",
+            json!([{ "kinds": ["Pipeline"], "verbs": ["propose"] }]),
+        )),
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::FORBIDDEN, "{}", answer.text);
+}
+
+#[tokio::test]
+async fn a_role_of_one_project_grants_nothing_in_another_and_nothing_at_organization_scope() {
+    use joinedcontext_portal::permissions;
+
+    let gitea = forge().await;
+    let state = state_with(&gitea);
+    // helsinki's own role, and jana bound to it in helsinki.
+    state.mirror.upsert(envelope(
+        "Role",
+        "air-analyst",
+        "helsinki",
+        json!({ "rules": [{ "kinds": ["DataSource"], "verbs": ["propose"] }] }),
+    ));
+    state.mirror.upsert(envelope(
+        "RoleBinding",
+        "jana-analyst",
+        ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": "jana.kovacova@hel.fi" }],
+            "role": "air-analyst",
+            "scope": { "project": "helsinki" }
+        }),
+    ));
+    // The same name bound in espoo, where no such role exists, and over the organization.
+    state.mirror.upsert(envelope(
+        "RoleBinding",
+        "jana-analyst-espoo",
+        ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": "jana.kovacova@hel.fi" }],
+            "role": "air-analyst",
+            "scope": { "project": "espoo" }
+        }),
+    ));
+    state.mirror.upsert(envelope(
+        "RoleBinding",
+        "jana-analyst-everywhere",
+        ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": "jana.kovacova@hel.fi" }],
+            "role": "air-analyst",
+            "scope": { "organization": "hel" }
+        }),
+    ));
+
+    let jana = person("jana.kovacova");
+    assert!(
+        permissions::for_request(&state, &jana, "helsinki").may_read("DataSource"),
+        "the role reaches inside its own project"
+    );
+    assert!(
+        !permissions::for_request(&state, &jana, "espoo").may_read("DataSource"),
+        "a binding in another project resolves no role of helsinki's (PF-69)"
+    );
+    // Over the organization the name resolves to nothing at all, so the grant is not in force
+    // anywhere else either.
+    assert!(
+        !permissions::for_request(&state, &jana, "tampere").may_read("DataSource"),
+        "an organization-scope binding never reaches a project's own role (PF-69)"
+    );
+}
+
+#[tokio::test]
+async fn a_project_role_is_read_through_the_operations_beside_the_organizations() {
+    use joinedcontext_portal::ops::{self, Caller, Via};
+
+    let gitea = forge().await;
+    let state = state_with(&gitea);
+    state.mirror.upsert(envelope(
+        "Role",
+        "air-analyst",
+        "helsinki",
+        json!({ "rules": [{ "kinds": ["DataSource"], "verbs": ["propose"] }] }),
+    ));
+
+    let caller = Caller {
+        identity: person("admin"),
+        via: Via::Mcp,
+    };
+    let list = ops::find("jc_resource_list").expect("registered");
+    let answer = ops::call(list, &caller, &state, "helsinki", json!({ "kind": "Role" }))
+        .await
+        .expect("the roles in force in helsinki");
+    let names: Vec<&str> = answer["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    assert!(names.contains(&"air-analyst"), "{answer}");
+    assert!(names.contains(&"org-admin"), "{answer}");
+
+    // Espoo sees the organization's roles and none of helsinki's.
+    let answer = ops::call(list, &caller, &state, "espoo", json!({ "kind": "Role" }))
+        .await
+        .expect("the roles in force in espoo");
+    let names: Vec<&str> = answer["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    assert!(!names.contains(&"air-analyst"), "{answer}");
+    assert!(names.contains(&"org-admin"), "{answer}");
 }

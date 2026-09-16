@@ -175,15 +175,24 @@ fn reject_input_schema() -> Value {
     })
 }
 
-/// Where a kind's manifests live: an organization-scoped kind in `org`, every other in the
-/// project of the call (PF-59, T-0840). The assistant resolved this for itself; every door does
-/// it the same way now, so `jc_resource_list {kind: "Role"}` finds the roles there are.
-fn home_of(info: &'static crate::resource::KindInfo, project: &str) -> String {
-    if info.scope == jc_core::envelope::Scope::Organization {
-        crate::permissions::ORG_NAMESPACE.to_owned()
-    } else {
-        project.to_owned()
-    }
+/// The namespace one named manifest of this kind is in: the nearest of [`crate::resource::homes`]
+/// that holds it, and the nearest one when it is nowhere (so the refusal names a real place).
+///
+/// An organization-scoped kind has one home, `org`; a project kind has the project of the call;
+/// a kind that lives in either — `Role` — is looked for in the project first and then in the
+/// organization, so `jc_resource_get {kind: "Role"}` finds both (PF-59, PF-68, T-0840, T-0872).
+fn home_holding(
+    state: &AppState,
+    info: &'static crate::resource::KindInfo,
+    project: &str,
+    name: &str,
+) -> String {
+    let homes = crate::resource::homes(info, project);
+    homes
+        .iter()
+        .find(|home| state.mirror.get(home, info.kind, name).is_some())
+        .cloned()
+        .unwrap_or_else(|| homes[0].clone())
 }
 
 /// What the caller may read is what they are answered (PF-59): a kind no binding of theirs
@@ -211,21 +220,23 @@ async fn list(
     input: ResourceListInput,
 ) -> Result<Value, OpError> {
     let info = kind_named(&input.kind)?;
-    let project = &home_of(info, project);
-    readable(caller, state, project, info)?;
-    let page = state
-        .mirror
-        .list(project, info.kind, &ListOptions::default());
-    let items: Vec<Value> = page
-        .items
+    let homes = crate::resource::homes(info, project);
+    readable(caller, state, &homes[0], info)?;
+    let items: Vec<Value> = homes
         .iter()
+        .flat_map(|home| {
+            state
+                .mirror
+                .list(home, info.kind, &ListOptions::default())
+                .items
+        })
         .filter(|envelope| {
             input
                 .space
                 .as_deref()
                 .is_none_or(|space| space_of(envelope).as_deref() == Some(space))
         })
-        .map(row)
+        .map(|envelope| row(&envelope))
         .collect();
     Ok(json!({ "items": items }))
 }
@@ -237,16 +248,22 @@ async fn get(
     input: ResourceGetInput,
 ) -> Result<Value, OpError> {
     let info = kind_named(&input.kind)?;
-    let project = &home_of(info, project);
+    let homes = crate::resource::homes(info, project);
+    let project = &home_holding(state, info, project, &input.name);
     readable(caller, state, project, info)?;
     match state.mirror.get(project, info.kind, &input.name) {
         Some(envelope) => Ok(serde_json::to_value(envelope)?),
         None => {
-            let mut names: Vec<String> = state
-                .mirror
-                .list(project, info.kind, &ListOptions::default())
-                .items
-                .into_iter()
+            // The names it could have been are every name of every place this kind lives in,
+            // so a caller who asked in the project is told about the organization's too.
+            let mut names: Vec<String> = homes
+                .iter()
+                .flat_map(|home| {
+                    state
+                        .mirror
+                        .list(home, info.kind, &ListOptions::default())
+                        .items
+                })
                 .map(|envelope| envelope.metadata.name)
                 .collect();
             names.sort();
@@ -315,7 +332,7 @@ async fn remove(
     match delete::delete_with_identity(
         &caller.identity,
         state,
-        &home_of(info, project),
+        &home_holding(state, info, project, &input.name),
         info.plural,
         &input.name,
         false,

@@ -31,7 +31,6 @@ use crate::agents::{
 };
 use crate::auth::session::Identity;
 use crate::git::gitea::{Author, FileWrite, GitError};
-use crate::resource::Scope;
 use crate::state::AppState;
 use jc_core::kinds::Verb;
 

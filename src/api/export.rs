@@ -296,9 +296,8 @@ fn bundle_index(
 
 /// One manifest of an export as the index lists it (MF-17).
 fn bundle_item(envelope: &ResourceEnvelope, path: &str) -> jc_core::kinds::BundleItem {
-    let namespace = envelope.metadata.namespace.clone().filter(|_| {
-        resource::by_kind(&envelope.kind)
-            .is_none_or(|info| info.scope != resource::Scope::Organization)
+    let namespace = envelope.metadata.namespace.clone().filter(|namespace| {
+        !resource::belongs_to_the_organization(&envelope.kind, Some(namespace))
     });
     jc_core::kinds::BundleItem {
         kind: envelope.kind.clone(),

@@ -440,19 +440,27 @@ fn remap(
     // An organization-scoped kind lives in namespace `org` whatever project imported it;
     // jc-core refuses the manifest otherwise, so the target project would write a file its
     // own CI rejects (PF-22, MF-22).
-    envelope.metadata.namespace = Some(namespace_for(&envelope.kind, to).to_owned());
+    let declared = envelope.metadata.namespace.clone();
+    envelope.metadata.namespace =
+        Some(namespace_of(&envelope.kind, declared.as_deref(), to).to_owned());
     remap_value(&mut envelope.spec, from, to, domain, spaces);
 }
 
 /// The namespace a kind is stored in: `org` for an organization-scoped kind, the project
-/// otherwise.
-fn namespace_for<'a>(kind: &str, project: &'a str) -> &'a str {
-    match resource::by_kind(kind) {
-        Some(info) if info.scope == resource::Scope::Organization => {
-            crate::permissions::ORG_NAMESPACE
-        }
-        _ => project,
+/// otherwise. A kind that lives in either — `Role` — keeps `org` when the bundle wrote it
+/// there and lands in the project when the bundle wrote it in one (PF-68, T-0820).
+fn namespace_of<'a>(kind: &str, declared: Option<&str>, project: &'a str) -> &'a str {
+    if resource::belongs_to_the_organization(kind, declared) {
+        crate::permissions::ORG_NAMESPACE
+    } else {
+        project
     }
+}
+
+/// Where a reference to `kind` points, with nothing declared: what a typed reference means from
+/// inside `project`.
+fn namespace_for<'a>(kind: &str, project: &'a str) -> &'a str {
+    namespace_of(kind, None, project)
 }
 
 fn remap_value(value: &mut Value, from: &str, to: &str, domain: &str, spaces: &BTreeSet<String>) {
@@ -984,7 +992,11 @@ fn plan_import(
     // resolved or planned.
     let mut keep: Vec<ResourceEnvelope> = Vec::new();
     for (origin, envelope) in manifests {
-        let stored = namespace_for(&envelope.kind, project);
+        let stored = namespace_of(
+            &envelope.kind,
+            envelope.metadata.namespace.as_deref(),
+            project,
+        );
         let existing = state
             .mirror
             .get(stored, &envelope.kind, &envelope.metadata.name)
@@ -1058,7 +1070,11 @@ fn plan_import(
         let operation = if state
             .mirror
             .get(
-                namespace_for(&envelope.kind, project),
+                namespace_of(
+                    &envelope.kind,
+                    envelope.metadata.namespace.as_deref(),
+                    project,
+                ),
                 &envelope.kind,
                 &envelope.metadata.name,
             )
@@ -1073,8 +1089,15 @@ fn plan_import(
             change::classify(info.kind, operation, &envelope.spec),
         );
 
+        // The manifest's own namespace decides where it lands, which is what keeps an
+        // organization role in `users/` and a project's own role in its project (PF-68).
+        let home = namespace_of(
+            &envelope.kind,
+            envelope.metadata.namespace.as_deref(),
+            project,
+        );
         let path =
-            resource::repository_path(info, project, space_of(envelope), &envelope.metadata.name)
+            resource::repository_path(info, home, space_of(envelope), &envelope.metadata.name)
                 .map_err(ApiError::BadRequest)?;
         let mut committed = envelope.clone();
         committed.strip_status();
