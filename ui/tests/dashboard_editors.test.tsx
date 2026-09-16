@@ -174,7 +174,13 @@ function renderDashboards(options: { writeStatus?: number; writeBody?: unknown; 
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    .filter((request) => request instanceof Request && request.method !== "GET");
+    .filter(
+      (request) =>
+        request instanceof Request &&
+        request.method !== "GET" &&
+        // The form's own draft, shared with the other windows; it writes nothing to Git (AG-61).
+        !request.url.includes("/drafts/"),
+    );
 }
 
 async function openLayerEditor() {
@@ -320,5 +326,31 @@ describe("dashboard editors", () => {
     expect(manifest.spec).toEqual(LAYER.spec);
     const off = layerToManifest("helsinki", { ...form, visible: false }) as { spec: Record<string, unknown> };
     expect(off.spec.visible).toBe(false);
+  });
+
+  it("writes the dashboard form to a draft and still proposes the manifest itself (T-0791, AG-61)", async () => {
+    const fetchMock = renderDashboards();
+    await userEvent.click(await screen.findByRole("button", { name: en.dashboards.edit }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText(new RegExp(`^${en.dashboards.field.visibility}`)),
+      "organization",
+    );
+
+    await waitFor(() => {
+      const drafted = fetchMock.mock.calls
+        .map((call) => call[0] as Request)
+        .find((request) => request.method === "PUT" && request.url.includes("/drafts/Dashboard/bikes"));
+      expect(drafted).toBeDefined();
+    });
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.dashboards.propose }));
+
+    // `propose_draft` knows no dashboards, so the proposal is the manifest and not a draft
+    // reference: a `draft` in the body would be a 400 (src/api/mutate.rs).
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    const body = (await writes(fetchMock)[0].clone().json()) as Record<string, unknown>;
+    expect(body.kind).toBe("Dashboard");
+    expect(body.draft).toBeUndefined();
   });
 });

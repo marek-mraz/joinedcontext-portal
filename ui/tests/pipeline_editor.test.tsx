@@ -231,7 +231,9 @@ function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
       (request) =>
         (request.method === "POST" || request.method === "PUT") &&
         !request.url.endsWith("/access/check") &&
-        !request.url.endsWith("/pipelines/test"),
+        !request.url.endsWith("/pipelines/test") &&
+        // The form's own draft, shared with the other windows; it writes nothing to Git (AG-61).
+        !request.url.includes("/drafts/"),
     );
 }
 
@@ -406,6 +408,9 @@ describe("pipeline editor", () => {
         source: { dataSourceRef: { kind: "DataSource", name: "mqtt-mesto" } },
         targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
       },
+      // The form edits a Portal draft, and the proposal names the draft it was taken from,
+      // so the verdict stored on that draft is the one the operation reads (AG-61, AG-62).
+      draft: { kind: "Pipeline", name: "aq-derived" },
     });
     expect(await screen.findByText(/chg-77aa11bb/)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -615,5 +620,21 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     expect(request.method).toBe("PUT");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects/banskabystrica/pipelines/aq-mqtt-ingest");
     expect(((await request.clone().json()) as { spec: unknown }).spec).toEqual(changed.spec);
+  });
+
+  it("writes what is typed to the pipeline's own draft, and opens the draft the address names (T-0791, AG-61, UI-47)", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/pipelines?draft=aq-derived");
+    const fetchMock = renderPipelines();
+
+    // The address named a draft, so the editor is open on it without a click.
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/^Name/), "aq-derived");
+
+    await waitFor(() => {
+      const drafted = fetchMock.mock.calls
+        .map((call) => call[0] as Request)
+        .find((request) => request.method === "PUT" && request.url.includes("/drafts/Pipeline/aq-derived"));
+      expect(drafted).toBeDefined();
+    });
   });
 });

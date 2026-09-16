@@ -128,6 +128,11 @@ export function DashboardEditor({
       schema={schema}
       uiSchema={dashboardUiSchema}
       lockedName={isNew ? undefined : openedAs}
+      project={project}
+      // The form edits a Portal draft, so a second window and the assistant see the same text
+      // (AG-61, UI-47). The proposal is the manifest itself: `propose_draft` has no dashboards.
+      draftKind="Dashboard"
+      draftName={openedAs ?? (editing?.name || undefined)}
       formData={editing ?? undefined}
       submitLabel={t("dashboards.propose")}
       disabled={proposal.mutation.isPending || loadingDrafts}
@@ -193,6 +198,9 @@ export function LayerEditor({
       schema={schema}
       uiSchema={layerUiSchema}
       lockedName={isNew ? undefined : openedAs}
+      project={project}
+      draftKind="Layer"
+      draftName={openedAs ?? (editing?.name || undefined)}
       formData={editing ?? undefined}
       submitLabel={t("dashboards.propose")}
       disabled={proposal.mutation.isPending}

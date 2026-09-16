@@ -176,7 +176,9 @@ export interface PipelineEditorDialogProps {
   initial?: PipelineForm;
   pending: boolean;
   error: string | null;
-  onSubmit: (envelope: ReturnType<typeof toEnvelope>) => void;
+  onSubmit: (envelope: ReturnType<typeof toEnvelope>, draft?: { kind: string; name: string }) => void;
+  /** The draft this form edits when the address named one (`?draft=`, AG-61, UI-47). */
+  draftName?: string;
 }
 
 /**
@@ -195,6 +197,7 @@ export function PipelineEditorDialog({
   pending,
   error,
   onSubmit,
+  draftName,
 }: PipelineEditorDialogProps): JSX.Element {
   const { t } = useTranslation();
   const { orgDomain } = useBranding();
@@ -299,13 +302,18 @@ export function PipelineEditorDialog({
       uiSchema={pipelineUiSchema}
       lockedName={editing?.metadata.name}
       formData={draft}
+      project={project}
+      // The form edits a Portal draft, so a second window and the assistant see the same text
+      // and Propose carries the draft it edited (AG-61, UI-47, T-0791).
+      draftKind="Pipeline"
+      draftName={editing?.metadata.name ?? draftName}
       submitLabel={t("pipelines.propose")}
       disabled={pending}
       submitDisabledReason={gate}
       error={error}
       source={source}
       onChange={(form) => setDraft(completeOutput(form))}
-      onSubmit={(form) => onSubmit(toEnvelope(project, form, base))}
+      onSubmit={(form, draftRef) => onSubmit(toEnvelope(project, form, base), draftRef)}
     >
       <PipelineStudio
         project={project}

@@ -173,11 +173,19 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   // to one pipeline (`?edit=`, AG-77): taken once, before the first render, so the editor is
   // open from the start and a reload starts clean.
   const [request, setRequest] = useState(() => takeEditRequest());
+  // A draft the assistant or another window left (`?draft=`, AG-61): the editor opens on it.
+  const [urlDraftName] = useState(() =>
+    typeof window === "undefined"
+      ? undefined
+      : (new URLSearchParams(window.location.search).get("draft") ?? undefined),
+  );
   const [editing, setEditing] = useState<Manifest | null>(() => (request?.manifest as Manifest | null) ?? null);
   const [initial] = useState(() =>
     request ? undefined : ((takePrefill(window.location.pathname) as PipelineForm | null) ?? undefined),
   );
-  const [dialogOpen, setDialogOpen] = useState(initial !== undefined || editing !== null);
+  const [dialogOpen, setDialogOpen] = useState(
+    initial !== undefined || editing !== null || urlDraftName !== undefined,
+  );
   const { can } = usePermissions(project);
   const mayPropose = can("Pipeline", "propose");
   const [formError, setFormError] = useState<string | null>(null);
@@ -236,12 +244,15 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
     mutationFn: async ({
       envelope,
       name,
+      draft,
     }: {
       envelope: ReturnType<typeof toEnvelope>;
       name: string | null;
+      /** The draft the form edited, so the proposal is taken from what was checked (AG-62). */
+      draft?: { kind: string; name: string };
     }) => {
       setFormError(null);
-      const body = envelope as never;
+      const body = (draft ? { ...envelope, draft } : envelope) as never;
       return unwrap(
         name === null
           ? await api.POST("/api/v1/projects/{project}/{plural}", {
@@ -462,8 +473,9 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
           initial={initial}
           pending={propose.isPending}
           error={formError}
-          onSubmit={(envelope) =>
-            propose.mutate({ envelope, name: editing ? editing.metadata.name : null })
+          draftName={urlDraftName}
+          onSubmit={(envelope, draft) =>
+            propose.mutate({ envelope, name: editing ? editing.metadata.name : null, draft })
           }
         />
       ) : null}
