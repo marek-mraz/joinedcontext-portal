@@ -30,6 +30,7 @@ use super::leader::Leadership;
 use super::streams::{
     eligible, is_stream_pipeline, make_condition, Bentos, StreamDeployer, StreamOutcome,
 };
+use crate::activity::{ActivityEvent, ActivityStore};
 use crate::apps::converge::{Converger, Outcome};
 use crate::git::{Author, FileWrite, GitError, GiteaClient};
 use crate::resource::ResourceEnvelope;
@@ -86,6 +87,9 @@ pub struct Syncer {
     /// settings that say which namespace they belong in (T-0411, AP-18).
     converger: Option<Arc<Converger>>,
     streams: Option<Arc<StreamDeployer>>,
+    /// Where a run says what it did (OPS-48). `None` leaves the loop silent, which is what a
+    /// Portal built without a state does in a unit test.
+    activity: Option<ActivityStore>,
 }
 
 impl Syncer {
@@ -101,7 +105,14 @@ impl Syncer {
             leadership: None,
             converger: None,
             streams: None,
+            activity: None,
         }
+    }
+
+    /// Makes each run tell the activity feed what it applied (OPS-48, UI-31).
+    pub fn with_activity(mut self, activity: ActivityStore) -> Self {
+        self.activity = Some(activity);
+        self
     }
 
     /// Deploys Bento streams for approved DataSource pipelines on each run (PL-47).
@@ -156,22 +167,101 @@ impl Syncer {
             tracing::debug!("another replica holds the reconciler lock, loading the mirror only");
         }
 
+        let before = self.status();
         match self.do_sync(leader).await {
             Ok((count, revision)) => {
-                let now = crate::auth::session::now_unix();
-                let mut status = self.status.write().unwrap_or_else(|p| p.into_inner());
-                status.last_sync = Some(now);
-                status.revision = Some(revision);
-                status.manifests = count;
-                status.last_error = None;
-                status.leader = leader;
+                let landed = before.revision.as_deref() != Some(revision.as_str());
+                {
+                    let now = crate::auth::session::now_unix();
+                    let mut status = self.status.write().unwrap_or_else(|p| p.into_inner());
+                    status.last_sync = Some(now);
+                    status.revision = Some(revision.clone());
+                    status.manifests = count;
+                    status.last_error = None;
+                    status.leader = leader;
+                }
+                // Only a revision the mirror had not seen is news: the loop runs every tick and
+                // a feed of "nothing changed" is a feed nobody reads.
+                if landed {
+                    self.say_applied(&revision, count).await;
+                }
                 Ok(count)
             }
             Err(err) => {
-                let mut status = self.status.write().unwrap_or_else(|p| p.into_inner());
-                status.last_error = Some(err.to_string());
+                let message = err.to_string();
+                let repeated = before.last_error.as_deref() == Some(message.as_str());
+                self.status
+                    .write()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .last_error = Some(message.clone());
+                if !repeated {
+                    self.say_drifted(&message).await;
+                }
                 Err(err)
             }
+        }
+    }
+
+    /// One `config.applied` per project the mirror holds, because a project's feed shows the
+    /// runs that touched it and a run touches the whole repository at once.
+    async fn say_applied(&self, revision: &str, manifests: usize) {
+        if self.activity.is_none() {
+            return;
+        }
+        let short: String = revision.chars().take(7).collect();
+        let events: Vec<ActivityEvent> = self
+            .mirror
+            .namespaces()
+            .into_iter()
+            .map(|project| ActivityEvent {
+                time: chrono::Utc::now(),
+                project,
+                space: None,
+                kind: "config.applied".to_string(),
+                source: "reconciler".to_string(),
+                summary: format!("The repository at {short} is live: {manifests} manifests."),
+                severity: "info".to_string(),
+                correlation_id: Some(revision.to_string()),
+                details: serde_json::json!({ "revision": revision, "manifests": manifests }),
+            })
+            .collect();
+        self.record(events).await;
+    }
+
+    /// A run that could not load the repository: the mirror keeps the last revision that did,
+    /// so the feed is the only place this is visible to a person (CC-08).
+    async fn say_drifted(&self, message: &str) {
+        if self.activity.is_none() {
+            return;
+        }
+        let events: Vec<ActivityEvent> = self
+            .mirror
+            .namespaces()
+            .into_iter()
+            .map(|project| ActivityEvent {
+                time: chrono::Utc::now(),
+                project,
+                space: None,
+                kind: "config.drifted".to_string(),
+                source: "reconciler".to_string(),
+                summary: format!("The repository did not load: {message}"),
+                severity: "error".to_string(),
+                correlation_id: None,
+                details: serde_json::Value::Null,
+            })
+            .collect();
+        self.record(events).await;
+    }
+
+    async fn record(&self, events: Vec<ActivityEvent>) {
+        let Some(activity) = self.activity.as_ref() else {
+            return;
+        };
+        if events.is_empty() {
+            return;
+        }
+        if let Err(err) = activity.append(&events).await {
+            tracing::warn!(error = %err, "the run is not in the activity feed");
         }
     }
 
@@ -795,20 +885,90 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_once_success() {
+    async fn a_run_that_lands_a_new_revision_says_so_once() {
         let server = MockServer::start().await;
         let base_url = server.uri().parse().unwrap();
         let client =
             Arc::new(GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").unwrap());
         let mirror = Arc::new(Mirror::new());
-        let syncer = Arc::new(Syncer::new(Arc::clone(&client), Arc::clone(&mirror)));
+        let activity = crate::activity::ActivityStore::new(None);
+        let syncer = Arc::new(
+            Syncer::new(Arc::clone(&client), Arc::clone(&mirror)).with_activity(activity.clone()),
+        );
 
+        mount_repository(&server).await;
+
+        syncer.sync_once().await.expect("sync should succeed");
+        let filter = crate::activity::ActivityFilter {
+            limit: 50,
+            ..Default::default()
+        };
+        let page = activity.list("ovzdusie", &filter).await.expect("list");
+        assert_eq!(page.items.len(), 1, "{:?}", page.items);
+        assert_eq!(page.items[0].kind, "config.applied");
+        assert_eq!(page.items[0].source, "reconciler");
+        assert!(
+            page.items[0].summary.contains("commit"),
+            "{}",
+            page.items[0].summary
+        );
+
+        // The loop runs every tick; the same revision is not news twice.
+        syncer
+            .sync_once()
+            .await
+            .expect("second sync should succeed");
+        let page = activity.list("ovzdusie", &filter).await.expect("list");
+        assert_eq!(page.items.len(), 1, "{:?}", page.items);
+    }
+
+    #[tokio::test]
+    async fn a_repository_that_will_not_load_reaches_the_feed() {
+        let server = MockServer::start().await;
+        let base_url = server.uri().parse().unwrap();
+        let client =
+            Arc::new(GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").unwrap());
+        let mirror = Arc::new(Mirror::new());
+        let activity = crate::activity::ActivityStore::new(None);
+        let syncer = Arc::new(
+            Syncer::new(Arc::clone(&client), Arc::clone(&mirror)).with_activity(activity.clone()),
+        );
+
+        mount_repository(&server).await;
+        syncer.sync_once().await.expect("the first sync loads");
+
+        // The forge goes away: the mirror keeps what it has and the feed says why.
+        server.reset().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/repos/test-owner/test-repo"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        syncer.sync_once().await.expect_err("the second sync fails");
+
+        let page = activity
+            .list(
+                "ovzdusie",
+                &crate::activity::ActivityFilter {
+                    kinds: vec!["config.drifted".to_string()],
+                    limit: 50,
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("list");
+        assert_eq!(page.items.len(), 1, "{:?}", page.items);
+        assert_eq!(page.items[0].severity, "error");
+    }
+
+    /// The one-space repository both the success test and the activity tests read.
+    async fn mount_repository(server: &MockServer) {
         Mock::given(method("GET"))
             .and(path("/api/v1/repos/test-owner/test-repo"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "default_branch": "main"
             })))
-            .mount(&server)
+            .mount(server)
             .await;
 
         Mock::given(method("GET"))
@@ -817,7 +977,7 @@ mod tests {
                 "name": "main",
                 "commit": { "id": "commit-rev-123" }
             })))
-            .mount(&server)
+            .mount(server)
             .await;
 
         Mock::given(method("GET"))
@@ -836,7 +996,7 @@ mod tests {
                     }
                 ]
             })))
-            .mount(&server)
+            .mount(server)
             .await;
 
         let manifest_content = "apiVersion: joinedcontext.com/v1alpha1\nkind: ContextSpace\nmetadata:\n  name: mobility\n  namespace: ovzdusie\nspec:\n  isSandbox: true\n";
@@ -854,8 +1014,20 @@ mod tests {
                 "sha": "blob-sha-1",
                 "content": b64
             })))
-            .mount(&server)
+            .mount(server)
             .await;
+    }
+
+    #[tokio::test]
+    async fn sync_once_success() {
+        let server = MockServer::start().await;
+        let base_url = server.uri().parse().unwrap();
+        let client =
+            Arc::new(GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").unwrap());
+        let mirror = Arc::new(Mirror::new());
+        let syncer = Arc::new(Syncer::new(Arc::clone(&client), Arc::clone(&mirror)));
+
+        mount_repository(&server).await;
 
         let count = syncer.sync_once().await.expect("sync should succeed");
         assert_eq!(count, 1);
