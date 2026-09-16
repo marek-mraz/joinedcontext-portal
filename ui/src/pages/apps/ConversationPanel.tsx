@@ -228,6 +228,7 @@ export function ConversationPanel({
   above,
   onUseEndpoint,
   usedEndpoints,
+  building = false,
 }: {
   /** The project the run belongs to: what a card's links open. */
   project: string;
@@ -245,6 +246,12 @@ export function ConversationPanel({
   above?: ReactNode;
   /** Adds an endpoint the catalog search found to the conversation's data (AG-75). */
   onUseEndpoint?: (name: string) => void;
+  /**
+   * Whether the run is building an application. A catalog search on the way to a build is a
+   * step, not an answer, so its cards stay folded: the person asked for an application, not for
+   * what the catalogue holds (T-0703).
+   */
+  building?: boolean;
   /** The endpoints the conversation queries, so a found one says it is in use. */
   usedEndpoints?: string[];
 }): JSX.Element {
@@ -300,11 +307,28 @@ export function ConversationPanel({
                       {t("agentRun.conversation.details", { count: row.details.length })}
                     </summary>
                     <div className="mt-1 space-y-0.5 font-mono">
-                      {row.details.map((event) => (
-                        <p key={event.seq} className="break-words">
-                          {line(event, t)}
-                        </p>
-                      ))}
+                      {row.details.map((event) => {
+                        const preview =
+                          event.kind === "preview" && typeof event.payload.previewUrl === "string"
+                            ? event.payload.previewUrl
+                            : null;
+                        return (
+                          <p key={event.seq} className="break-words">
+                            {preview !== null ? (
+                              <a
+                                className="focus-ring rounded-sm text-primary underline"
+                                href={preview}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {t("agentRun.line.previewLink")}
+                              </a>
+                            ) : (
+                              line(event, t)
+                            )}
+                          </p>
+                        );
+                      })}
                     </div>
                   </details>
                 </li>
@@ -316,7 +340,7 @@ export function ConversationPanel({
               // What the assistant found is drawn as cards above the step itself (UI-46), when
               // its answer was about what it found.
               const found =
-                event.payload.tool === "search_catalog" && answered.has(event.seq)
+                event.payload.tool === "search_catalog" && answered.has(event.seq) && !building
                   ? catalogItemsOf(event.payload.output)
                   : null;
               const proposal =

@@ -534,6 +534,7 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
             answering={answer.isPending}
             sending={send.isPending}
             live={!over}
+            building={Boolean(record.data?.appName)}
             onAnswer={(questionId, answers) => {
               answer.mutate({ questionId, answers });
             }}

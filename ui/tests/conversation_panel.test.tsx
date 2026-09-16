@@ -17,7 +17,7 @@ import type { RunEvent } from "../src/pages/apps/useAgentRun";
 
 const sent = vi.fn();
 
-function panel(events: RunEvent[], streaming = true) {
+function panel(events: RunEvent[], streaming = true, building = false) {
   return render(
     <I18nextProvider i18n={i18n}>
       <ConversationPanel
@@ -27,6 +27,7 @@ function panel(events: RunEvent[], streaming = true) {
         answering={false}
         sending={false}
         live
+        building={building}
         onAnswer={() => {}}
         onSend={sent}
       />
@@ -157,7 +158,8 @@ describe("the conversation panel", () => {
     expect(usage).not.toBeVisible();
     await user.click(screen.getByText("Details (3 lines)"));
     expect(usage).toBeVisible();
-    expect(screen.getByText(/Preview at/)).toBeVisible();
+    // The preview is a link a person clicks, never the API path printed (T-0703).
+    expect(screen.getByRole("link", { name: en.agentRun.line.previewLink })).toBeVisible();
   });
 
   it("names the assistant's own steps by what they did", () => {
@@ -310,5 +312,50 @@ describe("openQuestions", () => {
     expect(
       openQuestions([{ seq: 1, kind: "question", payload: { questionId: "a" } }]),
     ).toEqual([]);
+  });
+});
+
+describe("a build run reads as a build (T-0703)", () => {
+  const SEARCH: RunEvent[] = [
+    { seq: 1, kind: "message", payload: { text: "Build me a map of the bike stations." } },
+    {
+      seq: 2,
+      kind: "tool",
+      payload: {
+        tool: "search_catalog",
+        input: { q: "bikes" },
+        output: {
+          items: [
+            { kind: "Endpoint", name: "helsinki-bikes", project: "helsinki", title: "City bikes" },
+          ],
+        },
+      },
+    },
+    { seq: 3, kind: "thought", payload: { text: "Building with the bikes endpoint." } },
+  ];
+
+  it("folds the catalog cards of a search the person never asked for", () => {
+    panel(SEARCH, true, true);
+    expect(screen.queryByText("City bikes")).toBeNull();
+  });
+
+  it("still shows them when the search is the answer to a question", () => {
+    panel(SEARCH, true, false);
+    expect(screen.getByText(/City bikes/)).toBeInTheDocument();
+  });
+
+  it("offers the preview as a link, not as an API path", async () => {
+    panel([
+      { seq: 1, kind: "thought", payload: { text: "Here it is." } },
+      {
+        seq: 2,
+        kind: "preview",
+        payload: { previewUrl: "/api/v1/projects/helsinki/agent-runs/r1/preview?v=1" },
+      },
+    ]);
+    await userEvent.click(screen.getByText(/detail/i));
+    const link = screen.getByRole("link", { name: en.agentRun.line.previewLink });
+    expect(link).toHaveAttribute("href", "/api/v1/projects/helsinki/agent-runs/r1/preview?v=1");
+    expect(screen.queryByText(/preview\?v=1$/)).toBeNull();
   });
 });

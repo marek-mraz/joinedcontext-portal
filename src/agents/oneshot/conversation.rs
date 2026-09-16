@@ -691,12 +691,13 @@ a removal of its binding with change_resource.
         let before = files.clone();
         let (mut prose, mut errors) = self.apply(files, &answer).await?;
         if !errors.is_empty() {
-            // One repair call: the model is shown what did not validate and answers again.
-            self.thought(&format!(
-                "The specification does not validate; asking for a repair:\n{}",
-                errors.join("\n")
-            ))
-            .await?;
+            // One repair call: the model is shown what did not validate and answers again. The
+            // person is told that it is happening, not what the validator said — a serde error
+            // about an unknown field is the machine's business, and the transcript is a
+            // conversation (T-0703, UI-45). The reasons stay in the run's log.
+            tracing::info!(run = %self.run_id, errors = %errors.join("; "), "repairing the specification");
+            self.thought("Checking the result; one detail does not fit yet, correcting it.")
+                .await?;
             let user = self
                 .pack(
                     samples,

@@ -1236,7 +1236,8 @@
       "message": "{who}: {text}",
       "lag": "{missed} řádků bylo přeskočeno; opětovné připojení je doplní.",
       "endpoints": "Data: {names}",
-      "noEndpoints": "Data: žádná"
+      "noEndpoints": "Data: žádná",
+      "previewLink": "Otevřít náhled"
     },
     "preview": {
       "title": "Náhled",
