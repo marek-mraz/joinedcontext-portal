@@ -1237,7 +1237,12 @@
     "detail": "Entita",
     "open": "Otevřít",
     "close": "Zavřít",
-    "loadFailed": "Entity se nepodařilo načíst. Zkuste to znovu nebo čtěte přes jiný endpoint."
+    "loadFailed": "Entity se nepodařilo načíst. Zkuste to znovu nebo čtěte přes jiný endpoint.",
+    "delete": "Smazat entitu",
+    "removeTitle": "Smazat tuto entitu?",
+    "removeLead": "{id} se odstraní z prostoru přes tento endpoint.",
+    "removeConfirm": "Smazat",
+    "removeNote": "Rozhoduje Policy endpointu: smazání běží s vaším přihlášením, ne se servisní identitou, a nelze je vrátit."
   },
   "agentRun": {
     "loading": "Čtu spuštění…",

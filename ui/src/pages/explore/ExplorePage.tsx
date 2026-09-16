@@ -1,16 +1,23 @@
 import { useState } from "react";
 import type { JSX } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized, refName } from "../../api/manifest";
 import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
 import { EntityFilters } from "../../components/entities/EntityFilters";
-import { fetchEntities, fetchEntity, filterSlotsOf, useModelSource } from "../../components/entities/filters";
+import {
+  deleteEntity,
+  fetchEntities,
+  fetchEntity,
+  filterSlotsOf,
+  useModelSource,
+} from "../../components/entities/filters";
 import type { EntityQuery } from "../../components/entities/filters";
 import {
   Alert,
   Button,
+  Dialog,
   Field,
   PageHeader,
   Select,
@@ -79,6 +86,8 @@ export function ExplorePage({
   const [limit, setLimit] = useState(PAGE_SIZES[0]);
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const queryClient = useQueryClient();
 
   const spaceEndpoints = (endpoints.data ?? []).filter((e) => spaceOf(e) === space);
   const endpoint =
@@ -105,6 +114,19 @@ export function ExplorePage({
     queryFn: () => fetchEntity(slug!, selected!),
     enabled: Boolean(slug && selected),
   });
+
+  // UI-60: the entity is removed through the same endpoint that shows it, with this person's
+  // session. A refusal is the gateway's own sentence, shown as it came.
+  const remove = useMutation({
+    mutationFn: () => deleteEntity(slug!, selected!),
+    onSuccess: () => {
+      setRemoving(false);
+      setSelected(null);
+      void queryClient.invalidateQueries({ queryKey: ["explore", slug] });
+    },
+  });
+  const removeFailed =
+    remove.error instanceof ApiError ? remove.error.message : remove.error ? t("app.error.generic") : null;
 
   const rows = page.data?.rows ?? [];
   const columns =
@@ -279,9 +301,22 @@ export function ExplorePage({
             <h2 id="explore-detail" className="text-body font-semibold text-fg">
               {t("explore.detail")} <span className="font-mono font-normal">{selected}</span>
             </h2>
-            <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>
-              {t("explore.close")}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="danger"
+                data-testid="explore-delete"
+                onClick={() => {
+                  remove.reset();
+                  setRemoving(true);
+                }}
+              >
+                {t("explore.delete")}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>
+                {t("explore.close")}
+              </Button>
+            </div>
           </div>
           {detail.error ? (
             <Alert role="alert" tone="danger">
@@ -294,6 +329,44 @@ export function ExplorePage({
           )}
         </section>
       ) : null}
+
+      <Dialog
+        open={removing && selected !== null}
+        onOpenChange={(next) => {
+          setRemoving(next);
+          if (!next) {
+            remove.reset();
+          }
+        }}
+        size="sm"
+        title={t("explore.removeTitle")}
+        description={t("explore.removeLead", { id: selected ?? "" })}
+        closeLabel={t("explore.close")}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRemoving(false)}>
+              {t("form.cancel")}
+            </Button>
+            <Button
+              variant="danger"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+              data-testid="explore-delete-confirm"
+            >
+              {t("explore.removeConfirm")}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-caption text-fg-muted">{t("explore.removeNote")}</p>
+          {removeFailed ? (
+            <Alert role="alert" tone="danger">
+              {removeFailed}
+            </Alert>
+          ) : null}
+        </div>
+      </Dialog>
     </div>
   );
 }

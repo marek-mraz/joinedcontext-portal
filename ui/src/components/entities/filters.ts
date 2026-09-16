@@ -5,7 +5,7 @@
  * YAML view cannot disagree about what a pipeline reads (PL-42).
  */
 import { useQuery } from "@tanstack/react-query";
-import { ApiError } from "../../api/client";
+import { ApiError, readCsrfToken } from "../../api/client";
 import type { Manifest } from "../../api/manifest";
 import { endpointUrl } from "../endpoints/links";
 import { parseModel } from "../../pages/models/linkml";
@@ -228,6 +228,25 @@ export async function fetchEntities(
   }
   const response = await gatewayGet(slug, `/ngsi-ld/v1/entities?${params.toString()}`);
   return { rows: entities(await response.json()), count: parseResultsCount(response.headers) };
+}
+
+/**
+ * One entity removed through the endpoint that shows it, with the signed-in person's session
+ * (UI-60). The Endpoint's Policy decides: a person without the grant is refused, and the
+ * gateway's own sentence is what the explorer shows.
+ */
+export async function deleteEntity(slug: string, id: string): Promise<void> {
+  const response = await globalThis.fetch(
+    new Request(endpointUrl(slug, `/ngsi-ld/v1/entities/${encodeURIComponent(id)}`), {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: { "x-csrf-token": readCsrfToken() ?? "" },
+    }),
+  );
+  if (!response.ok) {
+    const problem = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new ApiError(response.status, problem?.detail ?? response.statusText);
+  }
 }
 
 /** One entity in full (normalized), for the detail pane. */

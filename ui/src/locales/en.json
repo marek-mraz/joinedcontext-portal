@@ -1237,7 +1237,12 @@
     "detail": "Entity",
     "open": "Open",
     "close": "Close",
-    "loadFailed": "The entities could not be loaded. Try again, or read through another endpoint."
+    "loadFailed": "The entities could not be loaded. Try again, or read through another endpoint.",
+    "delete": "Delete entity",
+    "removeTitle": "Delete this entity?",
+    "removeLead": "{id} is removed from the space through this endpoint.",
+    "removeConfirm": "Delete",
+    "removeNote": "The endpoint's Policy decides: the deletion runs with your session, not with a service identity, and it cannot be undone."
   },
   "agentRun": {
     "loading": "Reading the run…",
