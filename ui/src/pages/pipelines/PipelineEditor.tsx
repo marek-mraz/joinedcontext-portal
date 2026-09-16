@@ -296,7 +296,8 @@ export function PipelineEditorDialog({
       description={t("pipelines.dialog.lead")}
       schema={schema}
       // A rename is a new manifest at a new path, so the name is fixed once it exists.
-      uiSchema={editing ? { ...pipelineUiSchema, name: { "ui:readonly": true } } : pipelineUiSchema}
+      uiSchema={pipelineUiSchema}
+      lockedName={editing?.metadata.name}
       formData={draft}
       submitLabel={t("pipelines.propose")}
       disabled={pending}

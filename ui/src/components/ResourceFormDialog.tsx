@@ -43,6 +43,12 @@ export interface ResourceFormDialogProps<T> {
    */
   kind?: string;
   uiSchema?: UiSchema;
+  /**
+   * The name the resource already has. A manifest is its path, so a rename in a form is a new
+   * resource at a new name and the old one left behind (MF-11, T-0796): with this set the name
+   * field is read-only and a submit that changed it anyway — through the YAML view — is refused.
+   */
+  lockedName?: string;
   formData?: T;
   submitLabel: string;
   disabled?: boolean;
@@ -106,6 +112,7 @@ export function ResourceFormDialog<T>({
   schema,
   kind,
   uiSchema,
+  lockedName,
   formData,
   submitLabel,
   disabled,
@@ -186,6 +193,16 @@ export function ResourceFormDialog<T>({
     }
     return merged as UiSchema;
   }, [arranged, uiSchema]);
+  const lockedUiSchema = useMemo<UiSchema | undefined>(() => {
+    if (lockedName === undefined) {
+      return effectiveUiSchema;
+    }
+    const own = (effectiveUiSchema as Record<string, unknown> | undefined)?.name;
+    return {
+      ...(effectiveUiSchema as Record<string, unknown> | undefined),
+      name: { ...(typeof own === "object" && own !== null ? own : {}), "ui:readonly": true },
+    } as UiSchema;
+  }, [effectiveUiSchema, lockedName]);
   const formProblems = arranged?.problems ?? [];
   const isLax = (branding as { validation?: string })?.validation === "lax";
   const isStrict = !isLax;
@@ -477,6 +494,12 @@ export function ResourceFormDialog<T>({
   }
 
   function handleSubmit(form: T) {
+    // The YAML view edits `metadata.name` freely, so the refusal is here and not only in the
+    // read-only field above it (T-0796).
+    if (lockedName !== undefined && extractName(form) !== lockedName) {
+      setConflict(t("resourceEdit.renamed", { name: lockedName }));
+      return;
+    }
     draftRefFor(form).then(
       (draftRef) => onSubmit(form, draftRef),
       () => setConflict(t("drafts.conflict")),
@@ -691,7 +714,7 @@ export function ResourceFormDialog<T>({
 
             <SchemaForm<T>
               schema={schema}
-              uiSchema={effectiveUiSchema}
+              uiSchema={lockedUiSchema}
               formData={formData}
               disabled={disabled}
               submitLabel={submitLabel}
