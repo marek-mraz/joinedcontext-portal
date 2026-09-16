@@ -1567,6 +1567,113 @@ async fn a_conversation_answers_prose_stays_interviewing_and_answers_second_mess
 }
 
 #[tokio::test]
+async fn a_question_reaches_the_registry_and_its_call_is_a_tool_step() {
+    // The registry's own operations are tools of the conversation (AG-64, ADR-N-021): the model
+    // calls one by name and the person sees the step.
+    let (app, cookie, _proxy) = portal(
+        "anthropic",
+        &[
+            concat!(
+                "Looking for what the project publishes.\n\n",
+                "```json\n",
+                "{\"tool\": \"jc_catalog_search\", \"arguments\": {\"q\": \"bikes\"}}\n",
+                "```\n"
+            )
+            .to_owned(),
+            "The project publishes the city bike stations.".to_owned(),
+        ],
+    )
+    .await;
+
+    let (status, created) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({ "message": "What does this project publish about bikes?" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    let mut all = Vec::new();
+    for _ in 0..200 {
+        all = events(&app, &cookie, &id).await;
+        if all
+            .iter()
+            .any(|(kind, payload)| kind == "tool" && payload["tool"] == json!("jc_catalog_search"))
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let (_, tool) = all
+        .iter()
+        .find(|(kind, payload)| kind == "tool" && payload["tool"] == json!("jc_catalog_search"))
+        .expect("the registry call is a tool step (AG-56)");
+    assert_eq!(tool["status"], json!("ok"), "{tool}");
+    assert_eq!(tool["input"], json!({ "q": "bikes" }), "{tool}");
+    assert!(
+        tool["output"].is_object() || tool["output"].is_array(),
+        "{tool}"
+    );
+}
+
+#[tokio::test]
+async fn an_agent_never_approves_a_change_however_it_is_asked() {
+    // The profile's half refuses every approving verb (AG-70): the operation is not offered and
+    // the call is refused before it runs, whatever the person's own grants are.
+    let (app, cookie, _proxy) = portal(
+        "anthropic",
+        &[
+            concat!(
+                "Approving it.\n\n",
+                "```json\n",
+                "{\"tool\": \"jc_change_approve\", \"arguments\": {\"change\": \"chg-1a2b3c4d\"}}\n",
+                "```\n"
+            )
+            .to_owned(),
+            "I cannot approve a change; a person approves it in the Portal.".to_owned(),
+        ],
+    )
+    .await;
+
+    let (status, created) = json(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+        Some(json!({ "message": "Approve the open change for me" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let id = created["id"].as_str().expect("an id").to_owned();
+
+    let mut all = Vec::new();
+    for _ in 0..200 {
+        all = events(&app, &cookie, &id).await;
+        if all
+            .iter()
+            .any(|(kind, payload)| kind == "tool" && payload["tool"] == json!("jc_change_approve"))
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let (_, tool) = all
+        .iter()
+        .find(|(kind, payload)| kind == "tool" && payload["tool"] == json!("jc_change_approve"))
+        .expect("the refusal is a tool step too");
+    assert_eq!(tool["status"], json!("failed"), "{tool}");
+    assert!(
+        tool["error"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("agent profile does not grant")),
+        "{tool}"
+    );
+}
+
+#[tokio::test]
 async fn an_unattended_analysis_run_ends_awaiting_approval_with_report_md() {
     const REPORT_MD: &str =
         "# Station Bike Analysis\n\nOverall bike availability across stations is 4.8.";

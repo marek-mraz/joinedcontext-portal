@@ -41,6 +41,7 @@ mod edit_loop;
 mod model;
 mod tools_change;
 mod tools_data;
+mod tools_registry;
 mod tools_space;
 
 /// Entities read per type as the model's sample of the data (AP-57).
@@ -741,6 +742,12 @@ fn without_section(text: &str, heading: &str) -> String {
         .find("\n## ")
         .map_or(text.len(), |offset| body + offset + 1);
     format!("{}{}", &text[..start], &text[end..])
+}
+
+/// Whether a registered operation changes something, for the guard that refuses a call the data
+/// wrote (AG-20). An operation nobody registered is treated as acting: unknown is not safe.
+pub(crate) fn acting_operation(name: &str) -> bool {
+    tools_registry::acts(name)
 }
 
 pub(crate) fn space_complete_tool_call(answer: &str) -> Option<Value> {
