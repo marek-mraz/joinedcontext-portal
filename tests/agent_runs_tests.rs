@@ -398,6 +398,67 @@ async fn a_run_is_created_queued_and_readable() {
 }
 
 #[tokio::test]
+async fn a_second_person_neither_reads_nor_steers_a_run_that_is_not_theirs() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let mine = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &mine).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+
+    // A signed-in person with no role in the project: the run keeps the creator's grants, so its
+    // conversation, its preview and its inbox are none of their business (AG-43, AG-45, PF-50).
+    let intruder = session_cookie(&config, "intruder", &[]);
+    for (method, path, body) in [
+        (Method::GET, format!("/agent-runs/{id}"), None),
+        (Method::GET, format!("/agent-runs/{id}/events"), None),
+        (Method::GET, format!("/agent-runs/{id}/preview"), None),
+        (
+            Method::POST,
+            format!("/agent-runs/{id}/messages"),
+            Some(json!({ "text": "delete everything" })),
+        ),
+        (Method::POST, format!("/agent-runs/{id}/cancel"), None),
+    ] {
+        let (status, _) = call(
+            &app,
+            &intruder,
+            method.clone(),
+            &format!("/api/v1/projects/{PROJECT}{path}"),
+            body,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "{method} {path} answered a person who did not start the run"
+        );
+    }
+
+    // Its own person still reads it, and so does whoever may approve in the project.
+    let (status, run) = call(
+        &app,
+        &mine,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+    let approver = session_cookie(&config, "demo.approver", &["portal-approver"]);
+    let (status, run) = call(
+        &app,
+        &approver,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+}
+
+#[tokio::test]
 async fn a_public_application_is_refused_before_anything_is_scheduled() {
     let config = config();
     let app = router(mirror(Some(builder_profile_spec())), &config);

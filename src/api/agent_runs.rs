@@ -624,13 +624,13 @@ pub async fn list_runs(
     )
 )]
 pub async fn get_run(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
 ) -> Result<Json<AgentRun>, ApiError> {
     Ok(Json(with_links(
         &state,
-        run_of(&state, &project, &id).await?,
+        own_run_of(&state, &user, &project, &id).await?,
     )))
 }
 
@@ -665,12 +665,12 @@ pub(crate) fn with_links(state: &AppState, mut run: AgentRun) -> AgentRun {
     )
 )]
 pub async fn stream_events(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    run_of(&state, &project, &id).await?;
+    own_run_of(&state, &user, &project, &id).await?;
     let after = headers
         .get("last-event-id")
         .and_then(|value| value.to_str().ok())
@@ -749,7 +749,7 @@ pub async fn answer_question(
     Path((project, id)): Path<(String, String)>,
     Json(request): Json<AnswerRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let run = run_of(&state, &project, &id).await?;
+    let run = own_run_of(&state, &user, &project, &id).await?;
     if terminal(&run) {
         return Err(ApiError::Conflict(format!(
             "run '{id}' is '{}' and asks nothing",
@@ -793,7 +793,7 @@ pub async fn post_message(
     Path((project, id)): Path<(String, String)>,
     Json(request): Json<MessageRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let run = run_of(&state, &project, &id).await?;
+    let run = own_run_of(&state, &user, &project, &id).await?;
     if terminal(&run) {
         return Err(ApiError::Conflict(format!(
             "run '{id}' is '{}' and reads nothing",
@@ -888,7 +888,7 @@ pub async fn post_preview_error(
     Path((project, id)): Path<(String, String)>,
     Json(request): Json<PreviewErrorRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let run = run_of(&state, &project, &id).await?;
+    let run = own_run_of(&state, &user, &project, &id).await?;
     if terminal(&run) {
         return Err(ApiError::Conflict(format!(
             "run '{id}' is '{}' and repairs nothing",
@@ -954,7 +954,7 @@ pub async fn post_preview_observation(
     Path((project, id)): Path<(String, String)>,
     Json(request): Json<PreviewObservationRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let run = run_of(&state, &project, &id).await?;
+    let run = own_run_of(&state, &user, &project, &id).await?;
     if terminal(&run) {
         return Err(ApiError::Conflict(format!(
             "run '{id}' is '{}' and verifies nothing",
@@ -1094,7 +1094,7 @@ pub async fn call_function(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<Response, ApiError> {
-    let run = run_of(&state, &project, &id).await?;
+    let run = own_run_of(&state, &user, &project, &id).await?;
     if terminal(&run) {
         return Err(ApiError::Conflict(format!(
             "run '{id}' is '{}' and runs no function",
@@ -1454,7 +1454,7 @@ pub async fn cancel_run(
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
 ) -> Result<Json<AgentRun>, ApiError> {
-    let run = run_of(&state, &project, &id).await?;
+    let run = own_run_of(&state, &user, &project, &id).await?;
     crate::permissions::for_request(&state, &user.0.identity, &project).check(
         "App",
         jc_core::kinds::Verb::Propose,
@@ -1487,7 +1487,7 @@ pub async fn publish_run(
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    let run = run_of(&state, &project, &id).await?;
+    let run = own_run_of(&state, &user, &project, &id).await?;
     if run.kind == "dashboard" {
         return Err(ApiError::Conflict(
             "publishing a dashboard run is not available yet".into(),
@@ -1907,6 +1907,29 @@ async fn run_of(state: &AppState, project: &str, id: &str) -> Result<AgentRun, A
     }
 }
 
+/// The run of a caller who may see it: the person who started it, or a caller who may approve in
+/// the project — the rule `list_runs` already applies to the listing (AG-43, AG-45, PF-50). A run
+/// keeps the identity of whoever created it and acts with their grants, so a second person who
+/// learns the id (a shared link, a published App's annotation) must not read its conversation or
+/// send it an instruction. Refused as `404`, like a run of another project: whether the id exists
+/// is not the caller's business (T-0801).
+async fn own_run_of(
+    state: &AppState,
+    user: &CurrentUser,
+    project: &str,
+    id: &str,
+) -> Result<AgentRun, ApiError> {
+    let run = run_of(state, project, id).await?;
+    if run.created_by == user.0.identity.username
+        || crate::api::changes::may_approve_anything(state, &user.0.identity, project).is_ok()
+    {
+        return Ok(run);
+    }
+    Err(ApiError::NotFound(format!(
+        "run '{id}' not found in project '{project}'"
+    )))
+}
+
 /// Records one event and hands it to every connected stream.
 pub(crate) async fn publish_event(
     state: &AppState,
@@ -2030,20 +2053,12 @@ pub fn router() -> Router<AppState> {
 /// fetch anything else with (AP-50, AP-60, UI-41): a code run's `src/**` transpiled onto the SDK
 /// runtime (SDK-16), else the kit bundle rendering `spec.json`.
 pub async fn preview(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let run = state
-        .agents
-        .get_run(&id)
-        .await
-        .map_err(unavailable)?
-        .filter(|run| run.project == project)
-        .ok_or_else(|| {
-            ApiError::NotFound(format!("run '{id}' not found in project '{project}'"))
-        })?;
+    let run = own_run_of(&state, &user, &project, &id).await?;
     let code: BTreeMap<String, String> = run
         .files
         .as_object()

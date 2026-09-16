@@ -20,7 +20,9 @@
 //! operator like a private source that quietly syncs nothing (MF-31).
 
 use std::io::Read;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use jc_core::kinds::SyncOrigin;
@@ -54,7 +56,14 @@ impl HttpRemote {
     /// rather than holding a runtime worker while a repository is downloaded.
     pub fn new() -> Result<Self, reqwest::Error> {
         let redirect = reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.url().scheme() != "https" || attempt.previous().len() >= MAX_REDIRECTS {
+            if attempt.url().scheme() != "https"
+                || attempt.previous().len() >= MAX_REDIRECTS
+                || attempt
+                    .url()
+                    .host_str()
+                    .and_then(|host| host.parse::<IpAddr>().ok())
+                    .is_some_and(is_internal)
+            {
                 return attempt.stop();
             }
             attempt.follow()
@@ -62,6 +71,7 @@ impl HttpRemote {
         Ok(Self {
             http: reqwest::blocking::Client::builder()
                 .redirect(redirect)
+                .dns_resolver(Arc::new(PublicOnly))
                 .timeout(TIMEOUT)
                 .build()?,
         })
@@ -381,8 +391,78 @@ fn write(path: &PathBuf, body: &[u8]) -> Result<(), RemoteError> {
 /// `jc-core` also accepts `ssh://` and `git@` for a Git origin, because `jcctl` on a laptop can
 /// use an agent. The Portal has no key and no `git` binary, so those are refused here by name
 /// rather than failing later as a URL nothing can parse.
+/// An address a sync source is never read from: the cluster's own network, the node, the link
+/// and everything else that is not a public host. A `SyncSource` names an origin the operator
+/// typed, and the Portal fetches it from inside the cluster; without this the fetcher is a probe
+/// for whoever can get a manifest approved, and its answer is readable in `status.last_error`
+/// (T-0802, MF-31, MF-32).
+fn is_internal(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || a == 0
+                || a >= 224
+                // 100.64.0.0/10, the carrier-grade NAT range a cluster may sit in.
+                || (a == 100 && (64..128).contains(&b))
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                // fc00::/7 unique local, fe80::/10 link local: `is_unique_local` is unstable.
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                || v6.to_ipv4_mapped().is_some_and(|v4| is_internal(IpAddr::V4(v4)))
+        }
+    }
+}
+
+/// The resolver the fetcher uses: a name that answers with an internal address is refused after
+/// it resolves, not by the look of it. A public name whose answer points inside the cluster is
+/// the whole of DNS rebinding, and every redirect hop goes through the same resolver.
+struct PublicOnly;
+
+impl reqwest::dns::Resolve for PublicOnly {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0_u16))
+                .await
+                .map_err(|err| -> Box<dyn std::error::Error + Send + Sync> { Box::new(err) })?
+                .collect();
+            if let Some(addr) = addrs.iter().find(|addr| is_internal(addr.ip())) {
+                return Err(format!(
+                    "{host} resolves to {}, which is not a public address; a sync source is read \
+                     from public hosts only",
+                    addr.ip()
+                )
+                .into());
+            }
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
 fn secure(url: &str) -> Result<(), RemoteError> {
     if url.starts_with("https://") {
+        if let Some(ip) = reqwest::Url::parse(url)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_owned))
+            .and_then(|host| host.trim_matches(['[', ']']).parse::<IpAddr>().ok())
+        {
+            if is_internal(ip) {
+                return Err(RemoteError::Refused(format!(
+                    "{url} names {ip}, which is not a public address; a sync source is read from \
+                     public hosts only"
+                )));
+            }
+        }
         return Ok(());
     }
     if url.starts_with("ssh://") || url.starts_with("git@") {
@@ -480,6 +560,54 @@ mod tests {
         assert!(secure("http://git.example/models.git").is_err());
         assert!(secure("git@git.example:udp/models.git").is_err());
         assert!(secure("https://git.example/models.git").is_ok());
+    }
+
+    #[test]
+    fn an_origin_naming_an_address_inside_the_cluster_is_refused_before_a_socket_is_opened() {
+        // The Portal fetches a sync source from inside the cluster, so an origin that names the
+        // node, the pod network or the link is a probe, not a source (T-0802, MF-31).
+        for url in [
+            "https://10.0.0.1/bundle.zip",
+            "https://192.168.1.1/bundle.zip",
+            "https://172.16.0.1/bundle.zip",
+            "https://127.0.0.1/bundle.zip",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://100.64.0.1/bundle.zip",
+            "https://[::1]/bundle.zip",
+            "https://[fd00::1]/bundle.zip",
+            "https://[fe80::1]/bundle.zip",
+        ] {
+            assert!(
+                matches!(secure(url), Err(RemoteError::Refused(_))),
+                "{url} was not refused"
+            );
+        }
+        // A public address, and a name, still pass: a name is judged by what it resolves to.
+        assert!(secure("https://93.184.216.34/bundle.zip").is_ok());
+        assert!(secure("https://git.example/udp/models.git").is_ok());
+    }
+
+    #[test]
+    fn the_cluster_s_own_addresses_are_internal_and_a_public_one_is_not() {
+        for ip in [
+            "10.42.0.1",
+            "172.31.255.254",
+            "192.168.0.7",
+            "127.0.0.53",
+            "169.254.169.254",
+            "100.100.100.100",
+            "0.0.0.0",
+            "224.0.0.1",
+            "::1",
+            "fc00::1",
+            "fe80::abcd",
+            "::ffff:10.0.0.1",
+        ] {
+            assert!(is_internal(ip.parse().expect(ip)), "{ip} passed as public");
+        }
+        for ip in ["1.1.1.1", "93.184.216.34", "2606:4700:4700::1111"] {
+            assert!(!is_internal(ip.parse().expect(ip)), "{ip} was refused");
+        }
     }
 
     #[test]
