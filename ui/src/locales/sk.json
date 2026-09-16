@@ -1274,7 +1274,8 @@
       "send": "Poslať",
       "closed": "Spustenie sa skončilo, už nič nečíta.",
       "agent": "Asistent",
-      "you": "Vy"
+      "you": "Vy",
+      "somethingElse": "Something else…"
     },
     "line": {
       "status": "Teraz {status}.",

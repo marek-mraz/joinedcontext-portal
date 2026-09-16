@@ -1274,7 +1274,8 @@
       "send": "Poslat",
       "closed": "Spuštění skončilo, už nic nečte.",
       "agent": "Asistent",
-      "you": "Vy"
+      "you": "Vy",
+      "somethingElse": "Something else…"
     },
     "line": {
       "status": "Nyní {status}.",

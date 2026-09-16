@@ -81,6 +81,32 @@ impl Driver {
             };
             match event.kind.as_str() {
                 "status" if is_terminal(&event) => return Ok(()),
+                "answer" => {
+                    // What the person chose is the next turn: the loop asked, and this is the
+                    // reply it waited for (AG-80).
+                    let text = event
+                        .payload
+                        .get("answers")
+                        .and_then(|answers| answers.get("answer"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            event
+                                .payload
+                                .get("answers")
+                                .map(|answers| answers.to_string())
+                                .unwrap_or_default()
+                        });
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    match self.converse(&conversation, &text).await {
+                        Ok(prose) => conversation.push((text, prose)),
+                        Err(reason) => {
+                            let _ = self.thought(&format!("The answer failed: {reason}")).await;
+                        }
+                    }
+                }
                 "message" if sent_by_person(&event) => {
                     let text = event
                         .payload
@@ -314,6 +340,33 @@ impl Driver {
                     }
                 }
             }
+            // The page the person is looking at, and the question only they can answer: both are
+            // the conversation, not a manifest, so they come before the registry's operations.
+            if let Some(call) = tools_registry::navigate_call(&answer) {
+                let text = match call {
+                    Ok(call) => self.open_page(&call).await?,
+                    Err(reason) => format!("error: {reason}"),
+                };
+                if text.starts_with("opened ") && !answer.contains("\"jc_ask\"") {
+                    let prose = share::prose_of(&answer);
+                    let prose = if prose.is_empty() { text } else { prose };
+                    self.thought(&prose).await?;
+                    return Ok(prose);
+                }
+                results.push((drafted("jc_ui_navigate", None), text));
+                continue;
+            }
+            if let Some(call) = tools_registry::ask_call(&answer) {
+                match call {
+                    Ok(call) => return self.ask_person(&call).await,
+                    Err(reason) => {
+                        drafts += 1;
+                        results.push((drafted("jc_ask", None), format!("error: {reason}")));
+                        continue;
+                    }
+                }
+            }
+
             let described = tools_registry::describes(&answer);
             let registry_calls = tools_registry::calls(&answer);
             if !described.is_empty() || !registry_calls.is_empty() {

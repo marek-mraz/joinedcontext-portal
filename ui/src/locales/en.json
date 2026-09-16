@@ -1274,7 +1274,8 @@
       "send": "Send",
       "closed": "The run has ended, so it reads nothing more.",
       "agent": "Assistant",
-      "you": "You"
+      "you": "You",
+      "somethingElse": "Something else…"
     },
     "line": {
       "status": "Now {status}.",

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { JSX, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { SchemaForm } from "../../components/forms/SchemaForm";
+import { QuestionOptions } from "./QuestionOptions";
 import type { JsonSchema } from "../../components/forms/types";
 import { Button, Textarea } from "../../components/ui";
 import { openQuestions, TERMINAL_STATES } from "./useAgentRun";
@@ -418,11 +418,10 @@ export function ConversationPanel({
             className="mt-3 rounded-lg border border-border bg-surface-subtle p-3"
           >
             <h3 className="text-sm font-semibold">{t("agentRun.conversation.question")}</h3>
-            <SchemaForm
+            <QuestionOptions
               schema={question.schema as JsonSchema}
               disabled={answering}
-              submitLabel={t("agentRun.conversation.answer")}
-              onSubmit={(data) => {
+              onAnswer={(data) => {
                 onAnswer(question.questionId, data);
               }}
             />
