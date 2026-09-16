@@ -195,6 +195,12 @@ async fn read_project(
             Some(mut envelope) if resource::by_kind(&envelope.kind).is_some() => {
                 // Status is the Portal's own computation and a secret is nobody's (MF-17).
                 envelope.strip_status();
+                // The digest this environment's build lane published is this environment's
+                // fact: carried into another instance it would deploy an image that instance
+                // never built (AP-11, AP-13a, T-0822).
+                for key in crate::apps::converge::BUILT_ANNOTATIONS {
+                    envelope.metadata.annotations.remove(key);
+                }
                 strip_secret_values(&mut envelope.spec);
                 let content = serde_yaml_ng::to_string(&envelope).map_err(|e| {
                     ApiError::Internal(format!("manifest '{path}' did not serialise: {e}"))

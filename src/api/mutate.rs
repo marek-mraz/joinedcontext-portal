@@ -362,6 +362,19 @@ pub async fn propose_with_identity(
         )));
     }
 
+    // A digest is not something a person types: the build lane writes it back when it publishes
+    // the image it built here, and an App deploys what it names. Typed in, or carried in from
+    // another instance, it would run an image this platform never built (AP-11, AP-13a).
+    if let Some(key) = crate::apps::converge::BUILT_ANNOTATIONS
+        .into_iter()
+        .find(|key| envelope.metadata.annotations.contains_key(*key))
+    {
+        return Err(ApiError::BadRequest(format!(
+            "annotation '{key}' is written by the build lane when it publishes an image and \
+             cannot be set in a proposal (AP-11, AP-13a)"
+        )));
+    }
+
     // 4b. The kind's own parse and invariants (T-0412, CC-08, MF-24). `jcctl apply` would
     //     refuse this manifest on `main`, after an approval; refusing it here turns a broken
     //     repository into a form error that names the field. Kinds without a jc-core type

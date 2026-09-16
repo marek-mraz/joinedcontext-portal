@@ -55,6 +55,21 @@ spec:
       key: password
 "#;
 
+/// An App whose image the build lane of this instance published (AP-13a).
+const APP: &str = r#"
+apiVersion: joinedcontext.com/v1alpha1
+kind: App
+metadata:
+  name: air-map
+  namespace: banskabystrica
+  annotations:
+    joinedcontext.com/image: "ghcr.io/bb/air-map@sha256:9f2b1c0d4e5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e"
+    joinedcontext.com/generated-by: "model-tools"
+spec:
+  endpointRefs: [public-air]
+  visibility: project
+"#;
+
 /// A native file beside a manifest: Bento's own configuration, ours only to carry.
 const BENTO: &str = "input:\n  mqtt:\n    urls: [ mqtts://mqtt.hsl.fi:8883 ]\n";
 
@@ -121,6 +136,7 @@ fn files() -> Vec<(&'static str, &'static str)> {
             "projects/banskabystrica/pipelines/aq-mqtt-ingest/bento.yaml",
             BENTO,
         ),
+        ("projects/banskabystrica/apps/air-map.yaml", APP),
         (
             "projects/banskabystrica/spaces/ovzdusie/datamodels/air-quality.yaml",
             AIR_MODEL,
@@ -662,4 +678,23 @@ async fn a_session_with_no_binding_in_the_project_is_answered_404_everywhere_it_
             "the refusal disclosed a name the caller did not ask for: {text}"
         );
     }
+}
+
+#[tokio::test]
+async fn the_digest_this_instance_built_never_leaves_in_a_bundle() {
+    // AP-11, AP-13a (T-0822): the annotation is what one environment's build lane published.
+    // Carried into another instance it would deploy an image that instance never built, so it
+    // is stripped exactly like `status` — while the provenance annotations travel.
+    let yaml = get("/api/v1/projects/banskabystrica/export", true)
+        .await
+        .text();
+    assert!(yaml.contains("air-map"), "the app is in the export");
+    assert!(
+        !yaml.contains("joinedcontext.com/image"),
+        "the built digest left in the bundle: {yaml}"
+    );
+    assert!(
+        yaml.contains("joinedcontext.com/generated-by"),
+        "provenance still travels: {yaml}"
+    );
 }

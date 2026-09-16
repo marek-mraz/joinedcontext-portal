@@ -959,3 +959,39 @@ async fn a_native_file_under_a_directory_that_names_no_kind_is_refused_even_with
     assert!(detail.contains("notes/todo.txt"), "{detail}");
     assert!(written(&server).await.is_empty());
 }
+
+#[tokio::test]
+async fn a_bundle_carrying_a_built_digest_is_refused_whole() {
+    // AP-11, AP-13a (T-0822): an App that names an image is an App that deploys it. The image
+    // a bundle carries was built somewhere else, and this cluster runs what it built itself.
+    const APP: &str = r#"apiVersion: joinedcontext.com/v1alpha1
+kind: App
+metadata:
+  name: air-map
+  namespace: helsinki
+  annotations:
+    joinedcontext.com/image: "ghcr.io/hel/air-map@sha256:9f2b1c0d4e5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e"
+spec:
+  endpointRefs: [public-air]
+  visibility: project
+"#;
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let bundle = archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        ("projects/helsinki/apps/air-map.yaml", APP),
+    ]);
+    let (content_type, body) = multipart(&bundle, &[("conflictPolicy", "fail")]);
+    let (status, answer) = post(state, &cookie, &content_type, body).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+    assert!(
+        answer["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("joinedcontext.com/image"),
+        "{answer}"
+    );
+    // Nothing of the bundle was written: a refusal is whole (MF-24).
+    assert!(written(&server).await.is_empty());
+}

@@ -27,6 +27,13 @@ use super::reconciler::{generate_slug, render, RenderError, Settings};
 /// The digest the build lane writes back when it publishes the image (AP-13a).
 pub const IMAGE_ANNOTATION: &str = "joinedcontext.com/image";
 
+/// The digest of a compiled module, written back by the same lane for a Pipeline (AP-13a).
+pub const MODULE_ANNOTATION: &str = "joinedcontext.com/module";
+
+/// What one environment's build lane computed, and no transfer may carry: the target cluster
+/// runs the image it built and signed itself (AP-11, AP-13a, T-0822).
+pub const BUILT_ANNOTATIONS: [&str; 2] = [IMAGE_ANNOTATION, MODULE_ANNOTATION];
+
 /// The four objects an app owns, as the client addresses them.
 const OBJECTS: [(&str, &str); 4] = [
     ("apps/v1", "Deployment"),

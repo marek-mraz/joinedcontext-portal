@@ -319,6 +319,14 @@ fn refusals(envelope: &ResourceEnvelope, raw: &Value) -> Vec<String> {
             "{name}: literal secret in field '{key}'; use secretRef instead (MF-24)"
         ));
     }
+    for key in crate::apps::converge::BUILT_ANNOTATIONS {
+        if envelope.metadata.annotations.contains_key(key) {
+            refusals.push(format!(
+                "{name}: annotation '{key}' is written by this instance's build lane and cannot \
+                 be imported; the image is built here (AP-11, AP-13a)"
+            ));
+        }
+    }
     refusals
 }
 
