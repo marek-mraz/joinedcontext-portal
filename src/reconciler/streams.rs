@@ -91,6 +91,25 @@ impl StreamDeployer {
         }
     }
 
+    /// The runner's Prometheus text for one project, or `None` when it does not answer.
+    ///
+    /// A stream can be Live and still read nothing — a source that refuses the runner's token,
+    /// a mapping that throws on every message — and the counters are the only place that shows
+    /// (T-0914).
+    pub async fn metrics(&self, project: &str) -> Option<String> {
+        let url = format!(
+            "{}/metrics",
+            self.runner_url
+                .replace("{project}", project)
+                .trim_end_matches('/')
+        );
+        let response = self.http.get(&url).send().await.ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        response.text().await.ok()
+    }
+
     /// Renders and PUTs every eligible Pipeline of `mirror`; returns (namespace, name, outcome).
     pub async fn converge(
         &self,

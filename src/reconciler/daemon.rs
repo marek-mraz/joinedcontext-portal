@@ -18,6 +18,7 @@
 //! the projects and a new pod of a rolling update is ready while the old one holds the lock
 //! (OPS-51).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -405,7 +406,17 @@ impl Syncer {
 
         // 5b. Deploy resident streams for eligible DataSource pipelines (PL-47).
         if let Some(deployer) = self.streams.as_ref() {
-            for (ns, name, outcome) in deployer.converge(&fresh_mirror, &bentos).await {
+            let outcomes = deployer.converge(&fresh_mirror, &bentos).await;
+            // A Live stream that reads nothing is the failure nobody sees: the runner keeps the
+            // stream, the Portal says Live, and the counters are the only witness (T-0914). One
+            // scrape per project with a Live stream, read for each of them.
+            let mut counters: BTreeMap<String, Option<String>> = BTreeMap::new();
+            for (ns, _, outcome) in &outcomes {
+                if matches!(outcome, StreamOutcome::Live) && !counters.contains_key(ns) {
+                    counters.insert(ns.clone(), deployer.metrics(ns).await);
+                }
+            }
+            for (ns, name, outcome) in outcomes {
                 let Some(mut envelope) = fresh_mirror.get(&ns, "Pipeline", &name) else {
                     continue;
                 };
@@ -419,7 +430,19 @@ impl Syncer {
                     StreamOutcome::Live => {
                         if let Some(status) = envelope.status.as_mut() {
                             status.phase = crate::resource::Phase::Live;
-                            status.conditions.clear();
+                            status.conditions = match counters
+                                .get(&ns)
+                                .and_then(Option::as_deref)
+                                .and_then(|body| failing(body, &name))
+                            {
+                                Some(said) => vec![make_condition(
+                                    "StreamWriting",
+                                    "False",
+                                    "NothingWritten",
+                                    &said,
+                                )],
+                                None => Vec::new(),
+                            };
                         }
                         fresh_mirror.upsert(envelope);
                     }
@@ -770,9 +793,51 @@ impl Drop for Scratch {
     }
 }
 
+/// What a Live stream's counters say when it is not writing (T-0914).
+///
+/// Errors and nothing sent is a stream that runs and never lands: a source that refuses the
+/// runner's token, a mapping that throws on every message. Errors beside writes are the ordinary
+/// weather of a stream — a page that failed and was retried — and say nothing on their own.
+fn failing(metrics: &str, pipeline: &str) -> Option<String> {
+    let counters = crate::api::pipelines::scrape(metrics, pipeline, String::new());
+    let errors = counters.errors?;
+    if errors == 0 || counters.sent.unwrap_or(0) > 0 {
+        return None;
+    }
+    Some(format!(
+        "the stream is running and has written nothing: {errors} error(s) and no message sent \
+         since it started; the runner's log names the reason"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const RUNNING_STREAM: &str = r#"
+input_received{stream="aq"} 42
+output_sent{stream="aq"} 40
+output_error{stream="aq"} 2
+input_received{stream="kpi"} 6
+output_error{stream="kpi"} 6
+"#;
+
+    #[test]
+    fn a_stream_that_writes_nothing_and_only_errors_is_said_to_be_failing() {
+        // T-0914: the KPI stream on dev was Live for an hour, reading a source that refused its
+        // token; the counters were the only witness.
+        let said = failing(RUNNING_STREAM, "kpi").expect("a stream that never wrote");
+        assert!(said.contains("written nothing"), "{said}");
+        assert!(said.contains("6 error"), "{said}");
+    }
+
+    #[test]
+    fn errors_beside_writes_are_the_weather_and_say_nothing() {
+        assert_eq!(failing(RUNNING_STREAM, "aq"), None);
+        // A runner that exports no error counter for a stream says nothing about it either.
+        assert_eq!(failing(RUNNING_STREAM, "nothing-of-that-name"), None);
+    }
+
     use serde_json::json;
     use wiremock::matchers::path as path_matcher;
     use wiremock::matchers::{method, path, path_regex, query_param};
