@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { plainTitle, prune, refName } from "../../api/manifest";
@@ -78,23 +78,16 @@ export function layerFromManifest(document: unknown): LayerForm {
   };
 }
 
-/**
- * The name the editor opened with (MF-11): a form that renames a resource proposes a second one
- * at the new path and abandons the first, so the dialog is told what it may not change (T-0796).
- */
-function useOpenedName(editing: { name: string } | null): string | undefined {
-  const [opened, setOpened] = useState<string | undefined>(undefined);
-  useEffect(() => {
-    setOpened((previous) => (editing === null ? undefined : (previous ?? editing.name)));
-  }, [editing]);
-  return opened;
-}
-
 export interface EditorProps<T> {
   project: string;
   /** The form being edited; `null` keeps the dialog closed. */
   editing: T | null;
   isNew: boolean;
+  /**
+   * The name the resource already carries, as the page opened it — not the form's own, which a
+   * rename would have changed. A renamed manifest is a second resource at a new path (MF-11).
+   */
+  openedAs?: string;
   onEditingChange: (form: T | null) => void;
   onChange: (change: Change) => void;
 }
@@ -103,6 +96,7 @@ export function DashboardEditor({
   project,
   editing,
   isNew,
+  openedAs,
   onEditingChange,
   onChange,
   layers,
@@ -120,7 +114,6 @@ export function DashboardEditor({
     onEditingChange(null);
   });
   const schema = useMemo(() => dashboardSchema(t, layers), [t, layers]);
-  const opened = useOpenedName(editing);
   return (
     <ResourceFormDialog<DashboardForm>
       open={editing !== null}
@@ -134,7 +127,7 @@ export function DashboardEditor({
       description={t("dashboards.addHint")}
       schema={schema}
       uiSchema={dashboardUiSchema}
-      lockedName={isNew ? undefined : opened}
+      lockedName={isNew ? undefined : openedAs}
       formData={editing ?? undefined}
       submitLabel={t("dashboards.propose")}
       disabled={proposal.mutation.isPending || loadingDrafts}
@@ -164,6 +157,7 @@ export function LayerEditor({
   project,
   editing,
   isNew,
+  openedAs,
   onEditingChange,
   onChange,
   endpoints,
@@ -184,7 +178,6 @@ export function LayerEditor({
   const slots = filterSlotsOf(useModelSource(project, model), editing?.entityType || undefined);
   const endpointNames = useMemo(() => endpoints.map((e) => e.metadata.name), [endpoints]);
   const schema = useMemo(() => layerSchema(t, endpointNames, types), [t, endpointNames, types]);
-  const opened = useOpenedName(editing);
 
   return (
     <ResourceFormDialog<LayerForm>
@@ -199,7 +192,7 @@ export function LayerEditor({
       description={t("dashboards.layerHint")}
       schema={schema}
       uiSchema={layerUiSchema}
-      lockedName={isNew ? undefined : opened}
+      lockedName={isNew ? undefined : openedAs}
       formData={editing ?? undefined}
       submitLabel={t("dashboards.propose")}
       disabled={proposal.mutation.isPending}

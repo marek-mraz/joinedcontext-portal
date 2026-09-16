@@ -167,6 +167,8 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   // The viewport after the reader moved the map, and the layers switched off in the legend.
   const [bbox, setBbox] = useState<Bbox | undefined>(undefined);
   const [hidden, setHidden] = useState<string[] | null>(null);
+  /** The name the open editor's resource carries in the repository, `undefined` for a new one. */
+  const [openedAs, setOpenedAs] = useState<string | undefined>(undefined);
   /** Which of the dashboard's pages is open; a dashboard of one page never shows the tabs. */
   const [pageIndex, setPageIndex] = useState(0);
   const [change, setChange] = useState<Change | null>(null);
@@ -213,6 +215,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   if (requested && listed) {
     setRequest(null);
     setIsNew(!listed.some((item) => item.kind === requested.kind && item.metadata.name === requested.metadata.name));
+    setOpenedAs(requested.metadata.name);
     if (requested.kind === "Layer") {
       setEditingLayer(layerFromManifest(requested));
     } else {
@@ -374,6 +377,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         project={project}
         editing={editingDashboard}
         isNew={isNew}
+        openedAs={openedAs}
         onEditingChange={setEditingDashboard}
         onChange={setChange}
         layers={[...layerManifests, ...draftedLayers].map((item) => item.metadata.name)}
@@ -384,6 +388,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         project={project}
         editing={editingLayer}
         isNew={isNew}
+        openedAs={openedAs}
         onEditingChange={setEditingLayer}
         onChange={setChange}
         endpoints={endpointManifests}
@@ -401,6 +406,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
           icon={<Icon name="plus" className="size-4" />}
           onClick={() => {
             setIsNew(true);
+            setOpenedAs(undefined);
             setEditingDashboard(dashboardFromManifest(undefined));
           }}
         >
@@ -413,6 +419,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
           icon={<Icon name="plus" className="size-4" />}
           onClick={() => {
             setIsNew(true);
+            setOpenedAs(undefined);
             setEditingLayer(layerFromManifest(undefined));
           }}
         >
@@ -473,6 +480,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
                 size="sm"
                 onClick={() => {
                   setIsNew(false);
+                  setOpenedAs(dashboard.metadata.name);
                   setEditingDashboard(dashboardFromManifest(dashboard));
                 }}
               >
@@ -607,6 +615,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
                   aria-label={`${t("dashboards.editLayer")}: ${entry.name}`}
                   onClick={() => {
                     setIsNew(false);
+                    setOpenedAs(entry.manifest.metadata.name);
                     setEditingLayer(layerFromManifest(entry.manifest));
                   }}
                 >
