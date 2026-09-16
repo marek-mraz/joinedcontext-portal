@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 pub mod drafts;
 pub mod feed_shape;
 pub mod resources;
+pub mod runs;
 pub mod space_complete;
 pub mod verdict;
 pub mod views;
@@ -1062,6 +1063,7 @@ async fn propose_with_optional_draft(
 fn init_registry() -> Vec<Operation> {
     let mut operations = core_operations();
     operations.extend(resources::operations());
+    operations.extend(runs::operations());
     operations.extend(views::operations());
     operations
 }
@@ -1822,7 +1824,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 27);
+        assert_eq!(ops.len(), 30);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -1851,6 +1853,9 @@ mod tests {
             "jc_activity_list",
             "jc_federation_graph",
             "jc_model_source_get",
+            "jc_run_create",
+            "jc_run_cancel",
+            "jc_run_publish",
         ] {
             assert!(find(name).is_some(), "missing operation {name}");
         }

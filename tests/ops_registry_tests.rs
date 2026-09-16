@@ -547,3 +547,49 @@ async fn the_reads_that_had_only_a_route_answer_through_the_registry() {
     .expect_err("no such pipeline");
     assert!(format!("{missing:?}").contains("not found"), "{missing:?}");
 }
+
+/// AG-59, AG-11, T-0840: a run is started, cancelled and published through the registry, and an
+/// agent run never starts another.
+#[tokio::test]
+async fn the_run_operations_answer_and_an_agent_is_refused_by_name() {
+    let config = Config::for_tests();
+    let state = AppState::new(config, None).with_mirror(Arc::new(Mirror::new()));
+    let steward = ops::Caller {
+        identity: joinedcontext_portal::auth::session::Identity {
+            subject: "sub-steward".into(),
+            username: "steward".into(),
+            email: Some("steward@banskabystrica.sk".into()),
+            name: None,
+            roles: vec!["portal-approver".into()],
+            groups: vec!["platform-admins".into()],
+        },
+        via: ops::Via::Mcp,
+    };
+    let agent = ops::Caller {
+        via: ops::Via::Agent,
+        ..steward.clone()
+    };
+
+    for name in ["jc_run_create", "jc_run_cancel", "jc_run_publish"] {
+        let op = ops::find(name).expect("registered");
+        let input = match name {
+            "jc_run_create" => json!({
+                "appName": "bikes", "prompt": "show the bikes", "dataNeeds": [],
+                "endpointName": "public-air"
+            }),
+            _ => json!({ "id": "run-1" }),
+        };
+        let refused = ops::call(op, &agent, &state, "ovzdusie", input.clone())
+            .await
+            .expect_err("an agent never starts, cancels or publishes a run");
+        assert!(
+            format!("{refused:?}").contains("a person does"),
+            "{name}: {refused:?}"
+        );
+
+        // The person's own call reaches the route's own checks rather than this gate.
+        let answered = ops::call(op, &steward, &state, "ovzdusie", input).await;
+        let said = format!("{answered:?}");
+        assert!(!said.contains("a person does"), "{name}: {said}");
+    }
+}
