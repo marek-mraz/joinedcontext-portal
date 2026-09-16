@@ -10,6 +10,55 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/activity": {
+      "post": {
+        "tags": [
+          "activity"
+        ],
+        "summary": "The collector's route. One batch a request; a record with an unknown project or a kind outside\nthe vocabulary is rejected on its own, because one malformed record must not cost the other\nfour hundred.",
+        "operationId": "ingest_activity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The OTLP export response, naming what was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportLogsServiceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the collector's own service account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/logout": {
       "post": {
         "tags": [
@@ -340,6 +389,111 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/activity": {
+      "get": {
+        "tags": [
+          "activity"
+        ],
+        "operationId": "list_activity",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What happened, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A parameter is not one of this route's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project for this caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/activity/stream": {
+      "get": {
+        "tags": [
+          "activity"
+        ],
+        "operationId": "stream_activity",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The same filter, as Server-Sent Events"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project for this caller",
             "content": {
               "application/json": {
                 "schema": {
@@ -4850,6 +5004,81 @@
   },
   "components": {
     "schemas": {
+      "ActivityEvent": {
+        "type": "object",
+        "required": [
+          "time",
+          "project",
+          "kind",
+          "source",
+          "summary",
+          "severity"
+        ],
+        "properties": {
+          "correlationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "details": {
+            "description": "A small object of named values, never a payload (OPS-48). `details.object` is the\n`{plural}/{name}` an object page filters on."
+          },
+          "kind": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "space": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ActivityList": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "kind",
+          "items"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityEvent"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AgentAccessList": {
         "type": "object",
         "required": [
@@ -5972,6 +6201,21 @@
           }
         }
       },
+      "ExportLogsServiceResponse": {
+        "type": "object",
+        "properties": {
+          "partialSuccess": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PartialSuccess"
+              }
+            ]
+          }
+        }
+      },
       "FailedRequest": {
         "type": "object",
         "description": "A request of the frame the bridge answered with an error status.",
@@ -6790,6 +7034,22 @@
           },
           "title": {
             "type": "string"
+          }
+        }
+      },
+      "PartialSuccess": {
+        "type": "object",
+        "description": "What the collector reads: how many records the Portal refused, and why the first one was.",
+        "required": [
+          "rejectedLogRecords"
+        ],
+        "properties": {
+          "errorMessage": {
+            "type": "string"
+          },
+          "rejectedLogRecords": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

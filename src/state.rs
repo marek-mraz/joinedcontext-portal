@@ -50,6 +50,11 @@ pub struct AppState {
     pub drafts: DraftStore,
     /// Live hub for draft change events (UI-47).
     pub draft_events: DraftHub,
+    /// What is happening in a project (UI-31, OPS-48). Always present, durable only when there
+    /// is a database: without one, the Portal shows what happened since it started.
+    pub activity: crate::activity::ActivityStore,
+    /// The live half of the activity stream: the tail a connected browser follows.
+    pub activity_events: crate::activity::ActivityHub,
     /// Where a workspace Job is written. `None` outside a cluster, exactly like
     /// `app_settings`: a run is then refused rather than scheduled nowhere (AG-33).
     pub kube: Option<Arc<crate::apps::kube::KubeClient>>,
@@ -68,6 +73,8 @@ impl AppState {
             .map(|o| Arc::new(BearerVerifier::new(&o.issuer, &o.client_id)));
         let draft_events = DraftHub::new();
         let drafts = DraftStore::new(None).with_hub(draft_events.clone());
+        let activity_events = crate::activity::ActivityHub::new();
+        let activity = crate::activity::ActivityStore::new(None).with_hub(activity_events.clone());
         Self {
             bearer,
             config: Arc::new(config),
@@ -81,6 +88,8 @@ impl AppState {
             agent_events: Arc::new(AgentEventHub::new()),
             drafts,
             draft_events,
+            activity,
+            activity_events,
             kube: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -104,6 +113,8 @@ impl AppState {
     pub fn with_db(mut self, db: sqlx::PgPool) -> Self {
         self.agents = Arc::new(AgentStore::new(Some(db.clone())));
         self.drafts = DraftStore::new(Some(db.clone())).with_hub(self.draft_events.clone());
+        self.activity = crate::activity::ActivityStore::new(Some(db.clone()))
+            .with_hub(self.activity_events.clone());
         self.db = Some(db);
         self
     }
@@ -137,6 +148,8 @@ impl AppState {
             );
         }
         state.drafts = DraftStore::new(db.clone()).with_hub(state.draft_events.clone());
+        state.activity =
+            crate::activity::ActivityStore::new(db.clone()).with_hub(state.activity_events.clone());
         state.db = db;
         // A builder run is scheduled into the cluster this Portal runs in (AG-33). The client is
         // the same in-cluster one the app converger uses; outside a cluster it stays `None` and

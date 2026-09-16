@@ -1,3 +1,4 @@
+pub mod activity;
 pub mod agent_runs;
 pub mod assistant;
 pub mod basemap;
@@ -49,6 +50,7 @@ pub fn router() -> Router<AppState> {
         .merge(ckan::router())
         .merge(datamodels::router())
         .merge(drafts::router())
+        .merge(activity::router())
         .merge(export::router())
         .merge(federation::router())
         .merge(forms::router())

@@ -5,7 +5,9 @@ use utoipa::openapi::schema::{Array, Ref, Schema};
 use utoipa::openapi::RefOr;
 use utoipa::{Modify, OpenApi};
 
+use crate::activity::ActivityEvent;
 use crate::agents::run::{AgentRun, AgentRunEvent, AgentRunStatus};
+use crate::api::activity::{ActivityList, ExportLogsServiceResponse, PartialSuccess};
 use crate::api::agent_runs::{
     AnswerRequest, CreateRunRequest, CreatedRun, EventReceipt, FailedRequest, MessageRequest,
     ObservedPage, PreviewErrorRequest, PreviewObservationRequest, RelayedEvent, RunContext,
@@ -95,6 +97,9 @@ use crate::tools::model_tools::{
         crate::api::drafts::put_draft,
         crate::api::drafts::drop_draft,
         crate::api::drafts::stream_draft_events,
+        crate::api::activity::list_activity,
+        crate::api::activity::stream_activity,
+        crate::api::activity::ingest_activity,
         crate::api::mutate::create,
         crate::api::mutate::replace,
         crate::api::mutate::patch,
@@ -203,6 +208,10 @@ use crate::tools::model_tools::{
         Revision,
         RevisionList,
         FlowRequest,
+        ActivityEvent,
+        ActivityList,
+        ExportLogsServiceResponse,
+        PartialSuccess,
         Draft,
         DraftEvent,
         DraftList,

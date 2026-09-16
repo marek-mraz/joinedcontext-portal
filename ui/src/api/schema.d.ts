@@ -4,6 +4,27 @@
  */
 
 export interface paths {
+    "/api/v1/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The collector's route. One batch a request; a record with an unknown project or a kind outside
+         *     the vocabulary is rejected on its own, because one malformed record must not cost the other
+         *     four hundred.
+         */
+        post: operations["ingest_activity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/logout": {
         parameters: {
             query?: never;
@@ -158,6 +179,38 @@ export interface paths {
          *     mirror recognises is not a project.
          */
         get: operations["list_projects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/activity/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stream_activity"];
         put?: never;
         post?: never;
         delete?: never;
@@ -940,6 +993,28 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ActivityEvent: {
+            correlationId?: string | null;
+            /**
+             * @description A small object of named values, never a payload (OPS-48). `details.object` is the
+             *     `{plural}/{name}` an object page filters on.
+             */
+            details?: unknown;
+            kind: string;
+            project: string;
+            severity: string;
+            source: string;
+            space?: string | null;
+            summary: string;
+            /** Format: date-time */
+            time: string;
+        };
+        ActivityList: {
+            apiVersion: string;
+            items: components["schemas"]["ActivityEvent"][];
+            kind: string;
+            next?: string | null;
+        };
         AgentAccessList: {
             items: components["schemas"]["ProfileAccess"][];
         };
@@ -1408,6 +1483,9 @@ export interface components {
             /** Format: int64 */
             seq: number;
         };
+        ExportLogsServiceResponse: {
+            partialSuccess?: null | components["schemas"]["PartialSuccess"];
+        };
         /** @description A request of the frame the bridge answered with an error status. */
         FailedRequest: {
             path: string;
@@ -1716,6 +1794,12 @@ export interface components {
             name: string;
             outputSchema: Record<string, never>;
             title: string;
+        };
+        /** @description What the collector reads: how many records the Portal refused, and why the first one was. */
+        PartialSuccess: {
+            errorMessage?: string;
+            /** Format: int64 */
+            rejectedLogRecords: number;
         };
         /** @description Whether syncing is on or off. */
         PauseRequest: {
@@ -2062,6 +2146,48 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    ingest_activity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": unknown;
+            };
+        };
+        responses: {
+            /** @description The OTLP export response, naming what was rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportLogsServiceResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Not the collector's own service account */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     logout: {
         parameters: {
             query?: never;
@@ -2368,6 +2494,95 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    list_activity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What happened, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityList"];
+                };
+            };
+            /** @description A parameter is not one of this route's */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    stream_activity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The same filter, as Server-Sent Events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project for this caller */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
