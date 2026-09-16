@@ -699,10 +699,25 @@ async fn an_answer_that_does_not_validate_is_repaired_once() {
         "the openai body carries a system message"
     );
     let log = events(&app, &cookie, &id).await;
-    assert!(log.iter().any(|(kind, payload)| kind == "thought"
-        && payload["text"]
-            .as_str()
-            .is_some_and(|t| t.contains("asking for a repair"))));
+    // The person is told a correction is happening, in one sentence; the validator's words stay
+    // in the run's log and never reach the transcript (T-0703, UI-45).
+    let thoughts: Vec<&str> = log
+        .iter()
+        .filter(|(kind, _)| kind == "thought")
+        .filter_map(|(_, payload)| payload["text"].as_str())
+        .collect();
+    assert!(
+        thoughts
+            .iter()
+            .any(|t| t.contains("one detail does not fit yet")),
+        "{thoughts:?}"
+    );
+    assert!(
+        !thoughts
+            .iter()
+            .any(|t| t.contains("is not among the source")),
+        "the validator's words stay out of the transcript: {thoughts:?}"
+    );
     assert_eq!(log.iter().filter(|(kind, _)| kind == "preview").count(), 1);
 }
 

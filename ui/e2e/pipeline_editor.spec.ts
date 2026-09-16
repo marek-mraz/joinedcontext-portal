@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { greenVerdict, isCheck } from "./verdict";
 
 // T-0497: a pipeline created from the form, clicking real controls (PL-04, PL-39, UI-01, AP-13).
 // Same shape as the managers journey: `vite preview` has no portal API behind it, so the API
@@ -88,6 +89,27 @@ async function stubApi(page: Page): Promise<{ writes: string[] }> {
     if (path.endsWith("/branding")) {
       return json(BRANDING);
     }
+    // The Check is a dry run of the same collection the proposal posts to; it answers a verdict
+    // and never a change (PF-57).
+    if (isCheck(request.method(), request.url())) {
+      return json(greenVerdict(request.postData()));
+    }
+    const draft = /^\/api\/v1\/projects\/([^/]+)\/drafts\/([^/]+)\/([^/]+)$/.exec(path);
+    if (draft && request.method() === "PUT") {
+      // The form saves its draft before it proposes (T-0769); the draft is not the change.
+      const { manifest } = JSON.parse(request.postData() ?? "{}") as { manifest: unknown };
+      const [, project, kind, name] = draft;
+      return json({
+        project,
+        kind,
+        name,
+        manifest,
+        touchedBy: "jana.kovacova",
+        touchedKind: "person",
+        version: 1,
+        updatedAt: new Date().toISOString(),
+      });
+    }
     if (request.method() !== "GET") {
       writes.push(`${request.method()} ${path} ${request.postData() ?? ""}`);
       return json(CHANGE, 202);
@@ -130,6 +152,11 @@ test.describe("pipeline editor", () => {
     await dialog.getByRole("tab", { name: "Form" }).click();
     await expect(dialog.getByLabel(/^Name/)).toHaveValue("aq-ingest");
 
+    // Strict validation proposes nothing without a fresh green verdict, so the check runs first
+    // and the button says so until it is green (T-0779).
+    await expect(dialog.getByRole("button", { name: "Propose change" })).toBeDisabled();
+    await dialog.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(dialog.getByTestId("draft-verdict")).toContainText("Checked");
     await dialog.getByRole("button", { name: "Propose change" }).click();
 
     await expect(page.getByText("chg-77aa11bb")).toBeVisible();
@@ -148,6 +175,8 @@ test.describe("pipeline editor", () => {
         compute: { kind: "bloblang" },
         targetEndpoint: "urn:ngsi-ld:Endpoint:hel.fi:air:public-air",
       },
+      // The change names the draft the form saved, so the approver reads what was typed (T-0769).
+      draft: { kind: "Pipeline", name: "aq-ingest" },
     });
     void body;
   });

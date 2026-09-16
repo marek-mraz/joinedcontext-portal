@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { greenVerdict, isCheck } from "./verdict";
 import { axeViolations } from "./axe";
 
 // `vite preview` has no portal API behind it, so the API is answered in the browser and
@@ -79,6 +80,10 @@ async function stubApi(page: Page): Promise<{ writes: string[] }> {
     if (path === "/api/v1/projects") {
       return json({ apiVersion: API, kind: "List", items: [{ name: "helsinki" }, { name: "espoo" }] });
     }
+    // The Check is a dry run; it answers a verdict and is not one of the writes (PF-57).
+    if (isCheck(request.method(), request.url())) {
+      return json(greenVerdict(request.postData()));
+    }
     const draft = /^\/api\/v1\/projects\/([^/]+)\/drafts\/([^/]+)\/([^/]+)$/.exec(path);
     if (draft && request.method() === "PUT") {
       // The form saves its draft before it proposes (T-0769); the draft is not the change.
@@ -122,6 +127,9 @@ test.describe("sharing", () => {
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("checkbox", { name: "espoo" }).check();
     await expect(dialog.getByRole("checkbox", { name: "helsinki" })).toHaveCount(0);
+    // Strict validation proposes nothing without a fresh green verdict (T-0779).
+    await dialog.getByRole("button", { name: "Check", exact: true }).click();
+    await expect(dialog.getByTestId("draft-verdict")).toContainText("Checked");
     await dialog.getByRole("button", { name: "Propose change" }).click();
 
     await expect(page.getByText("chg-77aa11bb")).toBeVisible();

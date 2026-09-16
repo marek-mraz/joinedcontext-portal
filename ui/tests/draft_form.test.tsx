@@ -514,6 +514,111 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
     );
   });
 
+  it("says the check is missing before the first draft save, and the check enables Propose (T-0779)", async () => {
+    const proposed: unknown[] = [];
+    const checks: unknown[] = [];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        const method =
+          input instanceof Request ? input.method : (init?.method ?? "GET");
+        if (url.includes("/api/v1/branding")) {
+          return new Response(JSON.stringify({ validation: "strict" }), {
+            status: 200,
+          });
+        }
+        // The Check is the kind's dry run; it answers a verdict fresh for what it judged.
+        if (method === "POST" && url.includes("dryRun=All")) {
+          const body = JSON.parse(await (input as Request).clone().text());
+          checks.push(body);
+          const manifest = { ...(body as Record<string, unknown>) };
+          delete manifest.draft;
+          return new Response(
+            JSON.stringify({
+              verdict: {
+                ok: true,
+                findings: [],
+                checkedAt: new Date().toISOString(),
+                inputDigest: digestOf(manifest),
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (method === "PUT" && url.includes("/drafts/DataSource/aq-feed")) {
+          const body = JSON.parse(await (input as Request).clone().text());
+          return new Response(
+            JSON.stringify({
+              project: "banskabystrica",
+              kind: "DataSource",
+              name: "aq-feed",
+              manifest: body.manifest,
+              verdict: null,
+              touchedBy: "demo.steward",
+              touchedKind: "person",
+              version: 1,
+              updatedAt: "2026-09-13T12:00:00Z",
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Create Data Source"
+            description="Create draft"
+            project="banskabystrica"
+            draftKind="DataSource"
+            plural="datasources"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={(form) => proposed.push(form)}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Name/i), {
+      target: { value: "aq-feed" },
+    });
+
+    // No draft has been saved yet, and the button already says why it proposes nothing.
+    const submitBtn = await screen.findByRole("button", {
+      name: "Propose change",
+    });
+    await waitFor(() => {
+      expect(submitBtn).toBeDisabled();
+    });
+    expect(screen.getByTestId("propose-reason")).toHaveTextContent(
+      en.drafts.proposeReason.none,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: en.form.check }));
+    await waitFor(() => {
+      expect(submitBtn).toBeEnabled();
+    });
+    expect(checks).toHaveLength(1);
+    expect(screen.queryByTestId("propose-reason")).toBeNull();
+
+    fireEvent.click(submitBtn);
+    await waitFor(() => {
+      expect(proposed).toHaveLength(1);
+    });
+  });
+
   it("enables Propose when a fresh green verdict matches the draft digest", async () => {
     const manifest = {
       apiVersion: "joinedcontext.com/v1alpha1",

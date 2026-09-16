@@ -72,6 +72,12 @@ export interface ResourceFormDialogProps<T> {
    * both views, so a manifest pasted in the YAML view is checked where it was typed (T-0884).
    */
   onCheck?: (data: T) => void;
+  /**
+   * The kind's collection, so a dialog with no `onCheck` of its own can still run the check
+   * (`POST .../{plural}?dryRun=All`). Under strict validation a form that saves a draft cannot
+   * propose without a green verdict, so every such form needs a Check (T-0779, PF-57).
+   */
+  plural?: string;
   onSubmit: (data: T, draft?: { kind: string; name: string }) => void;
   onChange?: (data: T | undefined) => void;
 }
@@ -127,6 +133,7 @@ export function ResourceFormDialog<T>({
   draftName,
   verdict: externalVerdict,
   onCheck,
+  plural,
   onVerdictChange,
   onSubmit,
   onChange,
@@ -407,13 +414,16 @@ export function ResourceFormDialog<T>({
     return internalVerdict.ok ? "green" : "red";
   }, [internalVerdict, currentDigest]);
 
+  // Strict validation refuses a proposal whose draft carries no fresh green verdict, and the
+  // click saves that draft first (T-0769) — so the button has to say so before the first save,
+  // not after a click that proposed nothing (T-0779).
   const proposeReason = useMemo<string | undefined>(() => {
-    if (!draftKind || !activeName || !currentDraft) return undefined;
+    if (!draftKind || !activeName) return undefined;
     if (verdictState === "none") return t("drafts.proposeReason.none");
     if (verdictState === "red") return t("drafts.proposeReason.red");
     if (verdictState === "stale") return t("drafts.proposeReason.stale");
     return undefined;
-  }, [draftKind, activeName, currentDraft, verdictState, t]);
+  }, [draftKind, activeName, verdictState, t]);
 
   const effectiveSubmitDisabledReason = isLax
     ? submitDisabledReason
@@ -506,26 +516,57 @@ export function ResourceFormDialog<T>({
     );
   }
 
+  /**
+   * The check a dialog runs for itself: the same dry run the pages with their own `onCheck`
+   * send, on the manifest the form holds and the draft the proposal will name (T-0779).
+   */
+  const ownCheck = useMutation({
+    mutationFn: async (form: T) => {
+      const manifest = source ? source.toManifest(form) : form;
+      const name = draftName || extractName(form);
+      const body =
+        draftKind && name
+          ? { ...(manifest as object), draft: { kind: draftKind, name } }
+          : (manifest as object);
+      return unwrap(
+        await api.POST("/api/v1/projects/{project}/{plural}", {
+          params: {
+            path: { project: project ?? "", plural: plural ?? "" },
+            query: { dryRun: "All" },
+          },
+          body: body as never,
+        }),
+      );
+    },
+    onSuccess: (result) => {
+      const answer = result as { verdict?: Verdict };
+      updateVerdict(answer?.verdict ?? null);
+    },
+  });
+
+  const canCheck = Boolean(onCheck) || Boolean(plural && project && draftKind);
+
   /** The check runs on what the active view holds: the form, or the YAML read back into it. */
   function runCheck() {
-    if (!onCheck) {
+    if (!canCheck) {
       return;
     }
+    const check = onCheck ?? ((form: T) => ownCheck.mutate(form));
     if (view === "form") {
       if (formData) {
-        onCheck(formData);
+        check(formData);
       }
       return;
     }
     const form = readYaml();
     if (form !== null) {
       onChange?.(form);
-      onCheck(form);
+      check(form);
     }
   }
 
-  const checkButton = onCheck ? (
-    <Button size="sm" disabled={disabled} onClick={runCheck}>
+  const checkButton = canCheck ? (
+    <Button size="sm" disabled={disabled || ownCheck.isPending} onClick={runCheck}>
       {t("form.check")}
     </Button>
   ) : null;

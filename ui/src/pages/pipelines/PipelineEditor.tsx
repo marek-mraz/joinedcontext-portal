@@ -307,6 +307,9 @@ export function PipelineEditorDialog({
       // and Propose carries the draft it edited (AG-61, UI-47, T-0791).
       draftKind="Pipeline"
       draftName={editing?.metadata.name ?? draftName}
+      // The proposal names the draft, so under strict validation it needs a green verdict: the
+      // dialog runs the kind's dry run itself (T-0779, PF-57).
+      plural="pipelines"
       submitLabel={t("pipelines.propose")}
       disabled={pending}
       submitDisabledReason={gate}

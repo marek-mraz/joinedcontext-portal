@@ -1,4 +1,5 @@
 import { readCsrfToken } from "./client";
+export { canonicalizeJson, digestOf } from "./digest";
 
 export type FindingLevel = "error" | "warning" | "info";
 
@@ -37,43 +38,6 @@ export interface DraftEvent {
   touchedKind: string;
   event: "put" | "verdict" | "drop";
   updatedAt: string;
-}
-
-/** Recursively sorts all object keys to ensure canonical serialization. */
-export function canonicalizeJson(val: unknown): unknown {
-  if (val === null || typeof val !== "object") {
-    return val;
-  }
-  if (Array.isArray(val)) {
-    return val.map(canonicalizeJson);
-  }
-  const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(val as Record<string, unknown>).sort()) {
-    const v = (val as Record<string, unknown>)[key];
-    if (v !== undefined) {
-      sorted[key] = canonicalizeJson(v);
-    }
-  }
-  return sorted;
-}
-
-/**
- * Computes 64-bit FNV-1a hex digest of canonical JSON without third-party dependencies.
- * Matches backend `digest_of`.
- */
-export function digestOf(value: unknown): string {
-  const canonical = canonicalizeJson(value);
-  const jsonStr = JSON.stringify(canonical);
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  const mask = 0xffffffffffffffffn;
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(jsonStr);
-  for (let i = 0; i < bytes.length; i++) {
-    hash ^= BigInt(bytes[i]);
-    hash = (hash * prime) & mask;
-  }
-  return hash.toString(16).padStart(16, "0");
 }
 
 function draftUrl(project: string, kind: string, name: string): string {
