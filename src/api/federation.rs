@@ -138,6 +138,13 @@ pub async fn get_graph(
     _user: CurrentUser,
     Path(project): Path<String>,
 ) -> Result<Json<FederationGraph>, ApiError> {
+    Ok(Json(graph_of(&state, &project)))
+}
+
+/// The federation of one project, as the route and the `jc_federation_graph` operation both
+/// answer it (AG-59, T-0840).
+pub fn graph_of(state: &AppState, project: &str) -> FederationGraph {
+    let project = project.to_owned();
     let opts = ListOptions::default();
     let of = |kind: &str| state.mirror.list(&project, kind, &opts).items;
 
@@ -212,7 +219,7 @@ pub async fn get_graph(
         graph.node(app, "App", None);
     }
 
-    Ok(Json(graph.finish()))
+    graph.finish()
 }
 
 /// One registration: a node for the registration itself, an edge into the space it feeds, and

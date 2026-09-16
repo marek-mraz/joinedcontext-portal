@@ -53,7 +53,8 @@ pub struct ActivityQuery {
 }
 
 impl ActivityQuery {
-    fn into_filter(self) -> Result<ActivityFilter, ApiError> {
+    /// The filter this query names; the operation `jc_activity_list` builds the same one (T-0840).
+    pub fn into_filter(self) -> Result<ActivityFilter, ApiError> {
         let since = match &self.since {
             Some(text) => Some(
                 DateTime::parse_from_rfc3339(text)

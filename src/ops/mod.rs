@@ -17,6 +17,7 @@ pub mod feed_shape;
 pub mod resources;
 pub mod space_complete;
 pub mod verdict;
+pub mod views;
 
 pub use drafts::*;
 pub use verdict::*;
@@ -1061,6 +1062,7 @@ async fn propose_with_optional_draft(
 fn init_registry() -> Vec<Operation> {
     let mut operations = core_operations();
     operations.extend(resources::operations());
+    operations.extend(views::operations());
     operations
 }
 
@@ -1820,7 +1822,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 23);
+        assert_eq!(ops.len(), 27);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -1845,6 +1847,10 @@ mod tests {
             "jc_resource_propose",
             "jc_resource_delete",
             "jc_change_reject",
+            "jc_pipeline_metrics",
+            "jc_activity_list",
+            "jc_federation_graph",
+            "jc_model_source_get",
         ] {
             assert!(find(name).is_some(), "missing operation {name}");
         }

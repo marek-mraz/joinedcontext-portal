@@ -12,6 +12,7 @@ use axum::http::{header, Request, StatusCode};
 use axum_extra::extract::cookie::PrivateCookieJar;
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tower::ServiceExt;
 
 use joinedcontext_portal::auth::csrf::{CSRF_COOKIE, CSRF_HEADER};
@@ -453,4 +454,96 @@ fn the_change_operations_publish_the_wrapper_they_answer() {
     let list = (ops::find("jc_change_list").expect("registered").output)();
     assert_eq!(list["properties"]["kind"]["enum"], json!(["ChangeList"]));
     assert_eq!(list["properties"]["items"]["type"], json!("array"));
+}
+
+/// AG-59, CC-48, T-0840: what the Portal serves, the registry serves. These four reads had a
+/// route and no operation, so an MCP client could not see a pipeline's counters, what happened
+/// in the project, the federation, or a model's LinkML.
+#[tokio::test]
+async fn the_reads_that_had_only_a_route_answer_through_the_registry() {
+    let config = Config::for_tests();
+    let mirror = Arc::new(Mirror::new());
+    mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "ContextSpace".to_string(),
+        metadata: ObjectMeta::new("ovzdusie", "ovzdusie"),
+        spec: json!({ "isSandbox": false }),
+        status: None,
+    });
+    mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "DataModel".to_string(),
+        metadata: ObjectMeta::new("air", "ovzdusie"),
+        spec: json!({
+            "version": "1.0.0",
+            "lifecycle": "draft",
+            "contextSpaceRef": "ovzdusie",
+            "linkml": "id: https://example.org/air\nname: air\nclasses:\n  AirQualityObserved:\n    slots: [pm10]\n",
+            "classes": ["AirQualityObserved"]
+        }),
+        status: None,
+    });
+    let state = AppState::new(config, None).with_mirror(mirror);
+    let caller = ops::Caller {
+        identity: joinedcontext_portal::auth::session::Identity {
+            subject: "sub-steward".into(),
+            username: "steward".into(),
+            email: Some("steward@banskabystrica.sk".into()),
+            name: None,
+            roles: vec!["portal-approver".into()],
+            groups: vec!["platform-admins".into()],
+        },
+        via: ops::Via::Mcp,
+    };
+
+    let graph = ops::call(
+        ops::find("jc_federation_graph").expect("registered"),
+        &caller,
+        &state,
+        "ovzdusie",
+        json!({}),
+    )
+    .await
+    .expect("the federation");
+    assert!(graph["nodes"].is_array(), "{graph}");
+
+    let activity = ops::call(
+        ops::find("jc_activity_list").expect("registered"),
+        &caller,
+        &state,
+        "ovzdusie",
+        json!({ "severity": "warning", "limit": 10 }),
+    )
+    .await
+    .expect("what happened");
+    assert!(activity["items"].is_array(), "{activity}");
+
+    let source = ops::call(
+        ops::find("jc_model_source_get").expect("registered"),
+        &caller,
+        &state,
+        "ovzdusie",
+        json!({ "name": "air" }),
+    )
+    .await
+    .expect("the model's LinkML");
+    assert!(
+        source["source"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("AirQualityObserved"),
+        "{source}"
+    );
+
+    // A pipeline that is not there is not disclosed as existing elsewhere (R20).
+    let missing = ops::call(
+        ops::find("jc_pipeline_metrics").expect("registered"),
+        &caller,
+        &state,
+        "ovzdusie",
+        json!({ "name": "no-such-pipeline" }),
+    )
+    .await
+    .expect_err("no such pipeline");
+    assert!(format!("{missing:?}").contains("not found"), "{missing:?}");
 }
