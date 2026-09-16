@@ -1,5 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 import { configure } from "@testing-library/react";
+import { beforeEach } from "vitest";
+import { settlePrefill } from "../src/assistant/state";
+
+// A hand-off the assistant leaves lives until the person leaves the page it was left on
+// (T-0907), and that outlives one test: every case starts as somebody who was handed nothing.
+beforeEach(() => {
+  settlePrefill("/");
+});
 
 // Four agent sandboxes share the Mac's CPU and CI runs every file at once, so the
 // library's 1 s default for findBy*/waitFor is not a margin, it is a coin flip.

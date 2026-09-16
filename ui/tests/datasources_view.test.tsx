@@ -7,7 +7,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { endpointOf, knownSecretNames, toEnvelope } from "../src/pages/datasources/DataSourcesPage";
-import { rememberPrefill, settlePrefill } from "../src/assistant/state";
+import { rememberPrefill } from "../src/assistant/state";
 import type { Manifest } from "../src/api/manifest";
 
 const IDENTITY = {
@@ -114,12 +114,6 @@ function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
     .map((call) => call[0] as Request)
     .filter((request) => (request.method === "POST" || request.method === "PUT") && !String((request as Request).url ?? request).includes("/drafts"));
 }
-
-// A hand-off lives until the person leaves the page it was left on (T-0907); every case here
-// opens the page as somebody the assistant handed nothing.
-beforeEach(() => {
-  settlePrefill("/");
-});
 
 describe("data sources view", () => {
   beforeEach(async () => {

@@ -286,6 +286,20 @@ pub async fn start_flow(
     for expanded in &rendered {
         let (mut manifest, kind_info) =
             accept_rendered(&expanded.manifest, &expanded.template, &project)?;
+        // The realm role on the card says which blueprints a person is offered (CC-59); what
+        // they may propose in this project is the bindings of the organization repository, the
+        // same gate a hand-written manifest passes, and it is read before the forge is touched
+        // (PF-50, T-0799). A flow proposes; nothing here approves or deletes.
+        let body = serde_json::to_value(&manifest)
+            .map_err(|e| ApiError::Internal(format!("serialize rendered manifest: {e}")))?;
+        crate::permissions::for_request(&state, &user.0.identity, &project).check(
+            kind_info.kind,
+            jc_core::kinds::Verb::Propose,
+            Some(&body),
+        )?;
+        // Nobody grants above their own rights, a blueprint's Role or RoleBinding included
+        // (PF-52).
+        crate::permissions::within_own_rights(&state, &user.0.identity, &body, "proposer")?;
         let operation = if state
             .mirror
             .get(&project, kind_info.kind, &manifest.metadata.name)

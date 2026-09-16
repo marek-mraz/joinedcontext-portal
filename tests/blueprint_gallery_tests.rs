@@ -149,6 +149,67 @@ fn app_with(roles: &[&str]) -> (axum::Router, String) {
     (app, cookie)
 }
 
+/// The organization repository's answer to "may this person propose a Dashboard here": the role
+/// and the binding a project's steward writes (PF-50, PF-56).
+fn bound_to_propose() -> Vec<ResourceEnvelope> {
+    let org = |kind: &str, name: &str, spec: Value| ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: kind.to_string(),
+        metadata: ObjectMeta {
+            name: name.to_string(),
+            namespace: Some("org".to_string()),
+            ..Default::default()
+        },
+        spec,
+        status: None,
+    };
+    vec![
+        org(
+            "Role",
+            "dashboard-editor",
+            json!({ "rules": [{ "kinds": ["Dashboard"], "verbs": ["propose"] }] }),
+        ),
+        org(
+            "RoleBinding",
+            "editors",
+            json!({
+                "subjects": [{ "user": "demo.steward@banskabystrica.sk" }],
+                "role": "dashboard-editor",
+                "scope": { "project": "ovzdusie" },
+            }),
+        ),
+    ]
+}
+
+fn app_bound(roles: &[&str]) -> (axum::Router, String) {
+    let config = Config::for_tests();
+    let cookie = session_cookie(&config, roles);
+    let mirror = seeded_mirror();
+    for envelope in bound_to_propose() {
+        mirror.upsert(envelope);
+    }
+    let app = server::app(AppState::new(config, None).with_mirror(mirror));
+    (app, cookie)
+}
+
+async fn post_flow_to(app: axum::Router, cookie: &str, body: Value) -> (StatusCode, Value) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/flows")
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("x-csrf-token", TEST_CSRF_TOKEN)
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    (status, body_json(response).await)
+}
+
 async fn body_json(response: axum::response::Response) -> Value {
     let bytes = response
         .into_body()
@@ -369,12 +430,36 @@ async fn a_template_cannot_render_into_another_project() {
 }
 
 #[tokio::test]
-async fn a_valid_flow_reaches_the_forge_and_stops_there_when_there_is_none() {
-    // Everything the Portal can check on its own has passed: the roles, the version, the
-    // parameters and every rendered manifest. What is left is the merge request, and without a
-    // forge there is nowhere to open one — so this is 503, never a silent success (CC-32).
+async fn a_flow_is_refused_in_a_project_the_caller_holds_no_binding_in() {
+    // The realm role on the card decides which blueprints a person is offered (CC-59); what
+    // they may propose in this project is the organization repository's bindings, and this
+    // caller has none. 403 before the forge, naming the verb and the kind (PF-50, T-0799).
     let (status, problem) = post_flow(
         &["domain-editor"],
+        json!({
+            "blueprint": "threshold-alert",
+            "version": "1.2.0",
+            "parameters": { "title": "nocne-hluky", "webhookUrl": "https://example.org/hook" },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{problem}");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("propose") && detail.contains("Dashboard"),
+        "the refusal names what is missing: {detail}"
+    );
+}
+
+#[tokio::test]
+async fn a_valid_flow_reaches_the_forge_and_stops_there_when_there_is_none() {
+    // Everything the Portal can check on its own has passed: the roles, the binding, the
+    // version, the parameters and every rendered manifest. What is left is the merge request,
+    // and without a forge there is nowhere to open one — 503, never a silent success (CC-32).
+    let (app, cookie) = app_bound(&["domain-editor"]);
+    let (status, problem) = post_flow_to(
+        app,
+        &cookie,
         json!({
             "blueprint": "threshold-alert",
             "version": "1.2.0",
