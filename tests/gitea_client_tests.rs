@@ -309,12 +309,14 @@ async fn create_and_get_pull_request() {
     assert_eq!(fetched.mergeable, None);
     assert!(fetched.merged);
 
-    // With a public forge the link a person opens is the public one, never Gitea's ROOT_URL (AP-71).
+    // With a public forge the link a person opens is the public one, never Gitea's ROOT_URL
+    // (AP-71), and it goes through the forge's own sign-in so a Portal session that has no
+    // forge session meets the Keycloak button instead of a 404 (PF-81, T-0702).
     let mut public = client.clone();
     public.public_base = "https://city.example/git".parse().unwrap();
     assert_eq!(
         public.pull_request(17).await.unwrap().url,
-        "https://city.example/git/test-owner/test-repo/pulls/17"
+        "https://city.example/git/user/login?redirect_to=%2Fgit%2Ftest-owner%2Ftest-repo%2Fpulls%2F17"
     );
 }
 
