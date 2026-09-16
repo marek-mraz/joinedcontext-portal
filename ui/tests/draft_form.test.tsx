@@ -619,6 +619,112 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
     });
   });
 
+  it("leaves Propose refused when the check itself is refused (T-0779)", async () => {
+    const proposed: unknown[] = [];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        const method =
+          input instanceof Request ? input.method : (init?.method ?? "GET");
+        if (url.includes("/api/v1/branding")) {
+          return new Response(JSON.stringify({ validation: "strict" }), {
+            status: 200,
+          });
+        }
+        if (method === "POST" && url.includes("dryRun=All")) {
+          // The role may edit its draft and not propose the kind: the check is refused.
+          return new Response(
+            JSON.stringify({ title: "Forbidden", detail: "not yours" }),
+            { status: 403, headers: { "content-type": "application/problem+json" } },
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Create Data Source"
+            description="Create draft"
+            project="banskabystrica"
+            draftKind="DataSource"
+            plural="datasources"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={(form) => proposed.push(form)}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Name/i), {
+      target: { value: "refused-feed" },
+    });
+    const submitBtn = await screen.findByRole("button", {
+      name: "Propose change",
+    });
+    fireEvent.click(screen.getByRole("button", { name: en.form.check }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("draft-verdict")).toHaveTextContent(
+        en.drafts.verdict.none,
+      );
+    });
+    expect(submitBtn).toBeDisabled();
+    expect(screen.getByTestId("propose-reason")).toHaveTextContent(
+      en.drafts.proposeReason.none,
+    );
+    expect(proposed).toHaveLength(0);
+  });
+
+  it("offers no check to a dialog that has no collection to check against", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url.includes("/api/v1/branding")) {
+        return new Response(JSON.stringify({ validation: "strict" }), {
+          status: 200,
+        });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Create Space"
+            description="A form that names no draft"
+            project="banskabystrica"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={() => {}}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("button", { name: "Propose change" });
+    expect(screen.queryByRole("button", { name: en.form.check })).toBeNull();
+  });
+
   it("enables Propose when a fresh green verdict matches the draft digest", async () => {
     const manifest = {
       apiVersion: "joinedcontext.com/v1alpha1",
