@@ -53,7 +53,30 @@ spec:
   audience: public
   entitySelector:
     ids:
-      - urn:ngsi-ld:AirQualityObserved:hel.fi:helsinki:sever-01
+      - urn:ngsi-ld:AirQualityObserved:hel.fi:ovzdusie:sever-01
+      - urn:ngsi-ld:AirQualityObserved:tampere.fi:ilma:keskusta-01
+    idPattern: "^urn:ngsi-ld:AirQualityObserved:hel\\.fi:ovzdusie:.*$"
+"#;
+
+const ROLE: &str = r#"apiVersion: joinedcontext.com/v1alpha1
+kind: Role
+metadata:
+  name: air-steward
+  namespace: org
+spec:
+  rules:
+    - kinds: [Endpoint]
+      verbs: [read]
+"#;
+
+const PROJECT_MANIFEST: &str = r#"apiVersion: joinedcontext.com/v1alpha1
+kind: Project
+metadata:
+  name: helsinki
+  namespace: org
+spec:
+  displayName: { en: Helsinki }
+  organizationRef: hel
 "#;
 
 const BENTO: &str = "input:\n  mqtt:\n    urls: [ mqtts://mqtt.hsl.fi:8883 ]\n";
@@ -223,6 +246,17 @@ fn state_as(
         envelope.metadata.namespace = Some(PROJECT.to_string());
         mirror.upsert(envelope);
     }
+    // The organization the import lands in: its domain is the one every imported id is
+    // rewritten to (PF-10, PF-43).
+    mirror.upsert(
+        serde_json::from_value(json!({
+            "apiVersion": API_VERSION,
+            "kind": "Organization",
+            "metadata": { "name": "bb", "namespace": ORG_NAMESPACE },
+            "spec": { "displayName": { "en": "Banska Bystrica" }, "domain": "banskabystrica.sk" },
+        }))
+        .expect("organization manifest"),
+    );
     for manifest in org {
         mirror.upsert(serde_json::from_value(manifest).expect("organization manifest"));
     }
@@ -411,12 +445,22 @@ async fn the_namespace_the_typed_references_and_the_urns_all_move() {
         endpoint.contains(&format!("namespace: {PROJECT}")),
         "{endpoint}"
     );
-    // MF-22: the space segment of an entity URN moves with the namespace, or the imported
-    // endpoint keeps selecting entities of the project it came from.
+    // MF-22, PF-43: the organisation segment of an id moves to the organisation that now owns
+    // the space, or the gateway refuses every write the imported endpoint selects. The space
+    // segment is a ContextSpace name and keeps it.
     assert!(
-        endpoint.contains(&format!(
-            "urn:ngsi-ld:AirQualityObserved:hel.fi:{PROJECT}:sever-01"
-        )),
+        endpoint.contains("urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:sever-01"),
+        "{endpoint}"
+    );
+    // An id in a space this bundle does not carry is another city's, and a federated
+    // registration that pointed there still does (MF-22).
+    assert!(
+        endpoint.contains("urn:ngsi-ld:AirQualityObserved:tampere.fi:ilma:keskusta-01"),
+        "{endpoint}"
+    );
+    // An anchored idPattern is a URN prefix with the domain's dots escaped (R33, T-0826).
+    assert!(
+        endpoint.contains(r"^urn:ngsi-ld:AirQualityObserved:banskabystrica\.sk:ovzdusie:.*$"),
         "{endpoint}"
     );
     // The one place the source survives is the provenance annotation (MF-20).
@@ -424,7 +468,43 @@ async fn the_namespace_the_typed_references_and_the_urns_all_move() {
         !endpoint.contains(&format!("namespace: {SOURCE}")),
         "{endpoint}"
     );
-    assert!(!endpoint.contains(&format!(":{SOURCE}:")), "{endpoint}");
+    assert!(!endpoint.contains("hel.fi"), "{endpoint}");
+}
+
+#[tokio::test]
+async fn an_organization_scoped_kind_lands_in_org_and_the_source_project_manifest_is_dropped() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let bundle = archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        ("users/roles/air-steward.yaml", ROLE),
+        ("projects/helsinki/project.yaml", PROJECT_MANIFEST),
+        ("projects/helsinki/bundle.yaml", BUNDLE),
+    ]);
+    let (content_type, body) = multipart(&bundle, &[("conflictPolicy", "fail")]);
+    let (status, answer) = post(state, &cookie, &content_type, body).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+
+    let paths = written(&server).await;
+    // PF-22: an organization-scoped kind is stored at `users/roles/{name}.yaml`, namespace
+    // `org`; jc-core refuses it under a project's namespace.
+    assert!(
+        paths.iter().any(|p| p == "users/roles/air-steward.yaml"),
+        "{paths:?}"
+    );
+    // The destination project is the one in the URL, so the bundle's own Project manifest
+    // never writes a `projects/helsinki/` directory into this repository.
+    assert!(
+        !paths.iter().any(|p| p.starts_with("projects/helsinki/")),
+        "{paths:?}"
+    );
+    let role = put_bodies(&server)
+        .await
+        .into_iter()
+        .find(|body| body.contains("kind: Role"))
+        .expect("the role was written");
+    assert!(role.contains("namespace: org"), "{role}");
+    assert!(!role.contains(&format!("namespace: {PROJECT}")), "{role}");
 }
 
 #[tokio::test]

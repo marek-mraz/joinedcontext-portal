@@ -82,6 +82,10 @@ pub struct ImportOptions {
     /// The namespace every imported manifest is rewritten into; the project when absent (MF-22).
     #[serde(default)]
     pub target_namespace: Option<String>,
+    /// The organisation domain every imported id is rewritten to; this instance's own
+    /// organisation when absent (PF-10, PF-43).
+    #[serde(default)]
+    pub org_domain: Option<String>,
     #[serde(default)]
     pub conflict_policy: ConflictPolicy,
     #[serde(default)]
@@ -371,7 +375,11 @@ fn unresolved(manifests: &[ResourceEnvelope], state: &AppState, project: &str) -
             if inside.contains(&(kind.clone(), name.clone())) {
                 continue;
             }
-            if state.mirror.get(project, &kind, &name).is_some() {
+            if state
+                .mirror
+                .get(namespace_for(&kind, project), &kind, &name)
+                .is_some()
+            {
                 continue;
             }
             missing.insert(format!(
@@ -385,36 +393,85 @@ fn unresolved(manifests: &[ResourceEnvelope], state: &AppState, project: &str) -
 
 // --- namespace remapping (MF-22) ---------------------------------------------------------
 
-/// Rewrites one manifest into the target namespace: the metadata, the namespace of every
-/// typed reference, and the space segment of every entity URN it carries.
+/// The spaces a bundle carries: every `ContextSpace` it holds and the space each other
+/// manifest declares.
 ///
-/// The URN is the part that is easy to forget and expensive to get wrong. An id follows
-/// `urn:ngsi-ld:{Type}:{orgDomain}:{space}:{localId}` (PF-10), so a bundle imported into
-/// another project keeps pointing at the old space unless the segment moves with it.
-fn remap(envelope: &mut ResourceEnvelope, from: &str, to: &str) {
-    envelope.metadata.namespace = Some(to.to_owned());
-    remap_value(&mut envelope.spec, from, to);
+/// An id in one of those spaces is the bundle's own and travels with it; an id in any other
+/// space names another organisation — a federated registration, a peer's endpoint — and is
+/// left alone, or an import would quietly re-point federation at this city (MF-22, PF-43).
+fn own_spaces(manifests: &[ResourceEnvelope]) -> BTreeSet<String> {
+    let mut spaces = BTreeSet::new();
+    for envelope in manifests {
+        if envelope.kind == "ContextSpace" {
+            spaces.insert(envelope.metadata.name.clone());
+        }
+        if let Some(space) = space_of(envelope) {
+            spaces.insert(space.to_owned());
+        }
+    }
+    spaces
 }
 
-fn remap_value(value: &mut Value, from: &str, to: &str) {
+/// Rewrites one manifest into the target namespace: the metadata, the namespace of every
+/// typed reference, and the organisation domain of every id it carries.
+///
+/// The URN is the part that is easy to forget and expensive to get wrong. An id follows
+/// `urn:ngsi-ld:{Type}:{orgDomain}:{space}:{localId}` (PF-10), and the gateway refuses a write
+/// whose `{orgDomain}` is not the one owning the space (PF-43), so a bundle imported into
+/// another organisation keeps pointing at the organisation it came from unless the segment
+/// moves with it. The `{space}` segment is a ContextSpace name, not a project name: it changes
+/// only when the space itself is renamed by the conflict policy, which happens later, in
+/// [`plan_import`].
+fn remap(
+    envelope: &mut ResourceEnvelope,
+    from: &str,
+    to: &str,
+    domain: &str,
+    spaces: &BTreeSet<String>,
+) {
+    // An organization-scoped kind lives in namespace `org` whatever project imported it;
+    // jc-core refuses the manifest otherwise, so the target project would write a file its
+    // own CI rejects (PF-22, MF-22).
+    envelope.metadata.namespace = Some(namespace_for(&envelope.kind, to).to_owned());
+    remap_value(&mut envelope.spec, from, to, domain, spaces);
+}
+
+/// The namespace a kind is stored in: `org` for an organization-scoped kind, the project
+/// otherwise.
+fn namespace_for<'a>(kind: &str, project: &'a str) -> &'a str {
+    match resource::by_kind(kind) {
+        Some(info) if info.scope == resource::Scope::Organization => {
+            crate::permissions::ORG_NAMESPACE
+        }
+        _ => project,
+    }
+}
+
+fn remap_value(value: &mut Value, from: &str, to: &str, domain: &str, spaces: &BTreeSet<String>) {
     match value {
         Value::Object(members) => {
-            if members.get("kind").and_then(Value::as_str).is_some() {
-                if let Some(Value::String(namespace)) = members.get_mut("namespace") {
-                    if namespace == from {
-                        *namespace = to.to_owned();
-                    }
+            // A typed reference that named the source namespace names the one it landed in;
+            // an organization-scoped kind is addressed as `org` from anywhere.
+            let referenced = members
+                .get("kind")
+                .and_then(Value::as_str)
+                .map(|kind| namespace_for(kind, to).to_owned());
+            if let (Some(target), Some(Value::String(namespace))) =
+                (referenced, members.get_mut("namespace"))
+            {
+                if namespace.as_str() == from || target == crate::permissions::ORG_NAMESPACE {
+                    *namespace = target;
                 }
             }
             for child in members.values_mut() {
-                remap_value(child, from, to);
+                remap_value(child, from, to, domain, spaces);
             }
         }
         Value::Array(items) => items
             .iter_mut()
-            .for_each(|item| remap_value(item, from, to)),
+            .for_each(|item| remap_value(item, from, to, domain, spaces)),
         Value::String(text) => {
-            if let Some(rewritten) = remap_urn(text, from, to) {
+            if let Some(rewritten) = remap_urn(text, domain, spaces) {
                 *text = rewritten;
             }
         }
@@ -422,18 +479,86 @@ fn remap_value(value: &mut Value, from: &str, to: &str) {
     }
 }
 
-/// The space segment of an NGSI-LD id, moved to the target namespace (PF-10).
-fn remap_urn(urn: &str, from: &str, to: &str) -> Option<String> {
-    if !urn.starts_with("urn:ngsi-ld:") {
+/// One id, or one anchored `idPattern`, with its organisation domain replaced (PF-10, R33).
+///
+/// A pattern is a URN prefix with `^` in front and the dots of the domain escaped
+/// (`^urn:ngsi-ld:AirQualityObserved:hel\.fi:air-quality:.*$`), which is why the comparison
+/// unescapes and the replacement escapes: a Policy or a registration anchored on the source
+/// organisation would otherwise keep routing there after the move (MF-22, T-0826).
+fn remap_urn(urn: &str, domain: &str, spaces: &BTreeSet<String>) -> Option<String> {
+    let pattern = urn.starts_with('^');
+    let body = urn.strip_prefix('^').unwrap_or(urn);
+    if !body.starts_with("urn:ngsi-ld:") {
         return None;
     }
-    let mut segments: Vec<&str> = urn.split(':').collect();
-    // urn : ngsi-ld : Type : orgDomain : space : localId
-    if segments.len() < 6 || segments[4] != from {
+    let mut segments: Vec<String> = body.split(':').map(str::to_owned).collect();
+    // urn : ngsi-ld : Type : orgDomain : space : localId (or `.*$` in a pattern)
+    if segments.len() < 6 {
         return None;
     }
-    segments[4] = to;
-    Some(segments.join(":"))
+    if !spaces.contains(&segments[4]) {
+        return None;
+    }
+    let replacement = if pattern {
+        regex::escape(domain)
+    } else {
+        domain.to_owned()
+    };
+    if segments[3] == replacement {
+        return None;
+    }
+    segments[3] = replacement;
+    let joined = segments.join(":");
+    Some(if pattern {
+        format!("^{joined}")
+    } else {
+        joined
+    })
+}
+
+/// Whether a string is a domain name the URN scheme can carry: labels of letters, digits and
+/// hyphens, separated by dots. A `:` would split an id into a segment nobody meant.
+fn is_domain(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 253
+        && value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+        })
+}
+
+/// Moves every id of a renamed space onto its new name (MF-23, MF-26).
+fn rewrite_space(value: &mut Value, old: &str, new: &str) {
+    match value {
+        Value::Object(members) => members
+            .values_mut()
+            .for_each(|child| rewrite_space(child, old, new)),
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| rewrite_space(item, old, new)),
+        Value::String(text) => {
+            let pattern = text.starts_with('^');
+            let body = text.strip_prefix('^').unwrap_or(text);
+            if !body.starts_with("urn:ngsi-ld:") {
+                return;
+            }
+            let mut segments: Vec<String> = body.split(':').map(str::to_owned).collect();
+            if segments.len() < 6 || segments[4] != old {
+                return;
+            }
+            segments[4] = new.to_owned();
+            let joined = segments.join(":");
+            *text = if pattern {
+                format!("^{joined}")
+            } else {
+                joined
+            };
+        }
+        _ => {}
+    }
 }
 
 /// Rewrites every reference to `old` so it names `new` (MF-23 `rename`, MF-26).
@@ -519,6 +644,9 @@ async fn read_request(
                 "file" | "bundle" => bytes = data.to_vec(),
                 "targetNamespace" => {
                     options.target_namespace = Some(String::from_utf8_lossy(&data).into_owned())
+                }
+                "orgDomain" => {
+                    options.org_domain = Some(String::from_utf8_lossy(&data).trim().to_owned())
                 }
                 "conflictPolicy" => {
                     options.conflict_policy =
@@ -615,11 +743,26 @@ pub async fn import(
         )));
     }
 
+    // The organisation whose ids the import writes: this instance's own, unless the caller
+    // names another (a staging instance replaying a city's bundle under its own domain).
+    let domain = match options.org_domain.clone().filter(|d| !d.trim().is_empty()) {
+        Some(domain) => {
+            if !is_domain(&domain) {
+                return Err(ApiError::BadRequest(format!(
+                    "orgDomain '{domain}' is not a domain name (PF-10)"
+                )));
+            }
+            domain
+        }
+        None => crate::api::assistant::org_domain(&state, &project),
+    };
+
     let (report, files) = plan_import(
         &incoming,
         &state,
         &project,
         &target,
+        &domain,
         options.conflict_policy,
     )?;
     if options.dry_run {
@@ -726,6 +869,7 @@ fn plan_import(
     state: &AppState,
     project: &str,
     target: &str,
+    domain: &str,
     policy: ConflictPolicy,
 ) -> Result<(ImportReport, Vec<(String, String)>), ApiError> {
     let mut manifests: Vec<ResourceEnvelope> = Vec::new();
@@ -770,10 +914,16 @@ fn plan_import(
         ));
     }
 
+    // The destination project is the one in the URL, and its own manifest already describes
+    // it: a `Project` carried by the bundle would be written at `projects/{its own name}/`,
+    // a directory of this repository that belongs to another project (PF-22, MF-22).
+    manifests.retain(|envelope| envelope.kind != "Project");
+
     // The source namespace is whatever the bundle was exported from; a bundle whose manifests
     // disagree about it is remapped from each one's own, which is what a hand-assembled
     // multi-project bundle needs.
     // The origin travels with each manifest because a rename is named after it.
+    let spaces = own_spaces(&manifests);
     let manifests: Vec<(String, ResourceEnvelope)> = manifests
         .into_iter()
         .map(|mut envelope| {
@@ -782,7 +932,7 @@ fn plan_import(
                 .namespace
                 .clone()
                 .unwrap_or_else(|| target.to_owned());
-            remap(&mut envelope, &from, target);
+            remap(&mut envelope, &from, target, domain, &spaces);
             (from, envelope)
         })
         .collect();
@@ -801,9 +951,10 @@ fn plan_import(
     // resolved or planned.
     let mut keep: Vec<ResourceEnvelope> = Vec::new();
     for (origin, envelope) in manifests {
+        let stored = namespace_for(&envelope.kind, project);
         let existing = state
             .mirror
-            .get(project, &envelope.kind, &envelope.metadata.name)
+            .get(stored, &envelope.kind, &envelope.metadata.name)
             .is_some();
         if !existing {
             report.created.push(envelope.metadata.name.clone());
@@ -828,7 +979,7 @@ fn plan_import(
                 let stem = renamed(&old, &origin);
                 let mut new = stem.clone();
                 let mut attempt = 2;
-                while state.mirror.get(project, &envelope.kind, &new).is_some() {
+                while state.mirror.get(stored, &envelope.kind, &new).is_some() {
                     new = format!("{stem}-{attempt}");
                     attempt += 1;
                 }
@@ -853,6 +1004,11 @@ fn plan_import(
         if let Some(kind) = kind {
             for envelope in &mut keep {
                 rewrite_reference(&mut envelope.spec, &kind, old, new);
+                // A renamed ContextSpace is the one rename that also moves ids: the `{space}`
+                // segment of every URN is that name (PF-10, MF-26).
+                if kind == "ContextSpace" {
+                    rewrite_space(&mut envelope.spec, old, new);
+                }
             }
         }
     }
@@ -868,7 +1024,11 @@ fn plan_import(
             .ok_or_else(|| ApiError::Internal(format!("kind '{}' vanished", envelope.kind)))?;
         let operation = if state
             .mirror
-            .get(project, &envelope.kind, &envelope.metadata.name)
+            .get(
+                namespace_for(&envelope.kind, project),
+                &envelope.kind,
+                &envelope.metadata.name,
+            )
             .is_some()
         {
             Operation::Update
