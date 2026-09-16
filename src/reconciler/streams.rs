@@ -260,10 +260,17 @@ impl StreamDeployer {
                         }
                     };
 
+                    let source_is_public = source_ep_env
+                        .spec
+                        .get("audience")
+                        .and_then(Value::as_str)
+                        .is_none_or(|audience| audience == "public");
+
                     match render_endpoint_stream(
                         &spec,
                         &format!("{ns}/{name}"),
                         source_slug,
+                        source_is_public,
                         &target_slug,
                     ) {
                         Ok(val) => val,
@@ -697,6 +704,7 @@ pub fn render_endpoint_stream(
     pipeline: &PipelineSpec,
     stream_key: &str,
     source_slug: &str,
+    source_is_public: bool,
     target_slug: &str,
 ) -> Result<Value, RenderError> {
     let source = pipeline.source.as_ref();
@@ -750,24 +758,27 @@ pub fn render_endpoint_stream(
         }
     });
 
-    let p1 = serde_json::json!({
-        "try": [{
-            "http": {
-                "url": source_url,
-                "verb": "GET",
-                "headers": {
-                    "Accept": "application/json"
-                },
-                "oauth2": {
-                    "enabled": true,
-                    "client_key": "${JC_CLIENT_ID}",
-                    "client_secret": "${JC_CLIENT_SECRET}",
-                    "token_url": "${JC_TOKEN_URL}"
-                },
-                "timeout": "30s"
-            }
-        }]
+    // A public endpoint serves the public grant and expects no credential; the runner's token
+    // is minted for the endpoints its ServiceAccount is bound to, and the gateway answers 401
+    // to a token whose audience is another endpoint's slug — so sending one where none is
+    // wanted is how a Live pipeline reads nothing (EP-27, PL-45, T-0914).
+    let mut read = serde_json::json!({
+        "url": source_url,
+        "verb": "GET",
+        "headers": {
+            "Accept": "application/json"
+        },
+        "timeout": "30s"
     });
+    if !source_is_public {
+        read["oauth2"] = serde_json::json!({
+            "enabled": true,
+            "client_key": "${JC_CLIENT_ID}",
+            "client_secret": "${JC_CLIENT_SECRET}",
+            "token_url": "${JC_TOKEN_URL}"
+        });
+    }
+    let p1 = serde_json::json!({ "try": [{ "http": read }] });
     let p2 = serde_json::json!({
         "mutation": "root = if errored() { deleted() }"
     });
@@ -1142,9 +1153,14 @@ mod tests {
     fn endpoint_source_renders_get_url_with_type_and_attrs() {
         let spec =
             endpoint_pipeline_spec(Some("BikeHireDockingStation"), vec![], Some("15m"), None);
-        let rendered =
-            render_endpoint_stream(&spec, "helsinki/kpi", "source_slug_123", "target_slug_456")
-                .expect("rendered endpoint stream");
+        let rendered = render_endpoint_stream(
+            &spec,
+            "helsinki/kpi",
+            "source_slug_123",
+            true,
+            "target_slug_456",
+        )
+        .expect("rendered endpoint stream");
 
         assert_eq!(rendered["input"]["generate"]["interval"], "15m");
         let http = &rendered["pipeline"]["processors"][0]["try"][0]["http"];
@@ -1154,11 +1170,37 @@ mod tests {
         );
         assert_eq!(http["verb"], "GET");
         assert_eq!(http["headers"]["Accept"], "application/json");
-        assert_eq!(http["oauth2"]["client_key"], "${JC_CLIENT_ID}");
+        // A public source is read the way anyone reads it: no token, because the runner's
+        // token names the endpoints its ServiceAccount is bound to and the gateway answers a
+        // token for another slug 401 (T-0914).
+        assert!(http["oauth2"].is_null(), "{http}");
+        // The write always carries the runner's identity: nothing is written anonymously.
+        assert_eq!(
+            rendered["output"]["http_client"]["oauth2"]["client_key"],
+            "${JC_CLIENT_ID}"
+        );
         assert_eq!(
             rendered["output"]["http_client"]["url"],
             "${JC_GATEWAY_URL}/api/endpoint/target_slug_456/ngsi-ld/v1/entityOperations/upsert?options=update"
         );
+    }
+
+    #[test]
+    fn a_source_that_is_not_public_is_read_with_the_runners_own_token() {
+        let spec =
+            endpoint_pipeline_spec(Some("BikeHireDockingStation"), vec![], Some("15m"), None);
+        let rendered = render_endpoint_stream(
+            &spec,
+            "helsinki/kpi",
+            "source_slug_123",
+            false,
+            "target_slug_456",
+        )
+        .expect("rendered endpoint stream");
+
+        let http = &rendered["pipeline"]["processors"][0]["try"][0]["http"];
+        assert_eq!(http["oauth2"]["client_key"], "${JC_CLIENT_ID}");
+        assert_eq!(http["oauth2"]["token_url"], "${JC_TOKEN_URL}");
     }
 
     #[test]
@@ -1169,7 +1211,8 @@ mod tests {
             None,
             Some("*/15 * * * *"),
         );
-        let rendered = render_endpoint_stream(&spec, "helsinki/kpi", "src", "dst").expect("render");
+        let rendered =
+            render_endpoint_stream(&spec, "helsinki/kpi", "src", true, "dst").expect("render");
         assert_eq!(rendered["input"]["generate"]["interval"], "*/15 * * * *");
         let processors = rendered["pipeline"]["processors"]
             .as_array()
@@ -1188,8 +1231,8 @@ mod tests {
             }))
             .expect("trigger"),
         );
-        let rendered =
-            render_endpoint_stream(&spec, "helsinki/bikes-kpi", "src", "dst").expect("render");
+        let rendered = render_endpoint_stream(&spec, "helsinki/bikes-kpi", "src", true, "dst")
+            .expect("render");
 
         // No period: the source is looked at every ten seconds, with the watched attributes.
         assert_eq!(rendered["input"]["generate"]["interval"], "10s");
@@ -1230,7 +1273,7 @@ mod tests {
             let mut spec =
                 endpoint_pipeline_spec(Some("BikeHireDockingStation"), vec![], Some(period), None);
             spec.source.as_mut().expect("source").trigger = Some(trigger.clone());
-            let rendered = render_endpoint_stream(&spec, "k", "src", "dst").expect("render");
+            let rendered = render_endpoint_stream(&spec, "k", "src", true, "dst").expect("render");
             assert_eq!(
                 rendered["input"]["generate"]["interval"], interval,
                 "{period}"
@@ -1249,9 +1292,14 @@ mod tests {
             .parse()
             .expect("urn");
         let spec = endpoint_pipeline_spec(None, vec![urn], None, Some("*/15 * * * *"));
-        let rendered =
-            render_endpoint_stream(&spec, "helsinki/kpi", "source_slug_123", "target_slug_456")
-                .expect("rendered endpoint stream");
+        let rendered = render_endpoint_stream(
+            &spec,
+            "helsinki/kpi",
+            "source_slug_123",
+            true,
+            "target_slug_456",
+        )
+        .expect("rendered endpoint stream");
 
         assert_eq!(rendered["input"]["generate"]["interval"], "*/15 * * * *");
         let http = &rendered["pipeline"]["processors"][0]["try"][0]["http"];
