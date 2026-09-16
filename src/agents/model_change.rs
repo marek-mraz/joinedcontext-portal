@@ -126,6 +126,27 @@ fn section<'a>(model: &'a Value, key: &str) -> Option<&'a Map<String, Value>> {
     model.get(key).and_then(Value::as_object)
 }
 
+/// The model's own prefix for a term added without an IRI (DM-04, T-0893): the prefix named
+/// after the model, `{name}: {id}/`, declared on first use; a model without a name or an id
+/// has none, and the term is left for the check to name.
+fn own_prefix(model: &mut Value) -> Option<String> {
+    let name = model.get("name")?.as_str()?.trim().to_owned();
+    let id = model
+        .get("id")?
+        .as_str()?
+        .trim()
+        .trim_end_matches('/')
+        .to_owned();
+    if name.is_empty() || id.is_empty() {
+        return None;
+    }
+    let prefixes = section_mut(model, "prefixes");
+    if !prefixes.contains_key(&name) {
+        prefixes.insert(name.clone(), json!(format!("{id}/")));
+    }
+    Some(name)
+}
+
 fn section_mut<'a>(model: &'a mut Value, key: &str) -> &'a mut Map<String, Value> {
     if !model.is_object() {
         *model = json!({});
@@ -200,8 +221,11 @@ fn mutate(model: &mut Value, operation: &Operation) -> Result<(), String> {
         } => {
             new_name(model, "classes", name, "class")?;
             let mut class = Map::new();
+            let minted = class_uri
+                .clone()
+                .or_else(|| own_prefix(model).map(|prefix| format!("{prefix}:{name}")));
             for (field, value) in [
-                ("class_uri", class_uri),
+                ("class_uri", &minted),
                 ("description", description),
                 ("is_a", is_a),
             ] {
@@ -247,6 +271,8 @@ fn mutate(model: &mut Value, operation: &Operation) -> Result<(), String> {
             let mut slot = json!({ "range": range.as_deref().unwrap_or("string") });
             if let Some(uri) = slot_uri {
                 slot["slot_uri"] = json!(uri.trim());
+            } else if let Some(prefix) = own_prefix(model) {
+                slot["slot_uri"] = json!(format!("{prefix}:{name}"));
             }
             if let Some(kind) = kind.as_deref().map(str::trim) {
                 if !KINDS.contains(&kind) {
@@ -387,6 +413,54 @@ mod tests {
 
     fn ops(json: Value) -> Vec<Operation> {
         serde_json::from_value(json).expect("operations")
+    }
+
+    #[test]
+    fn a_term_added_without_an_iri_is_minted_under_the_models_own_prefix() {
+        // The helsinki model on dev: its default prefix is an imported vocabulary, so a term
+        // left without an IRI would be minted there and refused (DM-04, DM-16, T-0893).
+        let mut model = bikes();
+        model["name"] = json!("helsinki");
+        model["id"] = json!("https://hel.fi/models/helsinki/helsinki");
+        model["default_prefix"] = json!("sdm");
+        model["prefixes"] = json!({ "sdm": "https://smartdatamodels.org/" });
+        let changed = apply(
+            &model,
+            &ops(json!([
+                { "op": "addSlot", "name": "bikeType", "class": "BikeHireDockingStation", "range": "string" },
+                { "op": "addSlot", "name": "colour", "slot_uri": "schema:color" },
+                { "op": "addClass", "name": "Dock", "is_a": "Entity" }
+            ])),
+        )
+        .expect("applied");
+        assert_eq!(
+            changed["slots"]["bikeType"]["slot_uri"],
+            json!("helsinki:bikeType")
+        );
+        assert_eq!(
+            changed["slots"]["colour"]["slot_uri"],
+            json!("schema:color")
+        );
+        assert_eq!(
+            changed["classes"]["Dock"]["class_uri"],
+            json!("helsinki:Dock")
+        );
+        assert_eq!(
+            changed["prefixes"]["helsinki"],
+            json!("https://hel.fi/models/helsinki/helsinki/")
+        );
+        assert_eq!(
+            changed["prefixes"]["sdm"],
+            json!("https://smartdatamodels.org/")
+        );
+        assert_eq!(changed["default_prefix"], json!("sdm"));
+
+        // A prefix the model already declares under its name is kept as it is.
+        model["prefixes"]["helsinki"] = json!("https://hel.fi/ns/");
+        let changed =
+            apply(&model, &ops(json!([{ "op": "addSlot", "name": "x" }]))).expect("applied");
+        assert_eq!(changed["prefixes"]["helsinki"], json!("https://hel.fi/ns/"));
+        assert_eq!(changed["slots"]["x"]["slot_uri"], json!("helsinki:x"));
     }
 
     #[test]
