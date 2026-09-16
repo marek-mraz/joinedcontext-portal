@@ -213,6 +213,9 @@ mod tests {
                 "UiSchema",
                 "Role",
                 "RoleBinding",
+                // Arrived with jc-core-v0.7.21 (T-0865): a named set of people a RoleBinding
+                // may name instead of one user (PF-62).
+                "Group",
                 "Dashboard",
                 "Layer",
             ],
