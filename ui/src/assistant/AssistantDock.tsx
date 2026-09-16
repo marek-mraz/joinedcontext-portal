@@ -35,6 +35,7 @@ import {
   rememberRun,
   runSnapshot,
   settleNotice,
+  settlePrefill,
 } from "./state";
 
 /**
@@ -58,6 +59,7 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   useEffect(() => {
     settleNotice(pathname);
+    settlePrefill(pathname);
   }, [navigated, pathname]);
   const [open, setOpen] = useState(() => Boolean(parseRun(runSnapshot())));
   const [building, setBuilding] = useState(false);

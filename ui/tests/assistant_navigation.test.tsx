@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
-import { isPortalRoute, rememberPrefill, takePrefill } from "../src/assistant/state";
+import { isPortalRoute, rememberPrefill, settlePrefill, takePrefill } from "../src/assistant/state";
 
 const PROJECT = "banskabystrica";
 const RUN_ID = "01J8ZQ4T7K9M2N3P4Q5R6S7T8V";
@@ -176,10 +176,14 @@ describe("the route rule", () => {
     }
   });
 
-  it("hands a prefill to its own path exactly once", () => {
+  it("hands a prefill to its own path, and to it again while the person is there (T-0907)", () => {
     rememberPrefill("/projects/x/endpoints?tab=all", { name: "air" });
     expect(takePrefill("/projects/x/pipelines")).toBeNull();
     expect(takePrefill("/projects/x/endpoints")).toEqual({ name: "air" });
+    // The page mounts twice for one hand-off: the address settles behind the route change and
+    // `HandOff` remounts it. The second mount is the one the person sees.
+    expect(takePrefill("/projects/x/endpoints")).toEqual({ name: "air" });
+    settlePrefill("/projects/x/pipelines");
     expect(takePrefill("/projects/x/endpoints")).toBeNull();
   });
 
@@ -193,6 +197,8 @@ describe("the route rule", () => {
       setItem.mockRestore();
     }
     expect(takePrefill("/projects/x/spaces/complete")).toEqual({ result: { space: "bikes", drafts: [] } });
+    expect(takePrefill("/projects/x/spaces/complete")).toEqual({ result: { space: "bikes", drafts: [] } });
+    settlePrefill("/projects/x/models");
     expect(takePrefill("/projects/x/spaces/complete")).toBeNull();
   });
 });
@@ -242,6 +248,60 @@ describe("the assistant dock", () => {
     expect(dock.className).toContain("border-l");
     const main = document.querySelector("main") as HTMLElement;
     expect(main.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("opens Complete this space with the drafts the agent handed over (T-0907)", async () => {
+    renderPortal();
+    await screen.findByRole("heading", { name: "Ovzdusie dnes" });
+    await waitFor(() => {
+      expect(StubEventSource.opened.length).toBeGreaterThan(0);
+    });
+
+    // The person is on the page they asked from — the data sources of the project, which is
+    // where the integrate story starts. That page reads a hand-off of its own as it mounts, and
+    // the address moves before the route does: on dev it took the drafts meant for Complete
+    // this space and the page opened empty (T-0907).
+    await act(async () => {
+      window.history.pushState({}, "", `/projects/${PROJECT}/datasources`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => {
+      expect(window.location.pathname).toBe(`/projects/${PROJECT}/datasources`);
+    });
+
+    // What `jc_space_complete` sends when the agent has drafted a space: the route carries the
+    // space it made, the prefill the drafts it checked (AG-73).
+    await emitToEveryStream("navigate", {
+      seq: 7,
+      route: `/projects/${PROJECT}/spaces/complete?space=city-bikes`,
+      prefill: {
+        url: "https://example.com/free_bike_status.json",
+        result: {
+          space: "city-bikes",
+          found: [],
+          drafts: [
+            {
+              kind: "Pipeline",
+              name: "city-bikes-load",
+              inferred: true,
+              manifest: { kind: "Pipeline", metadata: { name: "city-bikes-load" } },
+              verdict: { ok: true, findings: [], inputDigest: "abc" },
+            },
+          ],
+          proposeReady: true,
+          lane: "yellow",
+          change: null,
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe(`/projects/${PROJECT}/spaces/complete`);
+    });
+    // The page is mounted more than once for this one hand-off; the drafts are on the one the
+    // person sees, or the page reads as if the agent had done nothing.
+    expect(await screen.findByTestId("complete-draft-Pipeline")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Propose all/i })).toBeEnabled();
   });
 
   it("never replays a navigate it followed once the person has moved on to another page", async () => {

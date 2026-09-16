@@ -111,9 +111,18 @@ export function rememberPrefill(route: string, prefill: Record<string, unknown>)
  */
 let handed: { route: string; prefill: Record<string, unknown> } | null = null;
 
-/** The form values `route`'s page takes once as it mounts, left by a page that opens it. */
+/**
+ * What the page already took, kept until the person leaves that route. A page mounts more than
+ * once for one hand-off — `HandOff` remounts it when the address settles behind the route
+ * change — and a take that spent the prefill on the first, discarded mount left the second one
+ * empty: the assistant's drafts never appeared on Complete this space (T-0907).
+ */
+let replay: { route: string; prefill: Record<string, unknown> } | null = null;
+
+/** The form values `route`'s page takes as it mounts, left by a page or the assistant. */
 export function handPrefill(route: string, prefill: Record<string, unknown>): void {
   handed = { route: route.split("?")[0], prefill };
+  replay = null;
   write(PREFILL_KEY, handed);
 }
 
@@ -163,14 +172,25 @@ export function dismissNotice(): void {
 /** The prefill left for this path, taken once: a second visit starts with an empty form. */
 export function takePrefill(pathname: string): Record<string, unknown> | null {
   const value = (handed ?? read(PREFILL_KEY)) as { route?: unknown; prefill?: unknown } | null;
-  if (!value || value.route !== pathname) {
-    return null;
+  if (value && value.route === pathname) {
+    handed = null;
+    write(PREFILL_KEY, null);
+    replay =
+      typeof value.prefill === "object" && value.prefill !== null
+        ? { route: pathname, prefill: value.prefill as Record<string, unknown> }
+        : null;
   }
-  handed = null;
-  write(PREFILL_KEY, null);
-  return typeof value.prefill === "object" && value.prefill !== null
-    ? (value.prefill as Record<string, unknown>)
-    : null;
+  return replay && replay.route === pathname ? replay.prefill : null;
+}
+
+/**
+ * The hand-off is spent when the person is somewhere else: called with the route they are on, so
+ * a page that mounts again for the same hand-off still gets it and a page opened later does not.
+ */
+export function settlePrefill(pathname: string): void {
+  if (replay && replay.route !== pathname) {
+    replay = null;
+  }
 }
 
 /**
