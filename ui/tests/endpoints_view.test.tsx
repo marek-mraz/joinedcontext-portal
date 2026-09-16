@@ -8,6 +8,7 @@ import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { generateSlug, SLUG_PATTERN } from "../src/schemas/kinds";
 import { rememberPrefill } from "../src/assistant/state";
+import { greenVerdict, isCheck } from "./verdict";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -70,7 +71,8 @@ const CHANGE = {
 function renderEndpoints() {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const path = url.pathname;
     const json = (body: unknown, status = 200) =>
       Promise.resolve(
         new Response(JSON.stringify(body), {
@@ -81,6 +83,10 @@ function renderEndpoints() {
 
     if (path.endsWith("/auth/me")) {
       return json(IDENTITY);
+    }
+    // The check is a dry run: it answers a verdict and writes nothing (AG-62, PF-57).
+    if (isCheck(request, url)) {
+      return greenVerdict(request, { valid: true, lane: "yellow" }).then((body) => json(body));
     }
     if (request.method !== "GET") {
       return json(CHANGE, 202);
@@ -110,6 +116,11 @@ function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
     .filter((request) => request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts"));
+}
+
+/** The writes that are not the check's dry run: what the person actually proposed. */
+function proposals(fetchMock: ReturnType<typeof vi.fn>): Request[] {
+  return writes(fetchMock).filter((request) => !new URL(request.url).searchParams.has("dryRun"));
 }
 
 describe("endpoints view", () => {
@@ -186,10 +197,15 @@ describe("endpoints view", () => {
     expect(csv).not.toBeChecked();
     await userEvent.click(csv);
 
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
-    const request = writes(fetchMock)[0];
+    await waitFor(() => expect(proposals(fetchMock)).toHaveLength(1));
+    const request = proposals(fetchMock)[0];
     expect(request.method).toBe("PUT");
     expect(new URL(request.url).pathname).toBe(
       "/api/v1/projects/banskabystrica/endpoints/public-air",
@@ -235,10 +251,15 @@ describe("endpoints view", () => {
       spec: { slug: SLUG },
     });
 
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2));
-    const request = writes(fetchMock)[1];
+    await waitFor(() => expect(proposals(fetchMock)).toHaveLength(1));
+    const request = proposals(fetchMock)[0];
     expect(request.method).toBe("PUT");
     expect(new URL(request.url).pathname).toBe(
       "/api/v1/projects/banskabystrica/endpoints/public-air",
@@ -269,10 +290,15 @@ describe("endpoints view", () => {
 
     await userEvent.type(dialog.querySelector("#root_name") as HTMLElement, "air-open");
     await userEvent.selectOptions(audience, en.endpoints.audienceOption.public);
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
-    const body = (await writes(fetchMock)[0].clone().json()) as {
+    await waitFor(() => expect(proposals(fetchMock)).toHaveLength(1));
+    const body = (await proposals(fetchMock)[0].clone().json()) as {
       spec: { audience: string; enabledRepresentations: string[] };
     };
     expect(body.spec.audience).toBe("public");

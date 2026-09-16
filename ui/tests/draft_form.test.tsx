@@ -215,6 +215,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
             description="Create draft"
             project="banskabystrica"
             draftKind="DataSource"
+            plural="datasources"
             schema={TEST_SCHEMA}
             submitLabel="Propose change"
             source={TEST_SOURCE}
@@ -387,6 +388,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
             description="Edit draft"
             project="banskabystrica"
             draftKind="DataSource"
+            plural="datasources"
             draftName="shared-source"
             schema={TEST_SCHEMA}
             submitLabel="Propose change"
@@ -489,6 +491,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
             description="Gate test"
             project="banskabystrica"
             draftKind="DataSource"
+            plural="datasources"
             draftName="unverified"
             schema={TEST_SCHEMA}
             submitLabel="Propose change"
@@ -784,6 +787,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
             description="Gate test"
             project="banskabystrica"
             draftKind="DataSource"
+            plural="datasources"
             draftName="verified"
             schema={TEST_SCHEMA}
             submitLabel="Propose change"
@@ -866,6 +870,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
             description="Flush before propose"
             project="banskabystrica"
             draftKind="DataSource"
+            plural="datasources"
             draftName="handed-off"
             schema={TEST_SCHEMA}
             submitLabel="Propose change"
@@ -936,6 +941,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
             description="Conflict before propose"
             project="banskabystrica"
             draftKind="DataSource"
+            plural="datasources"
             draftName="contested"
             schema={TEST_SCHEMA}
             submitLabel="Propose change"
@@ -1015,6 +1021,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
             description="Stale verdict test"
             project="banskabystrica"
             draftKind="DataSource"
+            plural="datasources"
             draftName="verified-then-changed"
             schema={TEST_SCHEMA}
             submitLabel="Propose change"
@@ -1103,6 +1110,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
               description="Lax validation test"
               project="banskabystrica"
               draftKind="DataSource"
+              plural="datasources"
               draftName="lax-test"
               schema={TEST_SCHEMA}
               submitLabel="Propose change"
@@ -1190,6 +1198,7 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
             description="Findings test"
             project="banskabystrica"
             draftKind="DataSource"
+            plural="datasources"
             draftName="with-findings"
             schema={TEST_SCHEMA}
             submitLabel="Propose change"

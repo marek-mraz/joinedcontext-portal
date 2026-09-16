@@ -414,16 +414,24 @@ export function ResourceFormDialog<T>({
     return internalVerdict.ok ? "green" : "red";
   }, [internalVerdict, currentDigest]);
 
+  /**
+   * A form can be checked when the page gives the dialog a check of its own or the collection to
+   * dry run. It is the same set of forms whose proposal names its draft, so it is also the set
+   * the strict gate applies to: a form that cannot be checked is never refused for the verdict
+   * it has no way to get (T-0779).
+   */
+  const canCheck = Boolean(onCheck) || Boolean(plural && project && draftKind);
+
   // Strict validation refuses a proposal whose draft carries no fresh green verdict, and the
   // click saves that draft first (T-0769) — so the button has to say so before the first save,
   // not after a click that proposed nothing (T-0779).
   const proposeReason = useMemo<string | undefined>(() => {
-    if (!draftKind || !activeName) return undefined;
+    if (!canCheck || !draftKind || !activeName) return undefined;
     if (verdictState === "none") return t("drafts.proposeReason.none");
     if (verdictState === "red") return t("drafts.proposeReason.red");
     if (verdictState === "stale") return t("drafts.proposeReason.stale");
     return undefined;
-  }, [draftKind, activeName, verdictState, t]);
+  }, [canCheck, draftKind, activeName, verdictState, t]);
 
   const effectiveSubmitDisabledReason = isLax
     ? submitDisabledReason
@@ -543,8 +551,6 @@ export function ResourceFormDialog<T>({
       updateVerdict(answer?.verdict ?? null);
     },
   });
-
-  const canCheck = Boolean(onCheck) || Boolean(plural && project && draftKind);
 
   /** The check runs on what the active view holds: the form, or the YAML read back into it. */
   function runCheck() {

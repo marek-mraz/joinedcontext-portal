@@ -7,6 +7,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { publishedTypes } from "../src/pages/endpoints/SchemaProjectionPanel";
+import { greenVerdict, isCheck } from "./verdict";
 
 /**
  * T-0301: the attributes an Endpoint holds back, and the formalisms it publishes
@@ -117,6 +118,10 @@ function renderEndpoints({ compiled = true } = {}) {
     if (url.pathname.endsWith("/auth/me")) {
       return json(IDENTITY);
     }
+    // The check is a dry run: it answers a verdict and writes nothing (AG-62, PF-57).
+    if (request instanceof Request && isCheck(request, url)) {
+      return greenVerdict(request, { valid: true, lane: "yellow" }).then((body) => json(body));
+    }
     if (request instanceof Request && request.method !== "GET") {
       return json(CHANGE, 202);
     }
@@ -144,7 +149,7 @@ function renderEndpoints({ compiled = true } = {}) {
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    .filter((request) => request instanceof Request && request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts"));
+    .filter((request) => request instanceof Request && request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts") && !new URL((request as Request).url).searchParams.has("dryRun"));
 }
 
 async function openEditor() {
@@ -213,6 +218,11 @@ describe("endpoint projection ui", () => {
 
     await waitFor(() => expect(hideBox(dialog, "pm10")).toBeInTheDocument());
     await userEvent.click(hideBox(dialog, "pm10"));
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
@@ -228,6 +238,11 @@ describe("endpoint projection ui", () => {
 
     await waitFor(() => expect(hideBox(dialog, "calibrationOffset")).toBeInTheDocument());
     await userEvent.click(hideBox(dialog, "calibrationOffset"));
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
@@ -249,6 +264,11 @@ describe("endpoint projection ui", () => {
     );
     await userEvent.click(
       within(dialog).getByRole("button", { name: en.endpoints.projection.add }),
+    );
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
     );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
@@ -288,6 +308,11 @@ describe("endpoint projection ui", () => {
       }),
     ).toBe(false);
 
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
     const request = writes(fetchMock)[0];

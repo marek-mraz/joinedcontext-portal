@@ -13,6 +13,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import type { PipelineForm } from "../src/pages/pipelines/PipelineEditor";
 import type { Manifest } from "../src/api/manifest";
+import { greenVerdict, isCheck } from "./verdict";
 
 function MockEditor({ value, onChange }: { value: string; onChange?: (value: string) => void }) {
   return <textarea aria-label="YAML" value={value} onChange={(event) => onChange?.(event.target.value)} />;
@@ -47,6 +48,11 @@ function mockFetch(test: { status: number; body: unknown }) {
       Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
     if (url.includes("/pipelines/test") && method === "POST") {
       return json(test.body, test.status);
+    }
+    // The dialog's Check is a dry run of the collection; it answers a verdict fresh for the
+    // manifest it judged, without which strict validation proposes nothing (AG-62, T-0779).
+    if (input instanceof Request && isCheck(input, new URL(url))) {
+      return greenVerdict(input).then((body) => json(body));
     }
     return json(list([]));
   });
@@ -273,6 +279,11 @@ describe("from a sample to a proposal", () => {
     await userEvent.click(await within(dialog).findByRole("button", { name: en.pipelines.test.run }));
     await within(dialog).findByText(/All 1 messages map to entities/);
 
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     const envelope = onSubmit.mock.calls[0][0] as { kind: string; spec: { compute?: { bloblang?: string }; output?: { type?: string } } };
@@ -314,8 +325,10 @@ describe("from a sample to a proposal", () => {
     await userEvent.upload(within(dialog).getByLabelText(en.pipelines.test.chooseFile), csvFile());
     await userEvent.click(await within(dialog).findByRole("button", { name: en.pipelines.test.run }));
     await within(dialog).findByText(/All 1 messages map to entities/);
-    await waitFor(() => expect(propose()).toBeEnabled());
     expect(within(dialog).queryByText(en.pipelines.test.gate)).toBeNull();
+    // The mapping's test is green; the manifest's own check is the second gate (AG-62).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() => expect(propose()).toBeEnabled());
 
     // The mapping changed after the test: the verdict no longer describes the editor's text.
     await userEvent.type(within(dialog).getByLabelText(/Bloblang mapping/), "\nroot.x = 1");

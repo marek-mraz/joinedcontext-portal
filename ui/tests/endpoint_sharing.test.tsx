@@ -14,6 +14,7 @@ import {
   sharedSpaceReferenceSchema,
 } from "../src/components/endpoints/sharing";
 import type { Manifest } from "../src/api/manifest";
+import { greenVerdict, isCheck } from "./verdict";
 
 /**
  * T-0498: sharing across the projects of one organization (EP-14, EP-15, PF-05, UI-01):
@@ -106,6 +107,10 @@ function renderAt(path: string) {
     if (url.pathname.endsWith("/auth/me")) {
       return json(IDENTITY);
     }
+    // The check is a dry run: it answers a verdict and writes nothing (AG-62, PF-57).
+    if (isCheck(request, url)) {
+      return greenVerdict(request, { valid: true, lane: "yellow" }).then((body) => json(body));
+    }
     if (request.method !== "GET") {
       return json(CHANGE, 202);
     }
@@ -126,7 +131,7 @@ function renderAt(path: string) {
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    .filter((request) => request instanceof Request && request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts"));
+    .filter((request) => request instanceof Request && request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts") && !new URL((request as Request).url).searchParams.has("dryRun"));
 }
 
 function sharedSection(): Promise<HTMLElement> {
@@ -169,6 +174,11 @@ describe("endpoint sharing", () => {
     expect(dialog.querySelector("#root_allowedProjects_0")).toBeNull();
 
     await userEvent.click(within(dialog).getByRole("checkbox", { name: "vantaa" }));
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));

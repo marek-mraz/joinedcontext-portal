@@ -7,6 +7,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { RATE_LIMIT_CLASSES } from "../src/schemas/kinds";
+import { greenVerdict, isCheck } from "./verdict";
 
 /**
  * T-0300: representations, rate limit class, cache TTL and the allowed-project list of an
@@ -89,6 +90,10 @@ function renderEndpoints(endpoints: typeof ENDPOINTS = ENDPOINTS) {
     if (url.pathname.endsWith("/auth/me")) {
       return json(IDENTITY);
     }
+    // The check is a dry run: it answers a verdict and writes nothing (AG-62, PF-57).
+    if (isCheck(request, url)) {
+      return greenVerdict(request, { valid: true, lane: "yellow" }).then((body) => json(body));
+    }
     if (request.method !== "GET") {
       return json(CHANGE, 202);
     }
@@ -116,7 +121,7 @@ function renderEndpoints(endpoints: typeof ENDPOINTS = ENDPOINTS) {
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
-    .filter((request) => request instanceof Request && request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts"));
+    .filter((request) => request instanceof Request && request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts") && !new URL((request as Request).url).searchParams.has("dryRun"));
 }
 
 /** rjsf renders an array editor: one "Add" button, and items that carry an id, not a label. */
@@ -178,6 +183,11 @@ describe("endpoint editor toggles", () => {
       { target: { value: "120" } },
     );
 
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
@@ -207,6 +217,11 @@ describe("endpoint editor toggles", () => {
     expect(Array.from(rateClass.options, (option) => option.textContent)).toContain(
       `${en.endpoints.rateClass.standard} (600/min)`,
     );
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
@@ -223,6 +238,11 @@ describe("endpoint editor toggles", () => {
     // The audience is `public`, so the manifest refuses an allowed-project list: the form
     // does not even offer the field, and nothing reaches the API rather than a 400 from it.
     expect(within(dialog).queryByText(en.endpoints.field.allowedProjects)).not.toBeInTheDocument();
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
@@ -246,6 +266,11 @@ describe("endpoint editor toggles", () => {
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText(/^Name/), "mestska-doprava");
     await addAllowedProject(dialog, "doprava");
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));

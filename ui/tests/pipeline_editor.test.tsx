@@ -10,6 +10,7 @@ import en from "../src/locales/en.json";
 import type { Manifest } from "../src/api/manifest";
 import type { PipelineForm } from "../src/pages/pipelines/PipelineEditor";
 import { rememberPrefill } from "../src/assistant/state";
+import { greenVerdict, isCheck } from "./verdict";
 
 // Monaco draws on a canvas and starts a worker, neither of which exists in jsdom. The stand-in
 // is a textarea with the same contract, so what the test exercises is the dialog's own work:
@@ -161,7 +162,8 @@ function renderPipelines(pipelines: Manifest[] = [EXISTING]) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     // The client sends Requests; the pipeline test posts a plain URL string.
-    const path = new URL(typeof input === "string" ? input : request.url, "http://localhost").pathname;
+    const url = new URL(typeof input === "string" ? input : request.url, "http://localhost");
+    const path = url.pathname;
     const json = (body: unknown, status = 200) =>
       Promise.resolve(
         new Response(JSON.stringify(body), {
@@ -178,6 +180,10 @@ function renderPipelines(pipelines: Manifest[] = [EXISTING]) {
     }
     if (path.endsWith("/pipelines/test")) {
       return json(TRACE);
+    }
+    // The check is a dry run: it answers a verdict and writes nothing (AG-62, PF-57).
+    if (input !== null && typeof input !== "string" && isCheck(request, url)) {
+      return greenVerdict(request).then((body) => json(body));
     }
     if (request.method !== "GET") {
       return json(CHANGE, 202);
@@ -233,7 +239,9 @@ function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
         !request.url.endsWith("/access/check") &&
         !request.url.endsWith("/pipelines/test") &&
         // The form's own draft, shared with the other windows; it writes nothing to Git (AG-61).
-        !request.url.includes("/drafts/"),
+        !request.url.includes("/drafts/") &&
+        // The Check's dry run answers a verdict and writes nothing either (AG-62).
+        !new URL(request.url).searchParams.has("dryRun"),
     );
 }
 
@@ -341,6 +349,11 @@ describe("pipeline editor", () => {
 
     await userEvent.click(yamlTab(dialog));
     await replaceYaml(dialog, "metadata: [unclosed");
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
 
     const alert = await within(dialog).findByRole("alert");
@@ -373,6 +386,11 @@ describe("pipeline editor", () => {
         "  targetEndpoint: urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
       ].join("\n"),
     );
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
 
     const alert = await within(dialog).findByRole("alert");
@@ -392,6 +410,11 @@ describe("pipeline editor", () => {
     await userEvent.selectOptions(
       within(dialog).getByLabelText(/^Target endpoint/),
       "public-air",
+    );
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
     );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
 
@@ -448,6 +471,11 @@ describe("pipeline editor", () => {
     await userEvent.selectOptions(within(dialog).getByLabelText(/^Kind/), "wasm");
     expect(within(dialog).queryByText(en.pipelines.bloblangHint)).not.toBeInTheDocument();
     await userEvent.type(within(dialog).getByLabelText(/^Name/), "aq-index");
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
     // wasm needs module and function (PL-33): two required errors on the compute group.
     const alerts = await within(dialog).findAllByRole("alert");
@@ -536,6 +564,10 @@ it("tells a feed from a space and reads the attributes of a class from an inline
       within(dialog).getByLabelText(/^Target endpoint/),
       "public-air",
     );
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
     const propose = within(dialog).getByRole("button", { name: en.pipelines.propose });
     await waitFor(() => expect(propose).toBeEnabled());
     await userEvent.click(propose);
@@ -571,6 +603,11 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     );
 
     await userEvent.type(within(dialog).getByLabelText(/^Period/), "10s");
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
@@ -595,6 +632,11 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     const editor = await within(dialog).findByLabelText("YAML");
     const pasted = { ...running, status: undefined, spec: { ...running.spec, enabled: false } };
     fireEvent.change(editor, { target: { value: stringifyYaml(pasted) } });
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
@@ -614,6 +656,11 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     expect(within(dialog).getByLabelText(/^Period/)).toHaveValue("5m");
     expect(writes(fetchMock)).toHaveLength(0);
 
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
     const request = writes(fetchMock)[0];

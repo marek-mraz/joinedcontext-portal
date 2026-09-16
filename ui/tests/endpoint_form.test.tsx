@@ -8,6 +8,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { rememberPrefill } from "../src/assistant/state";
 import { App } from "../src/App";
+import { greenVerdict, isCheck } from "./verdict";
 
 // Monaco draws on a canvas and starts a worker, neither of which exists in jsdom: the stand-in
 // is a textarea with the same contract, so the YAML view's own work is what runs.
@@ -148,6 +149,11 @@ function setupTest(endpoints: unknown = { apiVersion: "joinedcontext.com/v1alpha
     if (url.pathname.endsWith("/spaces")) return json(SPACES);
     if (url.pathname.endsWith("/datamodels")) return json(DATAMODELS);
     if (url.pathname.endsWith("/projections")) return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
+    // A check answers a verdict fresh for the manifest it judged; without it the form proposes
+    // nothing under strict validation (AG-62, PF-57, T-0779).
+    if (isCheck(request, url)) {
+      return greenVerdict(request, { valid: true, lane: "yellow" }).then((body) => json(body));
+    }
     if (url.pathname.endsWith("/endpoints") && request.method === "POST") return json({ valid: true, lane: "yellow" });
     if (url.pathname.endsWith("/endpoints/vehicles-live")) return json(CHANGE, 202);
     if (url.pathname.endsWith("/endpoints")) return json(endpoints);
@@ -215,14 +221,19 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     expect(within(dialog).getByLabelText("Vehicle.type")).toBeChecked();
     expect(within(dialog).getByLabelText("Vehicle.type")).toBeDisabled();
 
-    // Click propose
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => {
+      // The check sends the bundle as a dry run first; the proposal is the one that writes.
       const importCalls = fetchMock.mock.calls.filter((c) => {
         const req = c[0] as Request;
         const u = typeof c[0] === "string" ? c[0] : req.url;
-        return u.includes("/import");
+        return u.includes("/import") && !u.includes("dryRun");
       });
       expect(importCalls.length).toBe(1);
     });
@@ -270,7 +281,8 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
 
     await waitFor(() => expect(within(dialog).getByLabelText("Vehicle")).toBeInTheDocument());
 
-    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+    // The bundle the check sends is the one that needs a class, so the check is what refuses.
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
 
     expect(await within(dialog).findByText(en.endpoints.picker.nothingTicked)).toBeInTheDocument();
   });
@@ -327,13 +339,19 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     );
     await userEvent.type(within(dialog).getByLabelText("Vehicle scope"), "/helsinki/bikes");
 
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     await waitFor(() => {
+      // The check sends the bundle as a dry run first; the proposal is the one that writes.
       const importCalls = fetchMock.mock.calls.filter((c) => {
         const req = c[0] as Request;
         const u = typeof c[0] === "string" ? c[0] : req.url;
-        return u.includes("/import");
+        return u.includes("/import") && !u.includes("dryRun");
       });
       expect(importCalls.length).toBe(1);
     });
@@ -401,11 +419,16 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     // 300 is no class: the form's select offers 60, 600 and 6000, plus what is stored.
     const pasted = { ...limited, status: undefined, spec: { ...limited.spec, rateLimits: { requestsPerMinute: 300, burst: 50 } } };
     fireEvent.change(editor, { target: { value: stringifyYaml(pasted) } });
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
-    expect(writes(fetchMock)[0].line).toBe("PUT /api/v1/projects/banskabystrica/endpoints/vehicles-live");
-    const body = (await writes(fetchMock)[0].request.clone().json()) as {
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(2));
+    expect(writes(fetchMock)[1].line).toBe("PUT /api/v1/projects/banskabystrica/endpoints/vehicles-live");
+    const body = (await writes(fetchMock)[1].request.clone().json()) as {
       spec: { rateLimits?: { requestsPerMinute?: number } };
     };
     expect(body.spec.rateLimits?.requestsPerMinute).toBe(300);

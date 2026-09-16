@@ -9,6 +9,7 @@ import { App } from "../src/App";
 import { endpointOf, knownSecretNames, toEnvelope } from "../src/pages/datasources/DataSourcesPage";
 import { rememberPrefill } from "../src/assistant/state";
 import type { Manifest } from "../src/api/manifest";
+import { digestOf } from "../src/api/digest";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -89,7 +90,27 @@ function renderDataSources(drafts: Record<string, unknown> = {}) {
       return json(drafted);
     }
     if (request.method === "POST" || request.method === "PUT") {
-      return url.searchParams.get("dryRun") === "All" ? json(DRY_RUN) : json(CHANGE, 202);
+      if (url.searchParams.get("dryRun") !== "All") {
+        return json(CHANGE, 202);
+      }
+      // The check answers a verdict fresh for the manifest it judged, as the server does; under
+      // strict validation the form proposes nothing without it (PF-57, T-0779).
+      return request
+        .clone()
+        .json()
+        .then((body: Record<string, unknown>) => {
+          const manifest = { ...body };
+          delete manifest.draft;
+          return json({
+            ...DRY_RUN,
+            verdict: {
+              ok: true,
+              findings: [],
+              checkedAt: new Date().toISOString(),
+              inputDigest: digestOf(manifest),
+            },
+          });
+        });
     }
     if (url.pathname.endsWith("/datasources")) {
       return json(SOURCES);
@@ -113,6 +134,11 @@ function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
     .map((call) => call[0] as Request)
     .filter((request) => (request.method === "POST" || request.method === "PUT") && !String((request as Request).url ?? request).includes("/drafts"));
+}
+
+/** The writes that are not the check's dry run: what the person actually proposed. */
+function proposals(fetchMock: ReturnType<typeof vi.fn>): Request[] {
+  return writes(fetchMock).filter((request) => !new URL(request.url).searchParams.has("dryRun"));
 }
 
 describe("data sources view", () => {
@@ -217,10 +243,15 @@ describe("data sources view", () => {
       within(dialog).getByLabelText(/URL/),
       "wss://feed.banskabystrica.sk/aq",
     );
+    // Strict validation proposes nothing without a fresh green verdict (T-0779).
+    await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.datasources.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.propose }));
 
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
-    const request = writes(fetchMock)[0];
+    await waitFor(() => expect(proposals(fetchMock)).toHaveLength(1));
+    const request = proposals(fetchMock)[0];
     expect(request.method).toBe("POST");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects/banskabystrica/datasources");
     await expect(request.clone().json()).resolves.toMatchObject({
@@ -303,10 +334,14 @@ describe("data sources view", () => {
     expect(within(dialog).getByLabelText(/User name/)).toHaveValue("bb-collector");
     await userEvent.clear(within(dialog).getByLabelText(/User name/));
     await userEvent.type(within(dialog).getByLabelText(/User name/), "bb-reader");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.datasources.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.propose }));
 
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
-    const request = writes(fetchMock)[0];
+    await waitFor(() => expect(proposals(fetchMock)).toHaveLength(1));
+    const request = proposals(fetchMock)[0];
     expect(request.method).toBe("PUT");
     expect(new URL(request.url).pathname).toBe(
       "/api/v1/projects/banskabystrica/datasources/mqtt-mesto",
@@ -350,12 +385,16 @@ describe("data sources view", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/Name/)).toHaveValue("mqtt-mesto");
     expect(within(dialog).getByLabelText(/User name/)).toHaveValue("bb-reader");
-    expect(writes(fetchMock).filter((request) => !new URL(request.url).searchParams.has("dryRun"))).toHaveLength(0);
+    expect(proposals(fetchMock)).toHaveLength(0);
 
+    await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.datasources.propose })).toBeEnabled(),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.propose }));
-    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
-    expect(writes(fetchMock)[0].method).toBe("PUT");
-    expect(new URL(writes(fetchMock)[0].url).pathname).toBe("/api/v1/projects/banskabystrica/datasources/mqtt-mesto");
+    await waitFor(() => expect(proposals(fetchMock)).toHaveLength(1));
+    expect(proposals(fetchMock)[0].method).toBe("PUT");
+    expect(new URL(proposals(fetchMock)[0].url).pathname).toBe("/api/v1/projects/banskabystrica/datasources/mqtt-mesto");
   });
 });
 
