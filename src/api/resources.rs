@@ -63,11 +63,17 @@ pub struct ListQuery {
     )
 )]
 pub async fn list(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, plural)): Path<(String, String)>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<ResourceList>, ApiError> {
+    // A project no binding of the caller covers is not there, whatever it holds (PF-59, R20).
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project() {
+        return Err(ApiError::NotFound(format!(
+            "plural '{plural}' not found in project '{project}'"
+        )));
+    }
     if query.revision.is_some() {
         return Err(ApiError::NotImplemented(
             "historical revisions are served from Git".into(),
@@ -143,7 +149,7 @@ pub async fn list(
     )
 )]
 pub async fn get_resource(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, plural, name)): Path<(String, String, String)>,
 ) -> Result<Json<ResourceEnvelope>, ApiError> {
@@ -154,6 +160,9 @@ pub async fn get_resource(
             "resource '{name}' not found in project '{project}'"
         ))
     };
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project() {
+        return Err(not_found());
+    }
     let kind_info = by_plural(&plural).ok_or_else(not_found)?;
     let envelope = state
         .mirror

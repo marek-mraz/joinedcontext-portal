@@ -89,6 +89,23 @@ pub fn effective(
 }
 
 impl Effective {
+    /// Whether the caller may read anything in this project (PF-59): a binding whose scope
+    /// covers it, or the bootstrap group. What is not readable is `404` and not `403`, so a
+    /// project nobody bound the caller to reads like a project that is not there (R20).
+    pub fn may_read_project(&self) -> bool {
+        self.bootstrap || !self.grants.is_empty()
+    }
+
+    /// Whether the caller may read `kind` here (PF-59). `propose` on a kind implies `read` on
+    /// it, which is what keeps a role written before the verb working (jc-core `Rule::grants`).
+    pub fn may_read(&self, kind: &str) -> bool {
+        self.bootstrap
+            || self
+                .grants
+                .iter()
+                .any(|grant| grant.rule.grants(kind, Verb::Read))
+    }
+
     /// `Ok` when a grant allows `verb` on `kind` for `target` (the whole manifest as JSON, when
     /// there is one); a 403 that names the missing verb or the violated constraint otherwise.
     pub fn check(&self, kind: &str, verb: Verb, target: Option<&Value>) -> Result<(), ApiError> {
@@ -382,6 +399,7 @@ fn describe(constraint: &Constraint) -> String {
 
 pub fn verb_name(verb: Verb) -> &'static str {
     match verb {
+        Verb::Read => "read",
         Verb::Propose => "propose",
         Verb::Approve => "approve",
         Verb::Delete => "delete",

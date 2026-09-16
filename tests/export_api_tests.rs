@@ -201,6 +201,16 @@ async fn forge() -> MockServer {
 }
 
 fn session_cookie(config: &Config) -> String {
+    cookie_for(config, vec!["portal-approver".into()])
+}
+
+/// A signed-in person who is in no group the bootstrap names and holds no RoleBinding: what
+/// PF-59 answers `404` (T-0819).
+fn stranger_cookie(config: &Config) -> String {
+    cookie_for(config, Vec::new())
+}
+
+fn cookie_for(config: &Config, groups: Vec<String>) -> String {
     use axum::response::IntoResponse;
     let now = session::now_unix();
     let session = Session {
@@ -210,7 +220,7 @@ fn session_cookie(config: &Config) -> String {
             email: None,
             name: None,
             roles: Vec::new(),
-            groups: vec!["portal-approver".into()],
+            groups,
         },
         expires_at: now + 3600,
         issued_at: now,
@@ -602,4 +612,47 @@ async fn the_revision_picker_reads_the_history_of_this_project() {
     assert_eq!(too_many.status, StatusCode::BAD_REQUEST);
     let none = get("/api/v1/projects/banskabystrica/revisions?limit=0", true).await;
     assert_eq!(none.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn a_session_with_no_binding_in_the_project_is_answered_404_everywhere_it_reads() {
+    let server = forge().await;
+    let config = Config::for_tests();
+    let cookie = stranger_cookie(&config);
+    let client = GiteaClient::new(server.uri().parse().unwrap(), "bb", "org", "token")
+        .expect("gitea client");
+    let state = AppState::new(config, None).with_gitea(Arc::new(client));
+    let app = server::app(state);
+
+    for uri in [
+        "/api/v1/projects/banskabystrica/export",
+        "/api/v1/projects/banskabystrica/revisions",
+        "/api/v1/projects/banskabystrica/pipelines",
+        "/api/v1/projects/banskabystrica/endpoints/public-air",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "{uri} answered a person with no binding in the project (PF-59, MF-18)"
+        );
+        // The refusal repeats what the caller typed and nothing else: no other name of the
+        // project reaches a person who may not read it (R20).
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            !text.contains("aq-mqtt-ingest") && !text.contains("mluyob4nz52lok3ssk7pgn5vwt"),
+            "the refusal disclosed a name the caller did not ask for: {text}"
+        );
+    }
 }

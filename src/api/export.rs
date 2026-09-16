@@ -625,6 +625,13 @@ pub async fn export(
     if !resource::is_dns1123(&project) {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
+    // A download used to answer any session at all (T-0819). It answers the caller's read
+    // grants now: no binding covering the project is `404`, the one answer for "missing" and
+    // "not yours" (PF-59, MF-18, R20).
+    let effective = crate::permissions::for_request(&state, &user.0.identity, &project);
+    if !effective.may_read_project() {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
     let format = query.format.as_deref().unwrap_or("yaml").to_string();
     if !matches!(format.as_str(), "yaml" | "json" | "zip") {
         return Err(ApiError::BadRequest(format!(
@@ -648,7 +655,14 @@ pub async fn export(
         }
     };
 
-    let (files, omitted) = read_project(gitea, &project, &revision).await?;
+    let (files, unreadable) = read_project(gitea, &project, &revision).await?;
+    // A manifest of a kind the caller may not read is counted, never named (MF-18, R20).
+    let (files, refused): (Vec<Exported>, Vec<Exported>) = files.into_iter().partition(|file| {
+        file.manifest
+            .as_ref()
+            .is_none_or(|envelope| effective.may_read(&envelope.kind))
+    });
+    let omitted = unreadable + refused.len();
     let kinds = kind_filter(query.kinds.as_deref());
     let names = selected(query.names.as_deref());
     let short = revision.chars().take(7).collect::<String>();
@@ -841,12 +855,16 @@ pub async fn export(
     )
 )]
 pub async fn revisions(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path(project): Path<String>,
     Query(query): Query<RevisionsQuery>,
 ) -> Result<Json<RevisionList>, ApiError> {
     if !resource::is_dns1123(&project) {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
+    // The history of a project says who changed what and when, so it is a read like any other.
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project() {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
     let limit = query.limit.unwrap_or(DEFAULT_REVISIONS);
