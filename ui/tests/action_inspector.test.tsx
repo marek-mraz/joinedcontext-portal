@@ -95,6 +95,17 @@ describe("the action inspector", () => {
     expect(text).toContain("422: representations must name at least one of ngsi-ld, geojson, csv");
   });
 
+  it("keeps a failed step's label and reason to one line each, the whole text on the title (T-0892)", () => {
+    renderPanel();
+    const reason = screen.getByTestId("step-reason");
+    expect(reason).toHaveClass("truncate");
+    expect(reason).toHaveAttribute("title", EVENTS[1].payload.error as string);
+    const label = reason.parentElement?.querySelector("span.truncate.font-sans") as HTMLElement;
+    expect(label).not.toBeNull();
+    expect(label).toHaveClass("flex-1");
+    expect(label).toHaveAttribute("title", label.textContent ?? "");
+  });
+
   it("offers no fix once the run is over", () => {
     renderPanel(false);
     const failed = screen.getAllByRole("group")[1];

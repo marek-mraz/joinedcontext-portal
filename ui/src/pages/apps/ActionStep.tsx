@@ -136,10 +136,16 @@ export function ActionStep({
         >
           {failed ? "✗" : "✓"}
         </span>
+        {/* One line each, the label and the reason sharing the row: a flex item that may break
+            words shrinks to one letter per line in the dock's narrow column (T-0892). */}
         {label !== null ? (
-          <span className="min-w-0 break-words font-sans">{label}</span>
+          <span className="min-w-0 flex-1 truncate font-sans" title={label}>
+            {label}
+          </span>
         ) : (
-          <span className="min-w-0 break-words">{tool}</span>
+          <span className="min-w-0 flex-1 truncate" title={tool}>
+            {tool}
+          </span>
         )}
         {count > 1 ? (
           <span data-testid="step-count" className="rounded bg-surface px-1 text-fg-muted">
@@ -150,7 +156,7 @@ export function ActionStep({
           <span className="shrink-0 text-fg-muted">{t("agentRun.step.duration", { ms: duration })}</span>
         ) : null}
         {reason !== "" ? (
-          <span data-testid="step-reason" title={reason} className="min-w-0 truncate text-danger">
+          <span data-testid="step-reason" title={reason} className="min-w-0 flex-1 truncate text-danger">
             {reason}
           </span>
         ) : null}
