@@ -751,3 +751,135 @@ async fn the_mcp_route_bounds_the_calls_and_the_bytes_of_one_token() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 }
+
+/// AG-60, ADR-N-021, T-0843: a call that waits on something else answers a task, and the client
+/// polls it instead of holding the request open. A short call still answers inline.
+#[tokio::test]
+async fn a_long_call_answers_a_task_the_caller_polls_and_a_short_one_answers_inline() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+    let send = |body: Value| {
+        let app = app.clone();
+        let token = token.clone();
+        async move {
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/mcp")
+                        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+            serde_json::from_slice::<Value>(&bytes).unwrap()
+        }
+    };
+
+    // The catalogue says which tools are served as tasks.
+    let listed = send(json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": { "project": "ovzdusie" }
+    }))
+    .await;
+    let tools = listed["result"]["tools"].as_array().unwrap();
+    let support = |name: &str| {
+        tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .map(|tool| tool["execution"]["taskSupport"].clone())
+    };
+    assert_eq!(support("jc_pipeline_test"), Some(json!("required")));
+    assert_eq!(support("jc_catalog_search"), Some(json!("forbidden")));
+
+    // A pipeline test waits on the project's runner: the call answers a task at once.
+    let started = send(json!({
+        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "jc_pipeline_test", "project": "ovzdusie",
+                    "arguments": { "project": "ovzdusie", "pipeline": { "apiVersion": "joinedcontext.com/v1alpha1", "kind": "Pipeline", "metadata": { "name": "bikes" }, "spec": {} }, "sample": "{}" } }
+    }))
+    .await;
+    let task_id = started["result"]["task"]["taskId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a task id: {started}"))
+        .to_owned();
+    assert_eq!(started["result"]["task"]["status"], json!("working"));
+
+    // It is polled: working, then whatever the call answered.
+    let mut status = json!("working");
+    for _ in 0..100 {
+        let polled = send(json!({
+            "jsonrpc": "2.0", "id": 3, "method": "tasks/get", "params": { "taskId": task_id }
+        }))
+        .await;
+        status = polled["result"]["status"].clone();
+        if status != json!("working") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_ne!(status, json!("working"), "the task ends");
+    let read = send(json!({
+        "jsonrpc": "2.0", "id": 4, "method": "tasks/result", "params": { "taskId": task_id }
+    }))
+    .await;
+    assert!(
+        read["result"]["content"].is_array(),
+        "the result is the tool's own answer: {read}"
+    );
+
+    // A task of another subject is answered as one that never existed.
+    let other = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "second.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/mcp")
+                .header(header::AUTHORIZATION, format!("Bearer {other}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "jsonrpc": "2.0", "id": 5, "method": "tasks/get",
+                        "params": { "taskId": task_id }
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let refused: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(refused["error"]["message"], json!("unknown task"));
+
+    // A short call is unchanged: the answer is the answer.
+    let inline = send(json!({
+        "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+        "params": { "name": "jc_catalog_search", "project": "ovzdusie", "arguments": { "q": "air" } }
+    }))
+    .await;
+    assert!(
+        inline["result"]["structuredContent"].is_object(),
+        "{inline}"
+    );
+    assert!(inline["result"].get("task").is_none());
+}

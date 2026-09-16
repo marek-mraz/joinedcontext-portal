@@ -68,6 +68,9 @@ pub struct AppState {
     /// ponytail: per-replica map, like `revocations`; one bucket per subject is enough while
     /// the Portal is one replica.
     mcp_calls: Arc<RwLock<HashMap<String, (i64, u32)>>>,
+    /// The MCP calls that outlive their request (AG-60): a client starts one, polls it and
+    /// reads its result through `tasks/*`.
+    pub mcp_tasks: crate::mcp::tasks::McpTasks,
 }
 
 impl AppState {
@@ -98,6 +101,7 @@ impl AppState {
             kube: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
             mcp_calls: Arc::new(RwLock::new(HashMap::new())),
+            mcp_tasks: crate::mcp::tasks::McpTasks::new(),
         }
     }
 

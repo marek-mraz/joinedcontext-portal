@@ -8,7 +8,10 @@
 //! - `server/discover`: returns server capabilities and the available tool count.
 //! - `ping`: health check answering empty result `{}`.
 //! - `tools/list`: operation registry filtered by the caller's effective permissions.
-//! - `tools/call`: executes an operation via the shared registry and returns structured results.
+//! - `tools/call`: executes an operation via the shared registry and returns structured results;
+//!   an operation that runs longer than a request answers a task instead (see [`tasks`]).
+//! - `resources/list`, `resources/read`, `prompts/list`, `prompts/get`.
+//! - `tasks/get`, `tasks/result`, `tasks/list`, `tasks/cancel`: the Tasks extension (AG-60).
 //!
 //! Authentication:
 //! - Strictly `Authorization: Bearer <jwt>` verified against the realm JWKS.
@@ -40,6 +43,8 @@ use serde_json::{json, Value};
 
 use crate::error::ApiError;
 use crate::state::AppState;
+
+pub mod tasks;
 
 /// Calls one bearer subject may make in a minute (AG-60). Generous for a working agent, far
 /// under what a loop costs: the edge's 1200 a minute is shared with the whole REST API.
@@ -177,7 +182,8 @@ pub async fn handle_mcp(
                         "capabilities": {
                             "tools": {},
                             "resources": {},
-                            "prompts": {}
+                            "prompts": {},
+                            "tasks": {}
                         },
                         "serverInfo": {
                             "name": "joinedcontext-portal",
@@ -204,7 +210,8 @@ pub async fn handle_mcp(
                         "capabilities": {
                             "tools": {},
                             "resources": {},
-                            "prompts": {}
+                            "prompts": {},
+                            "tasks": {}
                         },
                         "serverInfo": {
                             "name": "joinedcontext-portal",
@@ -234,6 +241,10 @@ pub async fn handle_mcp(
                             "readOnlyHint": op.annotations.read_only_hint,
                             "destructiveHint": op.annotations.destructive_hint,
                             "idempotentHint": op.annotations.idempotent_hint,
+                        },
+                        // AG-60: a call that leaves the Portal and waits is served as a task.
+                        "execution": {
+                            "taskSupport": if tasks::is_long(&op.name) { "required" } else { "forbidden" }
                         }
                     })
                 })
@@ -277,6 +288,24 @@ pub async fn handle_mcp(
                 map.remove("project");
             }
 
+            // A call that waits on the runner, on Model Tools or on somebody's feed answers a
+            // task at once; the client polls it instead of holding the request open (AG-60).
+            if tasks::is_long(name) || params.get("task").is_some() {
+                let owner = caller.identity.subject.clone();
+                let state_for_task = state.clone();
+                let project = project.to_owned();
+                let op_name = op.name;
+                let task = state.mcp_tasks.start(&owner, async move {
+                    let op = crate::ops::find(op_name).expect("the operation was found above");
+                    match crate::ops::call(op, &caller, &state_for_task, &project, input).await {
+                        Ok(output) => call_result(&output),
+                        Err(crate::ops::OpError::Conflict(val)) => conflict_result(&val),
+                        Err(err) => failure_result(&err.to_string()),
+                    }
+                });
+                return json_response(StatusCode::OK, &result(id, json!({ "task": task })));
+            }
+
             let response_val = match crate::ops::call(op, &caller, &state, project, input).await {
                 Ok(output) => result(
                     id,
@@ -313,6 +342,34 @@ pub async fn handle_mcp(
             };
 
             json_response(StatusCode::OK, &response_val)
+        }
+        "tasks/get" | "tasks/result" | "tasks/cancel" | "tasks/list" => {
+            let owner = caller.identity.subject.as_str();
+            if method == "tasks/list" {
+                return json_response(
+                    StatusCode::OK,
+                    &result(id, json!({ "tasks": state.mcp_tasks.list(owner) })),
+                );
+            }
+            let Some(task_id) = params.get("taskId").and_then(Value::as_str) else {
+                return json_response(StatusCode::OK, &error(id, -32602, "missing taskId"));
+            };
+            // A task of another caller is answered exactly as one that never existed.
+            match method {
+                "tasks/get" => match state.mcp_tasks.describe(owner, task_id) {
+                    Some(task) => json_response(StatusCode::OK, &result(id, task)),
+                    None => json_response(StatusCode::OK, &error(id, -32602, "unknown task")),
+                },
+                "tasks/cancel" => match state.mcp_tasks.cancel(owner, task_id) {
+                    Some(task) => json_response(StatusCode::OK, &result(id, task)),
+                    None => json_response(StatusCode::OK, &error(id, -32602, "unknown task")),
+                },
+                _ => match state.mcp_tasks.result(owner, task_id) {
+                    Ok(Some(value)) => json_response(StatusCode::OK, &result(id, value)),
+                    Ok(None) => json_response(StatusCode::OK, &error(id, -32602, "unknown task")),
+                    Err(said) => json_response(StatusCode::OK, &error(id, -32002, said)),
+                },
+            }
         }
         "resources/list" => {
             let project = project_of(&params, &state, &caller);
@@ -571,6 +628,38 @@ fn parse_error() -> Response {
         "error": { "code": -32700, "message": "parse error" }
     });
     json_response(StatusCode::OK, &body)
+}
+
+/// One operation's answer as a `tools/call` result.
+fn call_result(output: &Value) -> Value {
+    json!({
+        "isError": false,
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(output).unwrap_or_else(|_| "null".to_string())
+        }],
+        "structuredContent": output
+    })
+}
+
+/// A conflict the caller resolves: the document says which and what to do.
+fn conflict_result(val: &Value) -> Value {
+    json!({
+        "isError": true,
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(val).unwrap_or_else(|_| "conflict".to_string())
+        }],
+        "structuredContent": val
+    })
+}
+
+/// A refusal, in the agent's own channel for it.
+fn failure_result(said: &str) -> Value {
+    json!({
+        "isError": true,
+        "content": [{ "type": "text", "text": said }]
+    })
 }
 
 fn json_response(status: StatusCode, body: &Value) -> Response {
