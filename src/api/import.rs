@@ -886,18 +886,22 @@ fn plan_import(
         };
         if envelope.kind == BUNDLE_KIND {
             // The index describes the bundle, so it is provenance and not a resource (MF-20).
-            source = envelope
+            // The index is the platform's `Bundle` (T-0823): the project is its name and the
+            // revision is `sourceRevision`. An archive downloaded from an older Portal carries
+            // `spec.project` and `spec.revision` instead, and still says where it came from.
+            let from = envelope
                 .spec
                 .get("project")
                 .and_then(Value::as_str)
-                .map(|from| {
-                    let revision = envelope
-                        .spec
-                        .get("revision")
-                        .and_then(Value::as_str)
-                        .unwrap_or("unknown");
-                    format!("{from}@{revision}")
-                });
+                .unwrap_or(&envelope.metadata.name)
+                .to_owned();
+            let revision = envelope
+                .spec
+                .get("sourceRevision")
+                .or_else(|| envelope.spec.get("revision"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            source = Some(format!("{from}@{revision}"));
             continue;
         }
         let raw = serde_json::to_value(&envelope)

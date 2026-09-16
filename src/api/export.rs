@@ -93,6 +93,14 @@ fn gitea(state: &AppState) -> Result<&GiteaClient, ApiError> {
         .ok_or_else(|| ApiError::Unavailable("no repository is configured".into()))
 }
 
+/// Whether a revision is a commit id rather than a branch name (MF-17).
+fn is_commit(revision: &str) -> bool {
+    (7..=40).contains(&revision.len())
+        && revision
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+}
+
 /// A revision is put into a forge URL, so it is checked before it is used. Branch names and
 /// commit shas are the whole of what a caller may name here.
 fn valid_revision(revision: &str) -> bool {
@@ -238,30 +246,60 @@ fn attachment(body: Vec<u8>, content_type: &'static str, filename: String) -> Re
         .into_response()
 }
 
-/// The `kind: Bundle` index that makes an archive re-importable (MF-17).
+/// The `kind: Bundle` index that makes a download re-importable (MF-17).
+///
+/// It is the platform's own kind, not a shape of this module's own: `jcctl validate` reads the
+/// tree a person unpacks, and an index it refuses is a bundle the platform rejects as soon as
+/// it is looked at (T-0823).
 fn bundle_index(
     project: &str,
     revision: &str,
     exporter: &str,
-    contents: Vec<Value>,
-    files: usize,
+    items: Vec<jc_core::kinds::BundleItem>,
+    native_files: Vec<String>,
     omitted: usize,
+    description: Option<&Description>,
 ) -> Result<String, ApiError> {
+    let spec = jc_core::kinds::BundleSpec {
+        exported_at: chrono::Utc::now(),
+        exported_by: exporter.to_owned(),
+        source_instance: None,
+        source_revision: revision.to_owned(),
+        items,
+        native_files,
+        omitted: omitted as u32,
+        readme: description.map(|d| d.readme.clone()),
+        schemas: description.map(|d| jc_core::kinds::BundleSchemas {
+            kinds: d.kinds.clone(),
+            models: match d.models_json() {
+                Value::Object(members) => members.into_iter().collect(),
+                _ => BTreeMap::new(),
+            },
+        }),
+    };
     let bundle = serde_json::json!({
         "apiVersion": API_VERSION,
         "kind": "Bundle",
-        "metadata": { "name": project, "namespace": project },
-        "spec": {
-            "project": project,
-            "revision": revision,
-            "exporter": exporter,
-            "files": files,
-            "omitted": omitted,
-            "contents": contents,
-        }
+        // A Bundle is organization-scoped, whichever project it describes (MF-17).
+        "metadata": { "name": project, "namespace": crate::permissions::ORG_NAMESPACE },
+        "spec": spec,
     });
     serde_yaml_ng::to_string(&bundle)
         .map_err(|e| ApiError::Internal(format!("bundle index did not serialise: {e}")))
+}
+
+/// One manifest of an export as the index lists it (MF-17).
+fn bundle_item(envelope: &ResourceEnvelope, path: &str) -> jc_core::kinds::BundleItem {
+    let namespace = envelope.metadata.namespace.clone().filter(|_| {
+        resource::by_kind(&envelope.kind)
+            .is_none_or(|info| info.scope != resource::Scope::Organization)
+    });
+    jc_core::kinds::BundleItem {
+        kind: envelope.kind.clone(),
+        namespace,
+        name: envelope.metadata.name.clone(),
+        path: path.to_owned(),
+    }
 }
 
 /// Where a complete archive puts its README and its schemas. Both describe the bundle rather than
@@ -655,6 +693,14 @@ pub async fn export(
         }
     };
 
+    // `sourceRevision` of a Bundle is a commit (7 to 40 hex, MF-17), so a branch name given as
+    // `?revision=` is resolved before it is written into the index.
+    let commit = if is_commit(&revision) {
+        revision.clone()
+    } else {
+        gitea.branch_head(&revision).await?
+    };
+
     let (files, unreadable) = read_project(gitea, &project, &revision).await?;
     // A manifest of a kind the caller may not read is counted, never named (MF-18, R20).
     let (files, refused): (Vec<Exported>, Vec<Exported>) = files.into_iter().partition(|file| {
@@ -689,18 +735,19 @@ pub async fn export(
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
-        let mut contents = Vec::new();
-        let mut written = 0usize;
+        let mut items = Vec::new();
+        let mut native_files = Vec::new();
         for file in &files {
             // A native file has no kind to filter on and belongs to whatever manifest sits
             // beside it, so the archive keeps it whatever the filters say.
-            if let Some(envelope) = &file.manifest {
-                if !matches_filters(envelope, kinds.as_ref(), names.as_ref()) {
-                    continue;
+            match &file.manifest {
+                Some(envelope) => {
+                    if !matches_filters(envelope, kinds.as_ref(), names.as_ref()) {
+                        continue;
+                    }
+                    items.push(bundle_item(envelope, &file.path));
                 }
-                contents.push(serde_json::json!({
-                    "kind": envelope.kind, "name": envelope.metadata.name
-                }));
+                None => native_files.push(file.path.clone()),
             }
             let zipped = |err: zip::result::ZipError| {
                 ApiError::Internal(format!("archive entry failed: {err}"))
@@ -709,20 +756,31 @@ pub async fn export(
             writer
                 .write_all(file.content.as_bytes())
                 .map_err(|e| ApiError::Internal(format!("archive write failed: {e}")))?;
-            written += 1;
         }
-        let index = bundle_index(
-            &project,
-            &revision,
-            &user.0.identity.username,
-            contents,
-            written,
-            omitted,
-        )?;
-        let mut entries = vec![(format!("projects/{project}/bundle.yaml"), index)];
-        if complete {
-            let description = describe(&state, &included, &files, &header, true).await;
-            entries.push((README_PATH.to_owned(), description.readme));
+        let description = if complete {
+            Some(describe(&state, &included, &files, &header, true).await)
+        } else {
+            None
+        };
+        // A Bundle lists at least one resource, so an archive whose filters matched no manifest
+        // carries no index rather than one the platform refuses (MF-17).
+        let mut entries = Vec::new();
+        if !items.is_empty() {
+            entries.push((
+                "bundle.yaml".to_owned(),
+                bundle_index(
+                    &project,
+                    &commit,
+                    &user.0.identity.username,
+                    items,
+                    native_files,
+                    omitted,
+                    description.as_ref(),
+                )?,
+            ));
+        }
+        if let Some(description) = &description {
+            entries.push((README_PATH.to_owned(), description.readme.clone()));
             for (kind, schema) in &description.kinds {
                 entries.push((
                     format!("{SCHEMAS_DIR}kinds/{kind}.schema.json"),
@@ -805,30 +863,23 @@ pub async fn export(
     if let Some(description) = &description {
         // The closing index carries what the manifests mean; import reads it as provenance and
         // writes none of it (MF-17, MF-41).
-        let contents: Vec<Value> = manifests
+        let items: Vec<jc_core::kinds::BundleItem> = included
             .iter()
-            .map(|envelope| serde_json::json!({ "kind": envelope.kind, "name": envelope.metadata.name }))
+            .filter_map(|file| {
+                file.manifest
+                    .as_ref()
+                    .map(|envelope| bundle_item(envelope, &file.path))
+            })
             .collect();
-        let index = serde_json::json!({
-            "apiVersion": API_VERSION,
-            "kind": "Bundle",
-            "metadata": { "name": project, "namespace": project },
-            "spec": {
-                "project": project,
-                "revision": revision,
-                "exporter": user.0.identity.username,
-                "files": manifests.len(),
-                "omitted": omitted,
-                "contents": contents,
-                "readme": description.readme,
-                "schemas": {
-                    "kinds": description.kinds,
-                    "models": description.models_json(),
-                },
-            }
-        });
-        let document = serde_yaml_ng::to_string(&index)
-            .map_err(|e| ApiError::Internal(format!("bundle index did not serialise: {e}")))?;
+        let document = bundle_index(
+            &project,
+            &commit,
+            &user.0.identity.username,
+            items,
+            Vec::new(),
+            omitted,
+            Some(description),
+        )?;
         body.push_str("---\n");
         body.push_str(&document);
     }

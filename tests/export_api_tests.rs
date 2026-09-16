@@ -423,8 +423,8 @@ async fn the_archive_is_a_zip_with_the_native_files_and_a_bundle_index() {
     {
         use std::io::Read;
         archive
-            .by_name("projects/banskabystrica/bundle.yaml")
-            .expect("the bundle index")
+            .by_name("bundle.yaml")
+            .expect("the bundle index at the root of the archive")
             .read_to_string(&mut content)
             .expect("readable");
     }
@@ -432,6 +432,13 @@ async fn the_archive_is_a_zip_with_the_native_files_and_a_bundle_index() {
     assert!(content.contains(REVISION));
     assert!(content.contains("public-air"));
     assert!(content.contains("omitted: 0"));
+    // T-0823: the index is the platform's own kind, so `jcctl validate` accepts the tree a
+    // person unpacks instead of refusing the document the Portal just wrote.
+    assert_eq!(
+        jc_core::registry::validate_yaml("Bundle", &content),
+        Some(Ok(())),
+        "{content}"
+    );
 
     // Deflate would hide a plain substring search, so every entry is read out and checked.
     for index in 0..archive.len() {

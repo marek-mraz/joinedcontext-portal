@@ -85,14 +85,17 @@ const BUNDLE: &str = r#"apiVersion: joinedcontext.com/v1alpha1
 kind: Bundle
 metadata:
   name: helsinki
-  namespace: helsinki
+  namespace: org
 spec:
-  project: helsinki
-  revision: 8c56954a1f0e2b3c4d5e6f708192a3b4c5d6e7f8
-  exporter: aino.virtanen
-  files: 3
+  exportedAt: "2026-09-06T16:30:00Z"
+  exportedBy: aino.virtanen
+  sourceRevision: 8c56954a1f0e2b3c4d5e6f708192a3b4c5d6e7f8
+  items:
+    - { kind: ContextSpace, namespace: helsinki, name: ovzdusie, path: projects/helsinki/spaces/ovzdusie/space.yaml }
+    - { kind: Endpoint, namespace: helsinki, name: public-air, path: projects/helsinki/endpoints/public-air.yaml }
+  nativeFiles:
+    - projects/helsinki/pipelines/aq/bento.yaml
   omitted: 0
-  contents: []
 "#;
 
 fn archive(files: &[(&str, &str)]) -> Vec<u8> {
@@ -111,7 +114,7 @@ fn bundle_archive() -> Vec<u8> {
         ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
         ("projects/helsinki/endpoints/public-air.yaml", ENDPOINT),
         ("projects/helsinki/pipelines/aq/bento.yaml", BENTO),
-        ("projects/helsinki/bundle.yaml", BUNDLE),
+        ("bundle.yaml", BUNDLE),
     ])
 }
 
@@ -479,7 +482,7 @@ async fn an_organization_scoped_kind_lands_in_org_and_the_source_project_manifes
         ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
         ("users/roles/air-steward.yaml", ROLE),
         ("projects/helsinki/project.yaml", PROJECT_MANIFEST),
-        ("projects/helsinki/bundle.yaml", BUNDLE),
+        ("bundle.yaml", BUNDLE),
     ]);
     let (content_type, body) = multipart(&bundle, &[("conflictPolicy", "fail")]);
     let (status, answer) = post(state, &cookie, &content_type, body).await;
@@ -535,7 +538,7 @@ async fn the_readme_and_schemas_of_a_complete_export_are_never_written_into_the_
         ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
         ("projects/helsinki/endpoints/public-air.yaml", ENDPOINT),
         ("projects/helsinki/pipelines/aq/bento.yaml", BENTO),
-        ("projects/helsinki/bundle.yaml", BUNDLE),
+        ("bundle.yaml", BUNDLE),
         ("README.md", "# Project helsinki\n"),
         (
             "schemas/kinds/Endpoint.schema.json",
