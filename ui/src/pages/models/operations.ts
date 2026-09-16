@@ -388,7 +388,6 @@ export function applyOperations(source: string, operations: Operation[]): Applie
   operations.forEach((operation, index) => {
     const model = parseModel(current);
     if (model === EMPTY_MODEL) {
-      // parseModel answers the shared empty model for a source that does not parse.
       refused.push({ index, reason: "the source does not parse as YAML" });
       return;
     }

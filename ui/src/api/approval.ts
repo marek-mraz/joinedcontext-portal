@@ -1,5 +1,4 @@
-import type { Effective, Verb } from "./permissions";
-import { allows } from "./permissions";
+import { allows, type Effective, type Verb } from "./permissions";
 
 /** Why the approve button is off, or `null` when the API would take the approval. */
 export type ApprovalBlock = "needsRole" | "ownProposal" | null;

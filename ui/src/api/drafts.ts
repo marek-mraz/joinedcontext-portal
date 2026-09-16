@@ -76,9 +76,11 @@ export function digestOf(value: unknown): string {
   return hash.toString(16).padStart(16, "0");
 }
 
-/** A `Request` needs an absolute URL outside a document (jsdom included), as client.ts notes. */
-function absolute(path: string): string {
-  return new URL(path, window.location.origin).toString();
+function draftUrl(project: string, kind: string, name: string): string {
+  return new URL(
+    `/api/v1/projects/${encodeURIComponent(project)}/drafts/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`,
+    window.location.origin,
+  ).toString();
 }
 
 export async function getDraft(
@@ -88,17 +90,9 @@ export async function getDraft(
 ): Promise<Draft | null> {
   try {
     const res = await fetch(
-      new Request(
-        absolute(
-          `/api/v1/projects/${encodeURIComponent(project)}/drafts/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`,
-        ),
-        { credentials: "same-origin" },
-      ),
+      new Request(draftUrl(project, kind, name), { credentials: "same-origin" }),
     );
-    if (!res.ok) {
-      return null;
-    }
-    return asDraft(await res.json());
+    return res.ok ? asDraft(await res.json()) : null;
   } catch {
     return null;
   }
@@ -106,11 +100,7 @@ export async function getDraft(
 
 /** A draft answer carries a version; anything else is not a draft (a mocked or proxied 200). */
 function asDraft(body: unknown): Draft {
-  if (
-    !body ||
-    typeof body !== "object" ||
-    typeof (body as Draft).version !== "number"
-  ) {
+  if (!body || typeof body !== "object" || typeof (body as Draft).version !== "number") {
     throw new Error("not a draft");
   }
   return body as Draft;
@@ -123,9 +113,7 @@ export async function putDraft(
   manifest: unknown,
   expectedVersion?: number,
 ): Promise<Draft> {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
+  const headers: Record<string, string> = { "content-type": "application/json" };
   const csrf = readCsrfToken();
   if (csrf) {
     headers["x-csrf-token"] = csrf;
@@ -135,27 +123,16 @@ export async function putDraft(
     payload.expectedVersion = expectedVersion;
   }
   const res = await fetch(
-    new Request(
-      absolute(
-        `/api/v1/projects/${encodeURIComponent(project)}/drafts/${encodeURIComponent(kind)}/${encodeURIComponent(name)}`,
-      ),
-      {
-        method: "PUT",
-        credentials: "same-origin",
-        headers,
-        body: JSON.stringify(payload),
-      },
-    ),
+    new Request(draftUrl(project, kind, name), {
+      method: "PUT",
+      credentials: "same-origin",
+      headers,
+      body: JSON.stringify(payload),
+    }),
   );
   if (res.status === 409) {
-    const errorData = (await res.json().catch(() => null)) as {
-      current?: number;
-    } | null;
-    const err = new Error("draft conflict");
-    (err as unknown as { status: number; current?: number }).status = 409;
-    (err as unknown as { status: number; current?: number }).current =
-      errorData?.current;
-    throw err;
+    const errorData = (await res.json().catch(() => null)) as { current?: number } | null;
+    throw Object.assign(new Error("draft conflict"), { status: 409, current: errorData?.current });
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -164,12 +141,13 @@ export async function putDraft(
   return asDraft(await res.json());
 }
 
+const DRAFT_EVENTS = ["message", "draft", "put", "verdict", "drop"] as const;
+
 export function subscribeDrafts(
   project: string,
   onEvent: (event: DraftEvent) => void,
 ): () => void {
-  const Source = (globalThis as { EventSource?: typeof EventSource })
-    .EventSource;
+  const Source = (globalThis as { EventSource?: typeof EventSource }).EventSource;
   if (!Source) {
     return () => {};
   }
@@ -180,29 +158,20 @@ export function subscribeDrafts(
 
   const handleMessage = (msg: MessageEvent<string>) => {
     try {
-      const data = JSON.parse(msg.data) as DraftEvent;
-      onEvent(data);
+      onEvent(JSON.parse(msg.data) as DraftEvent);
     } catch {
       // ignore non-json messages
     }
   };
 
-  source.addEventListener("message", handleMessage as EventListener);
-  source.addEventListener("draft", handleMessage as EventListener);
-  source.addEventListener("put", handleMessage as EventListener);
-  source.addEventListener("verdict", handleMessage as EventListener);
-  source.addEventListener("drop", handleMessage as EventListener);
-
-  source.onerror = () => {
-    // browser handles reconnects
-  };
+  for (const event of DRAFT_EVENTS) {
+    source.addEventListener(event, handleMessage as EventListener);
+  }
 
   return () => {
-    source.removeEventListener("message", handleMessage as EventListener);
-    source.removeEventListener("draft", handleMessage as EventListener);
-    source.removeEventListener("put", handleMessage as EventListener);
-    source.removeEventListener("verdict", handleMessage as EventListener);
-    source.removeEventListener("drop", handleMessage as EventListener);
+    for (const event of DRAFT_EVENTS) {
+      source.removeEventListener(event, handleMessage as EventListener);
+    }
     source.close();
   };
 }

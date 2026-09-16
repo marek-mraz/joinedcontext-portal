@@ -10,8 +10,11 @@ use super::*;
 use crate::agents::{code, patch};
 use crate::api::agent_runs::{invoke_function, InvokeError};
 
-/// Lines one `read_file` returns at most.
-const READ_WINDOW: usize = 400;
+/// Lines one `read_file` returns at most: a whole file of the application, as a rule.
+const READ_WINDOW: usize = 2000;
+/// Bytes of the application's own files the opening turn carries whole, smallest first: an edit
+/// then starts from the code instead of a crawl of `read_file` windows (T-0896).
+const OPENING_BYTES: usize = 200_000;
 /// What a tool result carries back to the model at most.
 const RESULT_CAP: usize = 8 * 1024;
 /// What a tool event keeps of a result at most.
@@ -45,7 +48,7 @@ fn tools() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "read_file",
-            description: "A file, or the lines from..to of it (1-based), at most 400 lines a call.",
+            description: "A file whole, or the lines from..to of it (1-based); read a file whole unless it is very long.",
             input_schema: json!({ "type": "object", "properties": { "path": path, "from": { "type": "integer" }, "to": { "type": "integer" } }, "required": ["path"] }),
         },
         ToolSpec {
@@ -123,6 +126,35 @@ fn list_files(files: &BTreeMap<String, String>) -> String {
         .map(|(path, content)| format!("{path} ({} bytes)", content.len()))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Every file with its size, and the application's own files whole while they fit in
+/// `OPENING_BYTES`, smallest first; a file left out says so, so the model reads it.
+fn opening(files: &BTreeMap<String, String>) -> String {
+    let mut out = String::from("Files:\n");
+    out.push_str(&list_files(files));
+    let mut own: Vec<(&String, &String)> = files
+        .iter()
+        .filter(|(path, _)| code::writable(path))
+        .collect();
+    own.sort_by_key(|(path, content)| (content.len(), (*path).clone()));
+    let mut carried = 0usize;
+    let mut left_out = Vec::new();
+    for (path, content) in own {
+        if carried + content.len() > OPENING_BYTES {
+            left_out.push(path.as_str());
+            continue;
+        }
+        carried += content.len();
+        out.push_str(&format!("\n\n=== {path} ===\n{content}"));
+    }
+    if !left_out.is_empty() {
+        out.push_str(&format!(
+            "\n\nNot shown, read before editing: {}",
+            left_out.join(", ")
+        ));
+    }
+    out
 }
 
 fn read_file(files: &BTreeMap<String, String>, input: &Value) -> (String, bool) {
@@ -438,8 +470,7 @@ impl Driver {
             }
             turn.push('\n');
         }
-        turn.push_str("Files:\n");
-        turn.push_str(&list_files(files));
+        turn.push_str(&opening(files));
         if let Some(types) = files.get(code::TYPES) {
             turn.push_str(&format!("\n\nRow types ({}):\n{types}", code::TYPES));
         }
@@ -563,6 +594,25 @@ mod tests {
         assert!(text.contains("   2 | b\n   3 | c\n"));
         let (text, ok) = read_file(&files, &json!({ "path": "src/B.ts" }));
         assert!(!ok && text.ends_with("no such file"));
+    }
+
+    #[test]
+    fn the_opening_turn_carries_the_small_files_whole_and_names_the_rest() {
+        let mut files = BTreeMap::new();
+        files.insert("package.json".to_owned(), "{}".to_owned());
+        files.insert("src/App.tsx".to_owned(), "app".to_owned());
+        files.insert("src/big.ts".to_owned(), "x".repeat(OPENING_BYTES));
+        files.insert("functions/f.ts".to_owned(), "fn".to_owned());
+        let text = opening(&files);
+        assert!(text.contains("package.json (2 bytes)"));
+        assert!(
+            !text.contains("=== package.json ==="),
+            "not the application's own"
+        );
+        assert!(text.contains("=== src/App.tsx ===\napp"));
+        assert!(text.contains("=== functions/f.ts ===\nfn"));
+        assert!(text.ends_with("Not shown, read before editing: src/big.ts"));
+        assert!(opening(&BTreeMap::new()).starts_with("Files:\n"));
     }
 
     #[test]

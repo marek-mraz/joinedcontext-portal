@@ -286,7 +286,7 @@ export function dataSourceSchema(
     },
   };
 
-  const connection: Record<DataSourceType, JsonSchema> = {
+  const connection: Record<TypedDataSourceType, JsonSchema> = {
     mqtt: {
       type: "object",
       title: t("datasources.type.mqtt"),
@@ -394,6 +394,13 @@ export interface CatalogInput {
   fields: CatalogField[];
 }
 
+const SCALAR_TYPES: Record<string, "string" | "integer" | "number" | "boolean"> = {
+  string: "string",
+  int: "integer",
+  float: "number",
+  bool: "boolean",
+};
+
 /**
  * Generates JSON Schema and UiSchema from a runner input's field tree (PL-50).
  *
@@ -468,39 +475,15 @@ export function runnerInputSchema(input: CatalogInput): { schema: JsonSchema; ui
     const propSchema: JsonSchema = {};
     const propUi: Record<string, unknown> = {};
 
+    const scalarType = SCALAR_TYPES[f.type];
     if (f.secret) {
       propSchema.type = "string";
       propUi["ui:widget"] = "secretRef";
-    } else if (f.kind === "array") {
-      if (f.type === "string") {
-        propSchema.type = "array";
-        propSchema.items = { type: "string" };
-      } else if (f.type === "int") {
-        propSchema.type = "array";
-        propSchema.items = { type: "integer" };
-      } else if (f.type === "float") {
-        propSchema.type = "array";
-        propSchema.items = { type: "number" };
-      } else if (f.type === "bool") {
-        propSchema.type = "array";
-        propSchema.items = { type: "boolean" };
-      } else {
-        propSchema.type = "string";
-        propUi["ui:widget"] = "textarea";
-      }
-    } else if (f.kind === "scalar") {
-      if (f.type === "string") {
-        propSchema.type = "string";
-      } else if (f.type === "int") {
-        propSchema.type = "integer";
-      } else if (f.type === "float") {
-        propSchema.type = "number";
-      } else if (f.type === "bool") {
-        propSchema.type = "boolean";
-      } else {
-        propSchema.type = "string";
-        propUi["ui:widget"] = "textarea";
-      }
+    } else if (f.kind === "array" && scalarType) {
+      propSchema.type = "array";
+      propSchema.items = { type: scalarType };
+    } else if (f.kind === "scalar" && scalarType) {
+      propSchema.type = scalarType;
     } else {
       propSchema.type = "string";
       propUi["ui:widget"] = "textarea";
@@ -556,13 +539,8 @@ export function runnerInputSchema(input: CatalogInput): { schema: JsonSchema; ui
     for (const k of keys) {
       const fieldPath = prefix ? `${prefix}.${k}` : k;
       const f = input.fields.find((field) => field.path === fieldPath);
-      const isAdv =
-        f?.advanced ||
-        Boolean(
-          (targetUi[k] as Record<string, unknown> | undefined)?.["ui:options"] &&
-            ((targetUi[k] as Record<string, unknown>)["ui:options"] as Record<string, unknown>)
-              .advanced
-        );
+      const opts = (targetUi[k] as { "ui:options"?: { advanced?: boolean } } | undefined)?.["ui:options"];
+      const isAdv = Boolean(f?.advanced || opts?.advanced);
       if (isAdv) {
         advanced.push(k);
       } else {

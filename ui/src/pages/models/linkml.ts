@@ -203,12 +203,8 @@ function languageMap(value: unknown): Record<string, string> | undefined {
   return Object.keys(map).length > 0 ? map : undefined;
 }
 
-function annotations(raw: Record<string, unknown>): Record<string, unknown> {
-  return record(raw.annotations);
-}
-
 function slotOf(name: string, raw: Record<string, unknown>): LinkmlSlot {
-  const annotated = annotations(raw);
+  const annotated = record(raw.annotations);
   const kind = text(annotated.ngsi_ld_kind);
   const unit = record(raw.unit);
   const mappings = Array.isArray(unit.exact_mappings)
@@ -440,7 +436,7 @@ export function diagnose(source: string, locales: string[] = []): Diagnostic[] {
 
   // The annotation is free text in YAML, so a typo would only surface at generation.
   for (const [name, raw] of Object.entries(record(root.slots))) {
-    const kind = text(annotations(record(raw)).ngsi_ld_kind);
+    const kind = text(record(record(raw).annotations).ngsi_ld_kind);
     if (kind && !(NGSI_LD_KINDS as readonly string[]).includes(kind)) {
       found.push({
         ...at(["slots", name]),

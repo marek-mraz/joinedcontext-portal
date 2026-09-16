@@ -64,6 +64,7 @@ export function toggleClass(subset: Subset, klass: string, present: boolean): Su
 
 /** The subset with `slot` of `klass` ticked or not; ticking a slot ticks its class. */
 export function toggleSlot(subset: Subset, klass: string, slot: string, present: boolean): Subset {
+  const rest = subset.classes.filter((candidate) => candidate.name !== klass);
   const chosen = subset.classes.find((candidate) => candidate.name === klass) ?? {
     name: klass,
     slots: [],
@@ -73,9 +74,7 @@ export function toggleSlot(subset: Subset, klass: string, slot: string, present:
       ? chosen.slots
       : [...chosen.slots, slot]
     : chosen.slots.filter((candidate) => candidate !== slot);
-  return {
-    classes: [...subset.classes.filter((candidate) => candidate.name !== klass), { name: klass, slots }],
-  };
+  return { classes: [...rest, { name: klass, slots }] };
 }
 
 /**
@@ -90,7 +89,7 @@ export function subsetSource(source: string, subset: Subset): string {
   const model = parseModel(source);
   const chosen = new Map(subset.classes.map((klass) => [klass.name, klass.slots]));
   const keptSlots = new Set<string>();
-  const narrowed = edit(source, (document) => {
+  return edit(source, (document) => {
     for (const klass of model.classes) {
       const picked = chosen.get(klass.name);
       if (picked === undefined) {
@@ -100,7 +99,9 @@ export function subsetSource(source: string, subset: Subset): string {
       const slots = klass.slots.filter(
         (slot) => picked.includes(slot) || IDENTITY_SLOTS.includes(slot),
       );
-      slots.forEach((slot) => keptSlots.add(slot));
+      for (const slot of slots) {
+        keptSlots.add(slot);
+      }
       document.setIn(["classes", klass.name, "slots"], slots);
     }
     const keptEnums = new Set(
@@ -117,5 +118,4 @@ export function subsetSource(source: string, subset: Subset): string {
       }
     }
   });
-  return narrowed;
 }

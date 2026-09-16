@@ -1,5 +1,4 @@
-import { ApiError } from "./client";
-import type { ProblemDetails } from "./client";
+import { unwrap } from "./client";
 
 export interface GatewayEntity {
   id: string;
@@ -37,25 +36,8 @@ export async function searchEntities(params: {
   });
 
   if (!response.ok) {
-    let problem: ProblemDetails | undefined;
-    try {
-      const body: unknown = await response.json();
-      if (
-        typeof body === "object" &&
-        body !== null &&
-        ("title" in body || "detail" in body || "status" in body || "type" in body)
-      ) {
-        problem = body as ProblemDetails;
-      }
-    } catch {
-      // Body not JSON
-    }
-    const status = problem?.status ?? response.status;
-    const message =
-      problem?.detail ??
-      problem?.title ??
-      (response.statusText ? response.statusText : `HTTP ${status}`);
-    throw new ApiError(status, message, problem);
+    const error = await response.json().catch(() => undefined);
+    await unwrap({ error, response });
   }
 
   const data: unknown = await response.json();
@@ -66,18 +48,12 @@ export async function searchEntities(params: {
   return data
     .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
     .map((entity) => {
-      const id = typeof entity.id === "string" ? entity.id : "";
-      const type = typeof entity.type === "string" ? entity.type : "";
-      let name: string | undefined;
-      if (
-        typeof entity.name === "object" &&
-        entity.name !== null &&
-        "value" in entity.name &&
-        typeof (entity.name as { value: unknown }).value === "string"
-      ) {
-        name = (entity.name as { value: string }).value;
-      }
-      return { id, type, name };
+      const nameVal = (entity.name as { value?: unknown } | undefined)?.value;
+      return {
+        id: typeof entity.id === "string" ? entity.id : "",
+        type: typeof entity.type === "string" ? entity.type : "",
+        name: typeof nameVal === "string" ? nameVal : undefined,
+      };
     })
     .filter((entity) => entity.id !== "");
 }

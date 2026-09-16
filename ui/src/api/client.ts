@@ -131,9 +131,7 @@ export async function unwrap<T>(result: {
   const status =
     typeof problem?.status === "number" ? problem.status : result.response.status;
   const message =
-    problem?.detail ??
-    problem?.title ??
-    (result.response.statusText ? result.response.statusText : `HTTP ${status}`);
+    problem?.detail ?? problem?.title ?? (result.response.statusText || `HTTP ${status}`);
 
   throw new ApiError(status, message, problem);
 }

@@ -221,17 +221,18 @@ export function classifyChanges(previous: LinkmlModel, next: LinkmlModel): Model
   }
 
   const previousEnums = new Map(previous.enums.map((entry) => [entry.name, entry]));
+  const nextEnums = new Map(next.enums.map((entry) => [entry.name, entry]));
   for (const [name, entry] of previousEnums) {
-    const now = next.enums.find((candidate) => candidate.name === name);
+    const now = nextEnums.get(name);
     if (!now) {
       changes.push({ severity: "breaking", subject: name, reason: "the enum was removed" });
       continue;
     }
     changes.push(...enumChanges(entry, now));
   }
-  for (const entry of next.enums) {
-    if (!previousEnums.has(entry.name)) {
-      changes.push({ severity: "additive", subject: entry.name, reason: "a new enum was added" });
+  for (const [name] of nextEnums) {
+    if (!previousEnums.has(name)) {
+      changes.push({ severity: "additive", subject: name, reason: "a new enum was added" });
     }
   }
 

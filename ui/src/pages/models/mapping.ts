@@ -78,7 +78,7 @@ export function autoAlign(
 ): Derivation[] {
   const byName = new Map(source.slots.map((slot) => [slot.name, slot]));
   const byUri = new Map(
-    source.slots.filter((slot) => slot.slot_uri).map((slot) => [slot.slot_uri as string, slot]),
+    source.slots.flatMap((slot) => (slot.slot_uri ? [[slot.slot_uri, slot]] : [])),
   );
   const aligned = new Map<string, { source: string; origin: Origin }>();
   for (const row of alignments) {
@@ -112,7 +112,7 @@ export function autoAlign(
       const derivation: Derivation = {
         target: slot.name,
         populatedFrom: sssom.source,
-        origin: sssom.origin === "exact" ? "exact" : "close",
+        origin: sssom.origin,
       };
       return from ? withConversion(derivation, from, slot) : derivation;
     }
@@ -327,10 +327,12 @@ export function nativeBlocks(
   derivations: Derivation[],
 ): { targetSlot: string; language: "bloblang"; source: string }[] {
   return derivations
-    .filter((derivation) => derivation.native?.trim())
+    .filter((derivation): derivation is Derivation & { native: string } =>
+      Boolean(derivation.native?.trim()),
+    )
     .map((derivation) => ({
       targetSlot: derivation.target,
-      language: "bloblang" as const,
-      source: derivation.native as string,
+      language: "bloblang",
+      source: derivation.native,
     }));
 }

@@ -6,7 +6,7 @@
  */
 import { ApiError } from "../../api/client";
 import type { Manifest } from "../../api/manifest";
-import { endpointUrl } from "../../components/endpoints/links";
+import { endpointUrl } from "../endpoints/links";
 import { parseModel } from "../../pages/models/linkml";
 import type { NgsiLdKind } from "../../pages/models/linkml";
 import { parseResultsCount } from "../../pages/spaces/SpaceInside";
@@ -85,14 +85,9 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\
 
 /** Whether a value goes bare into `q` (number, boolean, date) or inside quotes. */
 function bare(value: string, slot: FilterSlot | undefined): boolean {
-  if (slot?.range === "boolean") {
-    return true;
-  }
-  if (slot && (NUMERIC.includes(slot.range ?? "") || TEMPORAL.includes(slot.range ?? ""))) {
-    return true;
-  }
   if (slot) {
-    return false;
+    const range = slot.range ?? "";
+    return range === "boolean" || NUMERIC.includes(range) || TEMPORAL.includes(range);
   }
   return value === "true" || value === "false" || /^-?\d+(\.\d+)?$/.test(value) || ISO_DATE.test(value);
 }
@@ -149,7 +144,7 @@ export interface EntityPage {
 function entities(body: unknown): Entity[] {
   return (Array.isArray(body) ? body : []).filter(
     (item): item is Entity =>
-      typeof item === "object" && item !== null && typeof (item as Entity).id === "string",
+      typeof item === "object" && item !== null && typeof (item as { id?: unknown }).id === "string",
   );
 }
 
@@ -200,7 +195,7 @@ export async function fetchEntities(
 export async function fetchEntity(slug: string, id: string): Promise<Entity> {
   const response = await gatewayGet(slug, `/ngsi-ld/v1/entities/${encodeURIComponent(id)}`);
   const body: unknown = await response.json();
-  if (typeof body !== "object" || body === null || typeof (body as Entity).id !== "string") {
+  if (typeof body !== "object" || body === null || typeof (body as { id?: unknown }).id !== "string") {
     throw new ApiError(502, "Not an entity");
   }
   return body as Entity;

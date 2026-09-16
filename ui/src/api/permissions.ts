@@ -15,10 +15,7 @@ interface Rule {
 export function allows(effective: Effective | undefined, kind: string, verb: Verb): boolean {
   // Not (yet) a permissions document: the control shows and the API decides (PF-51 says the
   // UI is never the point of enforcement). Only a document that lists no grant hides it.
-  if (!effective || !Array.isArray(effective.grants)) {
-    return true;
-  }
-  if (effective.bootstrap === true) {
+  if (!effective || !Array.isArray(effective.grants) || effective.bootstrap === true) {
     return true;
   }
   return effective.grants.some((grant) => {
