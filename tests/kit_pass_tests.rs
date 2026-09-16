@@ -2336,9 +2336,9 @@ async fn a_refused_import_goes_back_once_with_its_file_and_line_and_the_repair_l
     let log = events(&app, &cookie, &id).await;
     assert!(log.iter().any(|(kind, payload)| {
         kind == "thought"
-            && payload["text"].as_str().is_some_and(|t| {
-                t.starts_with("The application does not build; asking for a repair")
-            })
+            && payload["text"]
+                .as_str()
+                .is_some_and(|t| t == "The application does not build; fixing it.")
     }));
 }
 

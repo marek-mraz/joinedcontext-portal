@@ -389,11 +389,10 @@ impl Driver {
             .code_step(samples, files, conversation, instruction, ask)
             .await?;
         if !errors.is_empty() {
-            self.thought(&format!(
-                "The application does not build; asking for a repair:\n{}",
-                errors.join("\n")
-            ))
-            .await?;
+            // The errors go to the model (`Fix::Build`); the person reads one plain sentence,
+            // never the patch protocol (T-0785).
+            self.thought("The application does not build; fixing it.")
+                .await?;
             (prose, errors) = self
                 .code_step(
                     samples,
@@ -406,6 +405,7 @@ impl Driver {
         }
         if !errors.is_empty() {
             *files = before;
+            let errors: Vec<String> = errors.into_iter().filter(|e| !is_protocol(e)).collect();
             let said = if on_screen {
                 format!(
                     "The application still does not build, so the preview keeps the version \
@@ -460,7 +460,9 @@ impl Driver {
             json!({
                 "tool": "apply_patch",
                 "command": format!("{} block(s)", blocks.len() + unread),
-                "exitCode": if refused.is_empty() && unread == 0 { 0 } else { 1 },
+                // A block the model must send again is a repair, not a refusal: the step
+                // stays a plain step (T-0785).
+                "exitCode": if refused.is_empty() { 0 } else { 1 },
                 "applied": applied,
                 "refused": with_unread(&refused, unread),
             }),

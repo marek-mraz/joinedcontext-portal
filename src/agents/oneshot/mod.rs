@@ -506,9 +506,15 @@ fn with_unread(refused: &[patch::Refused], unread: usize) -> Vec<patch::Refused>
     let mut all = refused.to_vec();
     all.extend((0..unread).map(|_| patch::Refused {
         path: String::new(),
-        reason: "no path line before <<<<<<< SEARCH, or no >>>>>>> REPLACE; not applied".to_owned(),
+        reason: "a block without its closing marker; asked for again".to_owned(),
     }));
     all
+}
+
+/// Whether a build problem is patch-protocol talk for the model rather than a build error a
+/// person reads (T-0785).
+fn is_protocol(problem: &str) -> bool {
+    problem.contains("<<<<<<< SEARCH")
 }
 
 /// What a repair call is told about blocks it could not read.

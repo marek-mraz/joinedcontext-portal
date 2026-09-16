@@ -18,7 +18,7 @@ use regex::Regex;
 pub const GAP: &str = "@@QZXJK@@";
 
 static BLOCK: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^(\S[^\n]*)\n<{7} SEARCH\n([\s\S]*?)={7}\n([\s\S]*?)>{7} REPLACE")
+    Regex::new(r"(?m)^(?:(\S[^\n]*)\n)?<{7} SEARCH\n([\s\S]*?)={7}\n([\s\S]*?)>{7} REPLACE")
         .expect("valid regex")
 });
 static FENCE: LazyLock<Regex> =
@@ -51,9 +51,10 @@ pub struct Refused {
 /// The prose is the assistant's turn of the conversation: what it built and why. A fence
 /// around the whole answer is unwrapped first, as the script does; fences that wrap single
 /// blocks are dropped from the prose so the person reads sentences, not markup. A block the
-/// model wrote without its path line or without its closing marker is not applied and never
-/// reaches the prose either: the prose ends where the first stray marker starts, and the
-/// count says how many were lost.
+/// model wrote without its path line keeps an empty path: [`apply_where`] finds its file when
+/// the SEARCH text matches exactly one (T-0785). A block without its closing marker, or one
+/// that swallowed the next block's marker, is not applied and never reaches the prose either:
+/// the prose ends where the first stray marker starts, and the count says how many were lost.
 pub fn parse(answer: &str) -> (Vec<Block>, String, usize) {
     let text = match FENCE.captures(answer) {
         Some(fence) => fence[1].to_owned(),
@@ -66,9 +67,14 @@ pub fn parse(answer: &str) -> (Vec<Block>, String, usize) {
         let whole = found.get(0).expect("the match");
         prose.push_str(&text[cursor..whole.start()]);
         cursor = whole.end();
+        if found[2].lines().any(is_marker) || found[3].lines().any(is_marker) {
+            continue;
+        }
         blocks.push(Block {
             // A path in backticks would be a directory named "`": the script strips them too.
-            path: found[1].replace(['`', '\'', '"'], "").trim().to_owned(),
+            path: found.get(1).map_or(String::new(), |m| {
+                m.as_str().replace(['`', '\'', '"'], "").trim().to_owned()
+            }),
             search: found[2].strip_suffix('\n').unwrap_or(&found[2]).to_owned(),
             replace: found[3].strip_suffix('\n').unwrap_or(&found[3]).to_owned(),
         });
@@ -98,6 +104,12 @@ pub fn parse(answer: &str) -> (Vec<Block>, String, usize) {
         }
     }
     (blocks, lines.join("\n").trim().to_owned(), unread)
+}
+
+/// A block marker: a block that carries one inside swallowed its neighbour.
+fn is_marker(line: &str) -> bool {
+    let line = line.trim_end();
+    line == "<<<<<<< SEARCH" || line == "=======" || line == ">>>>>>> REPLACE"
 }
 
 /// Whether a line of an answer reads as a file path rather than a sentence.
@@ -143,7 +155,31 @@ pub fn apply_where(
     let mut applied = Vec::new();
     let mut refused = Vec::new();
     for block in blocks {
-        let path = block.path.as_str();
+        // No path line, or a sentence where the path should be: the file is the one the SEARCH
+        // text is found in, when there is exactly one (T-0785).
+        let found = if !is_path(&block.path) && !block.search.trim().is_empty() {
+            let hits: Vec<&String> = files
+                .iter()
+                .filter(|(_, content)| !find_all(content, &block.search).1.is_empty())
+                .map(|(path, _)| path)
+                .collect();
+            match hits.as_slice() {
+                [only] => Some((*only).clone()),
+                _ => {
+                    refused.push(Refused {
+                        path: block.path.clone(),
+                        reason: format!(
+                            "no path line before <<<<<<< SEARCH and the SEARCH text is in {} files",
+                            hits.len()
+                        ),
+                    });
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        let path = found.as_deref().unwrap_or(block.path.as_str());
         if path.is_empty()
             || path.starts_with('/')
             || path.split('/').any(|part| part == "..")
@@ -323,6 +359,54 @@ mod tests {
         assert!(blocks.is_empty());
         assert_eq!(prose, "Done.");
         assert_eq!(unread, 1);
+    }
+
+    #[test]
+    fn a_block_without_its_path_line_lands_in_the_one_file_its_search_is_in() {
+        // What a model answered on dev (T-0785): the path line forgotten, the block otherwise whole.
+        let answer =
+            "Fixed.\n\n<<<<<<< SEARCH\nconst a = 1;\n=======\nconst a = 2;\n>>>>>>> REPLACE\n";
+        let (blocks, prose, unread) = parse(answer);
+        assert_eq!(blocks, vec![block("", "const a = 1;", "const a = 2;")]);
+        assert_eq!(prose, "Fixed.");
+        assert_eq!(unread, 0);
+
+        let mut map = files("const a = 1;\n");
+        map.insert("other.ts".into(), "const b = 1;\n".into());
+        let (ok, bad) = apply(&mut map, &blocks, &["spec.json", "other.ts"]);
+        assert!(bad.is_empty(), "{bad:?}");
+        assert_eq!(ok[0].path, "spec.json");
+        assert_eq!(map["spec.json"], "const a = 2;\n");
+
+        // A sentence where the path should be resolves the same way; a SEARCH in two files or in
+        // none is refused, and so is one whose only file the run may not write.
+        map.insert("other.ts".into(), "const a = 2;\n".into());
+        let (ok, bad) = apply(
+            &mut map,
+            &[block("Here is the change:", "const a = 2;", "x")],
+            &["spec.json", "other.ts"],
+        );
+        assert!(ok.is_empty());
+        assert_eq!(
+            bad[0].reason,
+            "no path line before <<<<<<< SEARCH and the SEARCH text is in 2 files"
+        );
+        let (_, bad) = apply(&mut map, &[block("", "nowhere", "x")], &["spec.json"]);
+        assert_eq!(
+            bad[0].reason,
+            "no path line before <<<<<<< SEARCH and the SEARCH text is in 0 files"
+        );
+        map.insert("ro.ts".into(), "const c = 1;\n".into());
+        let (_, bad) = apply(&mut map, &[block("", "const c = 1;", "x")], &["spec.json"]);
+        assert!(
+            bad[0].reason.starts_with("not a file this run may write"),
+            "{bad:?}"
+        );
+        assert_eq!(map["ro.ts"], "const c = 1;\n");
+
+        // An empty SEARCH with no path has nothing to look for.
+        let (_, bad) = apply(&mut map, &[block("", "", "x")], &["spec.json"]);
+        assert!(bad[0].reason.starts_with("not a file this run may write"));
     }
 
     #[test]
