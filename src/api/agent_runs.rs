@@ -264,6 +264,9 @@ pub struct RunContext {
     pub max_tokens: u64,
     pub allowed_hosts: Vec<String>,
     pub requests_per_minute: u32,
+    /// The profile's `limits.stepsPerRun`: the proxy counts one model call per step and refuses
+    /// the call past it, so a run stops at the limit however its driver loops (AG-25, AG-51).
+    pub steps_per_run: u32,
     pub max_response_bytes: u64,
     pub created_by: String,
     pub model_name: String,
@@ -1636,6 +1639,7 @@ pub async fn internal_get_run(
         max_tokens: profile.max_tokens_per_run,
         allowed_hosts: profile.allowed_hosts,
         requests_per_minute: profile.requests_per_minute,
+        steps_per_run: profile.steps_per_run,
         max_response_bytes: profile.max_response_bytes,
         created_by: run.created_by,
         model_name: profile.model_name,

@@ -612,6 +612,9 @@ async fn an_application_reads_several_endpoints_each_need_on_its_own_space() {
     assert_eq!(status, StatusCode::OK, "{context}");
     assert_eq!(context["endpointSlug"], json!(SLUG));
     assert_eq!(context["endpointSlugs"], json!([SLUG, KPI_SLUG]));
+    // The proxy counts one model call per step against this ceiling (AG-25, AG-51, T-0841).
+    assert_eq!(context["stepsPerRun"], json!(120));
+    assert_eq!(context["requestsPerMinute"], json!(60));
 
     let mut files = preview::template_files();
     files.retain(|path, _| path.starts_with("src/") || path.starts_with("functions/"));

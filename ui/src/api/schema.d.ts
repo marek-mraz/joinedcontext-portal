@@ -2036,6 +2036,12 @@ export interface components {
             /** Format: int32 */
             requestsPerMinute: number;
             status: string;
+            /**
+             * Format: int32
+             * @description The profile's `limits.stepsPerRun`: the proxy counts one model call per step and refuses
+             *     the call past it, so a run stops at the limit however its driver loops (AG-25, AG-51).
+             */
+            stepsPerRun: number;
             ticketHash: string;
         };
         /** @description One page of runs, newest first. */

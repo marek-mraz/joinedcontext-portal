@@ -7870,6 +7870,7 @@
           "maxTokens",
           "allowedHosts",
           "requestsPerMinute",
+          "stepsPerRun",
           "maxResponseBytes",
           "createdBy",
           "modelName"
@@ -7939,6 +7940,12 @@
           },
           "status": {
             "type": "string"
+          },
+          "stepsPerRun": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The profile's `limits.stepsPerRun`: the proxy counts one model call per step and refuses\nthe call past it, so a run stops at the limit however its driver loops (AG-25, AG-51).",
+            "minimum": 0
           },
           "ticketHash": {
             "type": "string"
