@@ -26,7 +26,8 @@
     "ckan": "Otvorené dáta",
     "allEndpoints": "Všetky koncové body",
     "explore": "Prehliadať dáta",
-    "assistant": "Asistent"
+    "assistant": "Asistent",
+    "sync": "Synchronizácia"
   },
   "auth": {
     "lead": "Prihláste sa účtom svojej organizácie a spravujte túto platformu.",
@@ -1141,7 +1142,34 @@
     "proposed": "Beh otvoril žiadosť o zlúčenie.",
     "nothingToDo": "Beh nič nezmenil: zdroj sa neposunul.",
     "byWebhook": "Beží, keď to zdroj oznámi",
-    "everyInterval": "Každých {interval}"
+    "everyInterval": "Každých {interval}",
+    "add": "Pridať zdroj",
+    "propose": "Navrhnúť zdroj",
+    "dialog": {
+      "title": "Nový zdroj synchronizácie",
+      "description": "Odkiaľ tento projekt kopíruje alebo zrkadlí zdroje a čo beh urobí s tým, čo nájde."
+    },
+    "originKind": {
+      "git": "Git repozitár",
+      "bundle": "Zverejnený balík",
+      "platformApi": "API inej inštancie"
+    },
+    "field": {
+      "name": "Názov",
+      "title": "Titulok",
+      "url": "URL na klonovanie",
+      "ref": "Vetva, značka alebo commit",
+      "path": "Podstrom",
+      "credential": "Prístup len na čítanie",
+      "bundleUrl": "URL balíka",
+      "baseUrl": "URL inštancie",
+      "remoteProject": "Projekt tam",
+      "interval": "Spúšťať každých",
+      "mode": "Režim",
+      "conflictPolicy": "Keď zdroj už existuje",
+      "prune": "Zmazať to, čo zdroj odstránil",
+      "autoMerge": "Zlúčiť čistý beh bez revízie"
+    }
   },
   "allEndpoints": {
     "title": "Všetky koncové body",

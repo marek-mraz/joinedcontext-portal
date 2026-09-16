@@ -220,4 +220,38 @@ describe("sync sources view", () => {
     renderSyncSources({ ...PENDING, durable: false });
     expect(await screen.findByText(en.syncSources.notDurable)).toBeInTheDocument();
   });
+
+  it("adds a source from the page the sidebar leads to (T-0790, MF-27)", async () => {
+    const calls = renderSyncSources();
+
+    // The sidebar has an entry, which is the only way a person finds this page.
+    expect(await screen.findByRole("link", { name: en.nav.sync })).toBeInTheDocument();
+
+    await userEvent.click(await screen.findByRole("button", { name: en.syncSources.add }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/^Name/), "regional-models");
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Clone URL/),
+      "https://git.region.sk/udp/datamodels.git",
+    );
+    await userEvent.clear(within(dialog).getByLabelText(/^Branch, tag or commit/));
+    await userEvent.type(within(dialog).getByLabelText(/^Branch, tag or commit/), "main");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.syncSources.propose }));
+
+    await waitFor(() => {
+      const posted = calls.find((call) => call.method === "POST" && call.path.endsWith("/syncsources"));
+      expect(posted).toBeDefined();
+      const body = JSON.parse(posted?.body ?? "{}") as {
+        kind: string;
+        metadata: { name: string };
+        spec: { source: { git: { url: string; ref: string } }; schedule: { interval: string }; mode: string };
+      };
+      expect(body.kind).toBe("SyncSource");
+      expect(body.metadata.name).toBe("regional-models");
+      expect(body.spec.source.git.url).toBe("https://git.region.sk/udp/datamodels.git");
+      expect(body.spec.source.git.ref).toBe("main");
+      expect(body.spec.schedule.interval).toBe("6h");
+      expect(body.spec.mode).toBe("mirror");
+    });
+  });
 });

@@ -3,11 +3,18 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
+import { prune } from "../../api/manifest";
+import type { Change } from "../../api/manifest";
+import { useProposal } from "../../api/proposal";
+import { ChangeNotice } from "../../components/ChangeNotice";
+import { ResourceFormDialog } from "../../components/ResourceFormDialog";
+import { SYNC_ORIGINS, syncSourceSchema } from "../../schemas/kinds";
+import type { SyncOriginKind } from "../../schemas/kinds";
 import { LifecycleBadge } from "../../components/status/LifecycleBadge";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
 import type { components } from "../../api/schema";
-import { Alert, Button, EmptyState, PageHeader } from "../../components/ui";
+import { Alert, Button, EmptyState, PageHeader, Select } from "../../components/ui";
 
 export function syncStatusKey(project: string, name: string) {
   return ["projects", project, "syncsources", name, "status"] as const;
@@ -22,6 +29,51 @@ interface SyncSourceSpec {
   };
   schedule?: { interval?: string; webhook?: boolean };
   mode?: string;
+}
+
+/** What the Add source dialog holds: a name, one origin, and how the run behaves (MF-27, MF-28). */
+interface SyncSourceForm {
+  name: string;
+  title?: string;
+  git?: { url: string; ref: string; path?: string; secretRef?: { name: string; key: string } };
+  bundle?: { url: string; secretRef?: { name: string; key: string } };
+  platformApi?: { baseUrl: string; project: string; secretRef?: { name: string; key: string } };
+  interval: string;
+  mode: string;
+  conflictPolicy: string;
+  prune?: boolean;
+  autoMerge?: boolean;
+}
+
+export function syncSourceToManifest(project: string, form: SyncSourceForm) {
+  const { name, title, git, bundle, platformApi, interval, mode, conflictPolicy, ...rest } = form;
+  return {
+    apiVersion: "joinedcontext.com/v1alpha1",
+    kind: "SyncSource",
+    metadata: { name, namespace: project, ...(title?.trim() ? { title } : {}) },
+    spec: prune({
+      source: { git, bundle, platformApi },
+      schedule: { interval },
+      mode,
+      conflictPolicy,
+      ...rest,
+    }),
+  };
+}
+
+/** The form a manifest read back as YAML fills, so the dialog's two views stay one resource. */
+export function syncSourceFromManifest(document: unknown): SyncSourceForm {
+  const manifest = (document ?? {}) as { metadata?: { name?: string }; spec?: SyncSourceSpec };
+  const spec = manifest.spec ?? {};
+  return {
+    name: manifest.metadata?.name ?? "",
+    git: spec.source?.git as SyncSourceForm["git"],
+    bundle: spec.source?.bundle as SyncSourceForm["bundle"],
+    platformApi: spec.source?.platformApi as SyncSourceForm["platformApi"],
+    interval: spec.schedule?.interval ?? "6h",
+    mode: spec.mode ?? "mirror",
+    conflictPolicy: (spec as { conflictPolicy?: string }).conflictPolicy ?? "fail",
+  };
 }
 
 /**
@@ -48,9 +100,69 @@ export function SyncSourcesPage({ project }: { project: string }): JSX.Element {
 
   const items = list.data?.items ?? [];
 
+  // A source is added here or nowhere: MF-27 has no other door into the Portal (T-0790).
+  const [origin, setOrigin] = useState<SyncOriginKind>("git");
+  const [adding, setAdding] = useState(false);
+  const [change, setChange] = useState<Change | null>(null);
+  const proposal = useProposal(project, "syncsources", (proposed) => {
+    setChange(proposed);
+    setAdding(false);
+  });
+
   return (
     <section aria-label={t("syncSources.title")} className="space-y-6">
-      <PageHeader title={t("syncSources.title")} description={t("syncSources.intro")} />
+      <PageHeader
+        title={t("syncSources.title")}
+        description={t("syncSources.intro")}
+        actions={
+          <div className="flex items-end gap-2">
+            <label className="flex flex-col gap-1 text-sm">
+              {t("syncSources.origin")}
+              <Select
+                value={origin}
+                onChange={(event) => setOrigin(event.target.value as SyncOriginKind)}
+              >
+                {SYNC_ORIGINS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {t(`syncSources.originKind.${kind}`)}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <Button size="sm" variant="primary" onClick={() => setAdding(true)}>
+              {t("syncSources.add")}
+            </Button>
+          </div>
+        }
+      />
+
+      {change ? <ChangeNotice change={change} project={project} /> : null}
+
+      <ResourceFormDialog<SyncSourceForm>
+        kind="SyncSource"
+        open={adding}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAdding(false);
+            proposal.reset();
+          }
+        }}
+        project={project}
+        title={t("syncSources.dialog.title")}
+        description={t("syncSources.dialog.description")}
+        schema={syncSourceSchema(t, origin)}
+        formData={{ name: "", interval: "6h", mode: "mirror", conflictPolicy: "fail" }}
+        submitLabel={t("syncSources.propose")}
+        disabled={proposal.mutation.isPending}
+        error={proposal.error}
+        source={{
+          toManifest: (form) => syncSourceToManifest(project, form),
+          fromManifest: syncSourceFromManifest,
+        }}
+        onSubmit={(form) =>
+          proposal.mutation.mutate({ body: syncSourceToManifest(project, form), create: true })
+        }
+      />
 
       {list.isPending ? <p role="status">{t("app.loading")}</p> : null}
       {list.isError ? (

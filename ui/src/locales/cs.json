@@ -26,7 +26,8 @@
     "ckan": "Otevřená data",
     "allEndpoints": "Všechny koncové body",
     "explore": "Procházet data",
-    "assistant": "Asistent"
+    "assistant": "Asistent",
+    "sync": "Synchronizace"
   },
   "auth": {
     "lead": "Přihlaste se účtem své organizace a spravujte tuto platformu.",
@@ -1141,7 +1142,34 @@
     "proposed": "Běh otevřel žádost o sloučení.",
     "nothingToDo": "Běh nic nezměnil: zdroj se neposunul.",
     "byWebhook": "Běží, když to zdroj oznámí",
-    "everyInterval": "Každých {interval}"
+    "everyInterval": "Každých {interval}",
+    "add": "Přidat zdroj",
+    "propose": "Navrhnout zdroj",
+    "dialog": {
+      "title": "Nový zdroj synchronizace",
+      "description": "Odkud tento projekt kopíruje nebo zrcadlí zdroje a co běh udělá s tím, co najde."
+    },
+    "originKind": {
+      "git": "Git repozitář",
+      "bundle": "Zveřejněný balík",
+      "platformApi": "API jiné instance"
+    },
+    "field": {
+      "name": "Název",
+      "title": "Titulek",
+      "url": "URL pro klonování",
+      "ref": "Větev, značka nebo commit",
+      "path": "Podstrom",
+      "credential": "Přístup jen pro čtení",
+      "bundleUrl": "URL balíku",
+      "baseUrl": "URL instance",
+      "remoteProject": "Projekt tam",
+      "interval": "Spouštět každých",
+      "mode": "Režim",
+      "conflictPolicy": "Když zdroj už existuje",
+      "prune": "Smazat to, co zdroj odstranil",
+      "autoMerge": "Sloučit čistý běh bez revize"
+    }
   },
   "allEndpoints": {
     "title": "Všechny koncové body",

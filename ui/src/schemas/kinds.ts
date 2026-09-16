@@ -373,6 +373,85 @@ export const dataSourceUiSchema: UiSchema = {
   webSocket: { openMessage: { "ui:widget": "textarea" } },
 };
 
+/** Where a sync source reads from (MF-27): one of the three, chosen before the form opens. */
+export const SYNC_ORIGINS = ["git", "bundle", "platformApi"] as const;
+export type SyncOriginKind = (typeof SYNC_ORIGINS)[number];
+
+/**
+ * `SyncSourceSpec` of jc-core as a form (MF-27, MF-28, MF-23): the origin the person chose,
+ * the schedule the run follows, and the three decisions an import makes about what it finds.
+ */
+export function syncSourceSchema(
+  t: (key: string) => string,
+  origin: SyncOriginKind,
+  secrets: string[] = [],
+): JsonSchema {
+  const origins: Record<SyncOriginKind, JsonSchema> = {
+    git: {
+      type: "object",
+      title: t("syncSources.originKind.git"),
+      required: ["url", "ref"],
+      properties: {
+        url: { type: "string", title: t("syncSources.field.url"), pattern: "^(https://|ssh://|git@).+" },
+        ref: { type: "string", title: t("syncSources.field.ref"), default: "main" },
+        path: { type: "string", title: t("syncSources.field.path") },
+        secretRef: secretRef(t, t("syncSources.field.credential"), secrets),
+      },
+    },
+    bundle: {
+      type: "object",
+      title: t("syncSources.originKind.bundle"),
+      required: ["url"],
+      properties: {
+        url: { type: "string", title: t("syncSources.field.bundleUrl"), pattern: "^https://.+" },
+        secretRef: secretRef(t, t("syncSources.field.credential"), secrets),
+      },
+    },
+    platformApi: {
+      type: "object",
+      title: t("syncSources.originKind.platformApi"),
+      required: ["baseUrl", "project"],
+      properties: {
+        baseUrl: { type: "string", title: t("syncSources.field.baseUrl"), pattern: "^https://.+" },
+        project: { type: "string", title: t("syncSources.field.remoteProject") },
+        secretRef: secretRef(t, t("syncSources.field.credential"), secrets),
+      },
+    },
+  };
+
+  return {
+    type: "object",
+    required: ["name", origin, "interval", "mode", "conflictPolicy"],
+    properties: {
+      name: { type: "string", title: t("syncSources.field.name"), pattern: DNS1123, maxLength: 63 },
+      title: titleProperty(t("syncSources.field.title")),
+      [origin]: origins[origin],
+      interval: {
+        type: "string",
+        title: t("syncSources.field.interval"),
+        pattern: "^[1-9][0-9]*(s|m|h|d)$",
+        default: "6h",
+      },
+      mode: {
+        type: "string",
+        title: t("syncSources.field.mode"),
+        enum: ["mirror", "oneshot"],
+        default: "mirror",
+      },
+      conflictPolicy: {
+        type: "string",
+        title: t("syncSources.field.conflictPolicy"),
+        enum: ["fail", "skip", "replace", "rename"],
+        default: "fail",
+      },
+      // Both put a change through without a person looking at it, which is why CC-70 and CC-19
+      // send a source that asks for either into the red lane.
+      prune: { type: "boolean", title: t("syncSources.field.prune"), default: false },
+      autoMerge: { type: "boolean", title: t("syncSources.field.autoMerge"), default: false },
+    },
+  };
+}
+
 /** Field entry in the trimmed Bento inputs catalog (PL-50). */
 export interface CatalogField {
   path: string;

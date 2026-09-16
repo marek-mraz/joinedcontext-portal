@@ -14,6 +14,9 @@ export const NAV_SECTIONS = [
   { plural: "pipelines", labelKey: "nav.pipelines", icon: "pipelines" },
   { plural: "dashboards", labelKey: "nav.dashboards", icon: "dashboards" },
   { plural: "apps", labelKey: "nav.apps", icon: "apps" },
+  // Where this project's resources are copied or mirrored from; the page that adds one is the
+  // only way into it, so it needs an entry of its own (MF-27, T-0790).
+  { plural: "syncsources", labelKey: "nav.sync", icon: "refresh" },
   { plural: "assistant", labelKey: "nav.assistant", icon: "chat" },
   { plural: "approvals", labelKey: "nav.approvals", icon: "approvals" },
   { plural: "access", labelKey: "nav.access", icon: "access" },

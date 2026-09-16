@@ -26,7 +26,8 @@
     "ckan": "Open data",
     "allEndpoints": "All endpoints",
     "explore": "Explore data",
-    "assistant": "Assistant"
+    "assistant": "Assistant",
+    "sync": "Sync"
   },
   "auth": {
     "lead": "Sign in with your organisation account to manage this platform.",
@@ -1141,7 +1142,34 @@
     "proposed": "The run opened a merge request.",
     "nothingToDo": "The run changed nothing: the source has not moved.",
     "byWebhook": "Runs when the source says so",
-    "everyInterval": "Every {interval}"
+    "everyInterval": "Every {interval}",
+    "add": "Add source",
+    "propose": "Propose the source",
+    "dialog": {
+      "title": "A new sync source",
+      "description": "Where this project copies or mirrors resources from, and what a run does with what it finds."
+    },
+    "originKind": {
+      "git": "A Git repository",
+      "bundle": "A published bundle",
+      "platformApi": "Another instance's API"
+    },
+    "field": {
+      "name": "Name",
+      "title": "Title",
+      "url": "Clone URL",
+      "ref": "Branch, tag or commit",
+      "path": "Subtree",
+      "credential": "Read-only credential",
+      "bundleUrl": "Bundle URL",
+      "baseUrl": "Instance URL",
+      "remoteProject": "Project there",
+      "interval": "Run every",
+      "mode": "Mode",
+      "conflictPolicy": "When a resource already exists",
+      "prune": "Delete what the source dropped",
+      "autoMerge": "Merge a clean run without review"
+    }
   },
   "allEndpoints": {
     "title": "All endpoints",
