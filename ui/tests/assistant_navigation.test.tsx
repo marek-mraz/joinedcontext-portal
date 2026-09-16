@@ -182,6 +182,19 @@ describe("the route rule", () => {
     expect(takePrefill("/projects/x/endpoints")).toEqual({ name: "air" });
     expect(takePrefill("/projects/x/endpoints")).toBeNull();
   });
+
+  it("hands a prefill storage refuses, too: the tab keeps it until the page takes it (T-0891)", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    try {
+      rememberPrefill("/projects/x/spaces/complete?space=bikes", { result: { space: "bikes", drafts: [] } });
+    } finally {
+      setItem.mockRestore();
+    }
+    expect(takePrefill("/projects/x/spaces/complete")).toEqual({ result: { space: "bikes", drafts: [] } });
+    expect(takePrefill("/projects/x/spaces/complete")).toBeNull();
+  });
 });
 
 describe("the assistant dock", () => {

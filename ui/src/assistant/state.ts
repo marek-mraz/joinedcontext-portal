@@ -105,9 +105,16 @@ export function rememberPrefill(route: string, prefill: Record<string, unknown>)
   window.dispatchEvent(new Event(CHANGED));
 }
 
+/**
+ * The prefill kept in this tab's memory as well: storage refuses a hand-off past its quota (a
+ * few megabytes of drafts, T-0891), and the page the route change mounts must still get it.
+ */
+let handed: { route: string; prefill: Record<string, unknown> } | null = null;
+
 /** The form values `route`'s page takes once as it mounts, left by a page that opens it. */
 export function handPrefill(route: string, prefill: Record<string, unknown>): void {
-  write(PREFILL_KEY, { route: route.split("?")[0], prefill });
+  handed = { route: route.split("?")[0], prefill };
+  write(PREFILL_KEY, handed);
 }
 
 /**
@@ -155,10 +162,11 @@ export function dismissNotice(): void {
 
 /** The prefill left for this path, taken once: a second visit starts with an empty form. */
 export function takePrefill(pathname: string): Record<string, unknown> | null {
-  const value = read(PREFILL_KEY) as { route?: unknown; prefill?: unknown } | null;
+  const value = (handed ?? read(PREFILL_KEY)) as { route?: unknown; prefill?: unknown } | null;
   if (!value || value.route !== pathname) {
     return null;
   }
+  handed = null;
   write(PREFILL_KEY, null);
   return typeof value.prefill === "object" && value.prefill !== null
     ? (value.prefill as Record<string, unknown>)

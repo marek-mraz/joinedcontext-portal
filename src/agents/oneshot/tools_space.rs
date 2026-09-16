@@ -36,7 +36,12 @@ impl Driver {
             fields.remove("propose");
         }
         match crate::ops::call(op, &caller, &self.state, &self.project, input.clone()).await {
-            Ok(output) => {
+            Ok(mut output) => {
+                // The verdicts' traces (the feed's records, megabytes) stay with the operation:
+                // the chat and the hand-off carry the drafts and each verdict's answer, which is
+                // what the page shows; a hand-off that large is refused by the browser's session
+                // storage and the page opens empty (T-0891).
+                without_traces(&mut output);
                 let space_name = output
                     .get("space")
                     .and_then(Value::as_str)
@@ -657,5 +662,44 @@ impl Driver {
                 Ok(prose)
             }
         }
+    }
+}
+
+/// Drops `trace` from every draft's verdict of a `space_complete` output (T-0891).
+fn without_traces(output: &mut Value) {
+    if let Some(drafts) = output.get_mut("drafts").and_then(Value::as_array_mut) {
+        for draft in drafts {
+            if let Some(verdict) = draft.get_mut("verdict").and_then(Value::as_object_mut) {
+                verdict.remove("trace");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_traces;
+    use serde_json::json;
+
+    #[test]
+    fn a_hand_off_keeps_each_verdict_but_not_its_trace() {
+        let mut output = json!({
+            "space": "city-bikes",
+            "drafts": [
+                { "kind": "DataSource", "verdict": { "ok": true, "findings": [], "trace": { "records": [1, 2, 3] } } },
+                { "kind": "Endpoint", "verdict": null },
+                { "kind": "Pipeline" }
+            ]
+        });
+        without_traces(&mut output);
+        assert_eq!(
+            output["drafts"][0]["verdict"],
+            json!({ "ok": true, "findings": [] })
+        );
+        assert_eq!(output["drafts"][1]["verdict"], json!(null));
+        assert!(output["drafts"][2].get("verdict").is_none());
+        let mut bare = json!({ "space": "x" });
+        without_traces(&mut bare);
+        assert_eq!(bare, json!({ "space": "x" }));
     }
 }
