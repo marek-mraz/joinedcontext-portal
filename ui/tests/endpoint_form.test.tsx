@@ -6,6 +6,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
+import { rememberPrefill } from "../src/assistant/state";
 import { App } from "../src/App";
 
 // Monaco draws on a canvas and starts a worker, neither of which exists in jsdom: the stand-in
@@ -267,6 +268,25 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
 
     expect(await within(dialog).findByText(en.endpoints.picker.nothingTicked)).toBeInTheDocument();
+  });
+
+  it("ticks the classes the assistant's proposal names, so its check is not refused (T-0895)", async () => {
+    window.history.replaceState(null, "", "/projects/banskabystrica/endpoints");
+    rememberPrefill("/projects/banskabystrica/endpoints", {
+      name: "vehicles-regional",
+      contextSpaceRef: "ovzdusie",
+      audience: "project-list",
+      allowedProjects: ["regional-transport"],
+      enabledRepresentations: ["ngsi-ld"],
+      hiddenAttributes: ["speed"],
+      entityTypes: ["Vehicle"],
+    });
+    setupTest();
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Vehicle")).toBeChecked());
+    expect(within(dialog).getByLabelText("Vehicle.speed")).toBeChecked();
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+    await waitFor(() => expect(within(dialog).queryByText(en.endpoints.picker.nothingTicked)).not.toBeInTheDocument());
   });
 
   it("class ticked with no slots is identity only and shows text", async () => {

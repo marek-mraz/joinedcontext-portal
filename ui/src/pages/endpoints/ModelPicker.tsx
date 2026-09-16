@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -32,6 +32,12 @@ export interface ModelPickerProps {
   disabled?: boolean;
   value: ModelPickerState;
   onChange: (next: ModelPickerState) => void;
+  /**
+   * The classes a hand-off named (AG-58): ticked once the model is read, when nothing is ticked
+   * yet; an empty list ticks every class. A new endpoint over a modelled space is refused
+   * without a ticked class, and the assistant's proposal must not stop there (T-0895).
+   */
+  handed?: string[];
 }
 
 const IDENTITY_SLOTS = ["id", "type"];
@@ -43,6 +49,7 @@ export function ModelPicker({
   disabled = false,
   value,
   onChange,
+  handed,
 }: ModelPickerProps): JSX.Element {
   const { t } = useTranslation();
   const [isDetached, setIsDetached] = useState(false);
@@ -125,6 +132,20 @@ export function ModelPicker({
       });
     }
   }, [matchingModel, modelVersion, value, onChange]);
+
+  const handedOnce = useRef(false);
+  useEffect(() => {
+    if (!handed || handedOnce.current || !parsedModel) return;
+    if (Object.values(value.classes).some((c) => c.ticked)) return;
+    const wanted = parsedModel.classes.filter((c) => handed.length === 0 || handed.includes(c.name));
+    if (wanted.length === 0) return;
+    handedOnce.current = true;
+    const classes = { ...value.classes };
+    for (const c of wanted) {
+      classes[c.name] = { ticked: true, slots: c.slots.filter((slot) => !IDENTITY_SLOTS.includes(slot)) };
+    }
+    onChange({ ...value, classes });
+  }, [handed, parsedModel, value, onChange]);
 
   // Available projections for this space
   const availableProjections = useMemo(() => {

@@ -249,6 +249,7 @@ pub fn render(
         "allowedProjects": listed,
         "enabledRepresentations": representations,
         "hiddenAttributes": params.hidden_attributes,
+        "entityTypes": params.entity_types,
     });
     if let Some(title) = endpoint["metadata"].get("title") {
         prefill["title"] = title.clone();
@@ -651,6 +652,12 @@ mod tests {
             json!(["maintenanceNote"])
         );
         assert_eq!(proposal.prefill["slug"], proposal.endpoint["spec"]["slug"]);
+        // The form ticks the classes the proposal names: a new endpoint over a modelled space
+        // is refused without one (T-0895).
+        assert_eq!(
+            proposal.prefill["entityTypes"],
+            json!(["BikeHireDockingStation"])
+        );
     }
 
     #[test]

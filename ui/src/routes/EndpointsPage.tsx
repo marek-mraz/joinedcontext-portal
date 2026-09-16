@@ -220,17 +220,18 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const [prefill] = useState(
     () =>
       takePrefill(window.location.pathname) as
-        | (Partial<EndpointForm> & { hiddenAttributes?: string[]; existing?: boolean })
+        | (Partial<EndpointForm> & { hiddenAttributes?: string[]; entityTypes?: string[]; existing?: boolean })
         | null,
   );
   const [editing, setEditing] = useState<EndpointForm | null>(() => {
     if (!urlDraftName && !prefill) {
       return null;
     }
-    const form: Partial<EndpointForm> & { hiddenAttributes?: string[]; existing?: boolean } = {
+    const form: Partial<EndpointForm> & { hiddenAttributes?: string[]; entityTypes?: string[]; existing?: boolean } = {
       ...prefill,
     };
     delete form.hiddenAttributes;
+    delete form.entityTypes;
     delete form.existing;
     return {
       name: "",
@@ -244,6 +245,12 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   });
   const [isNew, setIsNew] = useState(
     prefill?.existing !== true && (prefill !== null || urlDraftName !== undefined),
+  );
+  // The classes the assistant's proposal exposes; none named means every class of the model.
+  const [handedClasses] = useState(() =>
+    prefill && prefill.existing !== true
+      ? (prefill.entityTypes ?? []).filter((c): c is string => typeof c === "string")
+      : undefined,
   );
   // The manifest the form edits, from the list or from the YAML view: what it does not show
   // travels with the proposal unchanged (T-0885).
@@ -302,10 +309,11 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     // A draft the dialog loads replaces these; without one the form starts from the endpoint
     // as it is, with whatever the assistant changed on top.
     if (editing && !editing.contextSpaceRef) {
-      const changed: Partial<EndpointForm> & { hiddenAttributes?: string[]; existing?: boolean } = {
+      const changed: Partial<EndpointForm> & { hiddenAttributes?: string[]; entityTypes?: string[]; existing?: boolean } = {
         ...(prefill?.existing === true ? prefill : {}),
       };
       delete changed.hiddenAttributes;
+      delete changed.entityTypes;
       delete changed.existing;
       setEditing({ ...own, ...changed, name: own.name, slug: own.slug });
     }
@@ -1037,6 +1045,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                 </summary>
                 <div className="mt-3">
                   <ModelPicker
+                    handed={handedClasses}
                     project={project}
                     spaceName={editing.contextSpaceRef}
                     endpointName={editing.name}
