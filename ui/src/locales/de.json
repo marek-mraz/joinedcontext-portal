@@ -714,6 +714,21 @@
       "untilLabel": "Bis (optional)",
       "propose": "Vergabe vorschlagen"
     },
+    "projectRoles": {
+      "title": "Rollen",
+      "lead": "Was jede Rolle gewährt und wo sie geschrieben steht: Rollen der Organisation gelten überall, Rollen dieses Projekts nur hier.",
+      "caption": "Rollen, die in {project} gelten",
+      "empty": "Es ist noch keine Rolle definiert.",
+      "role": "Rolle",
+      "where": "Geschrieben in",
+      "grants": "Gewährt",
+      "on": "auf",
+      "new": "Neue Rolle",
+      "newTitle": "Neue Rolle",
+      "newLead": "Eine Rolle des Projekts {project}. Sie darf nur die Arten dieses Projekts nennen und nur die Verben, die Sie hier selbst halten; die Änderung genehmigt jemand anderes.",
+      "sourceLabel": "Das Rollenmanifest",
+      "propose": "Rolle vorschlagen"
+    },
     "accounts": {
       "title": "Dienstkonten",
       "empty": "Dieses Projekt hat noch kein Dienstkonto.",

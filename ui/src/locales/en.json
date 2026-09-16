@@ -714,6 +714,21 @@
       "untilLabel": "Until (optional)",
       "propose": "Propose grant"
     },
+    "projectRoles": {
+      "title": "Roles",
+      "lead": "What each role grants, and where it was written: the organization's roles apply everywhere, this project's only here.",
+      "caption": "Roles in force in {project}",
+      "empty": "No role is defined yet.",
+      "role": "Role",
+      "where": "Written in",
+      "grants": "Grants",
+      "on": "on",
+      "new": "New role",
+      "newTitle": "New role",
+      "newLead": "A role of project {project}. It may name the project's own kinds, and only the verbs you hold here yourself; the change is approved by someone else.",
+      "sourceLabel": "The role manifest",
+      "propose": "Propose the role"
+    },
     "accounts": {
       "title": "Service accounts",
       "empty": "This project has no service account yet.",

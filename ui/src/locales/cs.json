@@ -714,6 +714,21 @@
       "untilLabel": "Do (nepovinné)",
       "propose": "Navrhnout přidělení"
     },
+    "projectRoles": {
+      "title": "Role",
+      "lead": "Co která role dává a kde je zapsaná: role organizace platí všude, role tohoto projektu jen zde.",
+      "caption": "Role platné v projektu {project}",
+      "empty": "Zatím není definovaná žádná role.",
+      "role": "Role",
+      "where": "Zapsaná v",
+      "grants": "Dává",
+      "on": "na",
+      "new": "Nová role",
+      "newTitle": "Nová role",
+      "newLead": "Role projektu {project}. Může jmenovat jen druhy tohoto projektu a jen slovesa, která zde sami máte; změnu schvaluje někdo jiný.",
+      "sourceLabel": "Manifest role",
+      "propose": "Navrhnout roli"
+    },
     "accounts": {
       "title": "Servisní účty",
       "empty": "Tento projekt zatím nemá servisní účet.",

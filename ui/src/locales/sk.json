@@ -714,6 +714,21 @@
       "untilLabel": "Do (nepovinné)",
       "propose": "Navrhnúť pridelenie"
     },
+    "projectRoles": {
+      "title": "Role",
+      "lead": "Čo ktorá rola dáva a kde je zapísaná: role organizácie platia všade, role tohto projektu iba tu.",
+      "caption": "Role platné v projekte {project}",
+      "empty": "Zatiaľ nie je definovaná žiadna rola.",
+      "role": "Rola",
+      "where": "Zapísaná v",
+      "grants": "Dáva",
+      "on": "na",
+      "new": "Nová rola",
+      "newTitle": "Nová rola",
+      "newLead": "Rola projektu {project}. Môže menovať iba druhy tohto projektu a iba slovesá, ktoré tu sami máte; zmenu schvaľuje niekto iný.",
+      "sourceLabel": "Manifest roly",
+      "propose": "Navrhnúť rolu"
+    },
     "accounts": {
       "title": "Servisné účty",
       "empty": "Tento projekt zatiaľ nemá servisný účet.",
