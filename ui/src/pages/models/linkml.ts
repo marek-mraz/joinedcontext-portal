@@ -110,6 +110,8 @@ export interface LinkmlSlot {
   pattern?: string;
   minimum_value?: number;
   maximum_value?: number;
+  /** The profiles this slot belongs to, as LinkML `subsets`: which of them a projection takes. */
+  subsets?: string[];
 }
 
 export interface LinkmlClass {
@@ -118,6 +120,10 @@ export interface LinkmlClass {
   description?: string;
   title?: Record<string, string>;
   slots: string[];
+  /** The class this one specialises, as LinkML `is_a` (DM-13). */
+  is_a?: string;
+  /** The classes this one mixes in, as LinkML `mixins`. */
+  mixins?: string[];
 }
 
 export interface LinkmlEnumValue {
@@ -141,6 +147,8 @@ export interface LinkmlModel {
   classes: LinkmlClass[];
   slots: LinkmlSlot[];
   enums: LinkmlEnum[];
+  /** The schemas this model imports, as LinkML `imports`. */
+  imports?: string[];
 }
 
 export interface Diagnostic {
@@ -233,11 +241,21 @@ function slotOf(name: string, raw: Record<string, unknown>): LinkmlSlot {
     upstream: text(annotated[UPSTREAM_ANNOTATION]),
     pattern: text(raw.pattern),
     minimum_value: typeof raw.minimum_value === "number" ? raw.minimum_value : undefined,
+    subsets: names(raw.subsets),
     maximum_value: typeof raw.maximum_value === "number" ? raw.maximum_value : undefined,
   };
 }
 
 /** The structured projection of a source that parses; `EMPTY_MODEL` for one that does not. */
+/** A list of names as the metamodel writes them: a YAML sequence of strings, or nothing. */
+function names(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const found = (value as unknown[]).filter((one): one is string => typeof one === "string");
+  return found.length > 0 ? found : undefined;
+}
+
 export function parseModel(source: string): LinkmlModel {
   const document = parseDocument(source);
   if (document.errors.length > 0) {
@@ -265,6 +283,10 @@ export function parseModel(source: string): LinkmlModel {
       description: text(raw.description),
       title: languageMap(raw.title),
       slots,
+      // The hierarchy the model declares (DM-13): read so the editor, the preview and the
+      // breaking-change detector see what the YAML says instead of only the flat class list.
+      is_a: text(raw.is_a),
+      mixins: names(raw.mixins),
     };
   });
 
@@ -296,6 +318,7 @@ export function parseModel(source: string): LinkmlModel {
     classes,
     slots,
     enums,
+    imports: names(root.imports),
   };
 }
 

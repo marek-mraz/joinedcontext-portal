@@ -61,6 +61,21 @@ pub enum Operation {
         field: String,
         value: Value,
     },
+    /// The class a class specialises, as LinkML `is_a`; an empty value removes it (DM-13).
+    SetClassParent {
+        name: String,
+        parent: String,
+    },
+    /// The classes a class mixes in; an empty list removes the key.
+    SetClassMixins {
+        name: String,
+        mixins: Vec<String>,
+    },
+    /// The profiles a slot belongs to; an empty list removes the key.
+    SetSlotSubsets {
+        name: String,
+        subsets: Vec<String>,
+    },
 }
 
 /// LinkML element names: what the generators accept as a class or slot name.
@@ -345,6 +360,58 @@ fn mutate(model: &mut Value, operation: &Operation) -> Result<(), String> {
             }
             set_slots(owner, slots.into_iter().filter(|s| s != slot).collect());
         }
+        Operation::SetClassParent { name, parent } => {
+            existing(model, "classes", name, "class")?;
+            let parent = parent.trim();
+            if !parent.is_empty() {
+                if parent == name {
+                    return Err(format!("class '{name}' cannot specialise itself"));
+                }
+                existing(model, "classes", parent, "class")?;
+            }
+            set_class_field(
+                model,
+                name,
+                "is_a",
+                (!parent.is_empty()).then(|| json!(parent)),
+            );
+        }
+        Operation::SetClassMixins { name, mixins } => {
+            existing(model, "classes", name, "class")?;
+            let named = named_list(mixins);
+            for mixin in &named {
+                if mixin == name {
+                    return Err(format!("class '{name}' cannot mix itself in"));
+                }
+                existing(model, "classes", mixin, "class")?;
+            }
+            set_class_field(
+                model,
+                name,
+                "mixins",
+                (!named.is_empty()).then(|| json!(named)),
+            );
+        }
+        Operation::SetSlotSubsets { name, subsets } => {
+            existing(model, "slots", name, "slot")?;
+            let named = named_list(subsets);
+            for subset in &named {
+                if !NAME.is_match(subset) {
+                    return Err(format!("'{subset}' is not a valid subset name"));
+                }
+            }
+            let slot = section_mut(model, "slots")
+                .get_mut(name)
+                .expect("checked above");
+            if !slot.is_object() {
+                *slot = json!({});
+            }
+            let fields = slot.as_object_mut().expect("an object");
+            match named.is_empty() {
+                true => fields.remove("subsets"),
+                false => fields.insert("subsets".to_owned(), json!(named)),
+            };
+        }
         Operation::SetSlot { name, field, value } => {
             existing(model, "slots", name, "slot")?;
             let value = set_value(model, name, field, value)?;
@@ -365,6 +432,30 @@ fn mutate(model: &mut Value, operation: &Operation) -> Result<(), String> {
 }
 
 /// The value a `setSlot` writes, `None` when it clears the field, as the editor's `setOrDelete`.
+/// The names of a list as the metamodel writes them: trimmed, and the empty ones dropped.
+fn named_list(names: &[String]) -> Vec<String> {
+    names
+        .iter()
+        .map(|one| one.trim().to_owned())
+        .filter(|one| !one.is_empty())
+        .collect()
+}
+
+/// Sets one field of a class, or removes it when there is nothing to set.
+fn set_class_field(model: &mut Value, name: &str, field: &str, value: Option<Value>) {
+    let class = section_mut(model, "classes")
+        .get_mut(name)
+        .expect("checked by the caller");
+    if !class.is_object() {
+        *class = json!({});
+    }
+    let fields = class.as_object_mut().expect("an object");
+    match value {
+        Some(value) => fields.insert(field.to_owned(), value),
+        None => fields.remove(field),
+    };
+}
+
 fn set_value(
     model: &Value,
     name: &str,
@@ -595,5 +686,56 @@ mod tests {
             "BikeHireDockingStation: name, availableBikeNumber, status; Entity: ; Vehicle: name, station"
         );
         assert_eq!(outline(&json!({})), "the model has no class");
+    }
+
+    /// T-1085, DM-13: the assistant edits the hierarchy the model declares, not only its slots.
+    /// A class that specialises nothing this model has, or itself, is refused rather than
+    /// written, so the model never names a parent the generators cannot resolve.
+    #[test]
+    fn a_class_hierarchy_is_set_and_cleared_through_the_operations() {
+        let changed = apply(
+            &bikes(),
+            &ops(json!([
+                { "op": "setClassParent", "name": "Vehicle", "parent": "Entity" },
+                { "op": "setClassMixins", "name": "Vehicle", "mixins": ["Entity"] },
+                { "op": "setSlotSubsets", "name": "name", "subsets": ["public", "steward"] }
+            ])),
+        )
+        .expect("the hierarchy lands");
+        assert_eq!(changed["classes"]["Vehicle"]["is_a"], json!("Entity"));
+        assert_eq!(changed["classes"]["Vehicle"]["mixins"], json!(["Entity"]));
+        assert_eq!(
+            changed["slots"]["name"]["subsets"],
+            json!(["public", "steward"])
+        );
+
+        // Emptied, the keys go rather than staying behind as null or an empty list.
+        let cleared = apply(
+            &changed,
+            &ops(json!([
+                { "op": "setClassParent", "name": "Vehicle", "parent": "  " },
+                { "op": "setClassMixins", "name": "Vehicle", "mixins": [] },
+                { "op": "setSlotSubsets", "name": "name", "subsets": [] }
+            ])),
+        )
+        .expect("the hierarchy goes");
+        assert!(cleared["classes"]["Vehicle"].get("is_a").is_none());
+        assert!(cleared["classes"]["Vehicle"].get("mixins").is_none());
+        assert!(cleared["slots"]["name"].get("subsets").is_none());
+    }
+
+    #[test]
+    fn a_hierarchy_that_names_nothing_or_names_itself_is_refused() {
+        for operation in [
+            json!({ "op": "setClassParent", "name": "Vehicle", "parent": "Nowhere" }),
+            json!({ "op": "setClassParent", "name": "Vehicle", "parent": "Vehicle" }),
+            json!({ "op": "setClassMixins", "name": "Vehicle", "mixins": ["Vehicle"] }),
+            json!({ "op": "setClassMixins", "name": "Vehicle", "mixins": ["Nowhere"] }),
+            json!({ "op": "setClassParent", "name": "Nowhere", "parent": "Entity" }),
+            json!({ "op": "setSlotSubsets", "name": "name", "subsets": ["not a name"] }),
+        ] {
+            let refused = apply(&bikes(), &ops(json!([operation.clone()])));
+            assert!(refused.is_err(), "{operation} was accepted");
+        }
     }
 }

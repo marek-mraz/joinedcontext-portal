@@ -34,7 +34,11 @@ export type Operation =
   | { op: "removeClass"; name: string }
   /** Renames the class in every `is_a` and every slot `range` that names it. */
   | { op: "renameClass"; name: string; to: string }
-  | { op: "setClass"; name: string; field: "class_uri" | "description"; value: string }
+  | { op: "setClass"; name: string; field: "class_uri" | "description" | "is_a"; value: string }
+  /** The classes a class mixes in; an empty list removes the key (DM-13). */
+  | { op: "setClassMixins"; name: string; mixins: string[] }
+  /** The profiles a slot belongs to; an empty list removes the key. */
+  | { op: "setSlotSubsets"; name: string; subsets: string[] }
   | {
       op: "addSlot";
       name: string;
@@ -269,13 +273,52 @@ function mutate(document: Document, model: LinkmlModel, operation: Operation): v
     }
     case "setClass":
       classOf(model, operation.name);
+      // A class can only specialise one this model declares, or the hierarchy names nothing.
+      if (operation.field === "is_a" && operation.value.trim() !== "") {
+        const parent = operation.value.trim();
+        if (parent === operation.name) {
+          refuse(`class '${operation.name}' cannot specialise itself`);
+        }
+        classOf(model, parent);
+      }
       // An IRI never has whitespace; a description is typed, and trimming would eat every space.
       setOrDelete(
         document,
         ["classes", operation.name, operation.field],
-        operation.field === "class_uri" ? operation.value.trim() : operation.value,
+        operation.field === "description" ? operation.value : operation.value.trim(),
       );
       return;
+    case "setClassMixins": {
+      classOf(model, operation.name);
+      const mixins = operation.mixins.map((one) => one.trim()).filter((one) => one !== "");
+      for (const mixin of mixins) {
+        if (mixin === operation.name) {
+          refuse(`class '${operation.name}' cannot mix itself in`);
+        }
+        classOf(model, mixin);
+      }
+      // `setOrDelete` reads "" and undefined as empty, not `[]`, so an emptied list is passed
+      // as undefined and the key goes rather than staying behind as `mixins: []`.
+      setOrDelete(
+        document,
+        ["classes", operation.name, "mixins"],
+        mixins.length > 0 ? mixins : undefined,
+      );
+      return;
+    }
+    case "setSlotSubsets": {
+      slotOf(model, operation.name);
+      const subsets = operation.subsets.map((one) => one.trim()).filter((one) => one !== "");
+      for (const subset of subsets) {
+        requireName(subset, "subset");
+      }
+      setOrDelete(
+        document,
+        ["slots", operation.name, "subsets"],
+        subsets.length > 0 ? subsets : undefined,
+      );
+      return;
+    }
     case "addSlot": {
       requireName(operation.name, "slot");
       if (model.slots.some((slot) => slot.name === operation.name)) {

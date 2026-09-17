@@ -212,3 +212,61 @@ describe("a name that could not survive a URN", () => {
     }
   });
 });
+
+/**
+ * T-1085, DM-13: the metamodel the editor reads and writes — a class's `is_a` and `mixins`, a
+ * slot's `subsets`, the model's `imports`. They were parsed by nobody, so the visual editor
+ * could not show a hierarchy the YAML plainly declared.
+ */
+describe("the hierarchy a model declares", () => {
+  const WITH_HIERARCHY = `${SOURCE}
+imports:
+  - linkml:types
+`;
+
+  it("reads is_a, mixins, subsets and imports off the source", () => {
+    const withParent = applyOperations(WITH_HIERARCHY, [
+      { op: "addClass", name: "Station" } as Operation,
+      { op: "setClass", name: "AirQualityObserved", field: "is_a", value: "Station" } as Operation,
+      { op: "setClassMixins", name: "AirQualityObserved", mixins: ["Station"] } as Operation,
+      { op: "setSlotSubsets", name: "pm10", subsets: ["public", "steward"] } as Operation,
+    ]);
+    expect(withParent.refused).toEqual([]);
+
+    const model = parseModel(withParent.source);
+    const observed = model.classes.find((klass) => klass.name === "AirQualityObserved");
+    expect(observed?.is_a).toBe("Station");
+    expect(observed?.mixins).toEqual(["Station"]);
+    expect(model.slots.find((slot) => slot.name === "pm10")?.subsets).toEqual([
+      "public",
+      "steward",
+    ]);
+    expect(model.imports).toEqual(["linkml:types"]);
+  });
+
+  it("refuses a hierarchy that names nothing, or names itself", () => {
+    for (const operation of [
+      { op: "setClass", name: "AirQualityObserved", field: "is_a", value: "Nowhere" },
+      { op: "setClass", name: "AirQualityObserved", field: "is_a", value: "AirQualityObserved" },
+      { op: "setClassMixins", name: "AirQualityObserved", mixins: ["AirQualityObserved"] },
+      { op: "setClassMixins", name: "AirQualityObserved", mixins: ["Nowhere"] },
+    ] as Operation[]) {
+      const { refused } = applyOperations(SOURCE, [operation]);
+      expect(refused, JSON.stringify(operation)).toHaveLength(1);
+    }
+  });
+
+  it("empties a list by removing the key, never by leaving it behind", () => {
+    const set = applyOperations(SOURCE, [
+      { op: "addClass", name: "Station" } as Operation,
+      { op: "setClassMixins", name: "AirQualityObserved", mixins: ["Station"] } as Operation,
+    ]);
+    const cleared = applyOperations(set.source, [
+      { op: "setClassMixins", name: "AirQualityObserved", mixins: [] } as Operation,
+    ]);
+    expect(cleared.refused).toEqual([]);
+    expect(cleared.source).not.toContain("mixins");
+    expect(parseModel(cleared.source).classes.find((k) => k.name === "AirQualityObserved")?.mixins).
+      toBeUndefined();
+  });
+});
