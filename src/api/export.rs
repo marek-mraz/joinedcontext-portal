@@ -723,11 +723,16 @@ pub async fn export(
     };
 
     let (files, unreadable) = read_project(gitea, &project, &revision).await?;
-    // A manifest of a kind the caller may not read is counted, never named (MF-18, R20).
+    // A manifest the caller may not read is counted, never named (MF-18, R20). The question is
+    // the manifest's, not the kind's: a grant bound to one context space reads that space's
+    // manifests and no other, which is what the resource lists already ask (PF-60, T-0986).
     let (files, refused): (Vec<Exported>, Vec<Exported>) = files.into_iter().partition(|file| {
-        file.manifest
-            .as_ref()
-            .is_none_or(|envelope| effective.may_read(&envelope.kind))
+        file.manifest.as_ref().is_none_or(|envelope| {
+            effective.may_read_manifest(
+                &envelope.kind,
+                &serde_json::to_value(envelope).unwrap_or(Value::Null),
+            )
+        })
     });
     let omitted = unreadable + refused.len();
     let kinds = kind_filter(query.kinds.as_deref());
