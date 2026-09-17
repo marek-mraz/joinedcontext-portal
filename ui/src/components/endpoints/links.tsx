@@ -8,7 +8,10 @@ import { Icon } from "../ui";
  * out one link per shape without opening the index.
  */
 export const REPRESENTATION_PATHS: Record<string, string> = {
-  "ngsi-ld": "/ngsi-ld/v1/entities?limit=20",
+  // A read names a type: a query with no selector is 400 BadRequestData (GW33, CIM 009
+  // 5.7.2.4), and the endpoint's own type list is the conformant way in — every type it
+  // serves, each one a query away. The grants decide which of them answer.
+  "ngsi-ld": "/ngsi-ld/v1/types",
   mcp: "/mcp",
   geojson: "/file.geojson",
   csv: "/file.csv",

@@ -226,7 +226,7 @@ describe("space inside view", () => {
     expect(within(endpointRow).getByText(en.endpoints.audience.public)).toBeInTheDocument();
     expect(within(endpointRow).getByRole("link", { name: "ngsi-ld" })).toHaveAttribute(
       "href",
-      `${window.location.origin}/api/endpoint/${SLUG}/ngsi-ld/v1/entities?limit=20`,
+      `${window.location.origin}/api/endpoint/${SLUG}/ngsi-ld/v1/types`,
     );
     expect(
       within(endpointRow).getByRole("link", { name: en.spaces.inside.catalogueLink }),

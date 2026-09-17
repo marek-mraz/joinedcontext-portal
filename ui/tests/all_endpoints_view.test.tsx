@@ -97,7 +97,7 @@ describe("all endpoints view", () => {
     expect(within(bb).getByText("Public")).toBeInTheDocument();
     expect(within(bb).getByRole("link", { name: "ngsi-ld" })).toHaveAttribute(
       "href",
-      `${window.location.origin}/api/endpoint/k7m2qz4tv6xh3n5jb2ryd3wcfa/ngsi-ld/v1/entities?limit=20`,
+      `${window.location.origin}/api/endpoint/k7m2qz4tv6xh3n5jb2ryd3wcfa/ngsi-ld/v1/types`,
     );
     expect(within(bb).getByRole("link", { name: "geojson" })).toHaveAttribute(
       "href",

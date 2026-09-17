@@ -226,7 +226,7 @@ describe("endpoint sharing", () => {
     );
     expect(within(bikes).getByRole("link", { name: "ngsi-ld" })).toHaveAttribute(
       "href",
-      `${window.location.origin}/api/endpoint/${BIKES_SLUG}/ngsi-ld/v1/entities?limit=20`,
+      `${window.location.origin}/api/endpoint/${BIKES_SLUG}/ngsi-ld/v1/types`,
     );
   });
 

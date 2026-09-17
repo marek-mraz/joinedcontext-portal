@@ -77,15 +77,21 @@ function text(value: unknown): string {
 export function EndpointPreview({ slug }: { slug: string }): JSX.Element {
   const { t } = useTranslation();
   const access = useAccess(slug);
+  // The samples wait for the grant, because a read names a type (GW33): a query with no
+  // selector is 400 BadRequestData, and the first type the grant allows is the one to show.
+  const granted = accessWords(access.data).types;
   const samples = useQuery({
-    queryKey: ["generator-endpoint-samples", slug],
-    enabled: slug !== "",
+    queryKey: ["generator-endpoint-samples", slug, granted[0] ?? ""],
+    enabled: slug !== "" && granted.length > 0,
     retry: false,
     // Nothing of one person's data outlives their page, as on the explore page (R17).
     gcTime: 0,
     queryFn: async () =>
       (await fetchJson(
-        endpointUrl(slug, `/ngsi-ld/v1/entities?limit=${SAMPLE_LIMIT}&options=keyValues`),
+        endpointUrl(
+          slug,
+          `/ngsi-ld/v1/entities?type=${encodeURIComponent(granted[0])}&limit=${SAMPLE_LIMIT}&options=keyValues`,
+        ),
       )) as Record<string, unknown>[],
   });
 
@@ -131,13 +137,15 @@ export function EndpointPreview({ slug }: { slug: string }): JSX.Element {
             : t("apps.generate.preview.samples")}
         </summary>
         <div className="mt-1.5">
-          {samples.isPending && (
+          {/* No granted type means nothing to ask for: a read names a type (GW33), so the
+              endpoint is answered as empty rather than left asking for ever. */}
+          {granted.length > 0 && samples.isPending && (
             <p role="status" className="text-xs text-muted">
               {t("apps.generate.preview.loading")}
             </p>
           )}
           {samples.isError && <p className="text-xs text-muted">{t("apps.generate.preview.samplesUnavailable")}</p>}
-          {samples.isSuccess && rows.length === 0 && (
+          {(granted.length === 0 || samples.isSuccess) && rows.length === 0 && (
             <p className="text-xs text-muted">{t("apps.generate.preview.samplesEmpty")}</p>
           )}
           {rows.length > 0 && (

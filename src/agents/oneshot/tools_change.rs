@@ -918,12 +918,22 @@ impl Driver {
             ));
         };
         let query = &source["query"];
-        let mut url = format!(
-            "{}/ngsi-ld/v1/entities?limit=100",
-            endpoints::data_base(&self.proxy_base, &chosen, index)
-        );
+        let base = endpoints::data_base(&self.proxy_base, &chosen, index);
+        // A read names a type (GW33): a query with no selector is 400 BadRequestData, so a
+        // source that names none is tested on the first type the endpoint lists.
+        let named = query["type"].as_str().map(str::to_owned);
+        let chosen_type = match named {
+            Some(one) => Some(one),
+            None => first_served_type(&self.read_text(&format!("{base}/ngsi-ld/v1/types")).await?),
+        };
+        let Some(chosen_type) = chosen_type else {
+            return Err(format!(
+                "its endpoint '{endpoint}' names no type to read, so there is no page to test on"
+            ));
+        };
+        let mut url = format!("{base}/ngsi-ld/v1/entities?limit=100");
         for (parameter, value) in [
-            ("type", query["type"].as_str().map(str::to_owned)),
+            ("type", Some(chosen_type)),
             ("q", query["q"].as_str().map(str::to_owned)),
             (
                 "attrs",
@@ -1114,5 +1124,55 @@ impl Driver {
             .fold(prompt.to_owned(), |text, (heading, _)| {
                 without_section(&text, heading)
             })
+    }
+}
+
+/// The first type an endpoint's `/ngsi-ld/v1/types` answer lists, for a source that names none.
+///
+/// The answer is an `EntityTypeList`; anything else (an error page, an empty list) yields
+/// `None`, and the caller says so rather than sending a query the gateway must refuse.
+fn first_served_type(page: &str) -> Option<String> {
+    let parsed: Value = serde_json::from_str(page).ok()?;
+    parsed["typeList"]
+        .as_array()?
+        .iter()
+        .find_map(Value::as_str)
+        .map(str::to_owned)
+}
+
+#[cfg(test)]
+mod type_list_tests {
+    use super::first_served_type;
+
+    /// GW33: a source that names no type is tested on the first type the endpoint lists, so the
+    /// Portal never sends the selector-less query the gateway must refuse (T-0780).
+    #[test]
+    fn reads_the_first_type_an_endpoint_serves() {
+        let page = r#"{"id":"urn:ngsi-ld:EntityTypeList:1","type":"EntityTypeList",
+            "typeList":["AirQualityObserved","Device"]}"#;
+        assert_eq!(
+            first_served_type(page).as_deref(),
+            Some("AirQualityObserved")
+        );
+    }
+
+    #[test]
+    fn an_endpoint_that_serves_nothing_names_no_type() {
+        for page in [
+            r#"{"id":"urn:ngsi-ld:EntityTypeList:1","type":"EntityTypeList","typeList":[]}"#,
+            r#"{"type":"EntityTypeList"}"#,
+            r#"{"title":"Forbidden","status":403}"#,
+            "not json at all",
+            "",
+        ] {
+            assert_eq!(first_served_type(page), None, "{page}");
+        }
+    }
+
+    /// A list whose first entry is not a string is skipped rather than read as one.
+    #[test]
+    fn a_malformed_entry_does_not_become_a_type() {
+        let page = r#"{"typeList":[{"id":"nope"},"Device"]}"#;
+        assert_eq!(first_served_type(page).as_deref(), Some("Device"));
     }
 }
