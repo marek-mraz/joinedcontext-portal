@@ -216,3 +216,59 @@ async fn a_store_that_is_not_there_is_a_transport_error_and_not_a_panic() {
         .expect_err("nothing answers");
     assert!(error.to_string().contains("add-canned-policy"), "{error}");
 }
+
+/// T-0925, PF-32: the reader travels to the workload that serves, the writer never does.
+#[test]
+fn the_secret_carries_the_reader_and_nothing_that_can_write() {
+    let reader = Credential::derive(ROOT_SECRET, "hel", Role::Reader);
+    let writer = Credential::derive(ROOT_SECRET, "hel", Role::Writer);
+    let secret = joinedcontext_portal::artifact_store::reader_secret("dev", "hel", &reader);
+
+    assert_eq!(secret["kind"], "Secret");
+    assert_eq!(secret["metadata"]["name"], "artifact-store-reader-hel");
+    assert_eq!(secret["metadata"]["namespace"], "dev");
+    assert_eq!(secret["stringData"]["ACCESS_KEY_ID"], "jc-hel-reader");
+    assert_eq!(secret["stringData"]["ACCESS_SECRET_KEY"], reader.secret_key);
+
+    let serialised = secret.to_string();
+    assert!(
+        !serialised.contains(&writer.secret_key),
+        "the writer's key is in the Secret the serving pod reads"
+    );
+    assert!(
+        !serialised.contains(ROOT_SECRET),
+        "the root secret is in the Secret the serving pod reads"
+    );
+}
+
+/// The credential is derived, so a rotation of the root secret rewrites every organization's
+/// Secret on the next sync and two organizations never share one.
+#[test]
+fn a_rotated_root_rewrites_the_secret_and_organizations_do_not_share_one() {
+    let before = joinedcontext_portal::artifact_store::reader_secret(
+        "dev",
+        "hel",
+        &Credential::derive(ROOT_SECRET, "hel", Role::Reader),
+    );
+    let after = joinedcontext_portal::artifact_store::reader_secret(
+        "dev",
+        "hel",
+        &Credential::derive("a-rotated-root-secret", "hel", Role::Reader),
+    );
+    let other = joinedcontext_portal::artifact_store::reader_secret(
+        "dev",
+        "bb",
+        &Credential::derive(ROOT_SECRET, "bb", Role::Reader),
+    );
+
+    assert_ne!(
+        before["stringData"]["ACCESS_SECRET_KEY"],
+        after["stringData"]["ACCESS_SECRET_KEY"]
+    );
+    assert_eq!(before["metadata"]["name"], after["metadata"]["name"]);
+    assert_ne!(
+        before["stringData"]["ACCESS_SECRET_KEY"],
+        other["stringData"]["ACCESS_SECRET_KEY"]
+    );
+    assert_eq!(other["metadata"]["name"], "artifact-store-reader-bb");
+}

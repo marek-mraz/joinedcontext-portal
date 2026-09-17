@@ -415,6 +415,44 @@ fn encode(raw: &str) -> String {
         .collect()
 }
 
+/// The Secret a workload of one organization reads its artifact-store credential from (T-0925).
+///
+/// The reader's pair and no other: the writer publishes, and a workload that serves artifacts has
+/// no business holding a key that can replace one (PF-32). The values are `stringData`, so the
+/// API server encodes them and the Portal never writes a base64 blob it would also have to read
+/// back; the object is applied with the same field manager as every other object the reconciler
+/// owns, so an operator's edit is corrected on the next sync (CC-18).
+///
+/// Derived, so this is a pure function of the root secret and the organization: re-running it
+/// writes the same bytes, and rotating the root secret rewrites every organization's Secret on
+/// the next sync without a migration.
+pub fn reader_secret(namespace: &str, org: &str, reader: &Credential) -> serde_json::Value {
+    serde_json::json!({
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": reader_secret_name(org),
+            "namespace": namespace,
+            "labels": {
+                "app.kubernetes.io/managed-by": "joinedcontext-portal",
+                "joinedcontext.com/organization": org,
+                "joinedcontext.com/artifact-store-role": Role::Reader.as_str(),
+            },
+        },
+        "type": "Opaque",
+        "stringData": {
+            "ACCESS_KEY_ID": reader.access_key,
+            "ACCESS_SECRET_KEY": reader.secret_key,
+        },
+    })
+}
+
+/// The name of that Secret. `artifactStore.credentialsSecretRef` of the workload's values names
+/// the same string, which is the whole coupling between the two (Architecture/17 §4).
+pub fn reader_secret_name(org: &str) -> String {
+    format!("artifact-store-reader-{org}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

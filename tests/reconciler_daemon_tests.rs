@@ -376,3 +376,84 @@ async fn a_blueprint_reaches_the_mirror_for_the_flow_gallery() {
         "the gallery reads blueprints from the mirror like any other resource"
     );
 }
+
+/// T-0925, PF-32: the reader credential the run mints reaches the namespace that serves.
+///
+/// Both halves are mocked, because both are the point: the store's admin API accepts the three
+/// calls that make the pair exist, and the API server receives the Secret the serving workloads
+/// read. The Secret carries the reader and nothing that could write an artifact.
+#[tokio::test]
+async fn the_run_hands_the_reader_credential_to_the_namespace_that_serves() {
+    const ROOT: &str = "the-root-secret-nobody-else-holds";
+    let organization = "apiVersion: joinedcontext.com/v1alpha1\nkind: Organization\nmetadata:\n  name: hel\n  namespace: org\nspec:\n  domain: hel.fi\n  locales: [en]\n  defaultLocale: en\n";
+    let space = "apiVersion: joinedcontext.com/v1alpha1\nkind: ContextSpace\nmetadata:\n  name: mobility\n  namespace: ovzdusie\nspec:\n  isSandbox: true\n";
+    let server = forge(&[
+        ("org.yaml", organization),
+        ("projects/ovzdusie/spaces/mobility/space.yaml", space),
+    ])
+    .await;
+
+    let store_api = MockServer::start().await;
+    for route in [
+        "/rustfs/admin/v3/add-canned-policy",
+        "/rustfs/admin/v3/add-user",
+        "/rustfs/admin/v3/set-user-or-group-policy",
+    ] {
+        Mock::given(method("PUT"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&store_api)
+            .await;
+    }
+    let store = joinedcontext_portal::artifact_store::Client::new(
+        joinedcontext_portal::artifact_store::Settings {
+            endpoint: store_api.uri(),
+            bucket: "jc-artifacts".to_owned(),
+            region: "us-east-1".to_owned(),
+            root_access_key: "jc-root".to_owned(),
+            root_secret_key: ROOT.to_owned(),
+        },
+    )
+    .expect("a store client");
+
+    let kube_api = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path(
+            "/api/v1/namespaces/dev/secrets/artifact-store-reader-hel",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"kind": "Secret"})))
+        .mount(&kube_api)
+        .await;
+    let kube = joinedcontext_portal::apps::kube::KubeClient::with_token(&kube_api.uri(), "token")
+        .expect("a kube client");
+
+    let mirror = Arc::new(Mirror::new());
+    let syncer = Syncer::new(client(&server), Arc::clone(&mirror))
+        .with_artifact_store(Arc::new(store))
+        .with_credential_secrets(Arc::new(kube), "dev");
+    syncer.sync_once().await.expect("the run loads");
+
+    let written = kube_api
+        .received_requests()
+        .await
+        .expect("the API server was asked")
+        .into_iter()
+        .find(|r| r.url.path().ends_with("/secrets/artifact-store-reader-hel"))
+        .expect("the reader Secret was applied");
+    let body: serde_json::Value = serde_json::from_slice(&written.body).expect("a Secret");
+    let reader = joinedcontext_portal::artifact_store::Credential::derive(
+        ROOT,
+        "hel",
+        joinedcontext_portal::artifact_store::Role::Reader,
+    );
+    let writer = joinedcontext_portal::artifact_store::Credential::derive(
+        ROOT,
+        "hel",
+        joinedcontext_portal::artifact_store::Role::Writer,
+    );
+    assert_eq!(body["stringData"]["ACCESS_KEY_ID"], "jc-hel-reader");
+    assert_eq!(body["stringData"]["ACCESS_SECRET_KEY"], reader.secret_key);
+    let serialised = body.to_string();
+    assert!(!serialised.contains(&writer.secret_key), "the writer's key");
+    assert!(!serialised.contains(ROOT), "the root secret");
+}

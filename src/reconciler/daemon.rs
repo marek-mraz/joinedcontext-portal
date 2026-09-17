@@ -101,6 +101,10 @@ pub struct Syncer {
     /// The artifact store's admin API, held with the root credential. `None` leaves every
     /// organization without a scoped credential and the store untouched (PF-32).
     artifact_store: Option<Arc<crate::artifact_store::Client>>,
+    /// Where an organization's reader credential is handed to the workloads that serve
+    /// artifacts: the cluster to write the Secret into, and the namespace it belongs in
+    /// (T-0925). `None` mints the credentials and hands them to nobody.
+    credentials: Option<(Arc<crate::apps::kube::KubeClient>, String)>,
 }
 
 impl Syncer {
@@ -120,6 +124,7 @@ impl Syncer {
             activity: None,
             apps_dir: None,
             artifact_store: None,
+            credentials: None,
         }
     }
 
@@ -128,6 +133,21 @@ impl Syncer {
     /// outside a cluster does.
     pub fn with_artifact_store(mut self, store: Arc<crate::artifact_store::Client>) -> Self {
         self.artifact_store = Some(store);
+        self
+    }
+
+    /// Makes each run hand every organization's reader credential to the workloads that serve
+    /// its artifacts, as a Secret in `namespace` (T-0925, PF-32).
+    ///
+    /// Only the reader travels. The writer stays derived and unwritten: the one process that
+    /// holds the root secret can mint it whenever `jcctl` or a build lane asks, and a key that
+    /// can replace an artifact has no reason to sit in a namespace a serving pod reads.
+    pub fn with_credential_secrets(
+        mut self,
+        kube: Arc<crate::apps::kube::KubeClient>,
+        namespace: impl Into<String>,
+    ) -> Self {
+        self.credentials = Some((kube, namespace.into()));
         self
     }
 
@@ -652,6 +672,7 @@ impl Syncer {
                             issued = credentials.len(),
                             "artifact store credentials are in place"
                         );
+                        self.hand_over_reader(&name, store.as_ref()).await;
                     }
                     Err(err) => {
                         tracing::warn!(organization = %name, error = %err, "the artifact store issued no credential");
@@ -685,6 +706,32 @@ impl Syncer {
         }
 
         Ok((loaded, revision))
+    }
+
+    /// Writes one organization's reader credential into the namespace its serving workloads
+    /// read, so a credential the reconciler minted actually reaches them (T-0925, PF-32).
+    ///
+    /// A cluster that refuses the write costs the run a line in the log and nothing else, the
+    /// way one app's failure is not the run's: the credential is derived, so the next sync
+    /// writes exactly the same bytes and the one after that too.
+    async fn hand_over_reader(&self, organization: &str, store: &crate::artifact_store::Client) {
+        let Some((kube, namespace)) = self.credentials.as_ref() else {
+            return;
+        };
+        let reader = store.credential(organization, crate::artifact_store::Role::Reader);
+        let secret = crate::artifact_store::reader_secret(namespace, organization, &reader);
+        match kube.apply(&secret).await {
+            Ok(()) => tracing::info!(
+                organization = %organization,
+                secret = %crate::artifact_store::reader_secret_name(organization),
+                "the artifact store reader is in the namespace that serves"
+            ),
+            Err(err) => tracing::warn!(
+                organization = %organization,
+                error = %err,
+                "the reader credential was minted and not handed over"
+            ),
+        }
     }
 
     /// Writes every managed roles file whose content differs from the branch (T-0527).

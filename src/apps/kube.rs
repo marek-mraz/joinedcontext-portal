@@ -129,6 +129,23 @@ impl KubeClient {
         Self::from_mount(Path::new(SERVICE_ACCOUNT_DIR), IN_CLUSTER_API)
     }
 
+    /// The namespace this pod runs in, as the kubelet writes it beside the token.
+    ///
+    /// The Portal writes a Secret into its own namespace and nowhere else, so the namespace is
+    /// read from the mount rather than configured: a variable could name a namespace this pod
+    /// has no rights in, and the answer would be a refusal nobody expected.
+    pub fn own_namespace() -> Option<String> {
+        Self::namespace_of(Path::new(SERVICE_ACCOUNT_DIR))
+    }
+
+    /// [`KubeClient::own_namespace`] against a mount named explicitly, for tests.
+    pub fn namespace_of(dir: &Path) -> Option<String> {
+        std::fs::read_to_string(dir.join("namespace"))
+            .ok()
+            .map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty())
+    }
+
     /// [`KubeClient::in_cluster`] against a mount and an API server named explicitly, which is
     /// what makes the in-cluster path testable at all.
     pub fn from_mount(dir: &Path, api: &str) -> Result<Option<Self>, KubeError> {

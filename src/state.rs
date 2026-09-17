@@ -201,6 +201,23 @@ impl AppState {
                         tracing::warn!(error = %err, "the artifact store endpoint is unusable, so no organization credential is issued")
                     }
                 }
+                // The reader of every organization is handed to the workloads that serve its
+                // artifacts, as a Secret in this Portal's own namespace (T-0925). Outside a
+                // cluster there is nowhere to write one, which is not an error.
+                match (
+                    crate::apps::kube::KubeClient::in_cluster(),
+                    crate::apps::kube::KubeClient::own_namespace(),
+                ) {
+                    (Ok(Some(kube)), Some(namespace)) => {
+                        syncer = syncer.with_credential_secrets(Arc::new(kube), namespace);
+                    }
+                    (Err(err), _) => {
+                        tracing::warn!(error = %err, "the ServiceAccount mount is unreadable, so no reader credential is handed over")
+                    }
+                    _ => tracing::info!(
+                        "no cluster: artifact store credentials are minted, not handed over"
+                    ),
+                }
             }
             // With a database the replicas elect one reconciler; without one there is nothing
             // to elect with, and a Portal that runs alone reconciles alone (T-0191, CC-03).
