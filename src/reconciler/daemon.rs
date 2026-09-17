@@ -98,6 +98,9 @@ pub struct Syncer {
     /// Where the static host reads app bundles from, when this Portal serves any (AP-14): the
     /// run checks that the build each manifest names is actually there (AP-72).
     apps_dir: Option<String>,
+    /// The artifact store's admin API, held with the root credential. `None` leaves every
+    /// organization without a scoped credential and the store untouched (PF-32).
+    artifact_store: Option<Arc<crate::artifact_store::Client>>,
 }
 
 impl Syncer {
@@ -116,7 +119,16 @@ impl Syncer {
             groups: None,
             activity: None,
             apps_dir: None,
+            artifact_store: None,
         }
+    }
+
+    /// Makes each run mint the scoped artifact-store credentials of every Organization it reads
+    /// (PF-32, ADR-N-015). Without one the store is never touched, which is what a Portal
+    /// outside a cluster does.
+    pub fn with_artifact_store(mut self, store: Arc<crate::artifact_store::Client>) -> Self {
+        self.artifact_store = Some(store);
+        self
     }
 
     /// Where the static host reads app bundles from, so each run can say which app names a
@@ -619,6 +631,48 @@ impl Syncer {
             }
             tracing::warn!(app = %name, "the build the manifest names is not on the host");
             self.mirror.upsert(envelope);
+        }
+
+        // 6c. One writer and one reader per Organization in the artifact store, scoped to that
+        //     organization's prefixes (PF-31, PF-32). Both are derived from the root credential
+        //     this process holds, so the call is an upsert and re-running it changes nothing;
+        //     one organization the store refuses is that organization's condition, not the
+        //     run's failure, exactly like the app wave above.
+        if let Some(store) = self.artifact_store.as_ref() {
+            for name in self
+                .mirror
+                .matching(|envelope| envelope.kind == "Organization")
+                .into_iter()
+                .map(|envelope| envelope.metadata.name)
+            {
+                match store.ensure_organization(&name).await {
+                    Ok(credentials) => {
+                        tracing::info!(
+                            organization = %name,
+                            issued = credentials.len(),
+                            "artifact store credentials are in place"
+                        );
+                    }
+                    Err(err) => {
+                        tracing::warn!(organization = %name, error = %err, "the artifact store issued no credential");
+                        let Some(mut envelope) = self
+                            .mirror
+                            .find(|env| env.kind == "Organization" && env.metadata.name == name)
+                        else {
+                            continue;
+                        };
+                        if let Some(status) = envelope.status.as_mut() {
+                            status.conditions = vec![super::streams::make_condition(
+                                "ArtifactStoreCredentials",
+                                "False",
+                                "StoreRefused",
+                                &err.to_string(),
+                            )];
+                        }
+                        self.mirror.upsert(envelope);
+                    }
+                }
+            }
         }
 
         // 7. Compile `users/` into what the forge enforces (T-0527, PF-51, PF-52, CC-41): the

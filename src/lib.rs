@@ -5,6 +5,7 @@ pub mod activity;
 pub mod agents;
 pub mod api;
 pub mod apps;
+pub mod artifact_store;
 pub mod assets;
 pub mod auth;
 pub mod branding;

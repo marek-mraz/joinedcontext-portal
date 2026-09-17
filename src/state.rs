@@ -191,6 +191,17 @@ impl AppState {
             let mut syncer = Syncer::new(Arc::clone(&client), Arc::clone(&state.mirror))
                 .with_activity(state.activity.clone())
                 .with_apps_dir(state.config.apps_dir.clone());
+            // The root credential of the artifact store reaches this one object and no other,
+            // and no workload gets it: every organization is served a derived, scoped pair
+            // instead (PF-32, ADR-N-015).
+            if let Some(settings) = state.config.artifact_store.clone() {
+                match crate::artifact_store::Client::new(settings) {
+                    Ok(store) => syncer = syncer.with_artifact_store(Arc::new(store)),
+                    Err(err) => {
+                        tracing::warn!(error = %err, "the artifact store endpoint is unusable, so no organization credential is issued")
+                    }
+                }
+            }
             // With a database the replicas elect one reconciler; without one there is nothing
             // to elect with, and a Portal that runs alone reconciles alone (T-0191, CC-03).
             if let Some(pool) = state.db.as_ref() {

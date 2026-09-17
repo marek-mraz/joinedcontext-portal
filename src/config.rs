@@ -66,6 +66,10 @@ pub struct Config {
     /// Where basemap tiles and styles come from (AP-67). `None` disables the basemap route:
     /// tile requests answer 404 and generated maps render on a plain canvas.
     pub basemap: Option<BasemapConfig>,
+    /// The artifact store and the root credential the reconciler mints per-organization
+    /// credentials with (PF-32, ADR-N-015). `None` leaves the store untouched: a Portal outside
+    /// a cluster reconciles a repository and issues nothing.
+    pub artifact_store: Option<crate::artifact_store::Settings>,
 }
 
 impl std::fmt::Debug for Config {
@@ -86,6 +90,7 @@ impl std::fmt::Debug for Config {
             .field("model_tools_url", &self.model_tools_url)
             .field("functions_url", &self.functions_url)
             .field("apps_dir", &self.apps_dir)
+            .field("artifact_store", &self.artifact_store)
             .field("branding_file", &self.branding_file)
             .field(
                 "database_url",
@@ -106,6 +111,32 @@ impl std::fmt::Debug for Config {
 /// read off configuration the Portal already has, so an installation states two variables
 /// rather than three, and any missing one leaves the converger off instead of guessing a
 /// namespace and deploying into somebody else's.
+/// Where the artifact store is and the root credential to mint with (PF-32, ADR-N-015).
+///
+/// All-or-nothing on purpose: an endpoint without the root credential would sign every admin
+/// request with nothing and log a refusal each sync, and a credential without an endpoint has
+/// no store to reach. Missing means the reconciler issues no credentials at all, which is what
+/// a Portal outside a cluster does.
+fn artifact_store_settings(
+    lookup: &impl Fn(&str) -> Option<String>,
+) -> Option<crate::artifact_store::Settings> {
+    let present = |var: &str| lookup(var).filter(|v| !v.trim().is_empty());
+    let endpoint = present("JC_PORTAL_ARTIFACT_STORE_ENDPOINT")?;
+    let root_access_key = present("JC_PORTAL_ARTIFACT_STORE_ACCESS_KEY")?;
+    let root_secret_key = present("JC_PORTAL_ARTIFACT_STORE_SECRET_KEY")?;
+    Some(crate::artifact_store::Settings {
+        endpoint: endpoint.trim_end_matches('/').to_owned(),
+        // The bucket and the region are the same in every installation this platform deploys
+        // (Architecture/17 §4), so they have defaults; the endpoint and the credential never do.
+        bucket: present("JC_PORTAL_ARTIFACT_STORE_BUCKET")
+            .unwrap_or_else(|| "jc-artifacts".to_owned()),
+        region: present("JC_PORTAL_ARTIFACT_STORE_REGION")
+            .unwrap_or_else(|| "us-east-1".to_owned()),
+        root_access_key,
+        root_secret_key,
+    })
+}
+
 fn app_settings(
     lookup: &impl Fn(&str) -> Option<String>,
     public_base_url: &Url,
@@ -625,6 +656,8 @@ impl Config {
             _ => None,
         };
 
+        let artifact_store = artifact_store_settings(&lookup);
+
         Ok(Self {
             bind,
             public_base_url,
@@ -645,6 +678,7 @@ impl Config {
             app_settings,
             agent_settings,
             basemap,
+            artifact_store,
         })
     }
 
@@ -655,6 +689,7 @@ impl Config {
                 .unwrap_or_else(|_| unreachable!("valid test url")),
             oidc: None,
             trust_edge_token: false,
+            artifact_store: None,
             cookie_key: Key::generate(),
             sync_interval: Duration::ZERO,
             gitea_webhook_secret: None,
