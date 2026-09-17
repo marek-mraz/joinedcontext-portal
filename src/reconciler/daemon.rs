@@ -1034,6 +1034,16 @@ pub(crate) fn is_candidate_manifest(path: &str) -> bool {
         || clean.starts_with("agentprofiles/")
 }
 
+/// Whether a staged file is an encrypted secrets file rather than a manifest (CC-06).
+///
+/// The same names `jcctl` skips when it loads a repository and reads when it resolves a
+/// `secretRef`, so one file is never both.
+fn is_encrypted_secrets_file(path: &str) -> bool {
+    path.rsplit('/')
+        .next()
+        .is_some_and(jcctl::secrets::sops::is_encrypted_file)
+}
+
 /// Prepares one fetched file for the loader, or leaves it out (MF-04, MF-05).
 ///
 /// Two judgements are made here and nowhere else, because the loader is right to refuse both
@@ -1121,6 +1131,15 @@ pub(crate) async fn stage(gitea: &GiteaClient, revision: &str) -> Result<Scratch
         if path.ends_with("/bento.yaml") {
             // Not a manifest: the author's Bento mapping beside a Pipeline (PL-03), staged as
             // written so the streams can render it; the loader skips it by name.
+            scratch.write(path, &file.content)?;
+            continue;
+        }
+        if is_encrypted_secrets_file(path) {
+            // Not a manifest either: the repository's own `*.enc.yaml`, which the SOPS backend
+            // decrypts a Pipeline's `secretRef` from (CC-06, T-0935). It is staged as written
+            // because the resolver reads this tree and nothing else; dropping it here is how
+            // `demo-feed` came back as "not declared in any encrypted secrets file" while the
+            // file sat in the repository. The loader skips it by name.
             scratch.write(path, &file.content)?;
             continue;
         }
@@ -1270,10 +1289,85 @@ output_error{stream="kpi"} 6
         assert_eq!(failing(RUNNING_STREAM, "nothing-of-that-name"), None);
     }
 
+    use base64::Engine as _;
     use serde_json::json;
     use wiremock::matchers::path as path_matcher;
     use wiremock::matchers::{method, path, path_regex, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// T-0935: the SOPS backend decrypts a Pipeline's `secretRef` from the repository's own
+    /// `*.enc.yaml`, and it reads the tree this function stages. While the stager dropped every
+    /// file that held no manifest, the resolver answered "not declared in any encrypted secrets
+    /// file" for a secret that sat in the repository — with the backend configured, the
+    /// identity mounted and the file committed.
+    #[tokio::test]
+    async fn an_encrypted_secrets_file_is_staged_beside_the_manifests() {
+        const ENCRYPTED: &str = "demo-feed:\n    password: ENC[AES256_GCM,data:aaaa,iv:bbbb,tag:cccc,type:str]\nsops:\n    age: []\n";
+        let space = "apiVersion: joinedcontext.com/v1alpha1\nkind: ContextSpace\nmetadata:\n  name: mobility\n  namespace: helsinki\nspec:\n  isSandbox: true\n";
+        let files = [
+            ("projects/helsinki/spaces/mobility/space.yaml", space),
+            ("projects/helsinki/secrets/demo-feed.enc.yaml", ENCRYPTED),
+        ];
+
+        let server = MockServer::start().await;
+        let tree: Vec<serde_json::Value> = files
+            .iter()
+            .map(|(p, _)| json!({"path": p, "type": "blob"}))
+            .collect();
+        Mock::given(method("GET"))
+            .and(path("/api/v1/repos/test-owner/test-repo/git/trees/rev-1"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"truncated": false, "tree": tree})),
+            )
+            .mount(&server)
+            .await;
+        for (file, content) in files {
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/api/v1/repos/test-owner/test-repo/contents/{file}"
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "sha": "blob-sha",
+                    "content": base64::engine::general_purpose::STANDARD.encode(content),
+                })))
+                .mount(&server)
+                .await;
+        }
+        let gitea = GiteaClient::new(
+            server.uri().parse().expect("forge url"),
+            "test-owner",
+            "test-repo",
+            "token",
+        )
+        .expect("client");
+
+        let scratch = stage(&gitea, "rev-1").await.expect("the run stages");
+        let staged = scratch
+            .path()
+            .join("projects/helsinki/secrets/demo-feed.enc.yaml");
+        assert!(staged.is_file(), "the encrypted file is staged");
+        // Byte for byte: a SOPS file whose bytes changed no longer authenticates.
+        assert_eq!(
+            std::fs::read_to_string(&staged).expect("read the staged file"),
+            ENCRYPTED
+        );
+        assert!(
+            scratch
+                .path()
+                .join("projects/helsinki/spaces/mobility/space.yaml")
+                .is_file(),
+            "the manifest beside it is staged as before"
+        );
+    }
+
+    #[test]
+    fn only_the_encrypted_names_are_kept_for_the_secret_backend() {
+        assert!(is_encrypted_secrets_file("projects/hel/secrets/a.enc.yaml"));
+        assert!(is_encrypted_secrets_file("a.enc.yml"));
+        // A manifest whose name merely mentions the word is a manifest.
+        assert!(!is_encrypted_secrets_file("projects/hel/secrets.yaml"));
+        assert!(!is_encrypted_secrets_file("projects/hel/enc.yaml"));
+    }
 
     #[test]
     fn status_defaults() {
