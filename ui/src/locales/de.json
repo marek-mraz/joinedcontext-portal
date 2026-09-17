@@ -71,7 +71,9 @@
     "exclusive": "Nur eines dieser Felder darf gesetzt sein",
     "dependency": "Dieses Feld braucht das Feld, von dem es abhängt",
     "check": "Prüfen",
-    "restartsStream": "Diese Änderung startet den Stream auf dem Runner neu. Eine periodische Pipeline beginnt ihren Zeitplan von vorn, der nächste Lauf ist also eine ganze Periode entfernt."
+    "restartsStream": "Diese Änderung startet den Stream auf dem Runner neu. Eine periodische Pipeline beginnt ihren Zeitplan von vorn, der nächste Lauf ist also eine ganze Periode entfernt.",
+    "dns1123": "Nur Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben oder einer Ziffer, höchstens 63 Zeichen.",
+    "entityType": "Ein NGSI-LD-Typ: ein Großbuchstabe, dann Buchstaben und Ziffern, höchstens 64 Zeichen."
   },
   "approvals": {
     "lead": "Jede Änderung am Projekt ist hier ein Vorschlag, bis eine freigebende Person sie zusammenführt.",

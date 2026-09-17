@@ -71,7 +71,9 @@
     "exclusive": "Vyplniť možno len jedno z týchto polí",
     "dependency": "Toto pole potrebuje pole, od ktorého závisí",
     "check": "Skontrolovať",
-    "restartsStream": "Použitie tejto zmeny reštartuje stream na runneri. Periodický pipeline začne svoj rozvrh odznova, takže ďalší beh je o celú periódu ďalej."
+    "restartsStream": "Použitie tejto zmeny reštartuje stream na runneri. Periodický pipeline začne svoj rozvrh odznova, takže ďalší beh je o celú periódu ďalej.",
+    "dns1123": "Iba malé písmená, číslice a spojovníky, začína písmenom alebo číslicou, najviac 63 znakov.",
+    "entityType": "Typ NGSI-LD: veľké písmeno, potom písmená a číslice, najviac 64 znakov."
   },
   "approvals": {
     "lead": "Každá zmena projektu je tu návrhom, kým ju schvaľovateľ nezlúči.",

@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
-import { SchemaForm } from "../src/components/forms/SchemaForm";
+import { SchemaForm, errorMessageKey } from "../src/components/forms/SchemaForm";
+import { DNS1123, ENTITY_TYPE_PATTERN } from "../src/schemas/kinds";
+import en from "../src/locales/en.json";
 import type { JsonSchema } from "../src/components/forms/types";
 
 const schema: JsonSchema = {
@@ -29,6 +31,39 @@ interface FormData {
 describe("SchemaForm", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
+  });
+
+  /// T-0960, PF-09: "does not match pattern" leaves a person holding a regular expression.
+  it("says what a name may be, rather than that it does not match a pattern", async () => {
+    const user = userEvent.setup();
+    const named: JsonSchema = {
+      type: "object",
+      properties: { name: { type: "string", title: "Name", pattern: DNS1123 } },
+    };
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SchemaForm<{ name?: string }> schema={named} onSubmit={() => {}} />
+      </I18nextProvider>,
+    );
+
+    await user.type(screen.getByLabelText(/Name/), "Ovzduší");
+
+    expect(await screen.findByText(en.form.dns1123)).toBeInTheDocument();
+    expect(screen.queryByText(en.form.pattern)).toBeNull();
+  });
+
+  it("keys the message on the pattern, so every name rule keeps its own words", () => {
+    const of = (pattern: string) =>
+      errorMessageKey(
+        { name: "pattern", schemaPath: "#/properties/name/pattern" } as never,
+        { type: "object", properties: { name: { type: "string", pattern } } } as never,
+      );
+    expect(of(DNS1123)).toBe("form.dns1123");
+    expect(of(ENTITY_TYPE_PATTERN)).toBe("form.entityType");
+    // A pattern the platform did not write keeps the generic message: inventing words for it
+    // would describe a rule this form knows nothing about.
+    expect(of("^[0-9]{4}$")).toBe("form.pattern");
+    expect(errorMessageKey({ name: "required" } as never)).toBe("form.required");
   });
 
   it("renders a schema with required string name and number count and asserts both labels exist", () => {

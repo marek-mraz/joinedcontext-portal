@@ -71,7 +71,9 @@
     "exclusive": "Only one of these fields may be set",
     "dependency": "This field needs the field it depends on",
     "check": "Check",
-    "restartsStream": "Applying this restarts the stream on the runner. A periodic pipeline starts its schedule over, so the next run is a full period away."
+    "restartsStream": "Applying this restarts the stream on the runner. A periodic pipeline starts its schedule over, so the next run is a full period away.",
+    "dns1123": "Lower-case letters, digits and hyphens only, starting with a letter or a digit, at most 63 characters.",
+    "entityType": "An NGSI-LD type: a capital letter, then letters and digits, at most 64 characters."
   },
   "approvals": {
     "lead": "Every change to the project is a proposal here until an approver merges it.",
