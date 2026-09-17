@@ -102,6 +102,16 @@ export function ExplorePage({
   const slots = filterSlotsOf(useModelSource(project, model), query.type);
   const access = useAccess(slug);
   const denied = deniedAttributes(access.data, query.type, slots, t);
+  // UI-44, EP-55: a control the grant denies stays visible and says why, rather than working
+  // until the gateway refuses it. The grant is the endpoint's own `/access` document, already
+  // read above for the attributes it hides (T-1021).
+  const mayDelete =
+    access.data === undefined ||
+    (access.data.permissions ?? []).some(
+      (entry) =>
+        (entry.resource?.type === undefined || entry.resource.type === query.type) &&
+        (entry.actions ?? []).some((action) => action === "deleteEntity" || action === "deleteBatch"),
+    );
 
   const page = useQuery({
     queryKey: ["explore", slug, query, limit, offset],
@@ -306,6 +316,12 @@ export function ExplorePage({
                 size="sm"
                 variant="danger"
                 data-testid="explore-delete"
+                disabled={!mayDelete}
+                title={
+                  mayDelete
+                    ? undefined
+                    : t("explore.deleteDenied", { type: query.type ?? "" })
+                }
                 onClick={() => {
                   remove.reset();
                   setRemoving(true);

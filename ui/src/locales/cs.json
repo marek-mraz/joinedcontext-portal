@@ -1304,7 +1304,8 @@
     "removeTitle": "Smazat tuto entitu?",
     "removeLead": "{id} se odstraní z prostoru přes tento endpoint.",
     "removeConfirm": "Smazat",
-    "removeNote": "Rozhoduje Policy endpointu: smazání běží s vaším přihlášením, ne se servisní identitou, a nelze je vrátit."
+    "removeNote": "Rozhoduje Policy endpointu: smazání běží s vaším přihlášením, ne se servisní identitou, a nelze je vrátit.",
+    "deleteDenied": "This endpoint's grant does not let you delete a {type}"
   },
   "agentRun": {
     "loading": "Čtu spuštění…",

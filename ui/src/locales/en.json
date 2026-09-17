@@ -1304,7 +1304,8 @@
     "removeTitle": "Delete this entity?",
     "removeLead": "{id} is removed from the space through this endpoint.",
     "removeConfirm": "Delete",
-    "removeNote": "The endpoint's Policy decides: the deletion runs with your session, not with a service identity, and it cannot be undone."
+    "removeNote": "The endpoint's Policy decides: the deletion runs with your session, not with a service identity, and it cannot be undone.",
+    "deleteDenied": "This endpoint's grant does not let you delete a {type}"
   },
   "agentRun": {
     "loading": "Reading the run…",

@@ -46,7 +46,7 @@ const MODELS = list([
 const ROW = { id: "urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:001", type: "BikeHireDockingStation" };
 
 /** The explorer with one endpoint, one model and one row, opened on that row's detail. */
-async function openDetail(remove: () => Response) {
+async function openDetail(remove: () => Response, access?: unknown) {
   const calls: { method: string; url: string; csrf: string | null }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -71,6 +71,14 @@ async function openDetail(remove: () => Response) {
       if (request.url.includes("/entities/")) {
         return Promise.resolve(
           new Response(JSON.stringify(ROW), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      if (access !== undefined && request.url.includes("/access")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(access), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           }),
@@ -161,4 +169,28 @@ describe("removing an entity from the explorer (UI-60, T-0912)", () => {
     expect(deletes).toHaveLength(1);
     expect(deletes[0].csrf).toBe("token-for-the-session");
   });
+});
+
+/**
+ * T-1021, UI-44 and EP-55: the endpoint's own grant decides whether this caller may remove an
+ * entity. A grant that allows only reads leaves the button visible and disabled, with the
+ * reason on it — never working until the gateway refuses it.
+ */
+it("disables the delete button, with a reason, when the grant allows only reads", async () => {
+  await openDetail(
+    () => new Response("", { status: 204 }),
+    {
+      subject: { type: "user", id: "demo.viewer" },
+      permissions: [
+        {
+          resource: { type: "BikeHireDockingStation" },
+          actions: ["queryEntity", "retrieveEntity"],
+        },
+      ],
+    },
+  );
+
+  const remove = await screen.findByTestId("explore-delete");
+  await waitFor(() => expect(remove).toBeDisabled());
+  expect(remove).toHaveAttribute("title", expect.stringContaining("delete"));
 });
