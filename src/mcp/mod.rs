@@ -512,6 +512,32 @@ async fn dispatch(state: AppState, caller: crate::ops::Caller, body: Bytes) -> R
                     }));
                 }
             }
+            // AG-81: the organization's own resources belong to no project, so they are listed
+            // beside it under `jc://-/`. `-` is not a DNS-1123 label and can never be a project's
+            // name. The permission is the one the REST route asks of the same kind.
+            for info in crate::resource::kinds() {
+                if !may_read_kind(
+                    &state,
+                    &caller,
+                    crate::permissions::ORG_NAMESPACE,
+                    info.kind,
+                ) {
+                    continue;
+                }
+                let page = state.mirror.list(
+                    crate::permissions::ORG_NAMESPACE,
+                    info.kind,
+                    &crate::store::ListOptions::default(),
+                );
+                for item in page.items {
+                    resources.push(json!({
+                        "uri": format!("jc://-/{}/{}", info.plural, item.metadata.name),
+                        "name": item.metadata.name,
+                        "title": format!("{} {}", info.kind, item.metadata.name),
+                        "mimeType": "application/json"
+                    }));
+                }
+            }
             let drafts = crate::ops::drafts::draft_store(&state)
                 .list(&project)
                 .await
@@ -765,6 +791,17 @@ async fn read_resource(
                 .ok()
                 .flatten()?;
             Some(("application/json", serde_json::to_string(&draft).ok()?))
+        }
+        // AG-81: `jc://-/{plural}/{name}` is a resource of the organization itself.
+        ["-", plural, name] => {
+            let info = crate::resource::by_plural(plural)?;
+            if !may_read_kind(state, caller, crate::permissions::ORG_NAMESPACE, info.kind) {
+                return None;
+            }
+            let item = state
+                .mirror
+                .get(crate::permissions::ORG_NAMESPACE, info.kind, name)?;
+            Some(("application/json", serde_json::to_string(&item).ok()?))
         }
         [project, plural, name] => {
             let info = crate::resource::by_plural(plural)?;

@@ -1473,3 +1473,58 @@ async fn a_refused_call_says_why_over_mcp() {
         "a refused call is not reported as a success: {answered}"
     );
 }
+
+/// AG-81, T-1033: the organization's own resources — roles, bindings, groups — belong to no
+/// project, so they are listed and read under `jc://-/`, with the permission the REST route
+/// asks of the same kind. Without them an MCP client cannot read who may do what.
+#[tokio::test]
+async fn the_organizations_own_resources_are_listed_and_read_under_their_own_head() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+
+    let listed = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "resources/list",
+                "params": { "project": "ovzdusie" } }),
+    )
+    .await;
+    let uris: Vec<&str> = listed["result"]["resources"]
+        .as_array()
+        .expect("resources")
+        .iter()
+        .filter_map(|r| r["uri"].as_str())
+        .collect();
+    assert!(
+        uris.contains(&"jc://-/roles/pipelines-only"),
+        "the organization's role is not offered: {uris:?}"
+    );
+    // `-` heads them because it cannot be a project's name, so nothing collides.
+    assert!(
+        !uris
+            .iter()
+            .any(|uri| uri.starts_with("jc://ovzdusie/roles/")),
+        "an organization resource is not claimed by a project: {uris:?}"
+    );
+
+    let read = rpc(
+        app,
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/read",
+                "params": { "uri": "jc://-/roles/pipelines-only" } }),
+    )
+    .await;
+    let text = read["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the role is not readable: {read}"));
+    assert!(text.contains("pipelines-only"), "{text}");
+    assert!(text.contains("Pipeline"), "the rule it carries: {text}");
+}
