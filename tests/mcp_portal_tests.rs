@@ -400,7 +400,12 @@ async fn mcp_tools_list_filtered_by_caller() {
 
     assert!(names.contains(&"jc_catalog_search"));
     assert!(names.contains(&"jc_datasource_propose"));
-    assert!(names.contains(&"jc_change_approve"));
+    // AG-11 and T-1005: deciding a change is a person's, in the Portal or over REST, so an MCP
+    // caller is never offered the tool it would always be refused.
+    assert!(
+        !names.contains(&"jc_change_approve"),
+        "an MCP client is not offered a change decision: {names:?}"
+    );
 
     // Check annotations and schemas
     let search_tool = tools
