@@ -185,5 +185,31 @@ pub async fn forge() -> MockServer {
         .with_priority(9)
         .mount(&gitea)
         .await;
+    // Every file of one change goes in one commit to `POST /contents`, which is the repository
+    // path itself and not a path under it, so the per-file mocks above never match it (T-0900).
+    Mock::given(method("POST"))
+        .and(path(format!("{REPO}/contents")))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({ "commit": { "sha": "commit-1" } })),
+        )
+        .mount(&gitea)
+        .await;
+    // One open change per resource: a removal asks the forge for the open merge requests first
+    // (CC-34, T-0883). This fixture has none open.
+    Mock::given(method("GET"))
+        .and(path(format!("{REPO}/pulls")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&gitea)
+        .await;
+    // A removal lists the tree to find the files the resource owns beside its manifest (T-0900).
+    // This fixture holds manifests alone, so the listing is empty and a delete removes the one
+    // file; a suite with side files mounts a tree of its own.
+    Mock::given(method("GET"))
+        .and(path_regex(format!("^{REPO}/git/trees/.*")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "tree": [], "truncated": false })),
+        )
+        .mount(&gitea)
+        .await;
     gitea
 }

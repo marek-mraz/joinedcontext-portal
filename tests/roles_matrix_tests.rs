@@ -298,6 +298,14 @@ fn state_with(gitea: &MockServer) -> AppState {
         PROJECT,
         json!({ "isSandbox": false }),
     ));
+    // The group the RoleBinding family names: a binding to a group no manifest declares is
+    // refused before any role is read (PF-62), which would answer every cell of that family 400.
+    state.mirror.upsert(envelope(
+        "Group",
+        "bikes-team",
+        ORG_NAMESPACE,
+        json!({ "displayName": "Bikes team" }),
+    ));
     state.mirror.upsert(envelope(
         "Layer",
         "bikes",
