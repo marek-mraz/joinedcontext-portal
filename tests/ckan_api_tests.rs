@@ -74,6 +74,7 @@ fn envelope(kind: &str, name: &str, spec: Value) -> ResourceEnvelope {
             observed_revision: None,
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         }),
     }
 }

@@ -582,5 +582,6 @@ fn generated(name: String, project: &str, kind: &str, spec: Value) -> RawManifes
             rest,
         },
         spec,
+        status: None,
     }
 }

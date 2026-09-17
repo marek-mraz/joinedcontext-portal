@@ -426,6 +426,7 @@ mod tests {
             observed_revision: Some("rev-1".into()),
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         });
         let mut des = sample_envelope("public-air", json!({ "audience": "public" }));
         des.status = Some(Status {
@@ -433,6 +434,7 @@ mod tests {
             observed_revision: Some("rev-2".into()),
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         });
 
         let plan = diff(Some(&curr), Some(&des));

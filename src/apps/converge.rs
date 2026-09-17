@@ -24,15 +24,16 @@ use serde_json::Value;
 use super::kube::{KubeClient, KubeError};
 use super::reconciler::{generate_slug, render, RenderError, Settings};
 
-/// The digest the build lane writes back when it publishes the image (AP-13a).
-pub const IMAGE_ANNOTATION: &str = "joinedcontext.com/image";
+/// What no manifest names and no transfer may carry: jc-core refuses both on an `App`, and the
+/// Portal's own doors refuse them on every kind (AP-11, AP-13a, T-0822). The artifact an app
+/// runs is `status.build`, written back by the build lane.
+pub const BUILT_ANNOTATIONS: [&str; 2] = jc_core::kinds::app::BUILT_ANNOTATIONS;
 
-/// The digest of a compiled module, written back by the same lane for a Pipeline (AP-13a).
-pub const MODULE_ANNOTATION: &str = "joinedcontext.com/module";
+/// A digest somebody wrote into an annotation instead of letting the build lane publish one.
+pub const IMAGE_ANNOTATION: &str = BUILT_ANNOTATIONS[0];
 
-/// What one environment's build lane computed, and no transfer may carry: the target cluster
-/// runs the image it built and signed itself (AP-11, AP-13a, T-0822).
-pub const BUILT_ANNOTATIONS: [&str; 2] = [IMAGE_ANNOTATION, MODULE_ANNOTATION];
+/// The same for a compiled module.
+pub const MODULE_ANNOTATION: &str = BUILT_ANNOTATIONS[1];
 
 /// The four objects an app owns, as the client addresses them.
 const OBJECTS: [(&str, &str); 4] = [
@@ -153,7 +154,10 @@ impl Converger {
 
         // A static app is served by the Portal's own static host, so it has no objects at all
         // and its absence here is the design, not a gap (AP-14).
-        let image = match annotation(manifest, IMAGE_ANNOTATION) {
+        // The digest the build lane wrote back in the commit that published the artifact, and
+        // the only place one is read from: an annotation naming an image is refused at every
+        // door now, so a manifest that still carries one deploys nothing (AP-13a, AP-72).
+        let image = match built_digest(manifest) {
             Some(image) => image,
             None if spec.class == jc_core::kinds::AppClass::Static => {
                 return Ok(Outcome::Skipped(
@@ -161,9 +165,11 @@ impl Converger {
                 ))
             }
             None => {
-                return Ok(Outcome::Skipped(format!(
-                    "no {IMAGE_ANNOTATION} yet, so the build has not published an image (AP-13a)"
-                )))
+                return Ok(Outcome::Skipped(
+                    "no status.build yet, so the build lane has not published an artifact \
+                     (AP-13a)"
+                        .to_owned(),
+                ))
             }
         };
 
@@ -224,12 +230,13 @@ impl Converger {
 pub type ConvergeResult = Result<Outcome, ConvergeError>;
 
 /// One annotation of a manifest, as a `String` because `RawMetadata` keeps the rest untyped.
-fn annotation(manifest: &RawManifest, key: &str) -> Option<String> {
+/// The artifact the build lane published for this app, `status.build.digest` (AP-13a).
+fn built_digest(manifest: &RawManifest) -> Option<String> {
     manifest
-        .metadata
-        .rest
-        .get("annotations")?
-        .get(key)?
+        .status
+        .as_ref()?
+        .get("build")?
+        .get("digest")?
         .as_str()
         .map(str::to_owned)
 }

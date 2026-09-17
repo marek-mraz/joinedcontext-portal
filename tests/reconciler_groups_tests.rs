@@ -27,6 +27,7 @@ fn group(name: &str, members: &[&str]) -> ResourceEnvelope {
             observed_revision: None,
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         }),
     }
 }

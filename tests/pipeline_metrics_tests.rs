@@ -72,6 +72,7 @@ fn mirror_with_pipeline() -> Arc<Mirror> {
             observed_revision: None,
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         }),
     });
     mirror

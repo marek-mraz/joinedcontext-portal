@@ -95,6 +95,9 @@ pub struct Syncer {
     /// Where a run says what it did (OPS-48). `None` leaves the loop silent, which is what a
     /// Portal built without a state does in a unit test.
     activity: Option<ActivityStore>,
+    /// Where the static host reads app bundles from, when this Portal serves any (AP-14): the
+    /// run checks that the build each manifest names is actually there (AP-72).
+    apps_dir: Option<String>,
 }
 
 impl Syncer {
@@ -112,7 +115,15 @@ impl Syncer {
             streams: None,
             groups: None,
             activity: None,
+            apps_dir: None,
         }
+    }
+
+    /// Where the static host reads app bundles from, so each run can say which app names a
+    /// build that never arrived (AP-72).
+    pub fn with_apps_dir(mut self, apps_dir: Option<String>) -> Self {
+        self.apps_dir = apps_dir;
+        self
     }
 
     /// Makes each run tell the activity feed what it applied (OPS-48, UI-31).
@@ -414,6 +425,12 @@ impl Syncer {
                 envelope.metadata.namespace = Some(namespace_of(&path));
             }
 
+            // The one part of `status` the repository owns: what the build lane wrote back
+            // when it published the artifact (AP-13a). The rest is computed here (MF-04).
+            let build = envelope
+                .status
+                .as_ref()
+                .and_then(|status| status.build.clone());
             envelope.strip_status();
             envelope.status = Some(crate::resource::Status {
                 phase: crate::resource::Phase::Live,
@@ -422,6 +439,7 @@ impl Syncer {
                 // next commit, and the observed revision is right there beside it.
                 source_url: Some(self.gitea.browse_url(&path, &default_branch)),
                 conditions: Vec::new(),
+                build,
             });
 
             fresh_mirror.upsert(envelope);
@@ -578,6 +596,29 @@ impl Syncer {
                     Err(err) => tracing::warn!(%app, error = %err, "app did not converge"),
                 }
             }
+        }
+
+        // 6b. An app whose `status.build` names a build this host does not hold keeps the
+        //     previous one serving, and says so on the App rather than looking healthy (AP-72).
+        for name in crate::apps::static_host::build_missing(self.apps_dir.as_deref(), &self.mirror)
+        {
+            let Some(mut envelope) = self
+                .mirror
+                .find(|env| env.kind == "App" && env.metadata.name == name)
+            else {
+                continue;
+            };
+            if let Some(status) = envelope.status.as_mut() {
+                status.conditions = vec![super::streams::make_condition(
+                    "Ready",
+                    "False",
+                    "BuildMissing",
+                    "status.build names a build this host does not hold; the previous one keeps \
+                     serving (AP-72)",
+                )];
+            }
+            tracing::warn!(app = %name, "the build the manifest names is not on the host");
+            self.mirror.upsert(envelope);
         }
 
         // 7. Compile `users/` into what the forge enforces (T-0527, PF-51, PF-52, CC-41): the

@@ -42,7 +42,7 @@ async fn serve(
     // never discloses what is being worked on (AP-18).
     let not_found = || ApiError::NotFound(format!("app '{name}' not found")).into_response();
 
-    let Some(spec) = published_app(&state, &name) else {
+    let Some((spec, build)) = published_app(&state, &name) else {
         return not_found();
     };
     if !may_read(&spec, user.is_some()) {
@@ -51,14 +51,17 @@ async fn serve(
     let Some(root) = state.config.apps_dir.as_deref() else {
         return not_found();
     };
-    let Some(file) = resolve(FsPath::new(root), &name, &path) else {
+    let Some(app_root) = app_root(FsPath::new(root), &name, build.as_ref()) else {
+        return not_found();
+    };
+    let Some(file) = resolve(&app_root, &path) else {
         return not_found();
     };
     let Ok(bytes) = std::fs::read(&file) else {
         return not_found();
     };
 
-    let Some(expected) = integrity_of(FsPath::new(root), &name, &path) else {
+    let Some(expected) = integrity_of(&app_root, &path) else {
         // No recorded digest means the file is not part of the published bundle, even if it
         // sits in the directory.
         return not_found();
@@ -111,15 +114,61 @@ impl FrameOptions for HeaderValue {
 /// The published App manifest of this name, whatever project owns it. App names are
 /// DNS-1123 labels and the app URL has no project segment (AP-14), so the name is what
 /// identifies it here.
-fn published_app(state: &AppState, name: &str) -> Option<AppSpec> {
+fn published_app(state: &AppState, name: &str) -> Option<(AppSpec, Option<jc_core::Build>)> {
     if !crate::resource::is_dns1123(name) {
         return None;
     }
     let envelope = state
         .mirror
         .find(|env| env.kind == "App" && env.metadata.name == name)?;
+    let build = envelope.status.as_ref().and_then(|s| s.build.clone());
     let spec: AppSpec = serde_json::from_value(envelope.spec).ok()?;
-    (spec.lifecycle == AppLifecycle::Published).then_some(spec)
+    (spec.lifecycle == AppLifecycle::Published).then_some((spec, build))
+}
+
+/// The directory one app is served from (AP-72, AP-74).
+///
+/// `status.build` names the build the manifest deploys, and until the artifact store exists the
+/// build lane publishes it under the commit: `{apps_dir}/{name}/{commit}/`. An app that names no
+/// build, or names one this host does not hold, keeps serving `{apps_dir}/{name}/` — the
+/// previous publish — and [`build_missing`] is what says so on the App itself.
+fn app_root(root: &FsPath, name: &str, build: Option<&jc_core::Build>) -> Option<PathBuf> {
+    let base = root.join(name);
+    if let Some(build) = build {
+        if let Ok(keyed) = base.join(&build.commit).canonicalize() {
+            if keyed.is_dir() && keyed.starts_with(base.canonicalize().ok()?) {
+                return Some(keyed);
+            }
+        }
+    }
+    base.canonicalize().ok()
+}
+
+/// Every published app whose `status.build` names a build this host does not hold (AP-72).
+///
+/// The host keeps serving what it has; this is the list the reconciler turns into a red `Ready`
+/// condition, so an operator sees a build that never arrived instead of a stale app that looks
+/// healthy.
+pub fn build_missing(apps_dir: Option<&str>, mirror: &crate::store::Mirror) -> Vec<String> {
+    let Some(root) = apps_dir else {
+        return Vec::new();
+    };
+    let mut missing: Vec<String> = mirror
+        .matching(|env| env.kind == "App")
+        .into_iter()
+        .filter(|env| {
+            let Some(build) = env.status.as_ref().and_then(|s| s.build.as_ref()) else {
+                return false;
+            };
+            !FsPath::new(root)
+                .join(&env.metadata.name)
+                .join(&build.commit)
+                .is_dir()
+        })
+        .map(|env| env.metadata.name)
+        .collect();
+    missing.sort();
+    missing
 }
 
 /// Who may read a published app. `visibility` beyond "is there a session" is the endpoint
@@ -167,18 +216,17 @@ fn quoted(source: &String) -> String {
 /// Resolves a bundle-relative path inside one app's directory, or `None` if it would leave it.
 /// `canonicalize` is what decides: it resolves `..` and every symlink, so a link pointing out of
 /// the root is caught as surely as a literal traversal.
-fn resolve(root: &FsPath, app: &str, path: &str) -> Option<PathBuf> {
+fn resolve(app_root: &FsPath, path: &str) -> Option<PathBuf> {
     if path.is_empty() || path.ends_with('/') {
         return None;
     }
-    let app_root = root.join(app).canonicalize().ok()?;
     let file = app_root.join(path).canonicalize().ok()?;
-    (file.starts_with(&app_root) && file.is_file()).then_some(file)
+    (file.starts_with(app_root) && file.is_file()).then_some(file)
 }
 
 /// The digest the build lane recorded for this file, if any.
-fn integrity_of(root: &FsPath, app: &str, path: &str) -> Option<String> {
-    let manifest = resolve(root, app, INTEGRITY_MANIFEST)?;
+fn integrity_of(app_root: &FsPath, path: &str) -> Option<String> {
+    let manifest = resolve(app_root, INTEGRITY_MANIFEST)?;
     let digests: std::collections::BTreeMap<String, String> =
         serde_json::from_slice(&std::fs::read(manifest).ok()?).ok()?;
     digests.get(path).cloned()
@@ -298,13 +346,11 @@ mod tests {
         std::fs::write(dir.join("secret.txt"), b"not yours").expect("neighbour file");
         std::fs::write(app.join("index.html"), b"<!doctype html>").expect("index");
 
-        assert!(resolve(&dir, "demo", "index.html").is_some());
-        assert!(resolve(&dir, "demo", "../secret.txt").is_none());
-        assert!(resolve(&dir, "demo", "/etc/passwd").is_none());
-        assert!(
-            resolve(&dir, "demo", "").is_none(),
-            "a directory is not a file"
-        );
+        let root = app_root(&dir, "demo", None).expect("the app directory");
+        assert!(resolve(&root, "index.html").is_some());
+        assert!(resolve(&root, "../secret.txt").is_none());
+        assert!(resolve(&root, "/etc/passwd").is_none());
+        assert!(resolve(&root, "").is_none(), "a directory is not a file");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

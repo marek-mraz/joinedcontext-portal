@@ -84,6 +84,7 @@ fn seeded_mirror() -> Arc<Mirror> {
             observed_revision: None,
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         }),
     });
     // Another project's source, to prove the list is scoped and not merely filtered by kind.

@@ -67,6 +67,28 @@ mod tempdir {
     }
 }
 
+/// The same mirror with the build the lane wrote back (AP-13a).
+fn mirror_with_build(spec: serde_json::Value, commit: &str) -> Arc<Mirror> {
+    let mirror = mirror_with_app(spec);
+    let mut envelope = mirror
+        .get("ovzdusie", "App", "air-quality")
+        .expect("the app");
+    envelope.status = Some(joinedcontext_portal::resource::Status {
+        phase: joinedcontext_portal::resource::Phase::Live,
+        observed_revision: None,
+        source_url: None,
+        conditions: Vec::new(),
+        build: Some(jc_core::Build {
+            digest: format!("sha256:{}", "a1b2c3d4".repeat(8)),
+            commit: commit.to_owned(),
+            sdk_version: "0.4.1".to_owned(),
+            built_at: chrono::Utc::now(),
+        }),
+    });
+    mirror.upsert(envelope);
+    mirror
+}
+
 fn mirror_with_app(spec: serde_json::Value) -> Arc<Mirror> {
     let mirror = Arc::new(Mirror::new());
     mirror.upsert(ResourceEnvelope {
@@ -311,4 +333,84 @@ async fn without_an_apps_directory_the_host_answers_not_found() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// One build directory of an app: `{apps_dir}/{name}/{commit}/` with its own integrity manifest
+/// (AP-74), beside the previous publish at `{apps_dir}/{name}/`.
+fn build_dir(dir: &tempdir::Dir, commit: &str, files: &[(&str, &[u8])]) {
+    let app = dir.path().join("air-quality").join(commit);
+    std::fs::create_dir_all(&app).expect("build dir");
+    let mut digests = serde_json::Map::new();
+    for (name, bytes) in files {
+        std::fs::write(app.join(name), bytes).expect("bundle file");
+        digests.insert((*name).into(), sri_sha384(bytes).into());
+    }
+    std::fs::write(
+        app.join("integrity.json"),
+        serde_json::to_vec(&digests).expect("manifest"),
+    )
+    .expect("write manifest");
+}
+
+async fn get_with(root: &std::path::Path, mirror: Arc<Mirror>, uri: &str) -> (StatusCode, Vec<u8>) {
+    let config = Config {
+        apps_dir: Some(root.to_string_lossy().into_owned()),
+        ..Config::for_tests()
+    };
+    let app = server::app(AppState::new(config, None).with_mirror(mirror));
+    let response = app
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (status, body.to_vec())
+}
+
+const NEXT_INDEX: &[u8] = b"<!doctype html><title>air quality, next build</title>";
+
+/// AP-72, AP-74: the host serves the build the manifest names, not whatever sits in the app's
+/// directory.
+#[tokio::test]
+async fn the_host_serves_the_build_the_manifest_names() {
+    let dir = app_root("named-build", &[("index.html", INDEX)]);
+    build_dir(&dir, "8c56954a1f0e", &[("index.html", NEXT_INDEX)]);
+
+    let (status, body) = get_with(
+        dir.path(),
+        mirror_with_build(app_spec("published"), "8c56954a1f0e"),
+        "/apps/air-quality/",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, NEXT_INDEX, "the named build, not the previous one");
+}
+
+/// AP-72: a build this host does not hold keeps the previous one serving, and the app is named
+/// as missing its build rather than quietly serving something older as if it were current.
+#[tokio::test]
+async fn a_build_the_host_does_not_hold_keeps_the_previous_one_serving_and_is_reported() {
+    let dir = app_root("missing-build", &[("index.html", INDEX)]);
+    let mirror = mirror_with_build(app_spec("published"), "0000000feed");
+
+    let (status, body) = get_with(dir.path(), mirror.clone(), "/apps/air-quality/").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, INDEX, "the previous publish keeps serving");
+
+    let apps_dir = dir.path().to_string_lossy().into_owned();
+    assert_eq!(
+        joinedcontext_portal::apps::static_host::build_missing(Some(&apps_dir), &mirror),
+        vec!["air-quality".to_owned()],
+        "the app says its build never arrived"
+    );
+
+    // The build arrives: nothing else changes and the host follows it.
+    build_dir(&dir, "0000000feed", &[("index.html", NEXT_INDEX)]);
+    let (status, body) = get_with(dir.path(), mirror.clone(), "/apps/air-quality/").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, NEXT_INDEX);
+    assert!(
+        joinedcontext_portal::apps::static_host::build_missing(Some(&apps_dir), &mirror).is_empty(),
+        "nothing is missing once the build is there"
+    );
 }

@@ -8,7 +8,7 @@
 //! owns, and nothing at all is written to the realm: the login front is the edge's one client.
 
 use jcctl::loader::RawManifest;
-use joinedcontext_portal::apps::converge::{Converger, Outcome, IMAGE_ANNOTATION};
+use joinedcontext_portal::apps::converge::{Converger, Outcome};
 use joinedcontext_portal::apps::kube::{KubeClient, FIELD_MANAGER};
 use joinedcontext_portal::apps::reconciler::Settings;
 use serde_json::{json, Value};
@@ -29,16 +29,23 @@ fn settings() -> Settings {
     }
 }
 
-/// A published full-stack app whose image the build lane has already written back.
+/// A published full-stack app whose artifact the build lane has already written back into
+/// `status.build` (AP-13a).
 fn app(lifecycle: &str, image: Option<&str>) -> RawManifest {
-    let mut metadata = json!({ "name": "air-quality-today", "namespace": "ovzdusie" });
-    if let Some(image) = image {
-        metadata["annotations"] = json!({ IMAGE_ANNOTATION: image });
-    }
+    let metadata = json!({ "name": "air-quality-today", "namespace": "ovzdusie" });
+    let status = image.map(|image| {
+        json!({ "build": {
+            "digest": image,
+            "commit": "8c56954a1f0e",
+            "sdkVersion": "0.4.1",
+            "builtAt": "2026-09-17T06:00:00Z",
+        }})
+    });
     serde_json::from_value(json!({
         "apiVersion": "joinedcontext.com/v1alpha1",
         "kind": "App",
         "metadata": metadata,
+        "status": status,
         "spec": {
             "kind": "fullstack",
             "source": { "path": "./src" },
@@ -328,10 +335,10 @@ async fn a_draft_app_deploys_nothing_and_asks_the_cluster_nothing() {
         .is_some_and(|requests| requests.is_empty()));
 }
 
-/// AP-13a: an app whose build has not published an image yet waits, rather than deploying
+/// AP-13a: an app whose build lane has published no artifact yet waits, rather than deploying
 /// whatever ran last time.
 #[tokio::test]
-async fn an_app_without_an_image_annotation_waits_for_its_build() {
+async fn an_app_whose_build_published_nothing_yet_waits_for_it() {
     let api = MockServer::start().await;
 
     let outcome = converger(&api)
@@ -339,7 +346,7 @@ async fn an_app_without_an_image_annotation_waits_for_its_build() {
         .await
         .expect("a missing image is not an error");
     match outcome {
-        Outcome::Skipped(reason) => assert!(reason.contains(IMAGE_ANNOTATION), "{reason}"),
+        Outcome::Skipped(reason) => assert!(reason.contains("status.build"), "{reason}"),
         other => panic!("{other:?}"),
     }
     assert!(api

@@ -214,6 +214,7 @@ fn publication(
             rest: serde_json::Map::new(),
         },
         spec: env.spec,
+        status: None,
     };
     let dataset = package(&manifest, spec, &Value::Null, settings)
         .ok()

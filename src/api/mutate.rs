@@ -184,6 +184,48 @@ pub(crate) async fn create_or_reuse_branch(
     }
 }
 
+/// The one status a proposal may carry: the build lane's `status.build` on an App (AP-73).
+///
+/// Everything else about `status` is refused as it always was, and so is a `status.build` from a
+/// caller no role names as the build lane — the role whose `propose` on `App` is constrained to
+/// that field is the field's only writer, and the refusal says so.
+fn build_lane_write(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+    kind: &str,
+    body: &Value,
+) -> Result<(), ApiError> {
+    let computed = || {
+        ApiError::BadRequest(
+            "status is computed by the platform and cannot be specified in the manifest (MF-04)"
+                .to_owned(),
+        )
+    };
+    if kind != "App" {
+        return Err(computed());
+    }
+    // `status.build` and nothing beside it: a phase or a condition is the reconciler's.
+    let status = body.get("status").and_then(Value::as_object);
+    let build_only = status.is_some_and(|members| {
+        members.len() == 1 && members.contains_key("build") && !members["build"].is_null()
+    });
+    if !build_only {
+        return Err(computed());
+    }
+    if !crate::permissions::for_request(state, identity, project)
+        .may_write_status_field("App", "status.build")
+    {
+        return Err(ApiError::Denied(
+            "status.build is written by the build lane when it publishes the artifact: the one \
+             role whose propose on App is constrained to that field writes it, and nobody else \
+             (AP-13a, AP-73)"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn resolve_repo_path(
     envelope: &ResourceEnvelope,
     kind_info: &resource::KindInfo,
@@ -349,12 +391,15 @@ pub async fn propose_with_identity(
     // 4. Metadata DNS-1123, status rejection (MF-04) and secret rejection (MF-24)
     resource::validate_meta(&envelope.metadata).map_err(ApiError::BadRequest)?;
 
-    if body_val.get("status").is_some() || envelope.status.is_some() {
-        return Err(ApiError::BadRequest(
-            "status is computed by the platform and cannot be specified in the manifest (MF-04)"
-                .into(),
-        ));
-    }
+    // `status` is the platform's own computation and no manifest carries it (MF-04) — with one
+    // door: the build lane writes `status.build` back in the commit that publishes the artifact
+    // an App runs (AP-13a, AP-73). That write keeps its status; every other one is refused.
+    let build_write = if body_val.get("status").is_some() || envelope.status.is_some() {
+        build_lane_write(state, identity, project, kind_info.kind, &body_val)?;
+        true
+    } else {
+        false
+    };
 
     if let Some(secret_key) = find_literal_secret(&body_val) {
         return Err(ApiError::BadRequest(format!(
@@ -521,7 +566,9 @@ pub async fn propose_with_identity(
     let repo_path = resolve_repo_path(&envelope, kind_info, project)?;
 
     let mut envelope_to_commit = envelope.clone();
-    envelope_to_commit.strip_status();
+    if !build_write {
+        envelope_to_commit.strip_status();
+    }
     let yaml_content = serde_yaml_ng::to_string(&envelope_to_commit)
         .map_err(|e| ApiError::Internal(format!("serialize manifest to yaml: {e}")))?;
 

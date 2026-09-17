@@ -60,6 +60,7 @@ fn seed_demo_mirror() -> Arc<Mirror> {
             observed_revision: None,
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         }),
     });
 
@@ -84,6 +85,7 @@ fn seed_demo_mirror() -> Arc<Mirror> {
             observed_revision: None,
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         }),
     });
 

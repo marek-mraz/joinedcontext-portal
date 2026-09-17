@@ -134,6 +134,20 @@ impl Effective {
                 .any(|grant| grant.rule.grants(kind, Verb::Read))
     }
 
+    /// Whether a role of this caller names `field` in a constraint on `propose` of `kind`
+    /// (AP-73): a constraint on a `status.*` field means that role writes the field and nobody
+    /// else does.
+    ///
+    /// The bootstrap group is not a shortcut here. `status` is the platform's own computation
+    /// and `status.build` is the build lane's alone, so the one writer is the one role — an
+    /// administrator who wants it binds themselves to that role in the open.
+    pub fn may_write_status_field(&self, kind: &str, field: &str) -> bool {
+        self.grants.iter().any(|grant| {
+            grant.rule.grants(kind, Verb::Propose)
+                && grant.rule.constraints.iter().any(|c| c.field == field)
+        })
+    }
+
     /// Whether the caller may read this one manifest (PF-59, PF-60): a grant that reads the
     /// kind, and — when the binding is scoped to one context space — a manifest of that space.
     /// This is what an organization-level list filters with, item by item.

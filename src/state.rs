@@ -189,7 +189,8 @@ impl AppState {
         if let Some(client) = gitea {
             let client = Arc::new(client);
             let mut syncer = Syncer::new(Arc::clone(&client), Arc::clone(&state.mirror))
-                .with_activity(state.activity.clone());
+                .with_activity(state.activity.clone())
+                .with_apps_dir(state.config.apps_dir.clone());
             // With a database the replicas elect one reconciler; without one there is nothing
             // to elect with, and a Portal that runs alone reconciles alone (T-0191, CC-03).
             if let Some(pool) = state.db.as_ref() {

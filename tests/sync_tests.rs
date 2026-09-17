@@ -149,12 +149,14 @@ async fn sync_fills_mirror_from_tree_with_live_status_and_observed_revision() {
         Some("c0ffee123456")
     );
     assert!(space_status.conditions.is_empty());
-    // The Source link points at the branch page of the very file the manifest came from.
+    // The Source link points at the branch page of the very file the manifest came from, behind
+    // the forge's own sign-in: a Portal session is not a forge session, and the configuration
+    // repository is private (PF-81, T-0702).
     assert_eq!(
         space_status.source_url.as_deref(),
         Some(
             format!(
-                "{}/test-owner/test-repo/src/branch/main/projects/ovzdusie/spaces/mobility/space.yaml",
+                "{}/user/login?redirect_to=%2Ftest-owner%2Ftest-repo%2Fsrc%2Fbranch%2Fmain%2Fprojects%2Fovzdusie%2Fspaces%2Fmobility%2Fspace.yaml",
                 server.uri()
             )
             .as_str()
@@ -392,6 +394,7 @@ async fn failed_tree_listing_preserves_mirror_and_records_error_in_sync_status()
             observed_revision: Some("initial-rev".to_string()),
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         }),
     });
     assert_eq!(mirror.len(), 1);

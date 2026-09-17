@@ -85,6 +85,7 @@ fn envelope(
             observed_revision: None,
             source_url: None,
             conditions: Vec::new(),
+            build: None,
         }),
     }
 }

@@ -8392,10 +8392,11 @@
       "Status": {
         "type": "object",
         "description": "The status the Portal API reports (MF-04). It is `jc_core::Status` plus `sourceUrl` and a phase\nthat is always known; it stays a Portal type until jc-core carries `sourceUrl` too (docs API/01\nsection 6 is the contract), then it becomes a re-export like its neighbours.",
-        "required": [
-          "phase"
-        ],
         "properties": {
+          "build": {
+            "type": "object",
+            "description": "What the build lane published for an `App`, and the only place its artifact is named\n(AP-13a). The one member of `status` a proposal may carry, and only from the role whose\n`propose` on `App` is constrained to it (AP-73)."
+          },
           "conditions": {
             "type": "array",
             "items": {

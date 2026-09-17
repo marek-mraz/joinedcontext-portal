@@ -2171,9 +2171,15 @@ export interface components {
          *     section 6 is the contract), then it becomes a re-export like its neighbours.
          */
         Status: {
+            /**
+             * @description What the build lane published for an `App`, and the only place its artifact is named
+             *     (AP-13a). The one member of `status` a proposal may carry, and only from the role whose
+             *     `propose` on `App` is constrained to it (AP-73).
+             */
+            build?: Record<string, never>;
             conditions?: components["schemas"]["Condition"][];
             observedRevision?: string | null;
-            phase: components["schemas"]["Phase"];
+            phase?: components["schemas"]["Phase"];
             /**
              * @description Forge page of the file this manifest was read from, so a view can link "Source"
              *     without knowing where a kind lives in the repository. Computed, never read from Git.

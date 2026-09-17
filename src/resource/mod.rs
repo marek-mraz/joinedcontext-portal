@@ -71,6 +71,10 @@ pub fn phase_str(phase: Phase) -> &'static str {
 /// that is always known; it stays a Portal type until jc-core carries `sourceUrl` too (docs API/01
 /// section 6 is the contract), then it becomes a re-export like its neighbours.
 pub struct Status {
+    // A manifest the build lane wrote carries `status.build` and nothing else (AP-13a), so the
+    // phase is defaulted rather than required: the Portal computes the real one on every sync,
+    // and a missing one must not cost the manifest its place in the mirror.
+    #[serde(default = "pending")]
     #[schema(schema_with = crate::openapi::phase_ref)]
     pub phase: Phase,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,6 +86,18 @@ pub struct Status {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schema(schema_with = crate::openapi::conditions_ref)]
     pub conditions: Vec<Condition>,
+    /// What the build lane published for an `App`, and the only place its artifact is named
+    /// (AP-13a). The one member of `status` a proposal may carry, and only from the role whose
+    /// `propose` on `App` is constrained to it (AP-73).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
+    pub build: Option<jc_core::Build>,
+}
+
+/// The phase of a manifest whose status says nothing about one: the Portal has not reconciled
+/// it yet, which is what `Pending` means.
+fn pending() -> Phase {
+    Phase::Pending
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
