@@ -238,3 +238,63 @@ describe("context spaces view", () => {
     expect(posts(fetchMock)).toHaveLength(0);
   });
 });
+
+/**
+ * T-1030, UI-44 and PF-61: a viewer holds `read` on `ContextSpace` and no `propose`. Looking
+ * inside a space is a read, so the row's link is theirs to follow; only the controls that
+ * change something are kept from them. The roles unit of the recording shows exactly this.
+ */
+describe("a viewer on the spaces list", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    window.history.pushState({}, "", "/projects/banskabystrica/spaces");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("follows the link into a space, and is not offered the controls that change one", async () => {
+    const viewer = {
+      subject: "b7c1e0f4",
+      username: "demo.viewer",
+      name: "Demo Viewer",
+      email: "demo.viewer@banskabystrica.sk",
+      roles: ["portal-viewer"],
+    };
+    const readOnly = {
+      bootstrap: false,
+      rules: [{ kinds: ["ContextSpace"], verbs: ["read"] }],
+    };
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      const request = typeof input === "string" ? new Request(input) : input;
+      const path = new URL(request.url, "http://localhost").pathname;
+      const json = (body: unknown, status = 200) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "content-type": "application/json" },
+        });
+      if (path.endsWith("/auth/me")) return json(viewer);
+      if (path.endsWith("/permissions/me")) return json(readOnly);
+      if (path.endsWith("/spaces")) return json(SPACES);
+      return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <App />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    const row = (await screen.findByText("ovzdusie")).closest("tr") as HTMLElement;
+    const open = within(row).getByRole("link", { name: en.spaces.inside.open });
+    expect(open).toBeInTheDocument();
+    expect(open).toHaveAttribute("href", "/projects/banskabystrica/spaces/ovzdusie");
+    // Nothing disables a link, so a viewer who may read is never stopped from looking.
+    expect(open).not.toHaveAttribute("aria-disabled", "true");
+  });
+});
