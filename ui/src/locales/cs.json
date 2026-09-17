@@ -70,7 +70,8 @@
     "schemaErrors": "Manifest neodpovídá schématu:",
     "exclusive": "Vyplnit lze jen jedno z těchto polí",
     "dependency": "Toto pole potřebuje pole, na kterém závisí",
-    "check": "Zkontrolovat"
+    "check": "Zkontrolovat",
+    "restartsStream": "Použití této změny restartuje stream na runneru. Periodický pipeline začne svůj rozvrh znovu, takže další běh je o celou periodu dál."
   },
   "approvals": {
     "lead": "Každá změna projektu je zde návrhem, dokud ji schvalovatel nesloučí.",

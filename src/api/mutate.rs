@@ -549,6 +549,7 @@ pub async fn propose_with_identity(
         };
         return Ok(ProposeOutcome::DryRun(DryRunResult {
             valid: true,
+            restarts_stream: crate::plan::restarts_stream(kind_info.kind, &plan),
             lane,
             plan,
             probe,

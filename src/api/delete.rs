@@ -249,6 +249,9 @@ pub async fn delete_with_identity(
     if dry_run {
         return Ok(DeleteOutcome::DryRun(DryRunResult {
             valid: true,
+            // A removal takes the stream away rather than restarting it, so the notice that
+            // warns about a restart would be the wrong thing to say here (T-1056).
+            restarts_stream: false,
             lane,
             plan,
             probe: None,

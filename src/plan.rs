@@ -55,6 +55,23 @@ pub struct FieldChange {
     pub to: Option<serde_json::Value>,
 }
 
+/// Whether applying this change makes the runner restart the pipeline's stream (T-1056, PL-45).
+///
+/// The reconciler sends a stream to the runner again whenever its rendered configuration moves,
+/// and the runner restarts a stream on every PUT — which for a periodic pipeline means its
+/// schedule starts over, so the next emission is a period away rather than where it was. The
+/// render is a function of the pipeline's `spec`, so a change that touches the spec restarts it
+/// and a change to metadata alone does not. `spec.enabled` is the exception: it takes the stream
+/// away or brings it back, which the person toggling it already knows, so it warns about nothing.
+pub fn restarts_stream(kind: &str, diff: &PlanDiff) -> bool {
+    kind == "Pipeline"
+        && diff
+            .fields
+            .iter()
+            .any(|field| field.path == "spec" || field.path.starts_with("spec."))
+        && diff.fields.iter().any(|field| field.path != "spec.enabled")
+}
+
 /// Computes the structural diff between current and desired resource envelopes.
 ///
 /// Compares `metadata` and `spec` only; `status` is never part of a plan (MF-04).
@@ -533,5 +550,66 @@ mod tests {
         let patch2 = json!([1, 2, 3]);
         merge_patch(&mut target2, &patch2);
         assert_eq!(target2, json!([1, 2, 3]));
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use super::*;
+
+    fn changed(paths: &[&str]) -> PlanDiff {
+        PlanDiff {
+            summary: PlanSummary::default(),
+            fields: paths
+                .iter()
+                .map(|path| FieldChange {
+                    path: (*path).to_owned(),
+                    from: None,
+                    to: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// T-1056, PL-45: the runner restarts a stream on every PUT, and the reconciler sends one
+    /// whenever the render moves. The render is a function of the pipeline's `spec`, so a person
+    /// is told before approving that a periodic pipeline's schedule starts over.
+    #[test]
+    fn a_pipeline_whose_spec_moves_restarts_its_stream() {
+        assert!(restarts_stream(
+            "Pipeline",
+            &changed(&["spec.compute.bloblang"])
+        ));
+        assert!(restarts_stream("Pipeline", &changed(&["spec"])));
+        assert!(restarts_stream(
+            "Pipeline",
+            &changed(&["metadata.title", "spec.output.mode"])
+        ));
+    }
+
+    #[test]
+    fn a_change_that_leaves_the_spec_alone_does_not() {
+        assert!(!restarts_stream("Pipeline", &changed(&["metadata.title"])));
+        assert!(!restarts_stream("Pipeline", &PlanDiff::empty()));
+        // A field merely beginning with the letters is not the spec.
+        assert!(!restarts_stream("Pipeline", &changed(&["specification"])));
+        // Turning a pipeline off takes its stream away; nobody needs to be told that as a surprise.
+        assert!(!restarts_stream("Pipeline", &changed(&["spec.enabled"])));
+        // But a spec change riding along with the toggle still restarts what stays.
+        assert!(restarts_stream(
+            "Pipeline",
+            &changed(&["spec.enabled", "spec.compute.bloblang"])
+        ));
+    }
+
+    /// Only a pipeline has a stream to restart.
+    #[test]
+    fn another_kind_never_restarts_a_stream() {
+        for kind in ["Endpoint", "ContextSpace", "DataSource", "Policy"] {
+            assert!(
+                !restarts_stream(kind, &changed(&["spec.anything"])),
+                "{kind}"
+            );
+        }
     }
 }

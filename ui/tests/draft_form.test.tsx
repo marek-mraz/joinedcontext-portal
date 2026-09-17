@@ -592,6 +592,76 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
     });
   });
 
+  it("warns that applying restarts the stream when the check says so (T-1056)", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        const method =
+          input instanceof Request ? input.method : (init?.method ?? "GET");
+        if (url.includes("/api/v1/branding")) {
+          return new Response(JSON.stringify({ validation: "strict" }), {
+            status: 200,
+          });
+        }
+        // The dry run answers the restart along with the verdict: the runner drops and
+        // recreates the stream for a spec change, and a periodic pipeline loses its schedule.
+        if (method === "POST" && url.includes("dryRun=All")) {
+          const body = JSON.parse(await (input as Request).clone().text());
+          const manifest = { ...(body as Record<string, unknown>) };
+          delete manifest.draft;
+          return new Response(
+            JSON.stringify({
+              restartsStream: true,
+              verdict: {
+                ok: true,
+                findings: [],
+                checkedAt: new Date().toISOString(),
+                inputDigest: digestOf(manifest),
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Create Data Source"
+            description="Create draft"
+            project="banskabystrica"
+            draftKind="DataSource"
+            plural="datasources"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={() => {}}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Name/i), {
+      target: { value: "aq-feed" },
+    });
+
+    // Nothing is claimed before the check has answered.
+    expect(screen.queryByText(en.form.restartsStream)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: en.form.check }));
+    expect(await screen.findByText(en.form.restartsStream)).toBeInTheDocument();
+  });
+
   it("leaves Propose refused when the check itself is refused (T-0779)", async () => {
     const proposed: unknown[] = [];
     const fetchMock = vi.fn(

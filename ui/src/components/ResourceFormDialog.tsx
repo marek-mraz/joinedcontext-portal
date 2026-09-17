@@ -218,6 +218,8 @@ export function ResourceFormDialog<T>({
   const [text, setText] = useState("");
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [issues, setIssues] = useState<string[]>([]);
+  /** Whether the last check said applying this restarts the pipeline's stream (T-1056). */
+  const [restartsStream, setRestartsStream] = useState(false);
 
   const [currentDraft, setCurrentDraft] = useState<Draft | null>(null);
   // The draft name whose load has answered, with or without a draft: the write below waits
@@ -255,6 +257,7 @@ export function ResourceFormDialog<T>({
       setView("form");
       setYamlError(null);
       setIssues([]);
+      setRestartsStream(false);
       setConflict(null);
       setCurrentDraft(null);
       setLoadedName(undefined);
@@ -547,8 +550,11 @@ export function ResourceFormDialog<T>({
       );
     },
     onSuccess: (result) => {
-      const answer = result as { verdict?: Verdict };
+      const answer = result as { verdict?: Verdict; restartsStream?: boolean };
       updateVerdict(answer?.verdict ?? null);
+      // T-1056, PL-45: the runner restarts a stream whenever its render moves, and a periodic
+      // pipeline then starts its schedule over. A person reads that before proposing, not after.
+      setRestartsStream(answer?.restartsStream === true);
     },
   });
 
@@ -719,6 +725,12 @@ export function ResourceFormDialog<T>({
               ))}
             </ul>
           </div>
+        ) : null}
+
+        {restartsStream ? (
+          <Alert role="status" tone="warning">
+            {t("form.restartsStream")}
+          </Alert>
         ) : null}
 
         {source ? (

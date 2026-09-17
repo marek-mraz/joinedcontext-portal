@@ -70,7 +70,8 @@
     "schemaErrors": "Das Manifest entspricht nicht dem Schema:",
     "exclusive": "Nur eines dieser Felder darf gesetzt sein",
     "dependency": "Dieses Feld braucht das Feld, von dem es abhängt",
-    "check": "Prüfen"
+    "check": "Prüfen",
+    "restartsStream": "Diese Änderung startet den Stream auf dem Runner neu. Eine periodische Pipeline beginnt ihren Zeitplan von vorn, der nächste Lauf ist also eine ganze Periode entfernt."
   },
   "approvals": {
     "lead": "Jede Änderung am Projekt ist hier ein Vorschlag, bis eine freigebende Person sie zusammenführt.",

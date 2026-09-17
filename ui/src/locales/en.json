@@ -70,7 +70,8 @@
     "schemaErrors": "The manifest does not match the schema:",
     "exclusive": "Only one of these fields may be set",
     "dependency": "This field needs the field it depends on",
-    "check": "Check"
+    "check": "Check",
+    "restartsStream": "Applying this restarts the stream on the runner. A periodic pipeline starts its schedule over, so the next run is a full period away."
   },
   "approvals": {
     "lead": "Every change to the project is a proposal here until an approver merges it.",

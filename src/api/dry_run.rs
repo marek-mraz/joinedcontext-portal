@@ -33,6 +33,10 @@ pub struct DryRunResult {
     pub valid: bool,
     pub lane: Lane,
     pub plan: PlanDiff,
+    /// Whether applying this makes the runner restart the pipeline's stream, so a person sees
+    /// it before approving rather than afterwards (T-1056, PL-45). Absent for every other kind.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restarts_stream: bool,
     /// What one fetch of an `http` DataSource returned (MF-39); absent for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probe: Option<Probe>,
