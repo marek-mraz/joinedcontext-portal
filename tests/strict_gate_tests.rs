@@ -673,6 +673,61 @@ async fn space_propose_requires_jc_manifest_dry_run() {
     assert_eq!(body["check"], "jc_manifest_dry_run");
 }
 
+/// T-0956: what a proposal naming no draft does today, pinned so it cannot change by accident.
+///
+/// The strict gate (PF-57) lives on the registered operation, which a body carrying a `draft`
+/// reaches; a bare manifest posted to the same route does not meet it and opens a change with
+/// `202`. Whether that is the intended reading of "proposals require a fresh green verdict" is
+/// the owner's to settle — 19 tests across resource_mutate, spaces and projects post manifests
+/// this way under the default strict mode and expect them to land, so the behaviour is a design
+/// and not an oversight. This test states it rather than leaving it implied.
+#[tokio::test]
+async fn a_rest_proposal_naming_no_draft_is_not_gated_today() {
+    let (_gitea_server, gitea_client) = setup_mock_gitea().await;
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None)
+        .with_mirror(Arc::new(Mirror::new()))
+        .with_gitea(Arc::new(gitea_client));
+    assert_eq!(
+        state.branding().validation,
+        joinedcontext_portal::branding::Validation::Strict,
+        "the default mode, so this is the gate's own reading and not a lax instance"
+    );
+    let app = server::app(state);
+    let steward_cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@banskabystrica.sk"),
+        vec!["portal-approver"],
+        vec![],
+    );
+
+    let manifest = json!({
+        "apiVersion": API_VERSION,
+        "kind": "DataSource",
+        "metadata": { "name": "feed-unchecked", "namespace": "ovzdusie" },
+        "spec": { "type": "http", "http": { "url": "https://example.com/bikes.json" } }
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/datasources")
+                .header(header::COOKIE, &steward_cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&manifest).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::ACCEPTED,
+        "a bare manifest opens a change; the gate is the draft door's (T-0956)"
+    );
+}
+
 /// The generic REST door with a `draft` beside the manifest reaches the same registered
 /// operations as the ops route (ADR-N-021): a dry run checks the body and files the verdict
 /// on the draft, a proposal without one is the strict gate's 409, with one it is a change.
