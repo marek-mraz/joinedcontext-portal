@@ -166,6 +166,23 @@ async fn list_changes_filters_portal_prefix_sorts_newest_first_with_metadata() {
         .mount(&server)
         .await;
 
+    // PR 1 is one manifest; PR 3 is a bundle — the count the list renders beside it.
+    pr_files(
+        &server,
+        1,
+        &[("projects/ovzdusie/spaces/mobility/space.yaml", "added")],
+    )
+    .await;
+    pr_files(
+        &server,
+        3,
+        &[
+            ("projects/ovzdusie/spaces/traffic/space.yaml", "deleted"),
+            ("projects/ovzdusie/pipelines/traffic-in.yaml", "deleted"),
+        ],
+    )
+    .await;
+
     let space_mobility = r#"apiVersion: joinedcontext.com/v1alpha1
 kind: ContextSpace
 metadata:
@@ -357,6 +374,13 @@ spec:
         })))
         .mount(&server)
         .await;
+
+    pr_files(
+        &server,
+        10,
+        &[("projects/ovzdusie/spaces/mobility/space.yaml", "modified")],
+    )
+    .await;
 
     let response = app
         .oneshot(
@@ -2066,4 +2090,72 @@ async fn the_operation_refuses_a_public_endpoint_in_the_same_words() {
     assert!(said.contains("publisher"), "{said}");
     assert!(said.contains("EP-76"), "{said}");
     assert!(!merged_66(&server).await);
+}
+
+/// T-0861: the approval walks every file of the merge request, so the detail lists every file
+/// of the merge request. An approver who reads "create Pipeline aq" and is then refused for a
+/// RoleBinding was never shown what the refusal is about.
+#[tokio::test]
+async fn the_detail_of_a_bundle_lists_every_file_with_its_kind_and_lane() {
+    let (_server, state) = bundle_of(
+        json!([{ "kinds": ["Pipeline", "RoleBinding"], "verbs": ["read", "approve"] }]),
+        &[("users/assignments/mallory-admin.yaml", SMUGGLED_BINDING)],
+    )
+    .await;
+
+    let config = state.config.clone();
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/ovzdusie/changes/chg-00000007")
+                .header(
+                    header::COOKIE,
+                    session_and_csrf_cookies(
+                        &config,
+                        "jana.approver",
+                        Some("jana.approver@banskabystrica.sk"),
+                        Some("Jana Approver"),
+                        vec![],
+                    ),
+                )
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bytes")
+        .to_bytes();
+    let proposal: Value = serde_json::from_slice(&bytes).expect("a change proposal");
+
+    assert_eq!(proposal["fileCount"], json!(2));
+    let files = proposal["files"]
+        .as_array()
+        .expect("the files of the bundle");
+    let kinds: Vec<&str> = files
+        .iter()
+        .filter_map(|file| file["kind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"Pipeline"), "{files:?}");
+    assert!(kinds.contains(&"RoleBinding"), "{files:?}");
+
+    let binding = files
+        .iter()
+        .find(|file| file["kind"] == "RoleBinding")
+        .expect("the binding is listed");
+    assert_eq!(
+        binding["path"],
+        json!("users/assignments/mallory-admin.yaml")
+    );
+    assert_eq!(binding["operation"], json!("Create"));
+    assert_eq!(
+        binding["lane"],
+        json!("red"),
+        "a binding is the lane the confirmation is asked for"
+    );
 }

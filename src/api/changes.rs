@@ -51,10 +51,36 @@ pub struct ChangeProposal {
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_fields: Option<Vec<FieldChange>>,
+    /// Every file the merge request changes, on the detail of one change (T-0861). Absent in
+    /// a listing, which carries `fileCount` instead: the list would otherwise read every
+    /// file of every open change to render a number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<ChangeFile>>,
+    /// How many files the merge request changes, the headline manifest included.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_count: Option<usize>,
 }
 
 impl ChangeProposal {
     pub const KIND: &'static str = "Change";
+}
+
+/// One file of the merge request behind a change (T-0861, MF-21, CC-63).
+///
+/// A bundle merge request carries more than its headline: the approval walks every file and
+/// the strictest lane among them decides the confirmation (T-0832), so the page has to show
+/// the same list. What the approver reads is what the server checks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeFile {
+    /// Path in the configuration repository.
+    pub path: String,
+    /// The manifest's kind, or the kind the directory names for a native file beside one.
+    pub kind: String,
+    /// What the merge request does to it, from the forge's own diff status.
+    pub operation: Operation,
+    /// The lane this file alone would take.
+    pub lane: Lane,
 }
 
 /// Collection envelope for change proposals.
@@ -502,6 +528,10 @@ fn build_proposal(
         },
         created_at: pr.created_at.clone(),
         plan_fields,
+        // Filled by the caller that read the merge request's files; a proposal built from the
+        // headline alone says nothing about them rather than claiming there is one.
+        files: None,
+        file_count: None,
     }
 }
 
@@ -608,6 +638,9 @@ pub async fn list_changes_for(state: &AppState, project: &str) -> Result<ChangeL
         let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
         let mut proposal = build_proposal(&pr, project, &data, plan, None);
         proposal.author = human_author(gitea, &pr).await;
+        // The count only: a listing that read every file of every open change to render
+        // "+3 files" would pay for the detail page on the way past it (T-0861).
+        proposal.file_count = Some(gitea.pull_request_files(pr.number).await?.len());
         proposals.push(proposal);
     }
 
@@ -672,8 +705,11 @@ pub async fn change_for(
     let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
     let redacted_fields = redact(plan.fields.clone());
     let author = human_author(gitea, &pr).await;
+    let files = changed_files(gitea, &pr).await?;
     Ok(ChangeProposal {
         author,
+        file_count: Some(files.len()),
+        files: Some(files),
         ..build_proposal(&pr, project, &data, plan, Some(redacted_fields))
     })
 }
@@ -756,6 +792,59 @@ fn administers(
     [jc_core::kinds::Verb::Approve, jc_core::kinds::Verb::Delete]
         .into_iter()
         .all(|verb| effective.check(&data.kind, verb, target.as_ref()).is_ok())
+}
+
+/// Every file the merge request changes, with the kind, the operation and the lane each one
+/// carries (T-0861).
+///
+/// The same walk `approve_every_file` makes, over the same reads: a page that summarised the
+/// merge request differently from the checks would be a page an approver cannot trust. A file
+/// whose kind this platform does not serve is still listed — the approval refuses it, and an
+/// approver who cannot see it cannot understand the refusal.
+/// ponytail: one `get_file` per changed file, as the approval does; the tree diff is the
+/// upgrade for both at once.
+async fn changed_files(gitea: &GiteaClient, pr: &PullRequest) -> Result<Vec<ChangeFile>, ApiError> {
+    let mut listed = Vec::new();
+    for file in gitea.pull_request_files(pr.number).await? {
+        let git_ref = if file.deleted {
+            &pr.base_branch
+        } else {
+            &pr.head_branch
+        };
+        let content = gitea
+            .get_file(&file.path, git_ref)
+            .await?
+            .map(|found| found.content)
+            .unwrap_or_default();
+        let envelope = serde_yaml_ng::from_str::<ResourceEnvelope>(&content).ok();
+        let kind = envelope
+            .as_ref()
+            .map(|envelope| envelope.kind.clone())
+            .or_else(|| crate::api::import::native_kind(&file.path).map(str::to_owned))
+            .unwrap_or_default();
+        let operation = match (file.deleted, file.added) {
+            (true, _) => Operation::Delete,
+            (_, true) => Operation::Create,
+            _ => Operation::Update,
+        };
+        let lane = match (&envelope, operation) {
+            // A delete is red whatever it removes, which is what the approval decides too.
+            (_, Operation::Delete) => Lane::Red,
+            (Some(envelope), _) => {
+                change::classify(&envelope.kind, Operation::Create, &envelope.spec)
+            }
+            // A native file beside a manifest carries no spec to classify; the manifest it
+            // belongs to is in the same merge request and carries the lane.
+            (None, _) => Lane::Green,
+        };
+        listed.push(ChangeFile {
+            path: file.path,
+            kind,
+            operation,
+            lane,
+        });
+    }
+    Ok(listed)
 }
 
 /// The approval checks of every file the merge request changes, and the strictest lane among

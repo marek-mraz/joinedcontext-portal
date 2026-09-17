@@ -100,7 +100,10 @@
     "diffType": "Änderungstyp",
     "actions": "Aktionen",
     "view": "Anzeigen",
-    "ownAsAdministrator": "Sie haben diese Änderung verfasst; Sie genehmigen sie als Administrator von {kind}."
+    "ownAsAdministrator": "Sie haben diese Änderung verfasst; Sie genehmigen sie als Administrator von {kind}.",
+    "files": "Dateien in dieser Änderung",
+    "fileCount": "{count, plural, one {# Datei} other {# Dateien}}",
+    "filesLead": "Die Freigabe prüft jede einzelne, und die strengste Spur entscheidet."
   },
   "lane": {
     "green": "Grün",

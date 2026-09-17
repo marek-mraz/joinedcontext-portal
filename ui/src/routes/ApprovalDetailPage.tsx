@@ -12,6 +12,17 @@ import type { components } from "../api/schema";
 import { Alert, Button, Input, PageHeader } from "../components/ui";
 
 type ChangeProposal = components["schemas"]["ChangeProposal"];
+type ChangeFile = components["schemas"]["ChangeFile"];
+
+/** The order the files are read in: what the strictest lane decides comes first. */
+const LANE_ORDER: Record<ChangeFile["lane"], number> = { red: 2, yellow: 1, green: 0 };
+
+/** The three words the diff already uses for what a change does to a file. */
+const OPERATION_LABEL: Record<ChangeFile["operation"], string> = {
+  Create: "approvals.diffAdded",
+  Update: "approvals.diffChanged",
+  Delete: "approvals.diffRemoved",
+};
 
 /**
  * The word a red-lane approval has to be typed back. It is the resource name the summary
@@ -163,6 +174,12 @@ export function ApprovalDetailPage({
     proposal.summary.params as Record<string, unknown>,
   );
 
+  // Red first: the file that decides the confirmation is the one an approver has to read,
+  // and a bundle's headline is rarely it (T-0861).
+  const files = [...(proposal.files ?? [])].sort(
+    (one, other) => LANE_ORDER[other.lane] - LANE_ORDER[one.lane],
+  );
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -204,6 +221,33 @@ export function ApprovalDetailPage({
           </div>
         ) : null}
       </dl>
+
+      {files.length > 0 ? (
+        <section aria-labelledby="files-heading" className="space-y-2">
+          <h2 id="files-heading" className="text-base font-semibold text-surface-fg">
+            {t("approvals.files")} ({t("approvals.fileCount", { count: files.length })})
+          </h2>
+          <p className="text-caption text-fg-muted">{t("approvals.filesLead")}</p>
+          <ul className="divide-y divide-border rounded border border-border">
+            {files.map((file) => (
+              <li
+                key={file.path}
+                className="flex flex-wrap items-center gap-2 px-3 py-2"
+                data-testid="change-file"
+              >
+                <LifecycleBadge kind="lane" value={file.lane} />
+                {file.kind ? (
+                  <span className="text-sm font-medium text-surface-fg">{file.kind}</span>
+                ) : null}
+                <span className="font-mono text-caption text-fg-subtle">{file.path}</span>
+                <span className="ml-auto text-caption text-fg-muted">
+                  {t(OPERATION_LABEL[file.operation])}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section aria-labelledby="plan-diff-heading" className="space-y-2">
         <h2 id="plan-diff-heading" className="text-base font-semibold text-surface-fg">

@@ -6034,6 +6034,34 @@
           }
         }
       },
+      "ChangeFile": {
+        "type": "object",
+        "description": "One file of the merge request behind a change (T-0861, MF-21, CC-63).\n\nA bundle merge request carries more than its headline: the approval walks every file and\nthe strictest lane among them decides the confirmation (T-0832), so the page has to show\nthe same list. What the approver reads is what the server checks.",
+        "required": [
+          "path",
+          "kind",
+          "operation",
+          "lane"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "The manifest's kind, or the kind the directory names for a native file beside one."
+          },
+          "lane": {
+            "$ref": "#/components/schemas/Lane",
+            "description": "The lane this file alone would take."
+          },
+          "operation": {
+            "$ref": "#/components/schemas/Operation",
+            "description": "What the merge request does to it, from the forge's own diff status."
+          },
+          "path": {
+            "type": "string",
+            "description": "Path in the configuration repository."
+          }
+        }
+      },
       "ChangeList": {
         "type": "object",
         "description": "Collection envelope for change proposals.",
@@ -6106,6 +6134,24 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "fileCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "How many files the merge request changes, the headline manifest included.",
+            "minimum": 0
+          },
+          "files": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChangeFile"
+            },
+            "description": "Every file the merge request changes, on the detail of one change (T-0861). Absent in\na listing, which carries `fileCount` instead: the list would otherwise read every\nfile of every open change to render a number."
           },
           "kind": {
             "type": "string"
@@ -7397,6 +7443,15 @@
           }
         },
         "additionalProperties": false
+      },
+      "Operation": {
+        "type": "string",
+        "description": "Resource mutation operation type.",
+        "enum": [
+          "Create",
+          "Update",
+          "Delete"
+        ]
       },
       "OperationAccess": {
         "type": "object",

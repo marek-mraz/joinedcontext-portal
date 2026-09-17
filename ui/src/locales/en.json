@@ -100,7 +100,10 @@
     "diffType": "Change type",
     "actions": "Actions",
     "view": "View",
-    "ownAsAdministrator": "You wrote this change; you approve it as an administrator of {kind}."
+    "ownAsAdministrator": "You wrote this change; you approve it as an administrator of {kind}.",
+    "files": "Files in this change",
+    "fileCount": "{count, plural, one {# file} other {# files}}",
+    "filesLead": "The approval checks every one of them, and the strictest lane decides."
   },
   "lane": {
     "green": "Green",

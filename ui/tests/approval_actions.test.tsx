@@ -232,3 +232,52 @@ describe("approval actions", () => {
     await expect(posts(fetchMock)[0].clone().json()).resolves.toEqual({ confirm: "air-quality" });
   });
 });
+
+describe("the files of a bundle (T-0861)", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    document.cookie = "jc_csrf=csrf-token-value";
+    window.history.pushState({}, "", "/projects/banskabystrica/approvals/chg-1a2b3c4d");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("lists every file of the merge request, the strictest lane first", async () => {
+    renderDetail({
+      change: proposal({
+        fileCount: 2,
+        files: [
+          {
+            path: "projects/banskabystrica/pipelines/aq.yaml",
+            kind: "Pipeline",
+            operation: "Create",
+            lane: "green",
+          },
+          {
+            path: "users/assignments/mallory-admin.yaml",
+            kind: "RoleBinding",
+            operation: "Create",
+            lane: "red",
+          },
+        ],
+      }),
+    });
+
+    const rows = await screen.findAllByTestId("change-file");
+    expect(rows).toHaveLength(2);
+    // The one that decides the confirmation is read first.
+    expect(rows[0]).toHaveTextContent("RoleBinding");
+    expect(rows[0]).toHaveTextContent("users/assignments/mallory-admin.yaml");
+    expect(rows[0]).toHaveTextContent(en.lane.red);
+    expect(rows[1]).toHaveTextContent("Pipeline");
+    expect(rows[1]).toHaveTextContent(en.approvals.diffAdded);
+  });
+
+  it("shows no file section for a change the API listed no files for", async () => {
+    renderDetail();
+    await screen.findByRole("heading", { name: en.approvals.diffType });
+    expect(screen.queryAllByTestId("change-file")).toHaveLength(0);
+  });
+});

@@ -1324,6 +1324,23 @@ export interface components {
             email?: string | null;
             name: string;
         };
+        /**
+         * @description One file of the merge request behind a change (T-0861, MF-21, CC-63).
+         *
+         *     A bundle merge request carries more than its headline: the approval walks every file and
+         *     the strictest lane among them decides the confirmation (T-0832), so the page has to show
+         *     the same list. What the approver reads is what the server checks.
+         */
+        ChangeFile: {
+            /** @description The manifest's kind, or the kind the directory names for a native file beside one. */
+            kind: string;
+            /** @description The lane this file alone would take. */
+            lane: components["schemas"]["Lane"];
+            /** @description What the merge request does to it, from the forge's own diff status. */
+            operation: components["schemas"]["Operation"];
+            /** @description Path in the configuration repository. */
+            path: string;
+        };
         /** @description Collection envelope for change proposals. */
         ChangeList: {
             apiVersion: string;
@@ -1349,6 +1366,14 @@ export interface components {
             apiVersion: string;
             author: components["schemas"]["ChangeAuthor"];
             createdAt: string;
+            /** @description How many files the merge request changes, the headline manifest included. */
+            fileCount?: number | null;
+            /**
+             * @description Every file the merge request changes, on the detail of one change (T-0861). Absent in
+             *     a listing, which carries `fileCount` instead: the list would otherwise read every
+             *     file of every open change to render a number.
+             */
+            files?: components["schemas"]["ChangeFile"][] | null;
             kind: string;
             metadata: components["schemas"]["ChangeMeta"];
             planFields?: components["schemas"]["FieldChange"][] | null;
@@ -1852,6 +1877,11 @@ export interface components {
             /** @description The slug: the `{project}` segment of every path of it (PF-67). */
             name: string;
         };
+        /**
+         * @description Resource mutation operation type.
+         * @enum {string}
+         */
+        Operation: "Create" | "Update" | "Delete";
         /** @description One operation of the registry as a run the caller starts would meet it (AG-70, UI-56). */
         OperationAccess: {
             name: string;

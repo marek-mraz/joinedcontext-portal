@@ -100,7 +100,10 @@
     "diffType": "Typ zmeny",
     "actions": "Akcie",
     "view": "Zobraziť",
-    "ownAsAdministrator": "Túto zmenu ste navrhli vy; schvaľujete ju ako administrátor {kind}."
+    "ownAsAdministrator": "Túto zmenu ste navrhli vy; schvaľujete ju ako administrátor {kind}.",
+    "files": "Súbory v tejto zmene",
+    "fileCount": "{count, plural, one {# súbor} few {# súbory} other {# súborov}}",
+    "filesLead": "Schválenie kontroluje každý z nich a rozhoduje najprísnejší pruh."
   },
   "lane": {
     "green": "Zelená",

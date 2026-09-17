@@ -131,6 +131,12 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
                   <div className="mt-0.5 font-mono text-caption text-fg-subtle">
                     {proposal.metadata.name}
                   </div>
+                  {/* A bundle is more than its headline, and the approval checks all of it. */}
+                  {(proposal.fileCount ?? 0) > 1 ? (
+                    <div className="mt-0.5 text-caption text-fg-muted">
+                      {t("approvals.fileCount", { count: proposal.fileCount })}
+                    </div>
+                  ) : null}
                 </TableCell>
                 <TableCell>
                   <LifecycleBadge kind="lane" value={proposal.status.lane} />

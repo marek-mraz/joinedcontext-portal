@@ -86,6 +86,10 @@ pub struct RepoFile {
 pub struct ChangedFile {
     pub path: String,
     pub deleted: bool,
+    /// Whether the merge request adds the file, as the forge's own diff status says: the
+    /// difference between creating a resource and changing one, without a second read of the
+    /// base branch (T-0861).
+    pub added: bool,
 }
 
 #[derive(Deserialize)]
@@ -838,6 +842,7 @@ impl GiteaClient {
             let count = raw.len();
             files.extend(raw.into_iter().map(|dto| ChangedFile {
                 deleted: dto.status == "deleted",
+                added: dto.status == "added",
                 path: dto.filename,
             }));
             if count < PAGE {

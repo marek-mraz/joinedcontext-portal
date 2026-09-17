@@ -140,3 +140,33 @@ describe("pending approvals view", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 });
+
+describe("a bundle in the queue (T-0861)", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    window.history.pushState({}, "", "/projects/banskabystrica/approvals");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("says how many files a change carries when it carries more than one", async () => {
+    renderApprovals({
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "ChangeList",
+      items: [
+        proposal({ fileCount: 3 }),
+        proposal({
+          metadata: { name: "chg-9f8e7d6c", namespace: "banskabystrica" },
+          fileCount: 1,
+        }),
+      ],
+    });
+
+    const bundle = (await screen.findByText("chg-1a2b3c4d")).closest("tr") as HTMLElement;
+    expect(within(bundle).getByText("3 files")).toBeInTheDocument();
+    const single = screen.getByText("chg-9f8e7d6c").closest("tr") as HTMLElement;
+    expect(within(single).queryByText(/file/)).not.toBeInTheDocument();
+  });
+});
