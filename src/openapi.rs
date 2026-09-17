@@ -28,7 +28,7 @@ use crate::api::health::{Health, Readiness};
 use crate::api::ops::{OperationAnnotations, OperationSummary};
 use crate::api::pipelines::PipelineMetrics;
 use crate::api::preferences::Preferences;
-use crate::api::projects::{ProjectList, ProjectSummary};
+use crate::api::projects::{OpenProject, ProjectList, ProjectSummary};
 use crate::api::resources::{ListMeta, ResourceList};
 use crate::api::service_accounts::{KeyInfo, KeyList, MintedKey};
 use crate::auth::oidc::{LogoutTarget, Me};
@@ -39,7 +39,7 @@ use crate::change::{Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, PlanSum
 use crate::error::ProblemDetails;
 use crate::ops::drafts::{Draft, DraftEvent};
 use crate::ops::verdict::{Finding, Level, Verdict};
-use crate::permissions::{Effective, Grant};
+use crate::permissions::{Affordance, Effective, Grant, ProjectAffordances};
 use crate::plan::{FieldChange, PlanDiff};
 use crate::reconciler::SyncStatus;
 use crate::resource::{ResourceEnvelope, Status};
@@ -58,6 +58,7 @@ use crate::tools::model_tools::{
         crate::auth::oidc::me,
         crate::auth::oidc::logout,
         crate::api::projects::list_projects,
+        crate::api::projects::open_project,
         crate::api::resources::list,
         crate::api::blueprints::list_blueprints,
         crate::api::forms::list_forms,
@@ -145,6 +146,8 @@ use crate::tools::model_tools::{
         Readiness,
         Effective,
         Grant,
+        Affordance,
+        ProjectAffordances,
         Branding,
         Colours,
         Fonts,
@@ -169,6 +172,7 @@ use crate::tools::model_tools::{
         Status,
         ResourceList,
         ListMeta,
+        OpenProject,
         ProjectList,
         ProjectSummary,
         Change,

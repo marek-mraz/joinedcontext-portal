@@ -1217,7 +1217,18 @@
     "empty": {
       "title": "Das Repository enthält kein Projekt",
       "description": "Legen Sie im Konfigurations-Repository ein Verzeichnis projects/<slug>/ mit mindestens einem Manifest an; das Portal zeigt es nach der nächsten Synchronisation."
-    }
+    },
+    "new": "Neues Projekt",
+    "newTitle": "Ein Projekt eröffnen",
+    "newLead": "Ein Projekt hat eigene Manifeste und Rollen, und wer es eröffnet, wird sein Steward. Es wird als eine Änderung vorgeschlagen.",
+    "open": "Projekt eröffnen",
+    "nameLabel": "Name",
+    "nameHint": "Kleinbuchstaben, Ziffern und Bindestriche: das ist das Segment {project} in jedem seiner Pfade.",
+    "nameInvalid": "Kleinbuchstaben, Ziffern und Bindestriche, am Anfang und am Ende ein Buchstabe oder eine Ziffer.",
+    "nameReserved": "„org“ ist der eigene Namensraum der Organisation, nie ein Projekt.",
+    "displayNameLabel": "Anzeigename",
+    "descriptionLabel": "Beschreibung",
+    "notAllowed": "Diese Organisation lässt Sie kein Projekt eröffnen."
   },
   "entities": {
     "type": "Entitätstyp",

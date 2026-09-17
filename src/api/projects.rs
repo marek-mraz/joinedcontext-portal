@@ -117,6 +117,24 @@ pub fn may_open(
     }
 }
 
+/// The same answer as [`may_open`], in the shape `permissions/me` carries to the UI: the "New
+/// project" control is enabled or disabled with this reason, and never hidden (UI-44, PF-65).
+pub fn creation_affordance(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+) -> crate::permissions::Affordance {
+    match may_open(state, identity) {
+        Ok(()) => crate::permissions::Affordance {
+            allowed: true,
+            reason: None,
+        },
+        Err(err) => crate::permissions::Affordance {
+            allowed: false,
+            reason: Some(err.to_string()),
+        },
+    }
+}
+
 /// Whether the caller is a member of the named group: the `Group` manifest first, which is the
 /// configuration (PF-62), and the identity provider's own groups as long as no manifest names
 /// them (PF-63 is what makes the two agree).
@@ -168,7 +186,7 @@ pub struct OpenProject {
     tag = "resources",
     request_body = OpenProject,
     responses(
-        (status = 202, description = "The change that opens the project"),
+        (status = 202, description = "The change that opens the project", body = Change),
         (status = 400, description = "The name is not a DNS-1123 label", body = ProblemDetails),
         (status = 401, description = "Unauthorized", body = ProblemDetails),
         (status = 403, description = "The organization does not let this caller open a project", body = ProblemDetails),
@@ -232,7 +250,7 @@ pub async fn open_project(
         lane: crate::change::Lane::Yellow,
         source: None,
     };
-    let change = crate::api::import::propose_bundle(
+    let mut change = crate::api::import::propose_bundle(
         &state,
         identity,
         &name,
@@ -259,6 +277,9 @@ pub async fn open_project(
                 ),
             )
             .await?;
+        // Nothing is waiting for a person, so the answer says so and the UI opens the project
+        // itself instead of a change nobody will approve (PF-66).
+        change.status.phase = crate::change::ChangePhase::Merged;
         if let Some(syncer) = state.syncer.as_ref() {
             let syncer = syncer.clone();
             tokio::spawn(async move {

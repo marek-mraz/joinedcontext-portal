@@ -1217,7 +1217,18 @@
     "empty": {
       "title": "The repository holds no project",
       "description": "Add a projects/<slug>/ directory with at least one manifest to the configuration repository; the Portal lists it after the next sync."
-    }
+    },
+    "new": "New project",
+    "newTitle": "Open a project",
+    "newLead": "A project holds its own manifests and roles, and whoever opens it becomes its steward. It is proposed as one change.",
+    "open": "Open project",
+    "nameLabel": "Name",
+    "nameHint": "Lowercase letters, digits and hyphens: this is the {project} segment of every path of it.",
+    "nameInvalid": "Lowercase letters, digits and hyphens, starting and ending with a letter or a digit.",
+    "nameReserved": "'org' is the organization's own namespace, never a project.",
+    "displayNameLabel": "Display name",
+    "descriptionLabel": "Description",
+    "notAllowed": "This organization does not let you open a project."
   },
   "entities": {
     "type": "Entity type",

@@ -12,6 +12,7 @@ import { logoUrl, useBranding } from "../../branding";
 import { Button, Icon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "../ui";
 import type { IconName } from "../ui";
 import { NAV_SECTIONS } from "./navigation";
+import { NewProjectButton } from "./NewProject";
 
 const NAV_LINK =
   "focus-ring-inset flex items-center gap-2.5 rounded-md px-2.5 py-2 text-body text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg";
@@ -235,7 +236,12 @@ export function Shell({
             navOpen ? "fixed bottom-0 left-0 top-14 flex shadow-3" : "hidden",
           )}
         >
-          <ProjectSelector active={project} />
+          <div className="flex flex-col gap-2">
+            <ProjectSelector active={project} />
+            {/* Opening a project is a setting of the organization, so the control is always
+                here, disabled with the reason when this caller may not (UI-44, PF-65). */}
+            <NewProjectButton project={project} />
+          </div>
           <ul className="flex flex-col gap-0.5">
             {NAV_SECTIONS.map((section) => {
               const isActive = section === activeSection;

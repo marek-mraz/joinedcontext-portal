@@ -1217,7 +1217,18 @@
     "empty": {
       "title": "Repozitár neobsahuje žiadny projekt",
       "description": "Pridajte do konfiguračného repozitára adresár projects/<slug>/ aspoň s jedným manifestom; Portál ho zobrazí po ďalšej synchronizácii."
-    }
+    },
+    "new": "Nový projekt",
+    "newTitle": "Otvoriť projekt",
+    "newLead": "Projekt má vlastné manifesty a role a ten, kto ho otvorí, sa stáva jeho správcom. Navrhuje sa ako jedna zmena.",
+    "open": "Otvoriť projekt",
+    "nameLabel": "Názov",
+    "nameHint": "Malé písmená, číslice a spojovníky: toto je segment {project} v každej jeho ceste.",
+    "nameInvalid": "Malé písmená, číslice a spojovníky, na začiatku a na konci písmeno alebo číslica.",
+    "nameReserved": "„org“ je vlastný menný priestor organizácie, nikdy nie projekt.",
+    "displayNameLabel": "Zobrazovaný názov",
+    "descriptionLabel": "Popis",
+    "notAllowed": "Táto organizácia vám neumožňuje otvoriť projekt."
   },
   "entities": {
     "type": "Typ entity",

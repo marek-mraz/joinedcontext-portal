@@ -415,6 +415,10 @@ async fn anyone_plus_lax_merges_the_project_at_once_and_the_message_says_who_did
 
     let (status, body) = open(&state, person("nobody"), json!({ "name": "doprava" })).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    // Nobody is waiting for a person, and the answer says so: the UI opens the project itself
+    // instead of a change nobody will approve (PF-66, T-0870).
+    let change: Value = serde_json::from_str(&body).expect("a change");
+    assert_eq!(change["status"]["phase"], "Merged", "{body}");
 
     let merges: Vec<String> = gitea
         .received_requests()

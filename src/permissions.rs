@@ -32,6 +32,24 @@ pub struct Grant {
     pub rule: Rule,
 }
 
+/// Something the caller may or may not do that no rule expresses as a kind and a verb, with the
+/// API's own words for the refusal: the control is rendered disabled with the reason, never
+/// hidden (UI-44).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct Affordance {
+    pub allowed: bool,
+    /// Why not; absent when the caller may.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// What the organization's own settings let this caller do with projects (PF-65).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProjectAffordances {
+    /// Whether `POST /api/v1/projects` would open a project for this caller.
+    pub creation: Affordance,
+}
+
 /// What one caller may do in one project: `GET /api/v1/projects/{project}/permissions/me`.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct Effective {
@@ -40,6 +58,10 @@ pub struct Effective {
     /// everywhere, so the first binding can be written into an empty repository.
     pub bootstrap: bool,
     pub grants: Vec<Grant>,
+    /// Filled by the route, not by the rules: opening a project is the organization's own
+    /// setting and no binding expresses it (PF-65, T-0870).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projects: Option<ProjectAffordances>,
 }
 
 /// The effective permissions of the signed-in caller in `project`, right now.
@@ -67,6 +89,7 @@ pub fn effective(
             project: project.to_owned(),
             bootstrap: true,
             grants: Vec::new(),
+            projects: None,
         };
     }
     let grants = in_force(mirror, identity, now)
@@ -85,6 +108,7 @@ pub fn effective(
         project: project.to_owned(),
         bootstrap: false,
         grants,
+        projects: None,
     }
 }
 

@@ -180,7 +180,11 @@ export interface paths {
          */
         get: operations["list_projects"];
         put?: never;
-        post?: never;
+        /**
+         * `POST /api/v1/projects`: opens a project, with the opener's steward binding in the same
+         *     change (PF-65, PF-66, PF-67).
+         */
+        post: operations["open_project"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1015,6 +1019,16 @@ export interface components {
             kind: string;
             next?: string | null;
         };
+        /**
+         * @description Something the caller may or may not do that no rule expresses as a kind and a verb, with the
+         *     API's own words for the refusal: the control is rendered disabled with the reason, never
+         *     hidden (UI-44).
+         */
+        Affordance: {
+            allowed: boolean;
+            /** @description Why not; absent when the caller may. */
+            reason?: string | null;
+        };
         AgentAccessList: {
             items: components["schemas"]["ProfileAccess"][];
         };
@@ -1477,6 +1491,7 @@ export interface components {
             bootstrap: boolean;
             grants: components["schemas"]["Grant"][];
             project: string;
+            projects?: null | components["schemas"]["ProjectAffordances"];
         };
         /** @description The sequence number a relayed event was given. */
         EventReceipt: {
@@ -1770,6 +1785,13 @@ export interface components {
             /** @description The page's visible text. */
             text: string;
         };
+        /** @description What a person fills in to open a project. */
+        OpenProject: {
+            description?: string | null;
+            displayName?: string | null;
+            /** @description The slug: the `{project}` segment of every path of it (PF-67). */
+            name: string;
+        };
         /** @description One operation of the registry as a run the caller starts would meet it (AG-70, UI-56). */
         OperationAccess: {
             name: string;
@@ -1912,6 +1934,11 @@ export interface components {
             operations: components["schemas"]["OperationAccess"][];
             role: string;
             title?: string | null;
+        };
+        /** @description What the organization's own settings let this caller do with projects (PF-65). */
+        ProjectAffordances: {
+            /** @description Whether `POST /api/v1/projects` would open a project for this caller. */
+            creation: components["schemas"]["Affordance"];
         };
         /**
          * @description The projects the configuration repository holds (PF-05): one per `projects/<slug>/`
@@ -2500,6 +2527,75 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    open_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenProject"];
+            };
+        };
+        responses: {
+            /** @description The change that opens the project */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description The name is not a DNS-1123 label */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The organization does not let this caller open a project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description A project of that name exists or is already proposed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No git forge configured */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

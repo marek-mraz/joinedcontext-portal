@@ -26,12 +26,17 @@ pub async fn permissions_me(
     State(state): State<AppState>,
     Path(project): Path<String>,
 ) -> Result<Json<Effective>, ApiError> {
-    let effective = permissions::for_request(&state, &user.0.identity, &project);
+    let mut effective = permissions::for_request(&state, &user.0.identity, &project);
     // A project no binding of the caller covers reads like a project that is not there, here
     // as on every other read (PF-59, R20); the UI then renders the controls disabled.
     if !effective.may_read_project() {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
+    // Opening a project is the organization's own setting, not a binding, so the rules alone
+    // cannot answer it and the UI would have to guess (PF-65, UI-44, T-0870).
+    effective.projects = Some(permissions::ProjectAffordances {
+        creation: crate::api::projects::creation_affordance(&state, &user.0.identity),
+    });
     Ok(Json(effective))
 }
 

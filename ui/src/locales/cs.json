@@ -1217,7 +1217,18 @@
     "empty": {
       "title": "Repozitář neobsahuje žádný projekt",
       "description": "Přidejte do konfiguračního repozitáře adresář projects/<slug>/ alespoň s jedním manifestem; Portál jej zobrazí po další synchronizaci."
-    }
+    },
+    "new": "Nový projekt",
+    "newTitle": "Otevřít projekt",
+    "newLead": "Projekt má vlastní manifesty a role a ten, kdo jej otevře, se stává jeho správcem. Navrhuje se jako jedna změna.",
+    "open": "Otevřít projekt",
+    "nameLabel": "Název",
+    "nameHint": "Malá písmena, číslice a spojovníky: toto je segment {project} v každé jeho cestě.",
+    "nameInvalid": "Malá písmena, číslice a spojovníky, na začátku a na konci písmeno nebo číslice.",
+    "nameReserved": "„org“ je vlastní jmenný prostor organizace, nikdy ne projekt.",
+    "displayNameLabel": "Zobrazovaný název",
+    "descriptionLabel": "Popis",
+    "notAllowed": "Tato organizace vám neumožňuje otevřít projekt."
   },
   "entities": {
     "type": "Typ entity",

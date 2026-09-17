@@ -46,6 +46,17 @@ pub struct ImportInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CreateProjectInput {
+    /// The slug: the `{project}` segment of every path of it (PF-67).
+    pub name: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SourcePutInput {
     pub name: String,
     /// The LinkML document, as the editor writes it.
@@ -106,6 +117,19 @@ fn export_output_schema() -> Value {
             "document": { "type": "string", "description": "The bundle, as the download holds it" }
         },
         "required": ["format", "document"]
+    })
+}
+
+fn create_project_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "name": { "type": "string", "description": "The project slug: a DNS-1123 label, and the {project} segment of every path of it (PF-67)" },
+            "displayName": { "type": "string", "description": "What people call it; the slug when absent" },
+            "description": { "type": "string", "description": "One line about what the project is for" }
+        },
+        "required": ["name"],
+        "additionalProperties": false
     })
 }
 
@@ -242,6 +266,41 @@ pub(super) async fn proposed(response: axum::response::Response) -> Result<Value
 
 pub fn operations() -> Vec<Operation> {
     vec![
+        Operation {
+            name: "jc_project_create",
+            title: "Open A Project",
+            description: "Opens a project, with the opener's steward binding in the same change; the organization's own setting says who may",
+            input: create_project_input_schema,
+            output: change_schema,
+            annotations: Annotations {
+                read_only_hint: false,
+                destructive_hint: false,
+                idempotent_hint: false,
+            },
+            // Who may open a project is `spec.projects.creation` of the Organization, not a rule
+            // over a kind, so the route is what decides and the registry does not pre-judge it
+            // (PF-65, AG-59).
+            kind: "*",
+            verb: None,
+            lane: Lane::Yellow,
+            validate: |val| parse_input::<CreateProjectInput>(val.clone()).map(|_| ()),
+            run: |caller, state, _project, val| {
+                Box::pin(async move {
+                    let input: CreateProjectInput = parse_input(val)?;
+                    let (_, axum::Json(change)) = crate::api::projects::open_project(
+                        as_user(caller),
+                        State(state.clone()),
+                        axum::Json(crate::api::projects::OpenProject {
+                            name: input.name,
+                            display_name: input.display_name,
+                            description: input.description,
+                        }),
+                    )
+                    .await?;
+                    Ok(crate::api::mutate::ProposeOutcome::Change(change).into_value())
+                })
+            },
+        },
         Operation {
             name: "jc_project_export",
             title: "Export Project",

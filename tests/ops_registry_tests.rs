@@ -593,3 +593,110 @@ async fn the_run_operations_answer_and_an_agent_is_refused_by_name() {
         assert!(!said.contains("a person does"), "{name}: {said}");
     }
 }
+
+mod common;
+
+/// PF-65, AG-59, T-0870: the operation is the same door as the "New project" button. Who may
+/// open a project is the organization's own setting, so the registry lets the call through and
+/// the route refuses it — under `org-admin` a person without `propose` on `Project` is turned
+/// away, under `anyone` the same person opens one.
+#[tokio::test]
+async fn jc_project_create_follows_the_organizations_own_setting() {
+    use wiremock::matchers::{method as http_method, path as url_path, query_param};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let gitea = common::forge().await;
+    Mock::given(http_method("GET"))
+        .and(url_path(format!("{}/pulls", common::REPO)))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&gitea)
+        .await;
+    let state = common::state_on(&gitea);
+    let organization = |creation: &str| {
+        state.mirror.upsert(common::envelope(
+            "Organization",
+            "bb",
+            joinedcontext_portal::permissions::ORG_NAMESPACE,
+            json!({ "domain": "banskabystrica.sk", "projects": { "creation": creation } }),
+        ));
+    };
+    let caller = ops::Caller {
+        identity: common::person("nobody"),
+        via: ops::Via::Mcp,
+    };
+    let op = ops::find("jc_project_create").expect("registered");
+
+    organization("org-admin");
+    let refused = ops::call(
+        op,
+        &caller,
+        &state,
+        "banskabystrica",
+        json!({ "name": "doprava" }),
+    )
+    .await
+    .expect_err("a plain person does not open a project under org-admin");
+    assert!(
+        format!("{refused:?}").contains("propose on Project"),
+        "{refused:?}"
+    );
+
+    organization("anyone");
+    let opened = ops::call(
+        op,
+        &caller,
+        &state,
+        "banskabystrica",
+        json!({ "name": "doprava", "displayName": "Doprava" }),
+    )
+    .await
+    .expect("anyone opens a project");
+    // The same wrapper every proposing operation answers: one Change a person approves (CC-19).
+    assert_eq!(opened["lane"], "yellow", "{opened}");
+    assert!(opened["changeId"].is_string(), "{opened}");
+}
+
+/// PF-65, UI-44, T-0870: `permissions/me` says whether this caller may open a project and, when
+/// they may not, why — so the control is rendered disabled with the reason, never hidden.
+#[tokio::test]
+async fn permissions_me_says_whether_a_project_may_be_opened_and_why_not() {
+    let gitea = common::forge().await;
+    let state = common::state_on(&gitea);
+    state.mirror.upsert(common::envelope(
+        "ContextSpace",
+        "ovzdusie",
+        "banskabystrica",
+        json!({ "isSandbox": false }),
+    ));
+    state.mirror.upsert(common::envelope(
+        "Organization",
+        "bb",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "domain": "banskabystrica.sk" }),
+    ));
+
+    // The bootstrap group reads every project, and under the default `org-admin` it also holds
+    // `propose` on `Project`.
+    let admin = common::person("boss");
+    let mut admin = admin;
+    admin.groups = vec!["portal-approver".into()];
+    let answer = common::send(
+        &state,
+        admin,
+        "GET",
+        "/api/v1/projects/banskabystrica/permissions/me",
+        None,
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.text);
+    let effective: Value = serde_json::from_str(&answer.text).expect("permissions");
+    assert_eq!(
+        effective["projects"]["creation"]["allowed"], true,
+        "{effective}"
+    );
+    assert!(
+        effective["projects"]["creation"]["reason"].is_null(),
+        "{effective}"
+    );
+}
