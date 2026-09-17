@@ -195,20 +195,24 @@ pub async fn forge() -> MockServer {
         .mount(&gitea)
         .await;
     // One open change per resource: a removal asks the forge for the open merge requests first
-    // (CC-34, T-0883). This fixture has none open.
+    // (CC-34, T-0883). This fixture has none open — at the fallback priority, so a suite that
+    // mounts a forge with an open change of its own is answered its own, not this empty list.
     Mock::given(method("GET"))
         .and(path(format!("{REPO}/pulls")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .with_priority(9)
         .mount(&gitea)
         .await;
     // A removal lists the tree to find the files the resource owns beside its manifest (T-0900).
     // This fixture holds manifests alone, so the listing is empty and a delete removes the one
-    // file; a suite with side files mounts a tree of its own.
+    // file; a suite with side files mounts a tree of its own, and this one stands at the fallback
+    // priority so that tree is the one answered.
     Mock::given(method("GET"))
         .and(path_regex(format!("^{REPO}/git/trees/.*")))
         .respond_with(
             ResponseTemplate::new(200).set_body_json(json!({ "tree": [], "truncated": false })),
         )
+        .with_priority(9)
         .mount(&gitea)
         .await;
     gitea
