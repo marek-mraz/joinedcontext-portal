@@ -24,6 +24,13 @@ pub struct Config {
     /// `http://pipeline-runner.{project}-pipeline-runner.svc.cluster.local:4195`. `None`
     /// leaves the metrics route answering 503 instead of guessing a service name.
     pub pipeline_runner_url: Option<String>,
+    /// The platform host the context spaces are served on, which is where a declared
+    /// `Subscription` is written (`/cs/{space}/ngsi-ld/v1/subscriptions`, T-0931). `None`
+    /// leaves subscriptions read from the repository and written nowhere.
+    pub gateway_url: Option<String>,
+    /// The organization's domain, the third segment of every URN this instance writes
+    /// (`urn:ngsi-ld:{Type}:{orgDomain}:{space}:{localId}`).
+    pub org_domain: Option<String>,
     /// Where a pipeline test's harness posts what it produced (PL-43): the Portal's internal
     /// listener as the project's runner reaches it, e.g. `http://portal-internal:9090`. `None`
     /// means the test route answers 503.
@@ -89,6 +96,8 @@ impl std::fmt::Debug for Config {
                 &self.gitea_webhook_secret.as_ref().map(|_| "[redacted]"),
             )
             .field("pipeline_runner_url", &self.pipeline_runner_url)
+            .field("gateway_url", &self.gateway_url)
+            .field("org_domain", &self.org_domain)
             .field("pipeline_test_capture_url", &self.pipeline_test_capture_url)
             .field("model_tools_url", &self.model_tools_url)
             .field("functions_url", &self.functions_url)
@@ -579,6 +588,28 @@ impl Config {
 
         let gitea_webhook_secret = lookup("JC_GITEA_WEBHOOK_SECRET");
 
+        // The space surface's base: one host, no path. A typo here is a subscription that never
+        // reaches its broker, so it is refused at startup like every other address.
+        let gateway_url = match lookup("JC_PORTAL_GATEWAY_URL") {
+            Some(value) => {
+                let parsed: Url =
+                    value
+                        .parse()
+                        .map_err(|e: url::ParseError| ConfigError::Invalid {
+                            var: "JC_PORTAL_GATEWAY_URL",
+                            reason: e.to_string(),
+                        })?;
+                if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                    return Err(ConfigError::Invalid {
+                        var: "JC_PORTAL_GATEWAY_URL",
+                        reason: format!("scheme '{}' is not http or https", parsed.scheme()),
+                    });
+                }
+                Some(value.trim_end_matches('/').to_owned())
+            }
+            None => None,
+        };
+
         // The template is not a URL until `{project}` is filled in, so it is checked against a
         // stand-in: an operator learns about a typo at startup, not on the first scrape.
         let pipeline_runner_url = match lookup("JC_PORTAL_PIPELINE_RUNNER_URL") {
@@ -699,6 +730,8 @@ impl Config {
             sync_interval,
             gitea_webhook_secret,
             pipeline_runner_url,
+            gateway_url,
+            org_domain: lookup("JC_PORTAL_ORG_DOMAIN").filter(|v| !v.trim().is_empty()),
             pipeline_test_capture_url,
             model_tools_url,
             functions_url,
@@ -728,6 +761,8 @@ impl Config {
             sync_interval: Duration::ZERO,
             gitea_webhook_secret: None,
             pipeline_runner_url: None,
+            gateway_url: None,
+            org_domain: None,
             pipeline_test_capture_url: None,
             model_tools_url: None,
             functions_url: None,

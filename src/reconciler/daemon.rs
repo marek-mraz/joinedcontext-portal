@@ -32,6 +32,7 @@ use super::leader::Leadership;
 use super::streams::{
     eligible, is_stream_pipeline, make_condition, Bentos, StreamDeployer, StreamOutcome,
 };
+use super::subscriptions::SubscriptionOutcome;
 use crate::activity::{ActivityEvent, ActivityStore};
 use crate::apps::converge::{Converger, Outcome};
 use crate::git::{Author, FileWrite, GitError, GiteaClient};
@@ -94,6 +95,9 @@ pub struct Syncer {
     /// settings that say which namespace they belong in (T-0411, AP-18).
     converger: Option<Arc<Converger>>,
     streams: Option<Arc<StreamDeployer>>,
+    /// `None` when no gateway address is configured: a `Subscription` is then read from the
+    /// repository and written into no broker (T-0931, CC-72).
+    subscriptions: Option<Arc<super::subscriptions::SubscriptionSync>>,
     /// `None` when no Keycloak admin client is configured: the `Group` manifests are then read
     /// and served, and the realm is written by nobody (PF-63).
     groups: Option<Arc<GroupSync>>,
@@ -128,6 +132,7 @@ impl Syncer {
             leadership: None,
             converger: None,
             streams: None,
+            subscriptions: None,
             groups: None,
             activity: None,
             apps_dir: None,
@@ -191,6 +196,16 @@ impl Syncer {
 
     pub fn with_streams(mut self, deployer: Arc<StreamDeployer>) -> Self {
         self.streams = Some(deployer);
+        self
+    }
+
+    /// Makes each run write what every `Subscription` manifest declares into its space, and
+    /// remove the subscription of a manifest that is gone (CC-72, DS-16).
+    pub fn with_subscriptions(
+        mut self,
+        subscriptions: Arc<super::subscriptions::SubscriptionSync>,
+    ) -> Self {
+        self.subscriptions = Some(subscriptions);
         self
     }
 
@@ -621,6 +636,43 @@ impl Syncer {
                 )];
             }
             fresh_mirror.upsert(envelope);
+        }
+
+        // 5b'. What every `Subscription` manifest declares, written into the space it names
+        //      (T-0931, CC-72). The broker holds the effect, so the status of each manifest is
+        //      where a person sees whether the declaration arrived.
+        if let Some(subscriptions) = self.subscriptions.as_ref() {
+            let outcomes = subscriptions
+                .converge(
+                    &fresh_mirror,
+                    &self.mirror,
+                    scratch.path(),
+                    self.pipeline_secrets.as_ref(),
+                )
+                .await;
+            for (namespace, name, outcome) in outcomes {
+                let Some(mut envelope) = fresh_mirror.get(&namespace, "Subscription", &name) else {
+                    continue;
+                };
+                if let Some(status) = envelope.status.as_mut() {
+                    match &outcome {
+                        SubscriptionOutcome::Written => {
+                            status.phase = crate::resource::Phase::Live;
+                            status.conditions = Vec::new();
+                        }
+                        SubscriptionOutcome::Error(reason) => {
+                            status.phase = crate::resource::Phase::Error;
+                            status.conditions = vec![make_condition(
+                                "SubscriptionWritten",
+                                "False",
+                                "SpaceRefused",
+                                reason,
+                            )];
+                        }
+                    }
+                }
+                fresh_mirror.upsert(envelope);
+            }
         }
 
         // 5c. The realm's managed groups, brought to what `users/groups/` says (PF-63). The

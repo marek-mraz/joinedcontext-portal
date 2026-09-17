@@ -275,6 +275,32 @@ impl AppState {
             } else {
                 tracing::info!("no pipeline runner: DataSource pipelines stay Pending");
             }
+            // A declared Subscription reaches its space through the space surface, as this
+            // Portal's own service account (T-0931, CC-72). Without the address, the realm
+            // client or the organization's domain there is no write to make: the manifests are
+            // read and served, and no broker is touched.
+            match (
+                state.config.gateway_url.clone(),
+                state.config.oidc.as_ref(),
+                state.config.keycloak_admin.clone(),
+                state.config.org_domain.clone(),
+            ) {
+                (Some(base), Some(oidc), Some((id, secret)), Some(domain)) => {
+                    syncer = syncer.with_subscriptions(Arc::new(
+                        crate::reconciler::subscriptions::SubscriptionSync::new(
+                            base,
+                            oidc.issuer.as_str(),
+                            id,
+                            secret,
+                            domain,
+                        ),
+                    ));
+                }
+                _ => tracing::info!(
+                    "no gateway address, realm client or organization domain: Subscription \
+                     manifests are read, no broker is written"
+                ),
+            }
             // The `SyncSource` loop needs the forge and a way out to the origins. Without the
             // second there is no loop at all: a driver that cannot fetch would report every
             // source as failing every minute (MF-27).

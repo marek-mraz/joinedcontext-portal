@@ -11,6 +11,7 @@ pub mod daemon;
 pub mod groups;
 pub mod leader;
 pub mod streams;
+pub mod subscriptions;
 
 pub use daemon::{SyncError, SyncStatus, Syncer};
 pub use leader::Leadership;

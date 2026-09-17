@@ -126,6 +126,33 @@ impl Resolver {
         }
     }
 
+    /// One reference's value, for a caller that wants the credential itself rather than an
+    /// environment: the subscription reconciler puts it in a header, not in a process (T-0931).
+    ///
+    /// `envVar` is a pipeline's business — a name for the variable the runner will carry — so a
+    /// reference that has none is resolved here under a throwaway one rather than refused.
+    pub async fn one(
+        &self,
+        repository: &Path,
+        reference: &SecretRef,
+    ) -> Result<String, SecretError> {
+        const HELD: &str = "VALUE";
+        let named = SecretRef {
+            env_var: Some(HELD.to_owned()),
+            ..reference.clone()
+        };
+        let resolved = self
+            .resolve(repository, std::slice::from_ref(&named))
+            .await?;
+        resolved
+            .get(HELD)
+            .cloned()
+            .ok_or_else(|| SecretError::Unresolved {
+                name: reference.name.clone(),
+                reason: "the backend answered without the value".to_owned(),
+            })
+    }
+
     /// [`resolve`](Self::resolve), on the caller's thread. Blocking: not for a runtime.
     pub fn environment(
         &self,
