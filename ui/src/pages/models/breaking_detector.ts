@@ -44,6 +44,27 @@ function slotChanges(previous: LinkmlSlot, next: LinkmlSlot): ModelChange[] {
   const changes: ModelChange[] = [];
   const subject = previous.name;
 
+  // T-1094: a projection takes the slots of the profiles it names, so dropping one takes the
+  // slot out of every endpoint that projected by it. Adding a profile only widens.
+  for (const subset of previous.subsets ?? []) {
+    if (!(next.subsets ?? []).includes(subset)) {
+      changes.push({
+        severity: "breaking",
+        subject,
+        reason: `the profile ${subset} no longer takes this slot`,
+      });
+    }
+  }
+  for (const subset of next.subsets ?? []) {
+    if (!(previous.subsets ?? []).includes(subset)) {
+      changes.push({
+        severity: "additive",
+        subject,
+        reason: `the profile ${subset} now takes this slot`,
+      });
+    }
+  }
+
   if (previous.slot_uri !== next.slot_uri) {
     changes.push({
       severity: "breaking",
@@ -157,8 +178,28 @@ function enumChanges(previous: LinkmlEnum, next: LinkmlEnum): ModelChange[] {
 
 /** Every difference between the published model and the edited one, classified (DM-23). */
 export function classifyChanges(previous: LinkmlModel, next: LinkmlModel): ModelChange[] {
+  // T-1094: an import brings terms this model then uses; dropping one can take a range or a
+  // type out from under a slot that still names it, which a reader of the old model relied on.
   const changes: ModelChange[] = [];
 
+  for (const imported of previous.imports ?? []) {
+    if (!(next.imports ?? []).includes(imported)) {
+      changes.push({
+        severity: "breaking",
+        subject: previous.name ?? "the model",
+        reason: `the import ${imported} was removed, with whatever it brought`,
+      });
+    }
+  }
+  for (const imported of next.imports ?? []) {
+    if (!(previous.imports ?? []).includes(imported)) {
+      changes.push({
+        severity: "additive",
+        subject: next.name ?? "the model",
+        reason: `the import ${imported} was added`,
+      });
+    }
+  }
   const previousClasses = new Map(previous.classes.map((klass) => [klass.name, klass]));
   const nextClasses = new Map(next.classes.map((klass) => [klass.name, klass]));
   for (const [name, klass] of previousClasses) {
@@ -177,6 +218,36 @@ export function classifyChanges(previous: LinkmlModel, next: LinkmlModel): Model
         subject: name,
         reason: `the class IRI changed from ${klass.class_uri ?? "none"} to ${now.class_uri ?? "none"}`,
       });
+    }
+    // T-1094, DM-13: a class inherits its parent's and its mixins' slots, so losing one takes
+    // away everything it brought — a reader of the old model may hold ids and attributes the
+    // new one no longer promises. Gaining one only adds.
+    if ((klass.is_a ?? "") !== (now.is_a ?? "")) {
+      changes.push({
+        severity: klass.is_a === undefined ? "additive" : "breaking",
+        subject: name,
+        reason: `the class it specialises changed from ${klass.is_a ?? "none"} to ${
+          now.is_a ?? "none"
+        }`,
+      });
+    }
+    for (const mixin of klass.mixins ?? []) {
+      if (!(now.mixins ?? []).includes(mixin)) {
+        changes.push({
+          severity: "breaking",
+          subject: name,
+          reason: `the mixin ${mixin} was removed, with whatever it brought`,
+        });
+      }
+    }
+    for (const mixin of now.mixins ?? []) {
+      if (!(klass.mixins ?? []).includes(mixin)) {
+        changes.push({
+          severity: "additive",
+          subject: name,
+          reason: `the mixin ${mixin} was added`,
+        });
+      }
     }
     for (const slot of klass.slots) {
       if (!now.slots.includes(slot)) {

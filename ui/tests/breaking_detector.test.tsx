@@ -135,3 +135,49 @@ describe("breaking change detector", () => {
     expect(bumpVersion("2.1.0", changes)).toBe("2.1.0");
   });
 });
+
+/**
+ * T-1094, DM-13: the classifier reads the hierarchy too. A class inherits its parent's and its
+ * mixins' slots and a projection takes the slots of the profiles it names, so losing one takes
+ * away what it brought — a reader of the old model holds attributes the new one no longer
+ * promises. Gaining one only adds.
+ */
+describe("a change to the hierarchy the model declares", () => {
+  const withHierarchy = `${PUBLISHED}
+imports:
+  - linkml:types
+`;
+
+  it("calls losing a parent, a mixin, a profile or an import breaking", () => {
+    const before = parseModel(
+      withHierarchy
+        .replace("    class_uri: bb:AirQualityObserved", "    class_uri: bb:AirQualityObserved\n    is_a: Station\n    mixins: [Timed]")
+        .replace("    minimum_value: 0", "    minimum_value: 0\n    subsets: [public]"),
+    );
+    const after = parseModel(PUBLISHED);
+    const changes = classifyChanges(before, after);
+    const reasons = changes.map((change) => change.reason).join(" | ");
+
+    expect(severityOf(changes)).toBe("breaking");
+    expect(reasons).toContain("specialises");
+    expect(reasons).toContain("Timed");
+    expect(reasons).toContain("public");
+    expect(reasons).toContain("linkml:types");
+  });
+
+  it("calls gaining one additive", () => {
+    const after = parseModel(
+      withHierarchy.replace(
+        "    class_uri: bb:AirQualityObserved",
+        "    class_uri: bb:AirQualityObserved\n    mixins: [Timed]",
+      ),
+    );
+    const changes = classifyChanges(parseModel(PUBLISHED), after);
+    expect(severityOf(changes)).toBe("additive");
+    expect(changes.map((change) => change.reason).join(" | ")).toContain("Timed");
+  });
+
+  it("says nothing when the hierarchy did not move", () => {
+    expect(classifyChanges(parseModel(withHierarchy), parseModel(withHierarchy))).toEqual([]);
+  });
+});
