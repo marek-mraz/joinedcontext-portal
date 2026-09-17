@@ -29,9 +29,12 @@ pub struct ProjectSummary {
     pub name: String,
 }
 
-/// Gated exactly like the resource lists: a live session, nothing more. Whoever may list a
-/// project's resources may learn that the project exists; a directory with nothing the
-/// mirror recognises is not a project.
+/// The projects this caller may read, and no others (PF-59, T-0974).
+///
+/// A project a caller has no grant in answers `404` everywhere else, so naming it here would
+/// hand out the organization's internal project and department list to anyone with a session.
+/// The filter is the same question the resource lists ask, `may_read_project`, asked once per
+/// project the mirror holds.
 #[utoipa::path(
     get,
     path = "/api/v1/projects",
@@ -42,13 +45,16 @@ pub struct ProjectSummary {
     )
 )]
 pub async fn list_projects(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
 ) -> Result<Json<ProjectList>, ApiError> {
     let items = state
         .mirror
         .namespaces()
         .into_iter()
+        .filter(|name| {
+            crate::permissions::for_request(&state, &user.0.identity, name).may_read_project()
+        })
         .map(|name| ProjectSummary { name })
         .collect();
     Ok(Json(ProjectList {

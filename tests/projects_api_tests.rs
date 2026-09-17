@@ -113,6 +113,66 @@ async fn lists_every_project_of_the_mirror_once_sorted() {
     assert_eq!(names, vec!["banskabystrica", "helsinki"]);
 }
 
+/// T-0974, PF-59: a project the caller has no grant in answers `404` everywhere else, so the
+/// list does not name it either. Otherwise anyone with a session reads the organization's
+/// internal project and department list.
+#[tokio::test]
+async fn a_caller_with_no_grant_is_shown_no_project() {
+    let config = Config::for_tests();
+    // A live session in no group the organization knows: not the bootstrap group, no roles.
+    let now = session::now_unix();
+    let outsider = Session {
+        identity: Identity {
+            subject: "f:1:passer.by".into(),
+            username: "passer.by".into(),
+            email: None,
+            name: None,
+            roles: Vec::new(),
+            groups: Vec::new(),
+        },
+        expires_at: now + 3600,
+        access_expires_at: now + 3600,
+        refresh_token: None,
+        issued_at: now,
+        id_token: "id-token-placeholder".into(),
+    };
+    use axum::response::IntoResponse;
+    let jar = PrivateCookieJar::new(config.cookie_key.clone());
+    let jar = session::store(jar, &outsider).expect("store session");
+    let response = (jar, StatusCode::OK).into_response();
+    let cookie = response
+        .headers()
+        .get(axum::http::header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or_default().to_owned())
+        .expect("a session cookie");
+
+    let app = server::app(AppState::new(config, None).with_mirror(two_project_mirror()));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let names: Vec<&str> = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    assert!(
+        names.is_empty(),
+        "a caller with no grant learns no project name: {names:?}"
+    );
+}
+
 #[tokio::test]
 async fn empty_repository_lists_no_project() {
     let config = Config::for_tests();
