@@ -161,7 +161,8 @@ describe("LinkML operations", () => {
       "slot 'pm10' would mint 'sdm:pm10' under https://smartdatamodels.org/, which belongs to someone else",
       "range 'Nowhere' of slot 'pm10' is neither a type, an enum nor a class of this model",
       "unit 'XX' of slot 'pm10' is not a known UN/CEFACT common code",
-      "'not a name' is not a valid class name",
+      "'not a name' is not a valid class name: letters, digits and _ only, starting with a letter, " +
+        "because the name becomes the entity type in every URN. Put the readable name in its title.",
       "slot 'pm10' already exists",
       "unknown enum 'Missing'",
     ]);
@@ -180,5 +181,34 @@ describe("LinkML operations", () => {
     const broken = applyOperations("classes: [\n", [{ op: "addClass", name: "X" }]);
     expect(broken.source).toBe("classes: [\n");
     expect(broken.refused).toEqual([{ index: 0, reason: "the source does not parse as YAML" }]);
+  });
+});
+
+/**
+ * T-1091: a class name becomes the entity type in every URN the space mints, and the gateway
+ * accepts `^[A-Za-z][A-Za-z0-9_-]*$`, so an accented name would mint ids its own endpoint
+ * refuses. The refusal says that, and says where the accented name belongs.
+ */
+describe("a name that could not survive a URN", () => {
+  it("refuses an accented class name and says where the readable name goes", () => {
+    const { refused } = applyOperations(SOURCE, [
+      { op: "addClass", name: "Ovzduší" } as Operation,
+    ]);
+    expect(refused).toHaveLength(1);
+    const reason = refused[0].reason;
+    expect(reason).toContain("Ovzduší");
+    expect(reason).toContain("entity type");
+    expect(reason).toContain("title");
+  });
+
+  it("refuses the other shapes a name cannot take, and accepts the ones it can", () => {
+    for (const name of ["东京", "Ärzte", "2Wheels", "air quality", "", "air-quality"]) {
+      const { refused } = applyOperations(SOURCE, [{ op: "addClass", name } as Operation]);
+      expect(refused, `${name} is not a usable class name`).toHaveLength(1);
+    }
+    for (const name of ["NoiseObserved", "_internal", "Bike2"]) {
+      const { refused } = applyOperations(SOURCE, [{ op: "addClass", name } as Operation]);
+      expect(refused, `${name} is a usable class name`).toEqual([]);
+    }
   });
 });

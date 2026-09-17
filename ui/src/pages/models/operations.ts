@@ -80,7 +80,15 @@ export interface Applied {
   refused: Refusal[];
 }
 
-/** LinkML element names: what the generators accept as a class, slot or enum name. */
+/**
+ * LinkML element names: what the generators accept as a class, slot or enum name.
+ *
+ * ASCII, because a class name becomes the entity type in every URN the space mints
+ * (`urn:ngsi-ld:{Type}:{orgDomain}:{space}:{localId}`) and the gateway accepts a type matching
+ * `^[A-Za-z][A-Za-z0-9_-]*$`. A model whose class is "Ovzduší" would mint ids its own endpoint
+ * refuses. The human-readable name is the element's `title`, which is a LanguageProperty and
+ * says "Ovzdušie" in as many languages as the space needs (T-1091).
+ */
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 class Refused extends Error {}
@@ -91,7 +99,12 @@ function refuse(reason: string): never {
 
 function requireName(name: string, what: string): void {
   if (!NAME.test(name)) {
-    refuse(`'${name}' is not a valid ${what} name`);
+    // The reason, not only the refusal: a person typing an accented name is told where the
+    // accented name belongs rather than left guessing which character offended (T-1091).
+    refuse(
+      `'${name}' is not a valid ${what} name: letters, digits and _ only, starting with a letter, ` +
+        `because the name becomes the entity type in every URN. Put the readable name in its title.`,
+    );
   }
 }
 
