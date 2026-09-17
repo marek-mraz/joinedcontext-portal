@@ -808,3 +808,50 @@ async fn a_change_is_never_decided_over_mcp_or_by_an_agent() {
         );
     }
 }
+
+/// T-1019, AG-70: an agent run is offered the intersection of its profile and the person who
+/// started it, never the person's whole reach. `listing` asks both — the profile through
+/// `may_run` and the grants through `permitted` — so a run declared for one operation is not
+/// handed the rest because its starter could run them.
+#[tokio::test]
+async fn a_run_is_offered_its_profile_and_not_its_starter_whole_reach() {
+    use joinedcontext_portal::agents::access::Access;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config, None).with_mirror(Arc::new(Mirror::new()));
+    let identity = joinedcontext_portal::auth::session::Identity {
+        subject: "sub-steward".into(),
+        username: "steward".into(),
+        email: Some("steward@banskabystrica.sk".into()),
+        name: None,
+        roles: vec!["portal-approver".into()],
+        groups: vec!["platform-admins".into()],
+    };
+
+    let person = ops::Caller {
+        identity: identity.clone(),
+        via: ops::Via::Session,
+        access: None,
+    };
+    let whole = ops::listing(&person, &state, "ovzdusie");
+    assert!(
+        whole.len() > 1,
+        "the starter reaches more than one operation, or the test proves nothing"
+    );
+
+    // The same person, running under a profile that declares one operation.
+    let narrow = ops::Caller::for_run(
+        identity,
+        Access::from_spec(&json!({ "access": { "operations": ["jc_catalog_search"] } })),
+    );
+    let listed = ops::listing(&narrow, &state, "ovzdusie");
+    let offered: Vec<&str> = listed.iter().map(|op| op.name.as_str()).collect();
+    assert!(
+        offered.len() < whole.len(),
+        "the profile narrows what the run is offered: {offered:?}"
+    );
+    assert!(
+        !offered.contains(&"jc_change_approve"),
+        "an operation the profile does not name is not offered: {offered:?}"
+    );
+}
