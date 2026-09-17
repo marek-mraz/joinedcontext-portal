@@ -48,6 +48,7 @@
     "cancel": "Abbrechen",
     "required": "Dieses Feld ist erforderlich",
     "invalid": "Ungültiger Wert",
+    "choose": "Auswählen…",
     "noResults": "Keine Ergebnisse",
     "errors": "{count, plural, =0 {Keine Fehler} one {# Fehler} other {# Fehler}}",
     "type": "Ungültiger Typ",

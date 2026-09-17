@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -7,6 +7,7 @@ import { isChange, localized } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { SchemaForm } from "../../components/forms/SchemaForm";
+import { pickers } from "../../components/forms/hints";
 import type { JsonSchema } from "../../components/forms/types";
 import { blueprintSpec } from "./Gallery";
 import { Alert, Button, PageHeader } from "../../components/ui";
@@ -39,6 +40,9 @@ export function Instantiate({
   const spec = blueprintSpec(blueprint);
   const name = localized(blueprint.metadata.title, i18n.language, blueprint.metadata.name);
   const schema = spec.parameterSchema as JsonSchema | undefined;
+  // A parameter may ask for a picker over the platform's own state rather than a fixed enum
+  // (CC-24). The project comes from the page, never from the blueprint.
+  const uiSchema = useMemo(() => pickers(schema, { project }), [schema, project]);
 
   const start = useMutation({
     mutationFn: async (parameters: Parameters) => {
@@ -103,6 +107,7 @@ export function Instantiate({
         <>
           <SchemaForm<Parameters>
             schema={schema}
+            uiSchema={uiSchema}
             disabled={start.isPending}
             submitLabel={t("flows.instantiate.submit")}
             onSubmit={(parameters) => {

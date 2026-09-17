@@ -45,6 +45,61 @@ const THRESHOLD_ALERT = {
   },
 };
 
+/** A blueprint whose choices are the platform's own state rather than a fixed enum (CC-24). */
+const NEW_DASHBOARD = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "Blueprint",
+  metadata: {
+    name: "new-dashboard",
+    namespace: "org",
+    title: { en: "New dashboard" },
+    description: { en: "A dashboard over one space" },
+  },
+  spec: {
+    version: "0.4.0",
+    category: "reporting",
+    riskClass: "green",
+    allowedRoles: ["domain-editor"],
+    parameterSchema: {
+      type: "object",
+      required: ["space"],
+      properties: {
+        space: {
+          type: "string",
+          title: "Context space",
+          "x-jc-widget": "resourcePicker",
+          "x-jc-options": { plural: "spaces" },
+        },
+        heading: {
+          type: "string",
+          title: "Heading",
+          // A widget nobody registered leaves the field its default input (T-0829).
+          "x-jc-widget": "crystalBall",
+        },
+      },
+    },
+  },
+};
+
+const SPACES = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "List",
+  items: [
+    {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "Space",
+      metadata: { name: "ovzdusie", namespace: "banskabystrica", title: { en: "Air quality" } },
+      spec: {},
+    },
+    {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "Space",
+      metadata: { name: "doprava", namespace: "banskabystrica" },
+      spec: {},
+    },
+  ],
+};
+
 const CHANGE = {
   apiVersion: "joinedcontext.com/v1alpha1",
   kind: "Change",
@@ -76,8 +131,11 @@ function renderWizard(flowResponse: { body: unknown; status: number } = { body: 
       return json({
         apiVersion: "joinedcontext.com/v1alpha1",
         kind: "List",
-        items: [THRESHOLD_ALERT],
+        items: [THRESHOLD_ALERT, NEW_DASHBOARD],
       });
+    }
+    if (path.endsWith("/spaces")) {
+      return json(SPACES);
     }
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
@@ -94,10 +152,10 @@ function renderWizard(flowResponse: { body: unknown; status: number } = { body: 
   return fetchMock;
 }
 
-async function openWizard(user: ReturnType<typeof userEvent.setup>) {
-  const card = (await screen.findByText("Threshold Alert")).closest("li") as HTMLElement;
+async function openWizard(user: ReturnType<typeof userEvent.setup>, title = "Threshold Alert") {
+  const card = (await screen.findByText(title)).closest("li") as HTMLElement;
   await user.click(within(card).getByRole("button", { name: en.flows.run }));
-  await screen.findByRole("heading", { name: "Set up Threshold Alert" });
+  await screen.findByRole("heading", { name: `Set up ${title}` });
 }
 
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
@@ -232,5 +290,35 @@ describe("blueprint wizard", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("this build cannot expand blueprints");
+  });
+
+  it("fills a parameter's choices from the project's own manifests (CC-24)", async () => {
+    const user = userEvent.setup();
+    const fetchMock = renderWizard();
+    await openWizard(user, "New dashboard");
+
+    const space = (await screen.findByLabelText(/Context space/)) as HTMLSelectElement;
+    expect(space.tagName).toBe("SELECT");
+    await waitFor(() => {
+      expect(within(space).getByRole("option", { name: "Air quality" })).toBeInTheDocument();
+    });
+    // A space with no title is still choosable, under its own name.
+    expect(within(space).getByRole("option", { name: "doprava" })).toBeInTheDocument();
+    // A widget the Portal does not register leaves the field the input the schema implies.
+    expect(screen.getByLabelText(/Heading/).tagName).toBe("INPUT");
+
+    const listed = fetchMock.mock.calls
+      .map((call) => new URL((call[0] as Request).url).pathname)
+      .filter((path) => path.endsWith("/spaces"));
+    expect(listed).toContain("/api/v1/projects/banskabystrica/spaces");
+
+    await user.selectOptions(space, "ovzdusie");
+    await user.click(screen.getByRole("button", { name: en.flows.instantiate.submit }));
+
+    await waitFor(() => {
+      expect(writes(fetchMock)).toHaveLength(1);
+    });
+    const body = JSON.parse(await writes(fetchMock)[0].text()) as Record<string, unknown>;
+    expect(body.parameters).toEqual({ space: "ovzdusie" });
   });
 });

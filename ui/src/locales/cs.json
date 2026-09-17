@@ -48,6 +48,7 @@
     "cancel": "Zrušit",
     "required": "Toto pole je povinné",
     "invalid": "Neplatná hodnota",
+    "choose": "Vyberte…",
     "noResults": "Žádné výsledky",
     "errors": "{count, plural, =0 {Bez chyb} one {# chyba} few {# chyby} other {# chyb}}",
     "type": "Nesprávný typ hodnoty",
