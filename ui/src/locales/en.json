@@ -1002,7 +1002,9 @@
       "space": "Space",
       "chooseSpace": "Choose a space",
       "file": "Saved as {name}.linkml.yaml",
-      "taken": "The project already has a model named {name}. Choose another name."
+      "taken": "The project already has a model named {name}. Choose another name.",
+      "held": "Kept as the shared draft {name}; it is here after a reload, until you save the model.",
+      "heldConflict": "Somebody else saved this draft while you were editing. Reload the page to see theirs; nothing of yours is kept until you do."
     },
     "infer": {
       "title": "Model from a file",

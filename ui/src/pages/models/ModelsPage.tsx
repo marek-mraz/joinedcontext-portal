@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,7 @@ import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { Alert, Button, PageHeader } from "../../components/ui";
 import { takePrefill } from "../../assistant/state";
+import { getDraft, putDraft } from "../../api/drafts";
 import { LinkmlEditor } from "./LinkmlEditor";
 import { MappingsEditor } from "./MappingsEditor";
 import type { MappingModel } from "./MappingsEditor";
@@ -58,6 +59,9 @@ type Tab = "import" | "editor" | "mappings";
 
 const TABS: Tab[] = ["import", "editor", "mappings"];
 
+/** How long a keystroke waits before the draft is kept, as the resource form waits (UI-47). */
+const DRAFT_DEBOUNCE_MS = 600;
+
 /**
  * A free-typed or LinkML name as a manifest name: lower-case letters, digits and `-` (DM-57).
  * `undefined` when nothing is left, which is what keeps Save out of reach for an unnamed draft.
@@ -85,15 +89,20 @@ export function ModelsPage({
   // are applied to the source once it is loaded (DM-13).
   const [handedOff] = useState(() => {
     const prefill = takePrefill(window.location.pathname) as { source?: unknown; operations?: unknown } | null;
+    const params = new URLSearchParams(window.location.search);
     return {
-      edit: new URLSearchParams(window.location.search).get("edit") ?? undefined,
+      edit: params.get("edit") ?? undefined,
+      // The draft this page was holding when it was last open (DM-57, T-1029).
+      draft: params.get("draft") ?? undefined,
       source: typeof prefill?.source === "string" ? prefill.source : undefined,
       operations: Array.isArray(prefill?.operations) ? (prefill.operations as Operation[]) : undefined,
     };
   });
   const prefilled = handedOff.source;
   const [editing, setEditing] = useState(baseline ? undefined : handedOff.edit);
-  const [tab, setTab] = useState<Tab>(baseline || prefilled || editing ? "editor" : "import");
+  const [tabChoice, setTab] = useState<Tab | undefined>(
+    baseline || prefilled || editing ? "editor" : undefined,
+  );
   const [chosen, setChosen] = useState(baseline);
   const [breakingConfirmed, setBreakingConfirmed] = useState(false);
   /** What a second import could not take because the model already had it (T-1102). */
@@ -105,8 +114,38 @@ export function ModelsPage({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [checkInfo, setCheckInfo] = useState<{ severity: string; version: string } | null>(null);
   const [changeNotice, setChangeNotice] = useState<Change | null>(null);
-  const [newName, setNewName] = useState("");
-  const [newSpace, setNewSpace] = useState("");
+  const [nameChoice, setNewName] = useState<string | undefined>(undefined);
+  const [spaceChoice, setNewSpace] = useState<string | undefined>(undefined);
+  /** The version of the shared draft this page last kept, for the next keep (AG-61). */
+  const [kept, setKept] = useState<{ name: string; version: number } | null>(null);
+  const [heldConflict, setHeldConflict] = useState(false);
+
+  // A model imported or inferred here lives in this component until Save proposes it, and a
+  // reload used to lose it. The Portal already shares drafts for exactly this (AG-61), so an
+  // unpublished model is kept there under its own name and `?draft=` brings it back. What it
+  // holds is a fallback, never an assignment: the first keystroke wins over it.
+  const heldQuery = useQuery({
+    queryKey: ["datamodel-draft", project, handedOff.draft],
+    enabled: Boolean(handedOff.draft) && !baseline && prefilled === undefined,
+    retry: false,
+    queryFn: () => getDraft(project, "DataModel", handedOff.draft ?? ""),
+  });
+  const held = useMemo(() => {
+    const draft = heldQuery.data;
+    const spec = (draft?.manifest as { spec?: { linkml?: unknown; space?: unknown } } | undefined)?.spec;
+    return draft && typeof spec?.linkml === "string"
+      ? {
+          name: draft.name,
+          version: draft.version,
+          source: spec.linkml,
+          space: typeof spec.space === "string" ? spec.space : "",
+        }
+      : undefined;
+  }, [heldQuery.data]);
+
+  const newName = nameChoice ?? held?.name ?? "";
+  const newSpace = spaceChoice ?? held?.space ?? "";
+  const tab: Tab = tabChoice ?? (held ? "editor" : "import");
 
   // The list keys are shared with every page that lists these kinds, so the cache holds the list
   // as the API answers it and the manifests are read off it here (T-0625).
@@ -143,6 +182,8 @@ export function ModelsPage({
   const targetName = activeModelName ?? manifestName(newName);
   const taken =
     creating && (models.data ?? []).some((manifest) => manifest.metadata.name === targetName);
+
+
   // A published model's source lives in the repository and is read through DM-56's route.
   const loaded = useQuery({
     queryKey: ["datamodel-source", project, activeModelName],
@@ -166,11 +207,61 @@ export function ModelsPage({
       handedOperations && loaded.data !== undefined ? applyOperations(loaded.data, handedOperations) : undefined,
     [handedOperations, loaded.data],
   );
-  const source = edited ?? applied?.source ?? loaded.data ?? blankSource(orgDomain, "new-model");
+  const source =
+    edited ?? applied?.source ?? held?.source ?? loaded.data ?? blankSource(orgDomain, "new-model");
   const setSource = setEdited;
   const publishedSource = published?.source ?? loaded.data;
 
   const model = useMemo(() => parseModel(source), [source]);
+
+  // What is kept: the manifest the Save would propose, minus the name the person may still
+  // change. A model the project already publishes is not kept — its source lives in the
+  // repository and the lane is how it changes — so this is the inferred and the imported one
+  // (T-1029, T-1105), whichever tab produced it.
+  const unpublished =
+    models.isSuccess &&
+    targetName !== undefined &&
+    !(models.data ?? []).some((manifest) => manifest.metadata.name === targetName);
+  const keeping =
+    unpublished && source !== held?.source && edited !== undefined && !heldConflict;
+  const keptVersion = [kept, held].find(
+    (candidate) => candidate !== null && candidate !== undefined && candidate.name === targetName,
+  )?.version;
+  useEffect(() => {
+    if (!keeping) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const answer = await putDraft(
+            project,
+            "DataModel",
+            targetName,
+            {
+              kind: "DataModel",
+              metadata: { name: targetName },
+              spec: { linkml: source, ...(newSpace ? { space: newSpace } : {}) },
+            },
+            keptVersion,
+          );
+          setKept({ name: targetName, version: answer.version });
+          const url = new URL(window.location.href);
+          if (url.searchParams.get("draft") !== targetName) {
+            url.searchParams.set("draft", targetName);
+            window.history.replaceState(null, "", url.toString());
+          }
+        } catch (err: unknown) {
+          // Somebody else has this draft open and saved first; keeping ours would overwrite
+          // theirs unseen, so the page stops keeping and says so (UI-48).
+          if ((err as { status?: number }).status === 409) {
+            setHeldConflict(true);
+          }
+        }
+      })();
+    }, DRAFT_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [keeping, project, targetName, source, newSpace, keptVersion]);
 
   // The project's other models, each with its source, so the Mappings tab has a pair to map
   // between (T-0795). A model the manifest carries inline is read from the manifest.
@@ -569,6 +660,15 @@ export function ModelsPage({
                 {taken ? (
                   <p role="alert" className="text-sm text-danger-fg">
                     {t("models.create.taken", { name: targetName })}
+                  </p>
+                ) : null}
+                {heldConflict ? (
+                  <p role="alert" className="text-sm text-danger-fg">
+                    {t("models.create.heldConflict")}
+                  </p>
+                ) : kept ?? held ? (
+                  <p role="status" className="text-sm text-surface-fg/70">
+                    {t("models.create.held", { name: (kept ?? held)?.name })}
                   </p>
                 ) : null}
               </section>

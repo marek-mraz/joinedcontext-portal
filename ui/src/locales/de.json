@@ -988,7 +988,9 @@
       "space": "Raum",
       "chooseSpace": "Raum wählen",
       "file": "Wird als {name}.linkml.yaml gespeichert",
-      "taken": "Das Projekt hat bereits ein Modell namens {name}. Wählen Sie einen anderen Namen."
+      "taken": "Das Projekt hat bereits ein Modell namens {name}. Wählen Sie einen anderen Namen.",
+      "held": "Als gemeinsamer Entwurf {name} gehalten; er ist nach einem Neuladen noch da, bis Sie das Modell speichern.",
+      "heldConflict": "Jemand anderes hat diesen Entwurf gespeichert, während Sie bearbeitet haben. Laden Sie die Seite neu, um dessen Fassung zu sehen; bis dahin wird Ihre nicht gehalten."
     },
     "infer": {
       "title": "Modell aus einer Datei",

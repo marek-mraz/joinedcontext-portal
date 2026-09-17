@@ -6,7 +6,7 @@ import { I18nextProvider } from "react-i18next";
 import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import i18n from "../src/i18n";
 import { queryKeys } from "../src/api/client";
-import { rememberPrefill } from "../src/assistant/state";
+import { rememberPrefill, settlePrefill } from "../src/assistant/state";
 import en from "../src/locales/en.json";
 import { ModelsPage } from "../src/pages/models/ModelsPage";
 
@@ -401,5 +401,208 @@ describe("ModelsPage save and source loading (DM-56)", () => {
       );
     });
     expect(await screen.findByText(/mr-91/i)).toBeInTheDocument();
+  });
+
+  /**
+   * A model inferred from a file used to live in this component alone: a reload, a crash or the
+   * assistant navigating away lost it silently. It is kept in the shared draft store instead
+   * (T-1029, AG-61, DM-57).
+   */
+  describe("an unpublished model survives a reload", () => {
+    const INFERRED = "name: sensors\nclasses:\n  Sensors: {}\n";
+
+    it("keeps the inferred model as a draft and names it in the URL", async () => {
+      const user = userEvent.setup();
+      const drafts: { url: string; body: unknown }[] = [];
+      const fetchMock = vi.fn().mockImplementation(async (req: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof req === "string" ? req : req instanceof Request ? req.url : req.toString();
+        const method = init?.method ?? (req instanceof Request ? req.method : "GET");
+        if (urlStr.includes("/drafts/DataModel/") && method === "PUT") {
+          const text = init?.body ? String(init.body) : await (req as Request).clone().text();
+          drafts.push({ url: urlStr, body: JSON.parse(text) });
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                project: "ovzdusie",
+                kind: "DataModel",
+                name: "sensors",
+                manifest: {},
+                touchedBy: "demo.steward",
+                touchedKind: "person",
+                version: 1,
+                updatedAt: "2026-09-17T10:00:00Z",
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] }), {
+            status: 200,
+          }),
+        );
+      });
+      global.fetch = fetchMock;
+
+      // The dock hands the page an inferred model, as the file drop does.
+      window.history.replaceState(null, "", "/");
+      rememberPrefill("/", { source: INFERRED });
+      renderWithClient(<ModelsPage project="ovzdusie" />);
+
+      const name = await screen.findByLabelText(en.models.create.name);
+      await user.clear(name);
+      await user.type(name, "sensors");
+
+      await waitFor(() => {
+        expect(drafts).toHaveLength(1);
+      });
+      expect(drafts[0].url).toContain("/api/v1/projects/ovzdusie/drafts/DataModel/sensors");
+      expect(drafts[0].body).toMatchObject({
+        manifest: { kind: "DataModel", spec: { linkml: INFERRED } },
+      });
+      expect(new URL(window.location.href).searchParams.get("draft")).toBe("sensors");
+      expect(await screen.findByText(en.models.create.held.replace("{name}", "sensors"))).toBeInTheDocument();
+    });
+
+    it("stops keeping and says so when somebody else saved the draft first", async () => {
+      const user = userEvent.setup();
+      let puts = 0;
+      const fetchMock = vi.fn().mockImplementation(async (req: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof req === "string" ? req : req instanceof Request ? req.url : req.toString();
+        const method = init?.method ?? (req instanceof Request ? req.method : "GET");
+        if (urlStr.includes("/drafts/DataModel/") && method === "PUT") {
+          puts += 1;
+          return new Response(JSON.stringify({ current: 7 }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] }), {
+          status: 200,
+        });
+      });
+      global.fetch = fetchMock;
+      window.history.replaceState(null, "", "/");
+      rememberPrefill("/", { source: INFERRED });
+
+      renderWithClient(<ModelsPage project="ovzdusie" />);
+
+      const name = await screen.findByLabelText(en.models.create.name);
+      await user.clear(name);
+      await user.type(name, "sensors");
+
+      expect(await screen.findByText(en.models.create.heldConflict)).toBeInTheDocument();
+      // Nothing of theirs is overwritten: the page does not try again on the next keystroke.
+      const sofar = puts;
+      await user.type(name, "-2");
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(puts).toBe(sofar);
+    });
+
+    it("keeps an imported Smart Data Model too (T-1105)", async () => {
+      const user = userEvent.setup();
+      const drafts: string[] = [];
+      const catalogue = {
+        refreshedAt: "2026-09-06T04:00:00Z",
+        stale: false,
+        subjects: [
+          {
+            name: "dataModel.Transportation",
+            title: "Transportation",
+            models: [{ id: "dataModel.Transportation/Vehicle", name: "Vehicle", attributes: ["speed"] }],
+          },
+        ],
+      };
+      const imported = "id: https://smartdatamodels.org/Vehicle\nname: Vehicle\nclasses:\n  Vehicle:\n    slots: [speed]\nslots:\n  speed:\n    range: float\n";
+      const fetchMock = vi.fn().mockImplementation(async (req: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = typeof req === "string" ? req : req instanceof Request ? req.url : req.toString();
+        const method = init?.method ?? (req instanceof Request ? req.method : "GET");
+        if (urlStr.includes("/drafts/DataModel/") && method === "PUT") {
+          drafts.push(urlStr);
+          return new Response(
+            JSON.stringify({
+              project: "ovzdusie",
+              kind: "DataModel",
+              name: "Vehicle",
+              manifest: {},
+              touchedBy: "demo.steward",
+              touchedKind: "person",
+              version: 1,
+              updatedAt: "2026-09-17T10:00:00Z",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (urlStr.includes("/tools/sdm-catalog")) {
+          return new Response(JSON.stringify(catalogue), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (urlStr.includes("/tools/import-sdm")) {
+          return new Response(JSON.stringify({ linkml: imported }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      });
+      global.fetch = fetchMock;
+      window.history.replaceState(null, "", "/");
+      settlePrefill("/elsewhere");
+
+      renderWithClient(<ModelsPage project="ovzdusie" />);
+
+      await user.click(await screen.findByRole("button", { name: /Vehicle/ }));
+      await user.click(await screen.findByRole("button", { name: "Import Vehicle" }));
+
+      await waitFor(() => {
+        expect(drafts).toHaveLength(1);
+      });
+      expect(drafts[0]).toContain("/drafts/DataModel/Vehicle");
+    });
+
+    it("opens the draft the URL names, with its source and its space", async () => {
+      const fetchMock = vi.fn().mockImplementation((req: RequestInfo | URL) => {
+        const urlStr = typeof req === "string" ? req : req instanceof Request ? req.url : req.toString();
+        if (urlStr.includes("/drafts/DataModel/sensors")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                project: "ovzdusie",
+                kind: "DataModel",
+                name: "sensors",
+                manifest: { kind: "DataModel", spec: { linkml: INFERRED, space: "mobility" } },
+                touchedBy: "demo.steward",
+                touchedKind: "person",
+                version: 3,
+                updatedAt: "2026-09-17T10:00:00Z",
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] }), {
+            status: 200,
+          }),
+        );
+      });
+      global.fetch = fetchMock;
+      window.history.replaceState(null, "", "/?draft=sensors");
+      // Nothing was handed to this page: it opens on what the draft store holds.
+      settlePrefill("/elsewhere");
+
+      renderWithClient(<ModelsPage project="ovzdusie" />);
+
+      // The editor opens on the model that was in hand, not on the import tab.
+      expect(await screen.findByDisplayValue("sensors")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getAllByText("Sensors").length).toBeGreaterThan(0);
+      });
+    });
   });
 });

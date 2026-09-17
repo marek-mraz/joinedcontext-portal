@@ -988,7 +988,9 @@
       "space": "Priestor",
       "chooseSpace": "Vyberte priestor",
       "file": "Uloží sa ako {name}.linkml.yaml",
-      "taken": "Projekt už má model s názvom {name}. Zvoľte iný názov."
+      "taken": "Projekt už má model s názvom {name}. Zvoľte iný názov.",
+      "held": "Uložené ako zdieľaný koncept {name}; po obnovení stránky je stále tu, kým model neuložíte.",
+      "heldConflict": "Tento koncept medzitým uložil niekto iný. Obnovte stránku, aby ste videli jeho verziu; dovtedy sa vaša neukladá."
     },
     "infer": {
       "title": "Model zo súboru",
