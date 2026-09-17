@@ -387,7 +387,7 @@ export function LinkmlVisualEditor({
                     <TableCell>{slot?.range ?? "—"}</TableCell>
                     <TableCell>{slot?.kind ?? DEFAULT_KIND}</TableCell>
                     <TableCell>{slot?.unit?.ucum_code ?? "—"}</TableCell>
-                    <TableCell>{slot ? t(`models.affordance.${slotAffordance(slot)}`) : "—"}</TableCell>
+                    <TableCell>{slot ? t(`models.affordance.${slotAffordance(slot, model.enums.map((one) => one.name))}`) : "—"}</TableCell>
                   </TableRow>
                 );
               })}

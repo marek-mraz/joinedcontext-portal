@@ -1029,7 +1029,8 @@
     "classParent": "Die Klasse, die sie erweitert",
     "classParentNone": "Keine",
     "classMixins": "Eingemischt (kommagetrennt)",
-    "slotSubsets": "Profile (kommagetrennt)"
+    "slotSubsets": "Profile (kommagetrennt)",
+    "dimensionLabel": "Dashboard-Nutzung"
   },
   "apps": {
     "title": "Anwendungen",

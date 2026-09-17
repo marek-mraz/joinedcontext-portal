@@ -1029,7 +1029,8 @@
     "classParent": "The class it specialises",
     "classParentNone": "None",
     "classMixins": "Mixed in (comma separated)",
-    "slotSubsets": "Profiles (comma separated)"
+    "slotSubsets": "Profiles (comma separated)",
+    "dimensionLabel": "Dashboard use"
   },
   "apps": {
     "title": "Applications",

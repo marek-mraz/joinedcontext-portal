@@ -551,13 +551,23 @@ export function setOrDelete(
   document.setIn(path, value);
 }
 
-/** How a dashboard may use a slot, derived from its range and kind (DM-20). */
-export function slotAffordance(slot: LinkmlSlot): "range" | "select" | "temporal" | "geometry" | "link" | "text" {
+export type Affordance = "range" | "select" | "temporal" | "geometry" | "link" | "text";
+
+/**
+ * How a dashboard may use a slot, derived from its range and kind (DM-20).
+ *
+ * `enums` are the model's own enum names: a slot whose range is one of them is a select, which
+ * the classification could never reach while it judged the slot alone (T-1113).
+ */
+export function slotAffordance(slot: LinkmlSlot, enums: readonly string[] = []): Affordance {
   if (slot.kind === "GeoProperty") {
     return "geometry";
   }
   if (slot.kind === "Relationship") {
     return "link";
+  }
+  if (slot.range !== undefined && enums.includes(slot.range)) {
+    return "select";
   }
   if (slot.range === "date" || slot.range === "datetime") {
     return "temporal";
@@ -566,4 +576,16 @@ export function slotAffordance(slot: LinkmlSlot): "range" | "select" | "temporal
     return "range";
   }
   return "text";
+}
+
+/**
+ * What a dashboard does with a slot of this affordance, beside the filter it offers (DM-20):
+ * a numeric slot sizes a mark, an enum colours one. The rest carry the dashboard no dimension
+ * of their own.
+ */
+export function slotDimension(affordance: Affordance): "sizeBy" | "colorBy" | undefined {
+  if (affordance === "range") {
+    return "sizeBy";
+  }
+  return affordance === "select" ? "colorBy" : undefined;
 }

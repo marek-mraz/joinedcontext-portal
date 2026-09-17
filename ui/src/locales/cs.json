@@ -1029,7 +1029,8 @@
     "classParent": "Třída, kterou rozšiřuje",
     "classParentNone": "Žádná",
     "classMixins": "Přimíchané (oddělené čárkou)",
-    "slotSubsets": "Profily (oddělené čárkou)"
+    "slotSubsets": "Profily (oddělené čárkou)",
+    "dimensionLabel": "Použití v dashboardu"
   },
   "apps": {
     "title": "Aplikace",

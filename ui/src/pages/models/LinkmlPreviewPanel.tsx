@@ -14,7 +14,13 @@ import {
   TableHeaderCell,
   TableRow,
 } from "../../components/ui";
-import { DEFAULT_KIND, parseModel, slotAffordance, unitCode } from "./linkml";
+import {
+  DEFAULT_KIND,
+  parseModel,
+  slotAffordance,
+  slotDimension,
+  unitCode,
+} from "./linkml";
 import type { LinkmlSlot } from "./linkml";
 
 /**
@@ -152,6 +158,8 @@ export function LinkmlPreviewPanel({
   });
 
   const model = useMemo(() => parseModel(settled), [settled]);
+  // DM-20: an enum range is a select, which needs the model's own enum names to recognise.
+  const enumNames = useMemo(() => model.enums.map((one) => one.name), [model]);
   const artifacts = preview.data;
   const missing = useMemo(
     () => unmappedTerms(artifacts?.example, artifacts?.context),
@@ -224,12 +232,18 @@ export function LinkmlPreviewPanel({
             <TableHead>
               <TableHeaderCell>{t("models.slot")}</TableHeaderCell>
               <TableHeaderCell>{t("models.affordanceLabel")}</TableHeaderCell>
+              <TableHeaderCell>{t("models.dimensionLabel")}</TableHeaderCell>
             </TableHead>
             <TableBody>
               {model.slots.map((slot) => (
                 <TableRow key={slot.name}>
                   <TableCell primary>{slot.name}</TableCell>
-                  <TableCell>{t(`models.affordance.${slotAffordance(slot)}`)}</TableCell>
+                  <TableCell>
+                    {t(`models.affordance.${slotAffordance(slot, enumNames)}`)}
+                  </TableCell>
+                  <TableCell>
+                    {slotDimension(slotAffordance(slot, enumNames)) ?? "—"}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

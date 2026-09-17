@@ -6,6 +6,8 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { LinkmlPreviewPanel, normalizedEntity, unmappedTerms } from "../src/pages/models/LinkmlPreviewPanel";
+import { slotAffordance, slotDimension } from "../src/pages/models/linkml";
+import type { LinkmlSlot } from "../src/pages/models/linkml";
 
 const SOURCE = `id: https://banskabystrica.sk/models/air
 name: air
@@ -249,5 +251,42 @@ describe("the entity an endpoint would serve", () => {
       unknown: { type: "Property", value: 1 },
     });
     expect(normalizedEntity(undefined, [])).toBeUndefined();
+  });
+});
+
+/**
+ * T-1113, DM-20: the classification a dashboard reads. "numeric ranges → range filter and
+ * sizeBy; enums → select filter and colorBy; datetime/date → temporal; GeoProperty → map layer
+ * geometry; Relationships → link picker." The select case could never be reached while the
+ * classification judged a slot without the model's enum names beside it.
+ */
+describe("what a dashboard may do with a slot", () => {
+  const enums = ["QualityBand"];
+
+  it("classifies every case DM-20 names, the enum included", () => {
+    const of = (slot: Partial<LinkmlSlot>) =>
+      slotAffordance({ name: "s", kind: "Property", ...slot } as LinkmlSlot, enums);
+
+    expect(of({ kind: "GeoProperty" })).toBe("geometry");
+    expect(of({ kind: "Relationship" })).toBe("link");
+    expect(of({ range: "QualityBand" })).toBe("select");
+    expect(of({ range: "datetime" })).toBe("temporal");
+    expect(of({ range: "date" })).toBe("temporal");
+    expect(of({ range: "float" })).toBe("range");
+    expect(of({ range: "integer" })).toBe("range");
+    expect(of({ range: "string" })).toBe("text");
+    // Without the model's enums beside it, an enum range reads as text: the case the panel
+    // could not show before.
+    expect(slotAffordance({ name: "s", kind: "Property", range: "QualityBand" } as LinkmlSlot)).toBe(
+      "text",
+    );
+  });
+
+  it("names the dimension a dashboard sizes or colours by, and nothing for the rest", () => {
+    expect(slotDimension("range")).toBe("sizeBy");
+    expect(slotDimension("select")).toBe("colorBy");
+    for (const affordance of ["temporal", "geometry", "link", "text"] as const) {
+      expect(slotDimension(affordance)).toBeUndefined();
+    }
   });
 });
