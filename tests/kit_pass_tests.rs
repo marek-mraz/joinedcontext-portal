@@ -193,6 +193,24 @@ fn mirror(provider: &str) -> Arc<Mirror> {
             "model": { "provider": provider, "name": "claude-sonnet-5", "maxTokensPerRun": 400000, "reasoningEffort": "medium" },
             "limits": { "stepsPerRun": 120, "wallClock": "PT20M", "concurrentRunsPerOrganization": 2, "requestsPerMinute": 60, "maxResponseBytes": 2097152 },
             "egress": { "allowedHosts": [] },
+            // A builder that shares what it built proposes an Endpoint, so the profile grants
+            // that operation (AG-70: what the block does not name, the agent does not get).
+            // Nothing approving is here, and nothing can be: an agent never approves (PF-58).
+            "access": {
+                "operations": [
+                    "jc_catalog_search",
+                    "jc_kpi_compute",
+                    "jc_space_complete",
+                    "jc_endpoint_propose",
+                    "jc_pipeline_propose",
+                    "jc_resource_propose"
+                ],
+                "kinds": [
+                    { "kind": "Endpoint", "verbs": ["read", "propose"] },
+                    { "kind": "ContextSpace", "verbs": ["read", "propose"] },
+                    { "kind": "Pipeline", "verbs": ["read", "propose"] }
+                ]
+            },
             "tools": ["shell"],
             "workspace": { "cpu": "1", "memory": "2Gi", "ephemeralStorage": "4Gi" }
         }),

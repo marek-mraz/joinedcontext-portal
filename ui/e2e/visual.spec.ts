@@ -19,6 +19,23 @@ const IDENTITY = {
 
 const PROJECTS = { apiVersion: "joinedcontext.com/v1alpha1", kind: "ProjectList", items: [{ name: PROJECT }] };
 
+// What the project holds of each quota, as `GET /api/v1/projects/{project}` answers it
+// (PF-73, PF-75). Without it the quota card is simply not there, which is what a page looks
+// like to a caller who may not read the project — not what these baselines are for.
+const PROJECT_DETAIL = {
+  apiVersion: "joinedcontext.com/v1alpha1",
+  kind: "Project",
+  metadata: { name: PROJECT },
+  spec: {},
+  status: {
+    usage: {
+      contextSpaces: { used: 2 },
+      residentPipelines: { used: 1, limit: 4 },
+      publicEndpoints: { used: 3, limit: 3 },
+    },
+  },
+};
+
 const SOURCE_URL = `https://git.example.sk/city/org/src/branch/main/projects/${PROJECT}/spaces/ovzdusie/space.yaml`;
 
 function list(items: unknown[]) {
@@ -152,6 +169,7 @@ async function stubApi(page: Page): Promise<void> {
     }
     if (path.endsWith("/auth/me")) return json(IDENTITY);
     if (path === "/api/v1/projects") return json(PROJECTS);
+    if (path === `/api/v1/projects/${PROJECT}`) return json(PROJECT_DETAIL);
     if (path.endsWith("/events")) {
       return route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
     }

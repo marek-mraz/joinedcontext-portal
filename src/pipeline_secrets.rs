@@ -143,7 +143,9 @@ impl Resolver {
             }
         }
         match &self.backend {
-            Backend::Sops { age_key_file } => self.resolve_with_sops(age_key_file, repository, references),
+            Backend::Sops { age_key_file } => {
+                self.resolve_with_sops(age_key_file, repository, references)
+            }
             Backend::OpenBao {
                 address,
                 role,
