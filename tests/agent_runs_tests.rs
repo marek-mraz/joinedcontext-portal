@@ -2762,3 +2762,51 @@ async fn a_profile_that_lists_endpoints_refuses_a_run_on_one_it_does_not_grant()
     let app = with_endpoints(json!([{ "name": "helsinki-bikes", "verbs": ["read"] }]));
     create_run(&app, &cookie).await;
 }
+
+/// PF-73, PF-74: a project starts as many runs a day as its quota allows, and the next one is
+/// refused with the count and the limit. Yesterday's runs are not today's.
+#[tokio::test]
+async fn the_run_above_the_daily_quota_is_refused_with_the_count_and_the_limit() {
+    let config = config();
+    let mirror = mirror(Some(builder_profile_spec()));
+    mirror.upsert(envelope(
+        "Organization",
+        "bb",
+        "org",
+        json!({ "domain": "hel.fi", "projects": { "quota": { "agentRunsPerDay": 2 } } }),
+    ));
+    let app = router(mirror, &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+
+    // One live run per application, so each run is its own app.
+    let named = |app_name: &str| {
+        let mut body = create_body();
+        body["appName"] = json!(app_name);
+        body
+    };
+    for app_name in ["first-app", "second-app"] {
+        let (status, body) = call(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+            Some(named(app_name)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    }
+
+    let (status, body) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(named("third-app")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        body.to_string().contains("agentRunsPerDay 3 of 2"),
+        "the refusal names the count and the limit: {body}"
+    );
+}

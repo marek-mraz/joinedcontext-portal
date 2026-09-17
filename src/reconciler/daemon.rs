@@ -504,7 +504,9 @@ impl Syncer {
                         if is_stream {
                             if let Some(status) = envelope.status.as_mut() {
                                 status.phase = crate::resource::Phase::Pending;
-                                let reason = if why.contains("disabled") || why.contains("paused") {
+                                let reason = if why.contains("quota") {
+                                    "QuotaExceeded"
+                                } else if why.contains("disabled") || why.contains("paused") {
                                     "Paused"
                                 } else {
                                     "Skipped"
@@ -554,7 +556,19 @@ impl Syncer {
         //    swapped, so a cluster that refuses one object leaves the Portal serving the
         //    repository correctly and says why in the log; one app's failure is not the run's.
         if let Some(converger) = self.converger.as_ref() {
-            for (app, outcome) in converger.converge(&repository).await {
+            // What each project may deploy (PF-74); the mirror is already swapped, so this is
+            // the repository as it now stands.
+            let beyond: std::collections::HashSet<(String, String)> = self
+                .mirror
+                .namespaces()
+                .into_iter()
+                .flat_map(|ns| {
+                    crate::quotas::beyond(&self.mirror, &ns, "apps")
+                        .into_iter()
+                        .map(move |name| (ns.clone(), name))
+                })
+                .collect();
+            for (app, outcome) in converger.converge(&repository, &beyond).await {
                 match outcome {
                     Ok(Outcome::Applied) => tracing::info!(%app, "app objects applied"),
                     Ok(Outcome::Deleted) => tracing::info!(%app, "app objects deleted"),

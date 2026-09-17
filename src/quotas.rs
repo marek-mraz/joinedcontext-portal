@@ -91,6 +91,35 @@ pub fn limits(quotas: &Quotas) -> BTreeMap<String, u32> {
         .collect()
 }
 
+/// The refusal every door gives for a quota, so the sentence is the same everywhere (PF-74).
+pub fn over(dimension: &str, after: u32, limit: u32, project: &str) -> ApiError {
+    ApiError::Denied(format!(
+        "quota: {dimension} {after} of {limit} in project {project}; raise the quota on the \
+         project or the organization first (PF-73, PF-74)"
+    ))
+}
+
+/// The manifests of `kind` that stand beyond the project's quota for `dimension`, by name: what
+/// the reconciler must not schedule (PF-74). Sorted by name, so the same ones keep running pass
+/// after pass rather than taking turns.
+pub fn beyond(mirror: &Mirror, project: &str, dimension: &str) -> Vec<String> {
+    let Some((_, kind)) = COUNTED.into_iter().find(|(d, _)| *d == dimension) else {
+        return Vec::new();
+    };
+    let Some(limit) = limits(&effective(mirror, project)).get(dimension).copied() else {
+        return Vec::new();
+    };
+    let mut counted: Vec<String> = mirror
+        .list(project, kind, &ListOptions::default())
+        .items
+        .into_iter()
+        .filter(|env| counts(dimension, kind, &env.spec))
+        .map(|env| env.metadata.name)
+        .collect();
+    counted.sort();
+    counted.split_off((limit as usize).min(counted.len()))
+}
+
 /// Refuses the write that would put the project over one of its quotas, naming the limit and the
 /// count (PF-74). `name` is the manifest being written, so replacing what is already counted is
 /// not counted twice; a deletion never exceeds anything.
@@ -117,10 +146,25 @@ pub fn check(
             .count() as u32;
         let after = others + 1;
         if after > limit {
-            return Err(ApiError::Denied(format!(
-                "quota: {dimension} {after} of {limit} in project {project}; raise the quota on \
-                 the project or the organization first (PF-73, PF-74)"
-            )));
+            return Err(over(dimension, after, limit, project));
+        }
+    }
+    // What one Endpoint may serve is capped by the project's quota, so the gateway's rate limit
+    // can never be rendered above it (PF-74, EP-17).
+    if kind == "Endpoint" {
+        if let (Some(asked), Some(limit)) = (
+            spec.pointer("/rateLimits/requestsPerMinute")
+                .and_then(Value::as_u64),
+            quotas.requests_per_minute,
+        ) {
+            if asked > u64::from(limit) {
+                return Err(over(
+                    "requestsPerMinute",
+                    asked.min(u64::from(u32::MAX)) as u32,
+                    limit,
+                    project,
+                ));
+            }
         }
     }
     Ok(())
@@ -223,6 +267,48 @@ mod tests {
             &resident("two").spec,
         )
         .expect("an update of what is already counted");
+    }
+
+    #[test]
+    fn what_stands_beyond_the_quota_is_the_newest_by_name_and_is_not_scheduled() {
+        let mirror = mirror_with(vec![
+            envelope(
+                "Organization",
+                "bb",
+                ORG_NAMESPACE,
+                json!({ "domain": "bb.sk", "projects": { "quota": { "residentPipelines": 2 } } }),
+            ),
+            resident("alpha"),
+            resident("beta"),
+            resident("gamma"),
+        ]);
+        // The same two keep running pass after pass rather than taking turns.
+        assert_eq!(beyond(&mirror, "ovzdusie", "residentPipelines"), ["gamma"]);
+        assert!(beyond(&mirror, "ovzdusie", "apps").is_empty());
+    }
+
+    #[test]
+    fn an_endpoint_may_not_ask_for_a_rate_above_what_the_project_may_serve() {
+        let mirror = mirror_with(vec![envelope(
+            "Organization",
+            "bb",
+            ORG_NAMESPACE,
+            json!({ "domain": "bb.sk", "projects": { "quota": { "requestsPerMinute": 120 } } }),
+        )]);
+        let endpoint = |rate: u64| {
+            json!({
+                "contextSpaceRef": "ovzdusie",
+                "audience": "organization",
+                "rateLimits": { "requestsPerMinute": rate }
+            })
+        };
+        check(&mirror, "ovzdusie", "Endpoint", "air", &endpoint(120)).expect("at the ceiling");
+        let refused = check(&mirror, "ovzdusie", "Endpoint", "air", &endpoint(600))
+            .expect_err("above the ceiling");
+        assert!(
+            refused.to_string().contains("requestsPerMinute 600 of 120"),
+            "{refused}"
+        );
     }
 
     #[test]

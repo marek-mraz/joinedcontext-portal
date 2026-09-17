@@ -88,10 +88,33 @@ impl Converger {
     ///
     /// Returns one line per app, so the caller logs what happened without deciding what an
     /// outcome means.
-    pub async fn converge(&self, repository: &Repository) -> Vec<(String, ConvergeResult)> {
+    /// `beyond` names the apps the project may not deploy, `(project, name)`: what stands over
+    /// its quota is not deployed at all and says so (PF-74).
+    pub async fn converge(
+        &self,
+        repository: &Repository,
+        beyond: &std::collections::HashSet<(String, String)>,
+    ) -> Vec<(String, ConvergeResult)> {
         let mut report = Vec::new();
         for (id, resource) in repository.iter() {
             if resource.manifest.kind != "App" {
+                continue;
+            }
+            let project = resource
+                .manifest
+                .metadata
+                .namespace
+                .clone()
+                .unwrap_or_default();
+            if beyond.contains(&(project, resource.manifest.metadata.name.clone())) {
+                report.push((
+                    id.to_string(),
+                    Ok(Outcome::Skipped(
+                        "the project's app quota is used up, so this one is not deployed \
+                         (PF-73, PF-74)"
+                            .to_owned(),
+                    )),
+                ));
                 continue;
             }
             let outcome = self.converge_one(&resource.manifest).await;

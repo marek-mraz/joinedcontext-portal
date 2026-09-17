@@ -122,9 +122,23 @@ impl StreamDeployer {
         for ns in mirror.namespaces() {
             // What the runner holds, asked once per project and only when a render is unchanged.
             let mut running: Option<Option<HashSet<String>>> = None;
+            // What the project may keep resident (PF-74): the ones beyond its quota are not
+            // scheduled at all, and the condition on each says why.
+            let beyond = crate::quotas::beyond(mirror, &ns, "residentPipelines");
             let page = mirror.list(&ns, "Pipeline", &crate::store::ListOptions::default());
             for envelope in page.items {
                 let name = envelope.metadata.name.clone();
+                if beyond.contains(&name) {
+                    outcomes.push((
+                        ns.clone(),
+                        name,
+                        StreamOutcome::Skipped(
+                            "the project's resident pipeline quota is used up, so this one is \
+                             not scheduled (PF-73, PF-74)",
+                        ),
+                    ));
+                    continue;
+                }
                 let spec: PipelineSpec = match serde_json::from_value(envelope.spec.clone()) {
                     Ok(s) => s,
                     Err(err) => {

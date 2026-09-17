@@ -318,6 +318,29 @@ pub async fn create_run(
         None,
     )?;
 
+    // How many runs this project may start in a day (PF-73, PF-74). The store answers newest
+    // first, so the newest `max` runs are enough to know whether today is full.
+    if let Some(max) = crate::quotas::effective(&state.mirror, &project).agent_runs_per_day {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let recent = state
+            .agents
+            .list_runs(&project, i64::from(max))
+            .await
+            .map_err(|err| ApiError::Internal(err.to_string()))?;
+        let started_today = recent
+            .iter()
+            .filter(|run| run.created_at.starts_with(&today))
+            .count() as u32;
+        if started_today >= max {
+            return Err(crate::quotas::over(
+                "agentRunsPerDay",
+                started_today + 1,
+                max,
+                &project,
+            ));
+        }
+    }
+
     if !is_dns1123(&request.app_name) {
         return Err(ApiError::BadRequest(format!(
             "appName '{}' is not a DNS-1123 label",
