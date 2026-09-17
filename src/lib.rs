@@ -25,6 +25,7 @@ pub mod quotas;
 pub mod reconciler;
 pub mod resource;
 pub mod server;
+pub mod spaces;
 pub mod state;
 pub mod store;
 pub mod sync;

@@ -71,7 +71,7 @@ function project(quota?: number) {
   };
 }
 
-function renderSpaces(options: { quota?: number } = { quota: 3 }) {
+function renderSpaces(options: { quota?: number; refusal?: string } = { quota: 3 }) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const path = new URL(request.url).pathname;
@@ -87,7 +87,9 @@ function renderSpaces(options: { quota?: number } = { quota: 3 }) {
       return json(IDENTITY);
     }
     if (request.method === "POST") {
-      return json(CHANGE, 202);
+      return options.refusal
+        ? json({ status: 403, title: "Forbidden", detail: options.refusal }, 403)
+        : json(CHANGE, 202);
     }
     if (path === "/api/v1/projects/banskabystrica") {
       return json(project(options.quota));
@@ -204,6 +206,24 @@ describe("context spaces view", () => {
     expect(
       screen.getByRole("link", { name: en.changes.review }),
     ).toHaveAttribute("href", "/projects/banskabystrica/approvals/chg-1a2b3c4d");
+  });
+
+  it("shows the name to use when another project already holds the one typed (PF-76)", async () => {
+    renderSpaces({
+      quota: 3,
+      refusal:
+        "context space name 'mhd' is taken by project doprava: a space name is unique in the " +
+        "organization (PF-44); propose 'banskabystrica-mhd' instead",
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: en.spaces.add }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText(/Name/), "mhd");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.spaces.propose }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent("taken by project doprava");
+    expect(alert).toHaveTextContent("banskabystrica-mhd");
   });
 
   it("refuses a name that is not a lowercase slug (PF-09)", async () => {

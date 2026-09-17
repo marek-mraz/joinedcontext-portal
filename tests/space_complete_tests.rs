@@ -408,6 +408,84 @@ async fn complete_as_steward(payload: Value) -> (StatusCode, Value) {
     )
 }
 
+/// The same call against a mirror that already holds the Context Spaces `held`, as
+/// `(project, space)` pairs.
+async fn complete_against(held: &[(&str, &str)], payload: Value) -> (StatusCode, Value) {
+    let config = Config::for_tests();
+    let mirror = std::sync::Arc::new(Mirror::new());
+    for (project, space) in held {
+        mirror.upsert(joinedcontext_portal::resource::ResourceEnvelope {
+            api_version: API_VERSION.to_owned(),
+            kind: "ContextSpace".to_owned(),
+            metadata: joinedcontext_portal::resource::ObjectMeta::new(*space, *project),
+            spec: json!({ "isSandbox": false }),
+            status: None,
+        });
+    }
+    let state = AppState::new(config.clone(), None).with_mirror(mirror);
+    let app = server::app(state);
+    let cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@hel.fi"),
+        vec!["portal-approver"],
+        vec![],
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/ops/jc_space_complete")
+                .header(header::COOKIE, cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// PF-76: a completion whose name another project already holds is drafted as
+/// `{project}-{name}`, so the person approves a name that can actually be written.
+#[tokio::test]
+async fn a_completion_whose_space_name_is_held_elsewhere_is_drafted_under_the_project() {
+    let (status, body) = complete_against(
+        &[("espoo", "city-bikes")],
+        json!({
+            "space": "city-bikes",
+            "typeName": "CityBike",
+            "url": "https://example.invalid/free_bike_status.json",
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["space"], "helsinki-city-bikes", "{body}");
+    assert_eq!(
+        draft(&body, "ContextSpace")["manifest"]["metadata"]["name"],
+        "helsinki-city-bikes",
+        "{body}"
+    );
+
+    // Both names held is the one case a rename cannot answer, and it is said so.
+    let (status, body) = complete_against(
+        &[("espoo", "city-bikes"), ("tampere", "helsinki-city-bikes")],
+        json!({ "space": "city-bikes", "url": "https://example.invalid/free_bike_status.json" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body.to_string().contains("helsinki-city-bikes"),
+        "the name that is taken too is named: {body}"
+    );
+}
+
 fn draft<'a>(body: &'a Value, kind: &str) -> &'a Value {
     body["drafts"]
         .as_array()

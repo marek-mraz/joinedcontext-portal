@@ -452,6 +452,20 @@ pub async fn propose_with_identity(
     // 4d. Nobody grants above their own rights (PF-52, AG-77).
     crate::permissions::within_own_rights(state, identity, &body_val, "proposer")?;
 
+    // 4e. A Context Space name is unique in the organization (PF-44, PF-76): a name another
+    //     project holds is refused here — after the caller's right to propose one at all, so
+    //     nobody probes the organization's names through this door, and before a Change exists,
+    //     so every door answers the same refusal, the dry run included.
+    if operation != Operation::Delete {
+        crate::spaces::check(
+            state,
+            identity,
+            project,
+            kind_info.kind,
+            &envelope.metadata.name,
+        )?;
+    }
+
     // 5. Diff against current mirror state
     let current = state
         .mirror

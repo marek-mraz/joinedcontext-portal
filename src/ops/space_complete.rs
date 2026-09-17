@@ -351,6 +351,23 @@ pub async fn run(
         });
     }
 
+    // A space name is unique in the organization (PF-44), so a completion whose name another
+    // project holds is drafted as `{project}-{name}` while it is still a draft (PF-76). Both
+    // taken is the one case nobody can propose their way out of, and it is said here.
+    let proposal = crate::spaces::propose_name(state, &caller.identity, project, &space_name);
+    let space_name = if proposal.available {
+        proposal.name
+    } else {
+        return Err(OpError::InvalidInput {
+            path: "/space".into(),
+            message: format!(
+                "'{space_name}' is {}, and so is '{}'",
+                proposal.reason.unwrap_or_else(|| "taken".to_owned()),
+                proposal.name
+            ),
+        });
+    };
+
     let mut found_kinds = Vec::new();
     let mut manifests: BTreeMap<String, Value> = BTreeMap::new();
     let mut linkml_source: Option<String> = None;
