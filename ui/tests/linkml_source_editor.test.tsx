@@ -116,6 +116,11 @@ describe("LinkML source editor", () => {
 
   it("completes the metamodel, and the values a key takes where the line names one", () => {
     expect(completionsFor("  ").map((entry) => entry.label)).toContain("slot_uri");
+    // T-1093: the metamodel the editor reads and the classifier judges is the one it suggests,
+    // so a hierarchy key is not something a person has to know by heart.
+    for (const key of ["is_a", "mixins", "subsets", "imports", "pattern", "minimum_value"]) {
+      expect(completionsFor("  ").map((entry) => entry.label), key).toContain(key);
+    }
     expect(completionsFor("      ngsi_ld_kind: ").map((entry) => entry.label)).toEqual([
       "Property",
       "GeoProperty",
