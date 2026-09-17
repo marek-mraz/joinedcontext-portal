@@ -174,6 +174,8 @@ pub enum Operation {
 /// - Identity and access kinds (`ServiceAccount`, `Role`, `RoleBinding`, `Group`, `Policy`,
 ///   `ScopeDefinition`, `Organization`, `Project`) are `Red` (PF-52, PF-62): who is in a group
 ///   is who a binding names, so a membership is reviewed like the binding itself.
+/// - `Environment` is `Red` (CC-73, CC-75): one file decides the domain of every URN, the image
+///   every workload runs and where a `secretRef` is resolved, for a whole environment at once.
 /// - `ContextSpace` with `spec.isSandbox == true` is `Green` (ephemeral sandbox, CC-67).
 /// - `Dashboard` and `Layer` are `Green`.
 /// - Everything else defaults to `Yellow`.
@@ -196,6 +198,7 @@ pub fn classify(kind: &str, op: Operation, spec: &serde_json::Value) -> Lane {
         | "Role"
         | "RoleBinding"
         | "Group"
+        | "Environment"
         | "Policy"
         | "ScopeDefinition"
         | "Organization"
@@ -324,6 +327,9 @@ mod tests {
             "ScopeDefinition",
             "Organization",
             "Project",
+            // Not identity, but the same weight: the overlay that decides the domain, the
+            // images and the secret backend of a whole environment (CC-73, T-0882).
+            "Environment",
         ];
         let spec = json!({});
         for kind in kinds {
