@@ -183,14 +183,19 @@ const modelsRoute = createRoute({
 const exploreRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/explore",
-  // The assistant opens the explorer on what it found (UI-46): a space and an endpoint by name.
-  validateSearch: (search: Record<string, unknown>): { space?: string; endpoint?: string } => ({
+  // The assistant opens the explorer on what it found (UI-46): a space and an endpoint by name,
+  // and one entity of them by id (T-1017), so "show me this one" opens the row already selected
+  // instead of the list the person then searches by hand.
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { space?: string; endpoint?: string; entityId?: string } => ({
     space: typeof search.space === "string" ? search.space : undefined,
     endpoint: typeof search.endpoint === "string" ? search.endpoint : undefined,
+    entityId: typeof search.entityId === "string" ? search.entityId : undefined,
   }),
   component: function ExploreRoute() {
     const { project } = exploreRoute.useParams();
-    const { space, endpoint } = exploreRoute.useSearch();
+    const { space, endpoint, entityId } = exploreRoute.useSearch();
     return (
       <Shell project={project}>
         {/*
@@ -198,7 +203,12 @@ const exploreRoute = createRoute({
           a card of the same page needs the mount HandOff gives it (T-0793, UI-46).
         */}
         <HandOff>
-          <ExplorePage project={project} initialSpace={space} initialEndpoint={endpoint} />
+          <ExplorePage
+            project={project}
+            initialSpace={space}
+            initialEndpoint={endpoint}
+            initialEntityId={entityId}
+          />
         </HandOff>
       </Shell>
     );

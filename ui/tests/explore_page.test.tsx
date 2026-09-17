@@ -194,3 +194,54 @@ it("disables the delete button, with a reason, when the grant allows only reads"
   await waitFor(() => expect(remove).toBeDisabled());
   expect(remove).toHaveAttribute("title", expect.stringContaining("delete"));
 });
+
+/**
+ * T-1017, UI-46: the assistant opens the explorer on the entity it found, so the detail is
+ * already open when the person looks. Without it the assistant could only open the list and
+ * say which row to click.
+ */
+it("opens on the entity the route names", async () => {
+  const calls: { method: string; url: string }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: Request) => {
+      const request = input as Request;
+      calls.push({ method: request.method, url: request.url });
+      const json = (body: unknown) =>
+        Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      if (request.url.includes("/entities/")) return json(ROW);
+      if (request.url.includes("/entities?")) return json([ROW]);
+      return Promise.resolve(new Response("", { status: 404 }));
+    }),
+  );
+
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(queryKeys.list("helsinki", "endpoints"), ENDPOINTS);
+  client.setQueryData(queryKeys.list("helsinki", "spaces"), SPACES);
+  client.setQueryData(queryKeys.list("helsinki", "datamodels"), MODELS);
+  render(
+    <QueryClientProvider client={client}>
+      <I18nextProvider i18n={i18n}>
+        <ExplorePage
+          project="helsinki"
+          initialSpace="helsinki"
+          initialEndpoint="helsinki-bikes"
+          initialEntityId={ROW.id}
+        />
+      </I18nextProvider>
+    </QueryClientProvider>,
+  );
+
+  // The detail pane is open on that entity without anyone clicking a row.
+  expect(await screen.findByTestId("explore-delete")).toBeInTheDocument();
+  await waitFor(() =>
+    expect(
+      calls.some((call) => call.url.includes(`/entities/${encodeURIComponent(ROW.id)}`) || call.url.includes(`/entities/${ROW.id}`)),
+    ).toBe(true),
+  );
+});

@@ -230,7 +230,7 @@ impl Driver {
 
 /// The pages the assistant may open, and what each one needs (UI-59). The route is built here,
 /// so a page the enum does not name cannot be reached however the model spells it.
-const PAGES: [(&str, &str); 18] = [
+const PAGES: [(&str, &str); 19] = [
     ("spaces", "/projects/{project}/spaces"),
     ("space", "/projects/{project}/spaces/{name}"),
     ("models", "/projects/{project}/models"),
@@ -246,6 +246,9 @@ const PAGES: [(&str, &str); 18] = [
     ("approvals", "/projects/{project}/approvals"),
     ("approval", "/projects/{project}/approvals/{name}"),
     ("explore", "/projects/{project}/explore"),
+    // One entity of the explorer, opened on its detail (T-1017): "show me this one" opens the
+    // row already selected instead of the list the person then searches by hand.
+    ("entity", "/projects/{project}/explore?entityId={name}"),
     ("ckan", "/projects/{project}/ckan"),
     ("federation", "/projects/{project}/federation"),
     ("assistant", "/projects/{project}/assistant"),
@@ -561,6 +564,7 @@ mod tests {
             "approvals",
             "approval",
             "explore",
+            "entity",
             "ckan",
             "federation",
             "assistant",

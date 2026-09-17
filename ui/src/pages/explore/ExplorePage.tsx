@@ -68,11 +68,14 @@ export function ExplorePage({
   project,
   initialSpace,
   initialEndpoint,
+  initialEntityId,
 }: {
   project: string;
   /** Chosen on arrival, the way a catalog card opens the page (UI-46). */
   initialSpace?: string;
   initialEndpoint?: string;
+  /** One entity of the endpoint, opened on its detail as the page mounts (UI-46, T-1017). */
+  initialEntityId?: string;
 }): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
@@ -85,7 +88,7 @@ export function ExplorePage({
   const [query, setQuery] = useState<EntityQuery>({});
   const [limit, setLimit] = useState(PAGE_SIZES[0]);
   const [offset, setOffset] = useState(0);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialEntityId ?? null);
   const [removing, setRemoving] = useState(false);
   const queryClient = useQueryClient();
 
