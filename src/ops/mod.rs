@@ -989,6 +989,43 @@ async fn record_verdict(
     }
 }
 
+/// The check an operation's gate names when it refuses a draft nobody has checked (PF-57).
+///
+/// One table, read by the operation itself and by the MCP door before it offers an
+/// elicitation, so both doors name the same check (ADR-N-021).
+pub fn check_operation_for(op_name: &str) -> &'static str {
+    match op_name {
+        "jc_datasource_propose" => "jc_datasource_check",
+        "jc_pipeline_propose" => "jc_pipeline_test",
+        _ => "jc_manifest_dry_run",
+    }
+}
+
+/// The refusal an operation's verdict gate already holds for these arguments, or `None` when
+/// it lets them through (PF-57, AG-62).
+///
+/// Asked by a door that answers something else before the operation runs — the MCP door
+/// offers an elicitation — so the refusal it carries is the route's own, word for word, and
+/// a client reads `verdict_required` wherever it knocks (ADR-N-021, T-0947).
+pub async fn verdict_refusal(
+    state: &AppState,
+    op: &Operation,
+    project: &str,
+    input: &Value,
+) -> Option<Value> {
+    if op.verb != Some(Verb::Propose) {
+        return None;
+    }
+    let draft_ref = input.get("draft")?;
+    let kind = draft_ref.get("kind").and_then(Value::as_str)?;
+    let name = draft_ref.get("name").and_then(Value::as_str)?;
+    let draft = draft_store(state).get(project, kind, name).await.ok()??;
+    match apply_verdict_gate(state, &draft, check_operation_for(op.name)) {
+        Err(OpError::Conflict(body)) => Some(body),
+        _ => None,
+    }
+}
+
 fn apply_verdict_gate(state: &AppState, draft: &Draft, check_op: &str) -> Result<bool, OpError> {
     let mode = verdict::get_validation_mode(state);
     let reason = match &draft.verdict {
@@ -1551,7 +1588,7 @@ fn core_operations() -> Vec<Operation> {
             run: |caller, state, project, val| {
                 Box::pin(async move {
                     let input: ManifestInput = parse_input(val)?;
-                    propose_with_optional_draft(caller, state, project, "datasources", "jc_datasource_check", input).await
+                    propose_with_optional_draft(caller, state, project, "datasources", check_operation_for("jc_datasource_propose"), input).await
                 })
             },
         },
@@ -1573,7 +1610,7 @@ fn core_operations() -> Vec<Operation> {
             run: |caller, state, project, val| {
                 Box::pin(async move {
                     let input: ManifestInput = parse_input(val)?;
-                    propose_with_optional_draft(caller, state, project, "pipelines", "jc_pipeline_test", input).await
+                    propose_with_optional_draft(caller, state, project, "pipelines", check_operation_for("jc_pipeline_propose"), input).await
                 })
             },
         },

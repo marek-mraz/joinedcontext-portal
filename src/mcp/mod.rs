@@ -301,6 +301,27 @@ pub async fn handle_mcp(
                     None => {
                         let elicitation_id =
                             state.mcp_elicitations.ask(owner, op.name, project, &digest);
+                        // PF-57: a proposal whose check has not run is refused on every door
+                        // with the same three fields, so a client that reads
+                        // `verdict_required` on the REST route reads it here too. The
+                        // question is still asked: the URL is what the person needs to run
+                        // the check (ADR-N-021, T-0947).
+                        let refusal =
+                            crate::ops::verdict_refusal(&state, op, project, &input).await;
+                        let reason = refusal.as_ref().map_or(
+                            "Nothing has run: open the Portal, look at what this would \
+                             change, and send this call again with the answer."
+                                .to_owned(),
+                            |body| {
+                                let detail =
+                                    body.get("detail").and_then(Value::as_str).unwrap_or("");
+                                let check = body.get("check").and_then(Value::as_str).unwrap_or("");
+                                format!(
+                                    "Nothing has run: {detail} Run `{check}`, then send this \
+                                     call again with the answer."
+                                )
+                            },
+                        );
                         return json_response(
                             StatusCode::OK,
                             &result(
@@ -308,13 +329,12 @@ pub async fn handle_mcp(
                                 elicitation::document(
                                     &elicitation_id,
                                     &format!(
-                                        "{} in project '{project}' ({} lane). Nothing has run: \
-                                         open the Portal, look at what this would change, and \
-                                         send this call again with the answer.",
+                                        "{} in project '{project}' ({} lane). {reason}",
                                         op.title,
                                         lane_word(op.lane)
                                     ),
                                     &confirm_url(&state, project, op.kind, &input),
+                                    refusal,
                                 ),
                             ),
                         );

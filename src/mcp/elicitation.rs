@@ -138,20 +138,32 @@ impl McpElicitations {
 }
 
 /// The question as the client receives it: what would happen, and where the person decides.
-pub fn document(id: &str, message: &str, url: &str) -> Value {
+///
+/// `refusal` is the gate's own answer when one already holds — a proposal whose check has not
+/// run, for instance. It is carried beside the question rather than instead of it: the three
+/// fields the REST route answers (`error`, `check`, `reason`) sit at the top of
+/// `structuredContent`, so a client that reads `verdict_required` on the route reads it here
+/// too, and the URL the person needs is still there (PF-57, ADR-N-021, T-0947).
+pub fn document(id: &str, message: &str, url: &str, refusal: Option<Value>) -> Value {
+    let mut structured = serde_json::Map::new();
+    if let Some(Value::Object(fields)) = refusal {
+        structured.extend(fields);
+    }
+    structured.insert(
+        "elicitation".to_owned(),
+        json!({
+            "elicitationId": id,
+            "mode": "url",
+            "url": url,
+            "message": message,
+            "expiresIn": EXPIRES_IN_SECONDS,
+        }),
+    );
     json!({
         "isError": false,
         "status": "input_required",
         "content": [{ "type": "text", "text": message }],
-        "structuredContent": {
-            "elicitation": {
-                "elicitationId": id,
-                "mode": "url",
-                "url": url,
-                "message": message,
-                "expiresIn": EXPIRES_IN_SECONDS,
-            }
-        }
+        "structuredContent": Value::Object(structured),
     })
 }
 

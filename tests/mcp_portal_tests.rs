@@ -990,3 +990,98 @@ async fn a_red_call_asks_the_person_before_it_runs_and_a_refusal_runs_nothing() 
         .get("elicitation")
         .is_none());
 }
+
+/// PF-57, AG-62, T-0947: a proposal whose check has not run is refused on the MCP door with
+/// the same three fields the REST route answers, so a client reads `verdict_required`
+/// wherever it knocks (ADR-N-021). The question is still asked: the URL is where the person
+/// runs the check.
+#[tokio::test]
+async fn a_proposal_without_a_verdict_names_verdict_required_on_the_mcp_door() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+
+    let put = rpc(
+        app.clone(),
+        &token,
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "jc_draft_put", "arguments": {
+                "project": "ovzdusie", "kind": "DataSource", "name": "unchecked",
+                "manifest": { "apiVersion": "joinedcontext.com/v1", "kind": "DataSource",
+                    "metadata": { "name": "unchecked", "namespace": "ovzdusie" },
+                    "spec": { "protocol": "http", "url": "https://example.org/air" } }
+            } }
+        }),
+    )
+    .await;
+    assert_eq!(put["result"]["isError"], false, "{put}");
+
+    let proposal = rpc(
+        app.clone(),
+        &token,
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": { "name": "jc_datasource_propose", "arguments": {
+                "project": "ovzdusie", "draft": { "kind": "DataSource", "name": "unchecked" }
+            } }
+        }),
+    )
+    .await;
+    let structured = &proposal["result"]["structuredContent"];
+    assert_eq!(
+        proposal["result"]["status"],
+        json!("input_required"),
+        "{proposal}"
+    );
+    assert_eq!(structured["error"], json!("verdict_required"), "{proposal}");
+    assert_eq!(
+        structured["check"],
+        json!("jc_datasource_check"),
+        "{proposal}"
+    );
+    assert_eq!(structured["reason"], json!("verdict_absent"), "{proposal}");
+    assert!(
+        structured["detail"].as_str().is_some_and(|d| !d.is_empty()),
+        "the refusal says it in one sentence a page shows as it is: {proposal}"
+    );
+    // The question is still there: the person needs somewhere to run the check.
+    assert!(
+        structured["elicitation"]["elicitationId"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("eli-")),
+        "{proposal}"
+    );
+    assert!(
+        proposal["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("jc_datasource_check"),
+        "the sentence a model reads does not name the check to run: {proposal}"
+    );
+
+    // Nothing was proposed: the draft is still a draft.
+    let listed = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "resources/list", "params": { "project": "ovzdusie" } }),
+    )
+    .await;
+    let uris: Vec<&str> = listed["result"]["resources"]
+        .as_array()
+        .expect("resources")
+        .iter()
+        .filter_map(|r| r["uri"].as_str())
+        .collect();
+    assert!(
+        uris.contains(&"jc://ovzdusie/drafts/DataSource/unchecked"),
+        "the gate let the proposal through: {uris:?}"
+    );
+}
