@@ -175,10 +175,20 @@ pub(crate) fn http() -> &'static reqwest::Client {
     )
 )]
 pub async fn get_metrics(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, name)): Path<(String, String)>,
 ) -> Result<Json<PipelineMetrics>, ApiError> {
+    // PF-59, T-0983: counters say a pipeline of this name runs here and how it is doing, so a
+    // caller who may not read the project's pipelines is answered as if it were not there
+    // rather than handed its throughput. `metrics_for` itself stays open: the catalog search
+    // calls it behind its own access filter (AG-58).
+    let effective = crate::permissions::for_request(&state, &user.0.identity, &project);
+    if !effective.may_read_project() || !effective.may_read("Pipeline") {
+        return Err(ApiError::NotFound(format!(
+            "pipeline '{name}' not found in project '{project}'"
+        )));
+    }
     Ok(Json(metrics_for(&state, &project, &name).await?))
 }
 

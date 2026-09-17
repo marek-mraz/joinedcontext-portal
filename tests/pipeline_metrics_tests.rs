@@ -217,3 +217,63 @@ async fn a_project_name_that_is_not_a_dns_label_never_reaches_the_url_builder() 
 
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+/// T-0983, PF-59: the counters say a pipeline of this name runs here and how it is doing, so a
+/// caller with no grant in the project is answered as if it were not there. Otherwise anyone
+/// with a login maps another department's pipelines by name.
+#[tokio::test]
+async fn a_caller_with_no_grant_is_not_told_the_pipeline_runs() {
+    use axum::response::IntoResponse;
+    // A runner that would answer, so the refusal is the permission check and not a missing
+    // runner: without the check this call returned the counters.
+    let runner = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/ovzdusie/metrics"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(RUNNER_BODY))
+        .mount(&runner)
+        .await;
+    let mut config = Config::for_tests();
+    config.pipeline_runner_url = Some(format!("{}/{{project}}", runner.uri()));
+    let now = session::now_unix();
+    let outsider = Session {
+        identity: Identity {
+            subject: "f:1:passer.by".into(),
+            username: "passer.by".into(),
+            email: None,
+            name: None,
+            roles: Vec::new(),
+            groups: Vec::new(),
+        },
+        expires_at: now + 3600,
+        issued_at: now,
+        id_token: "id-token-placeholder".into(),
+        access_expires_at: now + 3600,
+        refresh_token: None,
+    };
+    let jar = PrivateCookieJar::new(config.cookie_key.clone());
+    let jar = session::store(jar, &outsider).expect("store session");
+    let response = (jar, StatusCode::OK).into_response();
+    let cookie = response
+        .headers()
+        .get(axum::http::header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or_default().to_owned())
+        .expect("a session cookie");
+
+    let app = server::app(AppState::new(config, None).with_mirror(mirror_with_pipeline()));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/ovzdusie/pipelines/aq-mqtt-ingest/metrics")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "a project the caller may not read answers 404, never its counters"
+    );
+}
