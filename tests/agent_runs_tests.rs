@@ -969,6 +969,58 @@ async fn an_answer_lands_on_the_runs_log() {
     );
 }
 
+/// The project's activity says a question was answered; what was typed stays on the run's
+/// timeline, because a person answering a question can type a password into it (AG-80, OPS-48).
+#[tokio::test]
+async fn an_answer_is_on_the_project_s_activity_without_the_words() {
+    let config = config();
+    let app = router(mirror(Some(builder_profile_spec())), &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let id = create_run(&app, &cookie).await["id"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
+
+    let (status, _) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs/{id}/answers"),
+        Some(json!({ "questionId": "q-center", "answers": { "token": "hunter2" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, list) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/activity?kind=agent.answer"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let items = list["items"].as_array().expect("a list");
+    assert_eq!(items.len(), 1, "{list}");
+    assert_eq!(items[0]["details"]["questionId"], json!("q-center"));
+    assert_eq!(items[0]["details"]["runId"], json!(id));
+    assert_eq!(
+        items[0]["details"]["object"],
+        json!(format!("agent-runs/{id}")),
+        "the run's page filters its own activity on this"
+    );
+    assert!(
+        items[0]["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains(STEWARD)),
+        "who answered is part of the record: {list}"
+    );
+    assert!(
+        !list.to_string().contains("hunter2"),
+        "what the person typed never reaches the activity feed: {list}"
+    );
+}
+
 #[tokio::test]
 async fn cancelling_ends_the_run_and_the_ticket_with_it() {
     let config = config();

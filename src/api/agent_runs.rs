@@ -799,7 +799,45 @@ pub async fn answer_question(
         }),
     )
     .await?;
+    record_answer(&state, &project, &id, &user, &request.question_id).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// A person answered a run's question, on the project's activity (AG-80, OPS-48).
+///
+/// What they typed stays on the run's timeline, where the driver redacts it; the activity feed
+/// says only that the question was answered, by whom, so a typed password never reaches a
+/// projection built for reading. Failing to record it does not fail the answer: the timeline and
+/// the audit log already hold it, and the activity store is derived from them (OPS-49).
+async fn record_answer(
+    state: &AppState,
+    project: &str,
+    run_id: &str,
+    user: &CurrentUser,
+    question_id: &str,
+) {
+    let event = crate::activity::ActivityEvent {
+        time: chrono::Utc::now(),
+        project: project.to_owned(),
+        space: None,
+        kind: "agent.answer".to_owned(),
+        source: "portal".to_owned(),
+        summary: format!(
+            "{} answered a question of run {run_id}",
+            user.0.identity.username
+        ),
+        severity: "info".to_owned(),
+        correlation_id: None,
+        details: serde_json::json!({
+            "object": format!("agent-runs/{run_id}"),
+            "runId": run_id,
+            "questionId": question_id,
+            "subject": user.0.identity.subject,
+        }),
+    };
+    if let Err(err) = state.activity.append(&[event]).await {
+        tracing::warn!(run = run_id, error = %err, "the answer is not on the activity feed");
+    }
 }
 
 #[utoipa::path(

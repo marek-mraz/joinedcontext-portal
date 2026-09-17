@@ -16,6 +16,7 @@ export const ACTIVITY_KINDS = [
   "endpoint.traffic",
   "access.denied",
   "mcp.tool",
+  "agent.answer",
   "federation.forward",
   "federation.error",
   "catalogue.published",
@@ -27,6 +28,7 @@ export const ACTIVITY_SOURCES = [
   "gateway",
   "broker",
   "ckan",
+  "portal",
 ] as const;
 
 /** What a view asks for; the list and the tail take the same thing. */
