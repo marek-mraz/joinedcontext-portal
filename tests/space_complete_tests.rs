@@ -819,3 +819,86 @@ async fn a_drafted_space_carries_the_write_and_the_read_its_endpoint_needs() {
         "the audience reads and nothing else: {read}"
     );
 }
+
+/// T-1041: the endpoint `jc_space_complete` drafts serves the classes the inferred model
+/// declares, so the integrate unit's Check passes without a person ticking them by hand. An
+/// endpoint that projects nothing is a door onto no data.
+#[tokio::test]
+async fn space_complete_endpoint_has_all_classes_projected() {
+    let feed = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/free_bike_status.json"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "bikes": [{ "bike_id": "a1", "lat": 60.17, "lon": 24.94 }] }
+        })))
+        .mount(&feed)
+        .await;
+
+    let model_tools_mock = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/infer-schema"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "linkml": "id: https://example.com/bikes\nclasses:\n  BikeStation:\n    slots: [bike_id]\n"
+        })))
+        .mount(&model_tools_mock)
+        .await;
+
+    let mut config = Config::for_tests();
+    config.model_tools_url = Some(model_tools_mock.uri());
+    let state = AppState::new(config.clone(), None);
+    let app = server::app(state);
+    let steward_cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@banskabystrica.sk"),
+        vec!["portal-approver"],
+        vec![],
+    );
+
+    let payload = json!({
+        "space": "city-bikes",
+        "url": format!("{}/free_bike_status.json", feed.uri())
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/ops/jc_space_complete")
+                .header(header::COOKIE, steward_cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let val: Value =
+        serde_json::from_slice(&resp.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let drafts = val["drafts"].as_array().expect("drafts array");
+
+    let model = drafts
+        .iter()
+        .find(|d| d["kind"] == "DataModel")
+        .expect("DataModel drafted");
+    let declared: Vec<&str> = model["manifest"]["spec"]["classes"]
+        .as_array()
+        .expect("the model declares its classes")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(!declared.is_empty(), "the inferred model declares a class");
+
+    let endpoint = drafts
+        .iter()
+        .find(|d| d["kind"] == "Endpoint")
+        .expect("Endpoint drafted");
+    let projected: Vec<&str> = endpoint["manifest"]["spec"]["projection"]["classes"]
+        .as_array()
+        .map(|classes| classes.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    assert_eq!(
+        projected, declared,
+        "the endpoint serves every class the model declares: {endpoint}"
+    );
+}

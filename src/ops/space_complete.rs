@@ -820,7 +820,12 @@ pub async fn run(
                         "contextSpaceRef": space_name,
                         "slug": crate::agents::share::slug(),
                         "audience": "organization",
-                        "enabledRepresentations": ["ngsi-ld"]
+                        "enabledRepresentations": ["ngsi-ld"],
+                        // Every class the space's model declares (T-1041). An endpoint that
+                        // projects nothing is a door onto no data, and the person would have
+                        // to tick them by hand before the Check passes. Widening it later is
+                        // the steward's, who approves this draft either way.
+                        "projection": { "classes": [class_name.clone()] }
                     }
                 }));
                 inferred_endpoint = true;
