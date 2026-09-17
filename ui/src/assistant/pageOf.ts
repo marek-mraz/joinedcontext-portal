@@ -8,6 +8,12 @@ const PROJECT_PAGES: Record<string, string> = {
   models: "nav.models",
   explore: "nav.explore",
   ckan: "nav.ckan",
+  // Every page the assistant can open names itself as a person reads it (UI-59, T-1011,
+  // T-1018); one it cannot name would read "another page" in the dock's own breadcrumb.
+  activity: "nav.activity",
+  approvals: "nav.approvals",
+  assistant: "nav.assistant",
+  apps: "nav.apps",
 };
 
 /**
