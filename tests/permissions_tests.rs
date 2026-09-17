@@ -552,3 +552,142 @@ async fn the_viewer_role_reads_every_kind_and_a_stranger_reads_none() {
         assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
     }
 }
+
+/// One Endpoint of `ovzdusie`, in the named context space.
+fn endpoint_in(project: &str, name: &str, space: &str) -> ResourceEnvelope {
+    ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: "Endpoint".to_owned(),
+        metadata: ObjectMeta::new(name, project),
+        spec: json!({ "contextSpaceRef": space, "audience": "internal", "slug": name }),
+        status: None,
+    }
+}
+
+/// The names of the endpoints an answer lists, as `project/name`.
+fn listed(body: &str) -> Vec<String> {
+    let doc: Value = serde_json::from_str(body).expect("json");
+    doc["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|item| {
+            format!(
+                "{}/{}",
+                item["metadata"]["namespace"].as_str().unwrap_or_default(),
+                item["metadata"]["name"].as_str().unwrap_or_default()
+            )
+        })
+        .collect()
+}
+
+/// PF-60, PF-61, R20: `GET /api/v1/endpoints` is the organization-level page. What each caller
+/// sees is what their binding reaches — the whole organization, one project, one context space
+/// — and a person no binding names sees an empty list rather than a refusal.
+#[tokio::test]
+async fn the_organization_endpoint_list_answers_what_each_binding_reaches() {
+    let config = Config::for_tests();
+    let reader = org(
+        "Role",
+        "endpoint-reader",
+        json!({ "rules": [{ "kinds": ["Endpoint"], "verbs": ["read"] }] }),
+    );
+    let world = vec![
+        reader,
+        endpoint_in("ovzdusie", "air-public", "vzduch"),
+        endpoint_in("ovzdusie", "traffic-public", "doprava"),
+        endpoint_in("helsinki", "bikes", "mobility"),
+        // The space a space-scoped binding names has to exist for the binding to reach it.
+        ResourceEnvelope {
+            api_version: API_VERSION.to_owned(),
+            kind: "ContextSpace".to_owned(),
+            metadata: ObjectMeta::new("vzduch", "ovzdusie"),
+            spec: json!({ "isSandbox": false }),
+            status: None,
+        },
+    ];
+    let bound = |name: &str, scope: Value| {
+        let mut envelopes = world.clone();
+        envelopes.push(binding(
+            name,
+            "endpoint-reader",
+            json!([{ "user": "jana@hel.fi" }]),
+            scope,
+            None,
+        ));
+        envelopes
+    };
+    let who = identity("jana@hel.fi", &[]);
+    let read_all = |envelopes: Vec<ResourceEnvelope>| {
+        let config = config.clone();
+        let who = who.clone();
+        async move {
+            let (status, body) = get(
+                app_with(&config, envelopes),
+                &config,
+                who,
+                "/api/v1/endpoints",
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            listed(&body)
+        }
+    };
+
+    // The whole organization: every endpoint of every project, each with its project.
+    let everywhere = read_all(bound("org-wide", json!({ "organization": "bb" }))).await;
+    assert_eq!(
+        everywhere,
+        vec![
+            "helsinki/bikes",
+            "ovzdusie/air-public",
+            "ovzdusie/traffic-public"
+        ],
+        "an organization binding reads every project"
+    );
+
+    // One project: its own, and nothing of the sibling project.
+    let one = read_all(bound("project-wide", json!({ "project": "ovzdusie" }))).await;
+    assert_eq!(one, vec!["ovzdusie/air-public", "ovzdusie/traffic-public"]);
+
+    // One context space: not the sibling space's endpoint, even in the same project.
+    let space = read_all(bound("space-wide", json!({ "contextSpace": "vzduch" }))).await;
+    assert_eq!(space, vec!["ovzdusie/air-public"]);
+
+    // No binding at all: an empty list, never a 403 (R20).
+    let none = read_all(world.clone()).await;
+    assert!(none.is_empty(), "{none:?}");
+}
+
+/// PF-61: each grant says where it comes from, so the page can read "steward, inherited from the
+/// organization" instead of making an inherited grant look local.
+#[tokio::test]
+async fn permissions_me_names_the_scope_each_grant_was_inherited_from() {
+    let config = Config::for_tests();
+    let envelopes = vec![
+        org(
+            "Role",
+            "org-admin",
+            json!({ "rules": [{ "kinds": ["Endpoint"], "verbs": ["read", "approve"] }] }),
+        ),
+        binding(
+            "the-admins",
+            "org-admin",
+            json!([{ "user": "jana@hel.fi" }]),
+            json!({ "organization": "bb" }),
+            None,
+        ),
+    ];
+    let (status, body) = get(
+        app_with(&config, envelopes),
+        &config,
+        identity("jana@hel.fi", &[]),
+        "/api/v1/projects/ovzdusie/permissions/me",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let doc: Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(doc["grants"][0]["scope"], "organization", "{body}");
+    assert_eq!(doc["grants"][0]["role"], "org-admin", "{body}");
+}

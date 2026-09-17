@@ -141,6 +141,9 @@ export const queryKeys = {
   // Not a prefix of `list`: invalidating one project's lists must not refetch the project list.
   projects: () => ["projectList"] as const,
   list: (project: string, plural: string) => ["projects", project, plural] as const,
+  // Every Endpoint of every project the caller may read, which is one organization-level
+  // request, not one per project (PF-60).
+  allEndpoints: () => ["allEndpoints"] as const,
   // Blueprints are organization-level, so they are not under a project key (CC-30).
   blueprints: () => ["blueprints"] as const,
   // Form arrangements are organization-level too, and one fetch serves every dialog (UI-02).

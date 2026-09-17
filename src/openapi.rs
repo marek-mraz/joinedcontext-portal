@@ -60,6 +60,7 @@ use crate::tools::model_tools::{
         crate::api::projects::list_projects,
         crate::api::projects::open_project,
         crate::api::resources::list,
+        crate::api::resources::list_endpoints_everywhere,
         crate::api::blueprints::list_blueprints,
         crate::api::forms::list_forms,
         crate::api::blueprints::start_flow,

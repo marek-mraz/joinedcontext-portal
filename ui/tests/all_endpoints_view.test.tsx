@@ -24,18 +24,17 @@ function endpoint(project: string, space: string, name: string, slug: string, au
   };
 }
 
-/** The dev repository: banskabystrica publishes one endpoint, helsinki two. */
+/**
+ * The dev repository as the organization-level route answers it (PF-60): every Endpoint this
+ * caller may read, in one list, each carrying the project it lives in.
+ */
 const BY_PATH: Record<string, unknown> = {
   "/api/v1/projects": { apiVersion: LIST, kind: "List", items: [{ name: "banskabystrica" }, { name: "helsinki" }] },
-  "/api/v1/projects/banskabystrica/endpoints": {
-    apiVersion: LIST,
-    kind: "List",
-    items: [endpoint("banskabystrica", "ovzdusie", "public-air", "k7m2qz4tv6xh3n5jb2ryd3wcfa", "public")],
-  },
-  "/api/v1/projects/helsinki/endpoints": {
+  "/api/v1/endpoints": {
     apiVersion: LIST,
     kind: "List",
     items: [
+      endpoint("banskabystrica", "ovzdusie", "public-air", "k7m2qz4tv6xh3n5jb2ryd3wcfa", "public"),
       endpoint("helsinki", "helsinki", "helsinki-bikes", "a1b2c3d4e5f6g7h8j9k0m1n2p3", "public"),
       endpoint("helsinki", "helsinki", "helsinki-events", "z9y8x7w6v5u4t3s2r1q0p9n8m7", "organization"),
     ],
@@ -117,14 +116,15 @@ describe("all endpoints view", () => {
     expect(within(hel).getByText("Organization")).toBeInTheDocument();
     expect(within(table).getByText("helsinki-bikes")).toBeInTheDocument();
 
+    // One request, answered by the route that decides what is in it — not one per project.
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
-    expect(paths).toContain("/api/v1/projects/banskabystrica/endpoints");
-    expect(paths).toContain("/api/v1/projects/helsinki/endpoints");
+    expect(paths).toContain("/api/v1/endpoints");
+    // No fan-out across projects any more: helsinki's own list is never fetched for this page.
+    expect(paths).not.toContain("/api/v1/projects/helsinki/endpoints");
   });
 
-  it("says so when no project publishes an endpoint", async () => {
-    responses["/api/v1/projects/helsinki/endpoints"] = { apiVersion: LIST, kind: "List", items: [] };
-    responses["/api/v1/projects/banskabystrica/endpoints"] = { apiVersion: LIST, kind: "List", items: [] };
+  it("says so when the caller may read no endpoint anywhere", async () => {
+    responses["/api/v1/endpoints"] = { apiVersion: LIST, kind: "List", items: [] };
     renderAt();
     expect(await screen.findByText("No project publishes an endpoint yet.")).toBeInTheDocument();
   });

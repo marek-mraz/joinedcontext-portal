@@ -24,6 +24,10 @@ pub const ORG_NAMESPACE: &str = "org";
 pub struct Grant {
     pub role: String,
     pub binding: String,
+    /// Where the binding that carries this rule applies: `organization`, `project:{name}` or
+    /// `contextSpace:{name}`. A grant read here may have been inherited from the organization,
+    /// and the page says so rather than making it look local (PF-60, PF-61).
+    pub scope: String,
     /// Set when the binding is scoped to one context space: the rule then applies only to a
     /// manifest whose `spec.contextSpaceRef` names it.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -130,6 +134,23 @@ impl Effective {
                 .any(|grant| grant.rule.grants(kind, Verb::Read))
     }
 
+    /// Whether the caller may read this one manifest (PF-59, PF-60): a grant that reads the
+    /// kind, and — when the binding is scoped to one context space — a manifest of that space.
+    /// This is what an organization-level list filters with, item by item.
+    pub fn may_read_manifest(&self, kind: &str, manifest: &Value) -> bool {
+        if self.bootstrap {
+            return true;
+        }
+        let space = space_ref(manifest);
+        self.grants.iter().any(|grant| {
+            grant.rule.grants(kind, Verb::Read)
+                && match &grant.space {
+                    None => true,
+                    Some(bound) => space.as_deref() == Some(bound.as_str()),
+                }
+        })
+    }
+
     /// `Ok` when a grant allows `verb` on `kind` for `target` (the whole manifest as JSON, when
     /// there is one); a 403 that names the missing verb or the violated constraint otherwise.
     pub fn check(&self, kind: &str, verb: Verb, target: Option<&Value>) -> Result<(), ApiError> {
@@ -191,6 +212,15 @@ enum Reach {
 }
 
 impl Reach {
+    /// What `permissions/me` calls this scope (PF-61).
+    fn name(&self) -> String {
+        match self {
+            Self::Organization => "organization".to_owned(),
+            Self::Project(project) => format!("project:{project}"),
+            Self::Space(space) => format!("contextSpace:{space}"),
+        }
+    }
+
     fn of(scope: &RoleScope) -> Option<Self> {
         match (&scope.organization, &scope.project, &scope.context_space) {
             (Some(_), _, _) => Some(Self::Organization),
@@ -297,6 +327,7 @@ fn in_force(mirror: &Mirror, identity: &Identity, now: DateTime<Utc>) -> Vec<(Re
                 Grant {
                     role: role_name.clone(),
                     binding: env.metadata.name.clone(),
+                    scope: reach.name(),
                     space: None,
                     rule: rule.clone(),
                 },

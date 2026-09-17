@@ -118,6 +118,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /api/v1/endpoints` (PF-60, PF-61): every Endpoint of every project this caller may
+         *     read, each carrying the project it lives in. An `org-admin` bound at organization scope sees
+         *     all of them, a project's steward those of their projects, a binding scoped to one context
+         *     space only that space's, and a person no binding names an empty list — never a 403, because
+         *     what is not readable is not there (R20).
+         */
+        get: operations["list_endpoints_everywhere"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/forms": {
         parameters: {
             query?: never;
@@ -1576,6 +1599,12 @@ export interface components {
             role: string;
             rule: Record<string, never>;
             /**
+             * @description Where the binding that carries this rule applies: `organization`, `project:{name}` or
+             *     `contextSpace:{name}`. A grant read here may have been inherited from the organization,
+             *     and the page says so rather than making it look local (PF-60, PF-61).
+             */
+            scope: string;
+            /**
              * @description Set when the binding is scoped to one context space: the rule then applies only to a
              *     manifest whose `spec.contextSpaceRef` names it.
              */
@@ -2351,6 +2380,35 @@ export interface operations {
             };
             /** @description No such asset is configured */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    list_endpoints_everywhere: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every Endpoint the caller may read, across projects */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

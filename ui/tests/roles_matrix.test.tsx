@@ -21,7 +21,17 @@ function effective(role: string): Effective {
   return {
     bootstrap: false,
     project: "helsinki",
-    grants: verbs.length === 0 ? [] : [{ binding: `${role}-binding`, role, rule: { kinds: KINDS, verbs } as never }],
+    grants:
+      verbs.length === 0
+        ? []
+        : [
+            {
+              binding: `${role}-binding`,
+              role,
+              scope: "organization",
+              rule: { kinds: KINDS, verbs } as never,
+            },
+          ],
   };
 }
 

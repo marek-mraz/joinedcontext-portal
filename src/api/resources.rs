@@ -173,8 +173,62 @@ pub async fn get_resource(
     Ok(Json(envelope))
 }
 
+/// `GET /api/v1/endpoints` (PF-60, PF-61): every Endpoint of every project this caller may
+/// read, each carrying the project it lives in. An `org-admin` bound at organization scope sees
+/// all of them, a project's steward those of their projects, a binding scoped to one context
+/// space only that space's, and a person no binding names an empty list — never a 403, because
+/// what is not readable is not there (R20).
+#[utoipa::path(
+    get,
+    path = "/api/v1/endpoints",
+    tag = "resources",
+    responses(
+        (status = 200, description = "Every Endpoint the caller may read, across projects", body = ResourceList),
+        (status = 401, description = "Unauthorized", body = ProblemDetails)
+    )
+)]
+pub async fn list_endpoints_everywhere(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> Result<Json<ResourceList>, ApiError> {
+    let mut items = Vec::new();
+    for project in state.mirror.namespaces() {
+        let effective = crate::permissions::for_request(&state, &user.0.identity, &project);
+        if !effective.may_read("Endpoint") {
+            continue;
+        }
+        items.extend(
+            state
+                .mirror
+                .list(&project, "Endpoint", &ListOptions::default())
+                .items
+                .into_iter()
+                .filter(|env| {
+                    effective.may_read_manifest(
+                        "Endpoint",
+                        &serde_json::to_value(env).unwrap_or(serde_json::Value::Null),
+                    )
+                }),
+        );
+    }
+    items.sort_by(|a, b| {
+        (a.metadata.namespace.as_deref(), a.metadata.name.as_str())
+            .cmp(&(b.metadata.namespace.as_deref(), b.metadata.name.as_str()))
+    });
+    Ok(Json(ResourceList {
+        api_version: API_VERSION.to_string(),
+        kind: "List".to_string(),
+        metadata: ListMeta {
+            continue_token: None,
+            remaining_item_count: None,
+        },
+        items,
+    }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/endpoints", get(list_endpoints_everywhere))
         .route(
             "/projects/{project}/{plural}",
             get(list).post(crate::api::mutate::create),

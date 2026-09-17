@@ -1,10 +1,9 @@
 import type { JSX } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, localized } from "../api/manifest";
-import { useProjects } from "../api/projects";
 import {
   catalogueUrl,
   ENDPOINT_LINKS,
@@ -33,26 +32,17 @@ import {
 const COLUMNS = 5;
 
 /**
- * Every Endpoint of every project the repository holds, in one table (EP-08, EP-44): the
- * project and space it publishes, its audience, and one direct link per representation.
- * Each project's list is the same query the project's own Endpoints page runs.
+ * Every Endpoint of every project the caller may read, in one table (EP-08, EP-44, PF-60): the
+ * project and space it publishes, its audience, and one direct link per representation. The
+ * organization-level route answers it in one request and decides what is in it — an org-admin
+ * sees every project, a steward their own, and nobody sees a project they may not read (R20).
  */
 export function AllEndpointsPage(): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
-  const projects = useProjects();
-  const names = projects.data ?? [];
-
-  const lists = useQueries({
-    queries: names.map((project) => ({
-      queryKey: queryKeys.list(project, "endpoints"),
-      queryFn: async () =>
-        unwrap(
-          await api.GET("/api/v1/projects/{project}/{plural}", {
-            params: { path: { project, plural: "endpoints" } },
-          }),
-        ),
-    })),
+  const endpoints = useQuery({
+    queryKey: queryKeys.allEndpoints(),
+    queryFn: async () => unwrap(await api.GET("/api/v1/endpoints")),
   });
 
   const head = (
@@ -66,7 +56,7 @@ export function AllEndpointsPage(): JSX.Element {
   );
   const header = <PageHeader title={t("allEndpoints.title")} description={t("allEndpoints.lead")} />;
 
-  if (projects.isPending || lists.some((list) => list.isPending)) {
+  if (endpoints.isPending) {
     return (
       <div className="flex flex-col gap-section">
         {header}
@@ -78,7 +68,7 @@ export function AllEndpointsPage(): JSX.Element {
     );
   }
 
-  const failed = projects.isError ? projects : lists.find((list) => list.isError);
+  const failed = endpoints.isError ? endpoints : null;
   if (failed) {
     const message =
       failed.error instanceof ApiError
@@ -108,9 +98,11 @@ export function AllEndpointsPage(): JSX.Element {
     );
   }
 
-  const rows = names.flatMap((project, index) =>
-    asManifests(lists[index]?.data?.items ?? []).map((endpoint) => ({ project, endpoint })),
-  );
+  const rows = asManifests(endpoints.data?.items ?? []).map((endpoint) => ({
+    // The project is the manifest's own namespace, which is what the route answers with.
+    project: endpoint.metadata.namespace ?? "",
+    endpoint,
+  }));
 
   return (
     <div className="flex flex-col gap-section">

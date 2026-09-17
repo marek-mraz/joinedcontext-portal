@@ -211,6 +211,37 @@
         }
       }
     },
+    "/api/v1/endpoints": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "summary": "`GET /api/v1/endpoints` (PF-60, PF-61): every Endpoint of every project this caller may\nread, each carrying the project it lives in. An `org-admin` bound at organization scope sees\nall of them, a project's steward those of their projects, a binding scoped to one context\nspace only that space's, and a person no binding names an empty list — never a 403, because\nwhat is not readable is not there (R20).",
+        "operationId": "list_endpoints_everywhere",
+        "responses": {
+          "200": {
+            "description": "Every Endpoint the caller may read, across projects",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/forms": {
       "get": {
         "tags": [
@@ -6611,6 +6642,7 @@
         "required": [
           "role",
           "binding",
+          "scope",
           "rule"
         ],
         "properties": {
@@ -6622,6 +6654,10 @@
           },
           "rule": {
             "type": "object"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Where the binding that carries this rule applies: `organization`, `project:{name}` or\n`contextSpace:{name}`. A grant read here may have been inherited from the organization,\nand the page says so rather than making it look local (PF-60, PF-61)."
           },
           "space": {
             "type": [

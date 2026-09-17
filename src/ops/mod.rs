@@ -666,7 +666,7 @@ fn pipeline_test_input_schema() -> Value {
     })
 }
 
-fn empty_input_schema() -> Value {
+pub(super) fn empty_input_schema() -> Value {
     json!({
         "type": "object",
         "properties": {},
@@ -1829,7 +1829,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 50);
+        assert_eq!(ops.len(), 51);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -1873,6 +1873,7 @@ mod tests {
             "jc_run_get",
             "jc_service_account_key_list",
             "jc_ckan_status",
+            "jc_endpoint_list_all",
             "jc_project_revisions",
             "jc_run_answer",
             "jc_run_message",
@@ -1918,6 +1919,7 @@ mod tests {
     ("GET", "/openapi.json", "the API document"),
     ("GET", "/preferences", "this person's own Portal preferences, not a project's data"),
     ("PUT", "/preferences", "this person's own Portal preferences, not a project's data"),
+    ("GET", "/endpoints", "jc_endpoint_list_all"),
     ("GET", "/projects", "the door before a project; every operation runs inside one"),
     ("POST", "/projects", "jc_project_create"),
     ("GET", "/projects/{project}/activity", "jc_activity_list"),

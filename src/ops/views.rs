@@ -295,6 +295,33 @@ fn revisions_input_schema() -> Value {
     })
 }
 
+fn endpoints_everywhere_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "Every Endpoint the caller may read, in every project; each item carries its project in metadata.namespace",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": { "type": "string" },
+                        "metadata": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "namespace": { "type": "string", "description": "The project the Endpoint lives in" }
+                            }
+                        },
+                        "spec": { "type": "object" }
+                    }
+                }
+            }
+        },
+        "required": ["items"]
+    })
+}
+
 fn revisions_output_schema() -> Value {
     json!({
         "type": "object",
@@ -604,6 +631,35 @@ pub fn operations() -> Vec<Operation> {
                     )
                     .await?;
                     Ok(serde_json::to_value(status)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_endpoint_list_all",
+            title: "List Endpoints Everywhere",
+            description: "Every Endpoint of every project the caller may read, each with the project it lives in",
+            input: super::empty_input_schema,
+            output: endpoints_everywhere_output_schema,
+            annotations: Annotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            // The route filters project by project and manifest by manifest, so a caller with
+            // no binding anywhere is answered an empty list rather than a refusal (PF-60, R20).
+            kind: "*",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<EmptyInput>(val.clone()).map(|_| ()),
+            run: |caller, state, _project, val| {
+                Box::pin(async move {
+                    let _: EmptyInput = parse_input(val)?;
+                    let axum::Json(list) = crate::api::resources::list_endpoints_everywhere(
+                        as_user(caller),
+                        axum::extract::State(state.clone()),
+                    )
+                    .await?;
+                    Ok(serde_json::to_value(list)?)
                 })
             },
         },
