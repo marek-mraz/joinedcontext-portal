@@ -595,7 +595,8 @@ impl Driver {
                 .await;
         }
         let domain = crate::api::assistant::org_domain(&self.state, &self.project);
-        match share::render(&self.project, &domain, &params) {
+        let known = crate::api::assistant::declared_groups(&self.state, &self.project);
+        match share::render(&self.project, &domain, &params, &known) {
             Ok(proposal) => {
                 let output = serde_json::to_value(&proposal).unwrap_or(Value::Null);
                 self.event(

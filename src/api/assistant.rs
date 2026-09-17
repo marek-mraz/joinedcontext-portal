@@ -478,8 +478,13 @@ pub async fn execute_propose_endpoint(
     if !is_dns1123(project) {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
-    let proposal = share::render(project, &org_domain(state, project), &params)
-        .map_err(ApiError::BadRequest)?;
+    let proposal = share::render(
+        project,
+        &org_domain(state, project),
+        &params,
+        &declared_groups(state, project),
+    )
+    .map_err(ApiError::BadRequest)?;
     crate::permissions::for_request(state, identity, project).check(
         "Endpoint",
         Verb::Propose,
@@ -804,6 +809,17 @@ pub fn router() -> Router<AppState> {
             "/projects/{project}/assistant/conversations",
             post(start_conversation),
         )
+}
+
+/// The `Group` names the repository declares for a project, so a share never proposes one twice.
+pub(crate) fn declared_groups(state: &AppState, project: &str) -> Vec<String> {
+    state
+        .mirror
+        .list(project, "Group", &crate::store::ListOptions::default())
+        .items
+        .into_iter()
+        .map(|group| group.metadata.name)
+        .collect()
 }
 
 #[cfg(test)]

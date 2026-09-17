@@ -67,6 +67,13 @@ pub struct Proposal {
     pub slug: String,
     pub endpoint: Value,
     pub policies: Vec<Value>,
+    /// Placeholder `Group` manifests for the consumer projects that have none yet (T-1042).
+    ///
+    /// A Policy naming a group the repository does not declare fails validation, so the share
+    /// would be refused for a reason the person cannot act on. The group is drafted empty: who
+    /// belongs to it is the consumer's own administrators' to say, on their Access page (PF-62).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<Value>,
     pub prefill: Value,
 }
 
@@ -93,6 +100,7 @@ pub fn render(
     project: &str,
     org_domain: &str,
     params: &ProposeEndpoint,
+    known_groups: &[String],
 ) -> Result<Proposal, String> {
     let name = params.name.trim();
     let space = params.context_space.trim();
@@ -236,6 +244,26 @@ pub fn render(
         })
         .collect();
 
+    // A Policy that names a group the repository does not declare does not validate, and the
+    // share is refused for something the person cannot fix from the chat. The missing groups
+    // are drafted empty beside it (T-1042, PF-62).
+    let groups: Vec<Value> = if audience == "project-list" {
+        projects
+            .iter()
+            .filter(|p| !known_groups.iter().any(|known| known == *p))
+            .map(|p| {
+                json!({
+                    "apiVersion": API_VERSION,
+                    "kind": "Group",
+                    "metadata": { "name": p, "namespace": project },
+                    "spec": { "members": [] },
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let listed: Vec<String> = if audience == "project-list" {
         projects.clone()
     } else {
@@ -263,6 +291,7 @@ pub fn render(
         slug,
         endpoint,
         policies,
+        groups,
         prefill,
     })
 }
@@ -620,7 +649,7 @@ mod tests {
 
     #[test]
     fn the_defaults_are_project_list_ngsi_ld_and_geojson_and_the_lane_is_yellow() {
-        let proposal = render("helsinki", "hel.fi", &request()).expect("renders");
+        let proposal = render("helsinki", "hel.fi", &request(), &[]).expect("renders");
         assert_eq!(proposal.lane, Lane::Yellow);
         let spec = &proposal.endpoint["spec"];
         assert_eq!(spec["audience"], "project-list");
@@ -665,7 +694,7 @@ mod tests {
         let mut params = request();
         params.audience = Some("public".into());
         params.allowed_projects.clear();
-        let proposal = render("helsinki", "hel.fi", &params).expect("renders");
+        let proposal = render("helsinki", "hel.fi", &params, &[]).expect("renders");
         assert_eq!(proposal.lane, Lane::Red);
         assert!(proposal.endpoint["spec"].get("allowedProjects").is_none());
         assert_eq!(
@@ -678,27 +707,27 @@ mod tests {
     fn what_cannot_be_rendered_is_named() {
         let mut params = request();
         params.allowed_projects.clear();
-        assert!(render("helsinki", "hel.fi", &params)
+        assert!(render("helsinki", "hel.fi", &params, &[])
             .unwrap_err()
             .contains("allowedProjects"));
         let mut params = request();
         params.audience = Some("everyone".into());
-        assert!(render("helsinki", "hel.fi", &params)
+        assert!(render("helsinki", "hel.fi", &params, &[])
             .unwrap_err()
             .contains("audience"));
         let mut params = request();
         params.name = "Bikes!".into();
-        assert!(render("helsinki", "hel.fi", &params)
+        assert!(render("helsinki", "hel.fi", &params, &[])
             .unwrap_err()
             .contains("DNS-1123"));
         let mut params = request();
         params.representations = vec!["pdf".into()];
-        assert!(render("helsinki", "hel.fi", &params)
+        assert!(render("helsinki", "hel.fi", &params, &[])
             .unwrap_err()
             .contains("representation"));
         let mut params = request();
         params.hidden_attributes = vec!["<script>".into()];
-        assert!(render("helsinki", "hel.fi", &params)
+        assert!(render("helsinki", "hel.fi", &params, &[])
             .unwrap_err()
             .contains("hiddenAttributes"));
     }
@@ -888,5 +917,59 @@ mod tests {
                 .is_none()
         );
         assert!(tool_call("```json\n{\"title\": \"x\"}\n```").is_none());
+    }
+
+    /// T-1042: a Policy naming a group the repository does not declare does not validate, so
+    /// the share drafts the missing group beside it; a group that already exists is not
+    /// proposed twice.
+    #[test]
+    fn a_share_drafts_the_consumer_group_it_names_and_no_other() {
+        let mut params = request();
+        params.audience = Some("project-list".to_owned());
+        params.allowed_projects = vec!["helsinki-mobility".to_owned(), "espoo".to_owned()];
+
+        let proposal =
+            render("helsinki", "hel.fi", &params, &["espoo".to_owned()]).expect("renders");
+        let drafted: Vec<&str> = proposal
+            .groups
+            .iter()
+            .filter_map(|g| g["metadata"]["name"].as_str())
+            .collect();
+        assert_eq!(
+            drafted,
+            vec!["helsinki-mobility"],
+            "only the group the repository is missing: {:?}",
+            proposal.groups
+        );
+        assert_eq!(
+            proposal.groups[0]["spec"]["members"],
+            serde_json::json!([]),
+            "the consumer's administrators say who belongs to it (PF-62)"
+        );
+        assert_eq!(proposal.groups[0]["kind"], "Group");
+
+        // Every named group already declared: nothing to draft.
+        let known = vec!["helsinki-mobility".to_owned(), "espoo".to_owned()];
+        assert!(render("helsinki", "hel.fi", &params, &known)
+            .expect("renders")
+            .groups
+            .is_empty());
+    }
+
+    /// An audience that names no project names no group either.
+    #[test]
+    fn an_organization_or_public_share_drafts_no_group() {
+        for audience in ["organization", "public"] {
+            let mut params = request();
+            params.audience = Some(audience.to_owned());
+            params.allowed_projects = Vec::new();
+            assert!(
+                render("helsinki", "hel.fi", &params, &[])
+                    .expect("renders")
+                    .groups
+                    .is_empty(),
+                "{audience}"
+            );
+        }
     }
 }
