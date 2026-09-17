@@ -1571,7 +1571,8 @@
       "rows": "Řádky: {count}",
       "someRows": "{shown} z {total} řádků"
     },
-    "trail": "Pages the assistant opened"
+    "trail": "Pages the assistant opened",
+    "prefilledNotice": "Toto vyplnil asistent. Zkontroluj to před návrhem."
   },
   "permissions": {
     "denied": "Vypnuto: vaše role nedovoluje ''{verb}'' na ''{kind}'' v tomto projektu"

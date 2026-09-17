@@ -1571,7 +1571,8 @@
       "rows": "{count, plural, one {# row} other {# rows}}",
       "someRows": "{shown} of {total} rows"
     },
-    "trail": "Pages the assistant opened"
+    "trail": "Pages the assistant opened",
+    "prefilledNotice": "The assistant filled this in. Check it before you propose."
   },
   "permissions": {
     "denied": "Disabled: your role does not permit ''{verb}'' on ''{kind}'' in this project"

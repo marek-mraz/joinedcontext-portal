@@ -1076,6 +1076,14 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         }}
         afterFields={
           <>
+            {/* UI-58, T-0958: a form the assistant filled says so, so the person reads the
+                values as a proposal to check rather than as something they typed. */}
+            {prefill ? (
+              <Alert role="note" tone="info">
+                {t("assistant.prefilledNotice")}
+              </Alert>
+            ) : null}
+
             {editing?.audience === "public" ? (
               <Alert role="note" tone="warning">
                 {t("endpoints.publicNotice")}

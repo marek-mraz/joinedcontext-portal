@@ -1571,7 +1571,8 @@
       "rows": "Zeilen: {count}",
       "someRows": "{shown} von {total} Zeilen"
     },
-    "trail": "Pages the assistant opened"
+    "trail": "Pages the assistant opened",
+    "prefilledNotice": "Der Assistent hat das ausgefüllt. Prüfe es, bevor du es vorschlägst."
   },
   "permissions": {
     "denied": "Deaktiviert: Ihre Rolle erlaubt ''{verb}'' auf ''{kind}'' in diesem Projekt nicht"

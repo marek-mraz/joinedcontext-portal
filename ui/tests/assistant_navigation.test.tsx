@@ -240,6 +240,9 @@ describe("the assistant dock", () => {
     // The dock came along, and says what it did.
     const notice = await screen.findByText("Opened Endpoints");
     expect(notice).toBeInTheDocument();
+    // UI-58, T-0958: the form says the assistant filled it, so the person reads the values as
+    // a proposal to check rather than as something they typed.
+    expect(within(dialog).getByText(en.assistant.prefilledNotice)).toBeInTheDocument();
     expect(dockStream().url).toBe(`/api/v1/projects/${PROJECT}/agent-runs/${RUN_ID}/events`);
     // And it is where it always is: the column on the right of the page, after the main
     // content, on this page as on the run page.
