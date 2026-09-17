@@ -171,8 +171,9 @@ pub enum Operation {
 /// - `Endpoint` with `spec.audience == "public"` is `Red` (public exposure).
 /// - Federation edges and data-space edges (`ContextSourceRegistration`, `SharedSpaceReference`,
 ///   `DataSpaceParticipant`, `DataOffer`, `DataAgreement`) are `Red`.
-/// - Identity and access kinds (`ServiceAccount`, `Role`, `RoleBinding`, `Policy`,
-///   `ScopeDefinition`, `Organization`, `Project`) are `Red` (PF-52).
+/// - Identity and access kinds (`ServiceAccount`, `Role`, `RoleBinding`, `Group`, `Policy`,
+///   `ScopeDefinition`, `Organization`, `Project`) are `Red` (PF-52, PF-62): who is in a group
+///   is who a binding names, so a membership is reviewed like the binding itself.
 /// - `ContextSpace` with `spec.isSandbox == true` is `Green` (ephemeral sandbox, CC-67).
 /// - `Dashboard` and `Layer` are `Green`.
 /// - Everything else defaults to `Yellow`.
@@ -194,6 +195,7 @@ pub fn classify(kind: &str, op: Operation, spec: &serde_json::Value) -> Lane {
         | "ServiceAccount"
         | "Role"
         | "RoleBinding"
+        | "Group"
         | "Policy"
         | "ScopeDefinition"
         | "Organization"
@@ -317,6 +319,7 @@ mod tests {
             "ServiceAccount",
             "Role",
             "RoleBinding",
+            "Group",
             "Policy",
             "ScopeDefinition",
             "Organization",

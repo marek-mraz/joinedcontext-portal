@@ -795,6 +795,27 @@
       "mayNot": "You may not {action} {type}",
       "attrDenied": "not in your grant",
       "attrProhibited": "explicitly denied"
+    },
+    "groups": {
+      "title": "Groups",
+      "lead": "The people a binding names at once. A membership is a change somebody approves, and the reconciler keeps Keycloak to what this says.",
+      "caption": "Groups of the organization",
+      "group": "Group",
+      "members": "Members",
+      "sync": "Keycloak",
+      "inStep": "In step",
+      "nobody": "Nobody yet",
+      "empty": "No group is declared yet.",
+      "new": "New group",
+      "newTitle": "New group",
+      "newLead": "Members are e-mail addresses, the names Keycloak carries. The group is proposed as a red-lane change, like a role binding.",
+      "sourceLabel": "The manifest",
+      "propose": "Propose the group",
+      "reason": {
+        "DriftCorrected": "Corrected",
+        "MemberUnknown": "Waiting for a first login",
+        "RealmRefused": "Not written"
+      }
     }
   },
   "flows": {

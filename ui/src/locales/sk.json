@@ -795,6 +795,27 @@
       "mayNot": "Nesmiete {action} {type}",
       "attrDenied": "mimo vášho oprávnenia",
       "attrProhibited": "výslovne zakázaný"
+    },
+    "groups": {
+      "title": "Skupiny",
+      "lead": "Ľudia, ktorých väzba pomenuje naraz. Členstvo je zmena, ktorú niekto schvaľuje, a rekonciliátor drží Keycloak podľa tohto zápisu.",
+      "caption": "Skupiny organizácie",
+      "group": "Skupina",
+      "members": "Členovia",
+      "sync": "Keycloak",
+      "inStep": "V súlade",
+      "nobody": "Zatiaľ nikto",
+      "empty": "Zatiaľ nie je definovaná žiadna skupina.",
+      "new": "Nová skupina",
+      "newTitle": "Nová skupina",
+      "newLead": "Členovia sú e-mailové adresy, pod ktorými ich vedie Keycloak. Skupina sa navrhuje ako zmena v červenej dráhe, tak ako väzba roly.",
+      "sourceLabel": "Manifest",
+      "propose": "Navrhnúť skupinu",
+      "reason": {
+        "DriftCorrected": "Opravené",
+        "MemberUnknown": "Čaká na prvé prihlásenie",
+        "RealmRefused": "Nezapísané"
+      }
     }
   },
   "flows": {

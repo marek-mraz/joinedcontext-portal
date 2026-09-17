@@ -337,6 +337,42 @@ fn in_force(mirror: &Mirror, identity: &Identity, now: DateTime<Utc>) -> Vec<(Re
     grants
 }
 
+/// Every `group` subject of a `RoleBinding` or `ServiceAccount` names a `Group` manifest of the
+/// organization (PF-62, PF-64). A binding to a group nobody declared matches nobody and says
+/// nothing about it, which is the silence this refusal replaces. The bootstrap administrators
+/// are not a subject — they are the platform setting of PF-52 — so nothing here touches them.
+fn subjects_name_a_group(mirror: &Mirror, manifest: &Value) -> Result<(), ApiError> {
+    let kind = manifest.get("kind").and_then(Value::as_str).unwrap_or("");
+    if kind != "RoleBinding" && kind != "ServiceAccount" {
+        return Ok(());
+    }
+    let named = manifest
+        .pointer("/spec/subjects")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|subject| subject.get("group").and_then(Value::as_str));
+    for group in named {
+        if mirror.get(ORG_NAMESPACE, "Group", group).is_none() {
+            let declared: Vec<String> = mirror
+                .list(ORG_NAMESPACE, "Group", &ListOptions::default())
+                .items
+                .into_iter()
+                .map(|env| env.metadata.name)
+                .collect();
+            return Err(ApiError::BadRequest(format!(
+                "spec.subjects names the group '{group}', and no Group manifest declares it;                  propose the group first, or a binding to it matches nobody (PF-62, PF-64).                  Declared: {}",
+                if declared.is_empty() {
+                    "none".to_owned()
+                } else {
+                    declared.join(", ")
+                }
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Nobody grants above their own rights (PF-52, AG-77): every verb on every kind a proposed
 /// `Role` (on the organization), `RoleBinding` (on its scope) or `ServiceAccount` (through each of
 /// its roles the organization defines, on that role's scope) would grant must be one `identity`
@@ -349,6 +385,10 @@ pub fn within_own_rights(
     who: &str,
 ) -> Result<(), ApiError> {
     let mirror = &state.mirror;
+    // PF-64: a subject that names a group names a `Group` manifest. Checked here because this
+    // is the gate every door to a `users/` manifest passes through — the resource route, an
+    // import, a blueprint and an approval.
+    subjects_name_a_group(mirror, manifest)?;
     let spec = manifest.get("spec").cloned().unwrap_or(Value::Null);
     let unreadable = |e: serde_json::Error| ApiError::BadRequest(format!("spec: {e}"));
     let no_scope = || {

@@ -795,6 +795,27 @@
       "mayNot": "Sie dürfen nicht {action} {type}",
       "attrDenied": "nicht in Ihrem Grant",
       "attrProhibited": "ausdrücklich verweigert"
+    },
+    "groups": {
+      "title": "Gruppen",
+      "lead": "Die Menschen, die eine Bindung auf einmal nennt. Eine Mitgliedschaft ist eine Änderung, die jemand genehmigt, und der Reconciler hält Keycloak auf dem, was hier steht.",
+      "caption": "Gruppen der Organisation",
+      "group": "Gruppe",
+      "members": "Mitglieder",
+      "sync": "Keycloak",
+      "inStep": "Im Einklang",
+      "nobody": "Noch niemand",
+      "empty": "Es ist noch keine Gruppe deklariert.",
+      "new": "Neue Gruppe",
+      "newTitle": "Neue Gruppe",
+      "newLead": "Mitglieder sind E-Mail-Adressen, die Namen, unter denen Keycloak sie führt. Die Gruppe wird als Änderung der roten Spur vorgeschlagen, wie eine Rollenbindung.",
+      "sourceLabel": "Das Manifest",
+      "propose": "Gruppe vorschlagen",
+      "reason": {
+        "DriftCorrected": "Korrigiert",
+        "MemberUnknown": "Wartet auf erste Anmeldung",
+        "RealmRefused": "Nicht geschrieben"
+      }
     }
   },
   "flows": {
