@@ -268,6 +268,10 @@ pub struct RunContext {
     /// the call past it, so a run stops at the limit however its driver loops (AG-25, AG-51).
     pub steps_per_run: u32,
     pub max_response_bytes: u64,
+    /// The profile's `egress.maxBytesPerRun`: what the run may read from the allow-listed hosts
+    /// in total, counted by the proxy's fetch route. Zero for a profile that names no host, and
+    /// a run with zero reaches nothing (AG-50, AG-65).
+    pub max_egress_bytes_per_run: u64,
     pub created_by: String,
     pub model_name: String,
     /// The profile's `model.reasoningEffort`: the proxy adds it to every model call (AG-72).
@@ -1664,6 +1668,7 @@ pub async fn internal_get_run(
         requests_per_minute: profile.requests_per_minute,
         steps_per_run: profile.steps_per_run,
         max_response_bytes: profile.max_response_bytes,
+        max_egress_bytes_per_run: profile.max_egress_bytes_per_run,
         created_by: run.created_by,
         model_name: profile.model_name,
         reasoning_effort: profile.reasoning_effort,

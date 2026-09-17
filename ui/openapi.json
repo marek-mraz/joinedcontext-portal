@@ -8235,6 +8235,7 @@
           "requestsPerMinute",
           "stepsPerRun",
           "maxResponseBytes",
+          "maxEgressBytesPerRun",
           "createdBy",
           "modelName"
         ],
@@ -8269,6 +8270,12 @@
           },
           "id": {
             "type": "string"
+          },
+          "maxEgressBytesPerRun": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The profile's `egress.maxBytesPerRun`: what the run may read from the allow-listed hosts\nin total, counted by the proxy's fetch route. Zero for a profile that names no host, and\na run with zero reaches nothing (AG-50, AG-65).",
+            "minimum": 0
           },
           "maxResponseBytes": {
             "type": "integer",

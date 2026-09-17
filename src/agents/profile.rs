@@ -30,8 +30,11 @@ pub struct Profile {
     pub steps_per_run: u32,
     pub requests_per_minute: u32,
     pub max_response_bytes: u64,
-    /// Bare hostnames the package route may reach (AG-50).
+    /// Bare hostnames the package and fetch routes may reach (AG-50).
     pub allowed_hosts: Vec<String>,
+    /// Bytes one run may read from those hosts in total (AG-65). Zero when the profile names no
+    /// host: a budget with nowhere to spend it is a run that reaches nothing.
+    pub max_egress_bytes_per_run: u64,
     pub cpu: String,
     pub memory: String,
     pub ephemeral_storage: String,
@@ -63,6 +66,17 @@ impl Profile {
             None => format!("{image}@{digest}"),
         };
 
+        let allowed_hosts: Vec<String> = spec
+            .pointer("/egress/allowedHosts")
+            .and_then(Value::as_array)
+            .map(|hosts| {
+                hosts
+                    .iter()
+                    .filter_map(|host| host.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         Ok(Self {
             name: name.to_owned(),
             role,
@@ -77,16 +91,17 @@ impl Profile {
             steps_per_run: u64_at(spec, &["limits", "stepsPerRun"], name)? as u32,
             requests_per_minute: u64_at(spec, &["limits", "requestsPerMinute"], name)? as u32,
             max_response_bytes: u64_at(spec, &["limits", "maxResponseBytes"], name)?,
-            allowed_hosts: spec
-                .pointer("/egress/allowedHosts")
-                .and_then(Value::as_array)
-                .map(|hosts| {
-                    hosts
-                        .iter()
-                        .filter_map(|host| host.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default(),
+            allowed_hosts: allowed_hosts.clone(),
+            // The default rather than a refusal: reading documentation is what the allow-list is
+            // for, and a profile that had to name a number to get it would have every author
+            // guessing one (jc_core::DEFAULT_EGRESS_BYTES_PER_RUN, AG-65).
+            max_egress_bytes_per_run: match allowed_hosts.is_empty() {
+                true => 0,
+                false => spec
+                    .pointer("/egress/maxBytesPerRun")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(jc_core::DEFAULT_EGRESS_BYTES_PER_RUN),
+            },
             cpu: string_at(spec, &["workspace", "cpu"], name)?,
             memory: string_at(spec, &["workspace", "memory"], name)?,
             ephemeral_storage: string_at(spec, &["workspace", "ephemeralStorage"], name)?,
@@ -181,6 +196,37 @@ mod tests {
         assert_eq!(profile.requests_per_minute, 60);
         assert_eq!(profile.allowed_hosts.len(), 2);
         assert_eq!(profile.ephemeral_storage, "4Gi");
+    }
+
+    #[test]
+    fn the_egress_budget_defaults_for_a_profile_that_names_hosts_and_is_nothing_without_them() {
+        // The rule the proxy leans on (AG-65, T-0557): a budget is meaningless without a host,
+        // and a profile that had to name a number to read documentation would have every author
+        // guessing one.
+        let profile = Profile::load(&mirror_with(profile_spec()), "app-builder").expect("profile");
+        assert_eq!(
+            profile.max_egress_bytes_per_run,
+            jc_core::DEFAULT_EGRESS_BYTES_PER_RUN
+        );
+
+        let mut named = profile_spec();
+        named["egress"]["maxBytesPerRun"] = serde_json::json!(4096);
+        let profile = Profile::load(&mirror_with(named), "app-builder").expect("profile");
+        assert_eq!(profile.max_egress_bytes_per_run, 4096);
+
+        let mut hostless = profile_spec();
+        hostless["egress"] = serde_json::json!({ "allowedHosts": [] });
+        let profile = Profile::load(&mirror_with(hostless), "app-builder").expect("profile");
+        assert_eq!(profile.max_egress_bytes_per_run, 0);
+
+        let mut no_block = profile_spec();
+        no_block
+            .as_object_mut()
+            .expect("an object")
+            .remove("egress");
+        let profile = Profile::load(&mirror_with(no_block), "app-builder").expect("profile");
+        assert_eq!(profile.max_egress_bytes_per_run, 0);
+        assert!(profile.allowed_hosts.is_empty());
     }
 
     #[test]

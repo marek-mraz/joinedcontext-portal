@@ -615,6 +615,16 @@ async fn an_application_reads_several_endpoints_each_need_on_its_own_space() {
     // The proxy counts one model call per step against this ceiling (AG-25, AG-51, T-0841).
     assert_eq!(context["stepsPerRun"], json!(120));
     assert_eq!(context["requestsPerMinute"], json!(60));
+    // The profile names hosts and no budget, so the run gets the default rather than nothing:
+    // the fetch route counts every byte against this number (AG-65, T-0557).
+    assert_eq!(
+        context["allowedHosts"],
+        json!(["registry.npmjs.org", "static.crates.io"])
+    );
+    assert_eq!(
+        context["maxEgressBytesPerRun"],
+        json!(jc_core::DEFAULT_EGRESS_BYTES_PER_RUN)
+    );
 
     let mut files = preview::template_files();
     files.retain(|path, _| path.starts_with("src/") || path.starts_with("functions/"));

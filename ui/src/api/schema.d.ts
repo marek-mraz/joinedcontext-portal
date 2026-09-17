@@ -2126,6 +2126,13 @@ export interface components {
              */
             endpointSlugs: string[];
             id: string;
+            /**
+             * Format: int64
+             * @description The profile's `egress.maxBytesPerRun`: what the run may read from the allow-listed hosts
+             *     in total, counted by the proxy's fetch route. Zero for a profile that names no host, and
+             *     a run with zero reaches nothing (AG-50, AG-65).
+             */
+            maxEgressBytesPerRun: number;
             /** Format: int64 */
             maxResponseBytes: number;
             /** Format: int64 */

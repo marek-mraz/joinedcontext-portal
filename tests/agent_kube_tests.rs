@@ -47,6 +47,7 @@ fn profile() -> Profile {
         steps_per_run: 120,
         requests_per_minute: 60,
         max_response_bytes: 2_097_152,
+        max_egress_bytes_per_run: jc_core::DEFAULT_EGRESS_BYTES_PER_RUN,
         allowed_hosts: vec!["registry.npmjs.org".into()],
         cpu: "1".into(),
         memory: "2Gi".into(),
