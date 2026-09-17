@@ -86,6 +86,7 @@
     "approving": "Wird freigegeben...",
     "rejecting": "Wird abgelehnt...",
     "needsRole": "Zum Genehmigen braucht es eine Rollenzuweisung mit `approve` in diesem Projekt.",
+    "needsPublisher": "Einen Endpunkt für die Öffentlichkeit freizugeben braucht die Rolle `publisher`; ein Steward allein kann es nicht.",
     "ownProposal": "Sie können Ihren eigenen Vorschlag nicht freigeben oder ablehnen.",
     "confirmPrompt": "Für die rote Stufe geben Sie zur Bestätigung den Ressourcennamen ein:",
     "confirmLabel": "Ressourcenname zur Bestätigung",

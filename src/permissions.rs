@@ -138,6 +138,16 @@ impl Effective {
                 }
             }
         }
+        // Letting data out to the public is a right of its own, and the one refusal that says
+        // which role holds it: every door goes through this check, so the Approvals page, the
+        // operations registry and the assistant all say the same sentence (EP-76, PF-71, PF-72).
+        if kind == "Endpoint" && verb == Verb::Approve && audience_of(target) == Some("public") {
+            return Err(ApiError::Denied(
+                "approving a public Endpoint needs publisher, the role whose approve is \
+                 constrained to a public audience; org-admin holds it too (EP-76, PF-71)"
+                    .to_owned(),
+            ));
+        }
         Err(ApiError::Denied(violation.unwrap_or_else(|| {
             format!(
                 "no role grants {} on {kind} in project {} (PF-50)",
@@ -397,6 +407,11 @@ fn is_subject(identity: &Identity, subject: &jc_core::kinds::Subject) -> bool {
 }
 
 /// `spec.contextSpaceRef` of a manifest, written bare or as `{ name }`.
+/// The audience of the manifest under approval, when it has one (EP-14).
+fn audience_of(target: Option<&Value>) -> Option<&str> {
+    target?.pointer("/spec/audience")?.as_str()
+}
+
 fn space_ref(target: &Value) -> Option<String> {
     let value = target.pointer("/spec/contextSpaceRef")?;
     value

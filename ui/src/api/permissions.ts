@@ -6,7 +6,7 @@ import type { components } from "./schema";
 export type Effective = components["schemas"]["Effective"];
 export type Verb = "propose" | "approve" | "delete";
 
-interface Rule {
+export interface Rule {
   kinds?: string[];
   verbs?: string[];
 }

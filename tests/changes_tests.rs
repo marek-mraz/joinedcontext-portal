@@ -1832,3 +1832,238 @@ async fn a_change_to_a_kind_the_caller_does_not_read_is_not_there() {
         "the refusal names the kind it hid: {detail}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Letting data out to the public needs the publisher (EP-76, PF-71, PF-72, T-0874)
+// ---------------------------------------------------------------------------
+
+const PUBLIC_ENDPOINT_BRANCH: &str = "portal/create-endpoint-air-00000042";
+const PUBLIC_ENDPOINT_PATH: &str = "projects/ovzdusie/spaces/ovzdusie/endpoints/air.yaml";
+
+fn endpoint_yaml(audience: &str) -> String {
+    format!(
+        "apiVersion: joinedcontext.com/v1alpha1\nkind: Endpoint\nmetadata:\n  name: air\n  \
+         namespace: ovzdusie\nspec:\n  contextSpaceRef: ovzdusie\n  slug: \
+         mluyob4nz52lok3ssk7pgn5vwt\n  audience: {audience}\n  enabledRepresentations:\n    - \
+         ngsi-ld\n"
+    )
+}
+
+/// One open change that gives the `air` endpoint `audience`, with `approver` bound to `rules`
+/// over the organization.
+async fn endpoint_change_of(audience: &str, rules: Value) -> (MockServer, AppState) {
+    use joinedcontext_portal::permissions::ORG_NAMESPACE;
+    use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+
+    let server = MockServer::start().await;
+    let client = GiteaClient::new(
+        server.uri().parse().expect("url"),
+        "test-owner",
+        "test-repo",
+        "token-xyz",
+    )
+    .expect("client");
+    let state = AppState::new(Config::for_tests(), None).with_gitea(Arc::new(client));
+    let org = |kind: &str, name: &str, spec: Value| ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: kind.to_owned(),
+        metadata: ObjectMeta::new(name, ORG_NAMESPACE),
+        spec,
+        status: None,
+    };
+    state
+        .mirror
+        .upsert(org("Role", "the-role", json!({ "rules": rules })));
+    state.mirror.upsert(org(
+        "RoleBinding",
+        "approver-binding",
+        json!({
+            "subjects": [{ "user": "jana.approver@banskabystrica.sk" }],
+            "role": "the-role",
+            "scope": { "organization": "bb" }
+        }),
+    ));
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/66"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 66,
+            "html_url": "https://gitea.example.sk/pulls/66",
+            "state": "open",
+            "title": "share air quality",
+            "head": { "ref": PUBLIC_ENDPOINT_BRANCH },
+            "base": { "ref": "main" },
+            "created_at": "2026-09-16T09:14:22Z",
+            "user": { "login": "someone", "full_name": "Someone Else", "email": "someone@banskabystrica.sk" },
+            "mergeable": true,
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+    pr_files(&server, 66, &[(PUBLIC_ENDPOINT_PATH, "added")]).await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/repos/test-owner/test-repo/contents/{PUBLIC_ENDPOINT_PATH}"
+        )))
+        .and(query_param("ref", PUBLIC_ENDPOINT_BRANCH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "blob-66", "content": encode_b64(&endpoint_yaml(audience))
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/66/merge"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    (server, state)
+}
+
+async fn approve_endpoint(state: AppState, confirm: Option<&str>) -> (StatusCode, String) {
+    let config = state.config.clone();
+    let cookies = session_and_csrf_cookies(
+        &config,
+        "jana.approver",
+        Some("jana.approver@banskabystrica.sk"),
+        Some("Jana Approver"),
+        vec![],
+    );
+    let body = match confirm {
+        Some(name) => Body::from(json!({ "confirm": name }).to_string()),
+        None => Body::empty(),
+    };
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/changes/chg-00000042/approve")
+                .header(header::COOKIE, cookies)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bytes")
+        .to_bytes();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The seeded steward: everything in the project, and Endpoint only where the audience is not
+/// public (PF-71).
+fn steward_rules() -> Value {
+    json!([
+        { "kinds": ["Pipeline", "DataSource"], "verbs": ["propose", "approve"] },
+        { "kinds": ["Endpoint"], "verbs": ["propose", "approve"],
+          "constraints": [{ "field": "spec.audience", "notIn": ["public"] }] }
+    ])
+}
+
+/// The seeded publisher: reads the project, approves an Endpoint only where it is public.
+fn publisher_rules() -> Value {
+    json!([
+        { "kinds": ["Endpoint", "Pipeline"], "verbs": ["read"] },
+        { "kinds": ["Endpoint"], "verbs": ["approve"],
+          "constraints": [{ "field": "spec.audience", "in": ["public"] }] }
+    ])
+}
+
+#[tokio::test]
+async fn a_steward_cannot_approve_a_public_endpoint_and_the_refusal_names_publisher() {
+    let (server, state) = endpoint_change_of("public", steward_rules()).await;
+    let (status, body) = approve_endpoint(state, Some("air")).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("publisher"), "{body}");
+    assert!(body.contains("EP-76"), "{body}");
+    assert!(!merged_66(&server).await);
+}
+
+#[tokio::test]
+async fn a_steward_approves_the_same_endpoint_while_it_is_not_public() {
+    let (server, state) = endpoint_change_of("organization", steward_rules()).await;
+    let (status, body) = approve_endpoint(state, Some("air")).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(merged_66(&server).await);
+}
+
+#[tokio::test]
+async fn a_publisher_approves_the_public_one_and_not_the_private_one() {
+    let (server, state) = endpoint_change_of("public", publisher_rules()).await;
+    let (status, body) = approve_endpoint(state, Some("air")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(merged_66(&server).await);
+
+    let (server, state) = endpoint_change_of("organization", publisher_rules()).await;
+    let (status, body) = approve_endpoint(state, Some("air")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(!merged_66(&server).await);
+}
+
+#[tokio::test]
+async fn an_org_admin_approves_both_and_the_public_one_still_needs_the_name_typed_back() {
+    let admin = json!([{ "kinds": ["Endpoint"], "verbs": ["propose", "approve", "delete"] }]);
+
+    // Red lane: without the typed confirmation nothing is merged (CC-19).
+    let (server, state) = endpoint_change_of("public", admin.clone()).await;
+    let (status, body) = approve_endpoint(state, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(!merged_66(&server).await);
+
+    let (server, state) = endpoint_change_of("public", admin.clone()).await;
+    let (status, body) = approve_endpoint(state, Some("air")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(merged_66(&server).await);
+
+    let (server, state) = endpoint_change_of("organization", admin).await;
+    let (status, body) = approve_endpoint(state, Some("air")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(merged_66(&server).await);
+}
+
+async fn merged_66(server: &MockServer) -> bool {
+    server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .any(|r| r.url.path().ends_with("/pulls/66/merge"))
+}
+
+/// EP-76: the operations registry and the assistant refuse it in the same words as the page,
+/// because every door asks the same permission check.
+#[tokio::test]
+async fn the_operation_refuses_a_public_endpoint_in_the_same_words() {
+    let (server, state) = endpoint_change_of("public", steward_rules()).await;
+    let identity = Identity {
+        subject: "sub-jana.approver".into(),
+        username: "jana.approver".into(),
+        email: Some("jana.approver@banskabystrica.sk".into()),
+        name: Some("Jana Approver".into()),
+        roles: Vec::new(),
+        groups: Vec::new(),
+    };
+
+    let refused = joinedcontext_portal::api::changes::approve_change_for(
+        &state,
+        &identity,
+        "ovzdusie",
+        "chg-00000042",
+        Some("air"),
+        joinedcontext_portal::api::changes::ApprovedBy::Operation,
+    )
+    .await
+    .expect_err("a steward does not publish to the public");
+
+    let said = refused.to_string();
+    assert!(said.contains("publisher"), "{said}");
+    assert!(said.contains("EP-76"), "{said}");
+    assert!(!merged_66(&server).await);
+}

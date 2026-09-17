@@ -86,6 +86,7 @@
     "approving": "Schvaľuje sa...",
     "rejecting": "Zamieta sa...",
     "needsRole": "Na schválenie treba priradenú rolu s právom `approve` v tomto projekte.",
+    "needsPublisher": "Sprístupnenie endpointu verejnosti si vyžaduje rolu `publisher`; samotný steward to nemôže.",
     "ownProposal": "Nemôžete schváliť ani zamietnuť vlastný návrh.",
     "confirmPrompt": "Pre červenú úroveň zadajte názov prostriedku pre potvrdenie:",
     "confirmLabel": "Názov prostriedku pre potvrdenie",

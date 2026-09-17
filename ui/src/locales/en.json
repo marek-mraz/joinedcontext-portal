@@ -86,6 +86,7 @@
     "approving": "Approving...",
     "rejecting": "Rejecting...",
     "needsRole": "Approving needs a role binding with `approve` in this project.",
+    "needsPublisher": "Letting an endpoint out to the public needs the `publisher` role; a steward alone cannot.",
     "ownProposal": "You cannot approve or reject your own proposal.",
     "confirmPrompt": "For red lane, type the resource name to confirm:",
     "confirmLabel": "Resource name confirmation",

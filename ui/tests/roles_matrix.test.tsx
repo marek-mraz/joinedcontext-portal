@@ -57,3 +57,67 @@ describe("the controls each role is offered", () => {
     expect(approvalStanding(permissions, "admin@hel.fi", change("Pipeline", "admin@hel.fi")).block).toBe("ownProposal");
   });
 });
+
+// Letting data out to the public is a right of its own (EP-76, PF-71, T-0874).
+
+const publicEndpointChange = (author: string) => ({
+  summary: { params: { kind: "Endpoint", name: "air" } },
+  author: { email: author },
+  planFields: [{ path: "spec.audience", from: "organization", to: "public" }],
+});
+
+const privateEndpointChange = (author: string) => ({
+  summary: { params: { kind: "Endpoint", name: "air" } },
+  author: { email: author },
+  planFields: [{ path: "spec.audience", to: "organization" }],
+});
+
+const withGrants = (grants: unknown[]) => ({
+  data: { project: "helsinki", bootstrap: false, grants } as never,
+  can: () => true,
+});
+
+describe("approving a public endpoint", () => {
+  const steward = withGrants([
+    {
+      role: "steward",
+      binding: "lead-steward",
+      rule: {
+        kinds: ["Endpoint"],
+        verbs: ["propose", "approve"],
+        constraints: [{ field: "spec.audience", notIn: ["public"] }],
+      },
+    },
+  ]);
+  const publisher = withGrants([
+    {
+      role: "publisher",
+      binding: "mayor-publisher",
+      rule: {
+        kinds: ["Endpoint"],
+        verbs: ["approve"],
+        constraints: [{ field: "spec.audience", in: ["public"] }],
+      },
+    },
+  ]);
+  const admin = withGrants([
+    {
+      role: "org-admin",
+      binding: "admins",
+      rule: { kinds: ["Endpoint"], verbs: ["propose", "approve", "delete"] },
+    },
+  ]);
+
+  it("names publisher when a steward is the one looking at it", () => {
+    expect(approvalStanding(steward, "lead@hel.fi", publicEndpointChange("someone@hel.fi")).block).toBe(
+      "needsPublisher",
+    );
+    // The same steward, the same endpoint, while it stays inside the organization.
+    expect(approvalStanding(steward, "lead@hel.fi", privateEndpointChange("someone@hel.fi")).block).toBeNull();
+  });
+
+  it("lets the publisher and the administrator through", () => {
+    expect(approvalStanding(publisher, "mayor@hel.fi", publicEndpointChange("someone@hel.fi")).block).toBeNull();
+    expect(approvalStanding(admin, "admin@hel.fi", publicEndpointChange("someone@hel.fi")).block).toBeNull();
+  });
+});

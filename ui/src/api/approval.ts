@@ -1,7 +1,61 @@
-import { allows, type Effective, type Verb } from "./permissions";
+import { allows, type Effective, type Rule, type Verb } from "./permissions";
 
 /** Why the approve button is off, or `null` when the API would take the approval. */
-export type ApprovalBlock = "needsRole" | "ownProposal" | null;
+export type ApprovalBlock = "needsRole" | "ownProposal" | "needsPublisher" | null;
+
+/** One field the change alters, as the plan lists it. */
+interface PlannedField {
+  path: string;
+  from?: unknown;
+  to?: unknown;
+}
+
+/** The audience an Endpoint carries when its data is open to anyone (EP-14). */
+const PUBLIC = "public";
+
+/**
+ * Whether this change lets an endpoint out to the public: it gives `spec.audience` the value
+ * `public`, on creation or by an update from another audience (EP-76).
+ */
+export function makesPublic(change: { planFields?: PlannedField[] | null }): boolean {
+  return (change.planFields ?? []).some(
+    (field) => field.path.endsWith("audience") && field.to === PUBLIC,
+  );
+}
+
+/**
+ * Whether one of the caller's grants approves an Endpoint whose audience is `public` (PF-71):
+ * a rule with no constraint on the audience, or one whose constraint the value satisfies. The
+ * page only says which role is missing; the API is what refuses (PF-51).
+ */
+function mayPublish(effective: Effective | undefined): boolean {
+  if (!effective || !Array.isArray(effective.grants) || effective.bootstrap === true) {
+    return true;
+  }
+  return effective.grants.some((grant) => {
+    const rule = grant.rule as Rule & {
+      constraints?: { field?: string; in?: string[]; notIn?: string[]; equals?: string }[];
+    };
+    if (!rule.kinds?.includes("Endpoint") || !rule.verbs?.includes("approve")) {
+      return false;
+    }
+    return (rule.constraints ?? []).every((constraint) => {
+      if (constraint.field !== "spec.audience") {
+        return true;
+      }
+      if (constraint.equals !== undefined) {
+        return constraint.equals === PUBLIC;
+      }
+      if (constraint.in !== undefined) {
+        return constraint.in.includes(PUBLIC);
+      }
+      if (constraint.notIn !== undefined) {
+        return !constraint.notIn.includes(PUBLIC);
+      }
+      return true;
+    });
+  });
+}
 
 export interface ApprovalStanding {
   block: ApprovalBlock;
@@ -17,11 +71,20 @@ export interface ApprovalStanding {
 export function approvalStanding(
   permissions: { data?: Effective; can: (kind: string, verb: Verb) => boolean },
   callerEmail: string | undefined,
-  change: { summary: { params: unknown }; author: { email?: string | null } },
+  change: {
+    summary: { params: unknown };
+    author: { email?: string | null };
+    planFields?: PlannedField[] | null;
+  },
 ): ApprovalStanding {
   const kind = changedKind(change);
   if (!permissions.can(kind, "approve")) {
     return { block: "needsRole", ownAsAdministrator: false };
+  }
+  // Letting data out to the public is a right of its own, and the page says which role holds
+  // it rather than only that the button is off (EP-76, PF-71, UI-44).
+  if (kind === "Endpoint" && makesPublic(change) && !mayPublish(permissions.data)) {
+    return { block: "needsPublisher", ownAsAdministrator: false };
   }
   const own = Boolean(
     callerEmail &&
