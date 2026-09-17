@@ -1528,3 +1528,68 @@ async fn the_organizations_own_resources_are_listed_and_read_under_their_own_hea
     assert!(text.contains("pipelines-only"), "{text}");
     assert!(text.contains("Pipeline"), "the rule it carries: {text}");
 }
+
+/// T-0971: a browser-based MCP client is allowed cross-origin, because these routes authenticate
+/// by `Authorization` and nothing else. The rest of the API, which trusts the session cookie, is
+/// deliberately not opened: there an allowed origin would be a request-forgery surface.
+#[tokio::test]
+async fn a_browser_client_may_reach_the_mcp_door_and_not_the_cookie_api() {
+    let (app, _issuer, _signer, _kid) = setup_app_and_keys().await;
+
+    let preflight = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/api/v1/mcp")
+                .header(header::ORIGIN, "https://client.example")
+                .header("access-control-request-method", "POST")
+                .header(
+                    "access-control-request-headers",
+                    "authorization,content-type",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let allowed = preflight
+        .headers()
+        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    assert_eq!(
+        allowed, "*",
+        "the MCP door answers a browser client: {preflight:?}"
+    );
+    // No credentials: the browser sends no cookie, so an open origin carries no ambient authority.
+    assert!(
+        preflight
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS)
+            .is_none(),
+        "credentials are never allowed cross-origin"
+    );
+
+    // The cookie-authenticated API is not opened.
+    let other = app
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/api/v1/projects/ovzdusie/spaces")
+                .header(header::ORIGIN, "https://client.example")
+                .header("access-control-request-method", "GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        other
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none(),
+        "the session-cookie API stays same-origin: {other:?}"
+    );
+}

@@ -38,7 +38,7 @@
 
 use axum::body::{Body, Bytes};
 use axum::extract::State;
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -59,6 +59,23 @@ const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 /// streamed out of the Portal's memory in one piece.
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
+/// What a browser-based MCP client is allowed to do cross-origin (T-0971).
+///
+/// These routes authenticate by `Authorization` and nothing else — a session cookie alone is
+/// `401` here, which `mcp_session_cookie_only_returns_401` holds — so opening them to any origin
+/// hands a page no authority it did not already have: without `allow_credentials` the browser
+/// sends no cookie, and a token is something the client had to be given. The rest of the API,
+/// which does trust the session cookie, is deliberately not wrapped: there `*` would be a
+/// cross-site request forgery surface.
+fn browser_clients() -> tower_http::cors::CorsLayer {
+    use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+    tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([ACCEPT, AUTHORIZATION, CONTENT_TYPE])
+        .expose_headers([axum::http::header::WWW_AUTHENTICATE])
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
@@ -73,6 +90,7 @@ pub fn router() -> Router<AppState> {
             "/.well-known/oauth-protected-resource",
             get(oauth_protected_resource),
         )
+        .layer(browser_clients())
 }
 
 /// RFC 9728 OAuth 2.0 Protected Resource Metadata document.
