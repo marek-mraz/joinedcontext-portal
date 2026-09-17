@@ -76,6 +76,9 @@ pub fn router() -> Router<AppState> {
         // server-to-server call with an HMAC signature and no session — the same exemption,
         // for the same reason (MF-28).
         .merge(sync_sources::webhook_router())
+        // Keycloak's back-channel logout is the same kind of call: server to server, no cookie,
+        // authenticated by the signature on its logout token (AP-29, CC-40).
+        .merge(auth::oidc::backchannel_router())
         .merge(basemap::router())
         .merge(protected)
         .fallback(api_not_found)

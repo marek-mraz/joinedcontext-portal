@@ -202,6 +202,10 @@ fn app_settings(
 pub struct AgentSettings {
     /// Namespace the workspace Jobs, their ServiceAccounts and their NetworkPolicies go into.
     pub namespace: String,
+    /// Namespace the Portal itself runs in, which is the only place a workspace's ingress rule
+    /// admits from (AG-39). Unset means the Portal shares the workspaces' namespace, the same
+    /// assumption the proxy's egress rule already makes.
+    pub portal_namespace: String,
     /// Base URL of `jc-agent-proxy` as a workspace sees it, e.g.
     /// `http://jc-agent-proxy.agents.svc.cluster.local:8080`.
     pub proxy_base: String,
@@ -226,6 +230,7 @@ impl std::fmt::Debug for AgentSettings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentSettings")
             .field("namespace", &self.namespace)
+            .field("portal_namespace", &self.portal_namespace)
             .field("proxy_base", &self.proxy_base)
             .field("proxy_token", &"[redacted]")
             .field("internal_bind", &self.internal_bind)
@@ -291,8 +296,13 @@ fn agent_settings(
         });
     }
 
+    let portal_namespace = lookup("JC_PORTAL_NAMESPACE")
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| namespace.clone());
+
     Ok(Some(AgentSettings {
         namespace,
+        portal_namespace,
         proxy_base: proxy_base.trim_end_matches('/').to_owned(),
         proxy_token,
         internal_bind,

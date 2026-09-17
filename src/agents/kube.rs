@@ -10,13 +10,14 @@ use crate::agents::profile::Profile;
 use crate::agents::run::AgentRun;
 use crate::apps::kube::KubeClient;
 
-/// The label the credential proxy's pods carry. The proxy runs in the same namespace as the
-/// workspaces it serves, which is what lets the egress rule be a pod selector rather than a
-/// namespace the Portal would have to be told about.
-const PROXY_POD_LABEL: &str = "jc-agent-proxy";
-/// The label the Portal's own pods carry. The Portal drives the agent server over HTTP, so it
-/// is the one peer allowed in.
-const PORTAL_POD_LABEL: &str = "portal";
+/// The label the credential proxy's pods carry (`nameOverride` of the `agent-runner` proxy
+/// release). The proxy runs in the same namespace as the workspaces it serves, which is what
+/// lets the egress rule be a pod selector rather than a namespace the Portal would have to be
+/// told about.
+const PROXY_POD_LABEL: &str = "agent-runner-proxy";
+/// The label the Portal's own pods carry (`nameOverride` of the `portal` release). The Portal
+/// drives the agent server over HTTP, so it is the one peer allowed in.
+const PORTAL_POD_LABEL: &str = "portal-portal";
 /// Where `openhands-agent-server` listens inside the workspace.
 pub const AGENT_SERVER_PORT: u16 = 8000;
 /// Where `jc-agent-proxy` listens.
@@ -29,6 +30,7 @@ pub const PROXY_PORT: u16 = 8080;
 pub async fn schedule_workspace_job(
     kube: Option<&KubeClient>,
     namespace: &str,
+    portal_namespace: &str,
     run: &AgentRun,
     ticket: &str,
     proxy_base: &str,
@@ -67,12 +69,12 @@ pub async fn schedule_workspace_job(
             "policyTypes": ["Ingress", "Egress"],
             "ingress": [{
                 // The Portal drives the agent server. Nothing else reaches the workspace, and
-                // the workspace is not a Service, so nothing else can find it either.
-                // ponytail: the pod label in any namespace, because a Portal outside the
-                // agents namespace would otherwise have to tell the run its own namespace;
-                // narrow it to a namespaceSelector when a second Portal shares the cluster.
+                // the workspace is not a Service, so nothing else can find it either. The
+                // namespace is named as well as the label: an empty `namespaceSelector` would
+                // admit any pod anywhere carrying that label, and a pod's labels are the one
+                // thing a namespace's own owner writes (AG-34, AG-39).
                 "from": [{
-                    "namespaceSelector": {},
+                    "namespaceSelector": { "matchLabels": { "kubernetes.io/metadata.name": portal_namespace } },
                     "podSelector": { "matchLabels": { "app.kubernetes.io/name": PORTAL_POD_LABEL } }
                 }],
                 "ports": [{ "protocol": "TCP", "port": AGENT_SERVER_PORT }]

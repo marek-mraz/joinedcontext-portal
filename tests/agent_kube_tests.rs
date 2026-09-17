@@ -15,6 +15,9 @@ use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 const NAMESPACE: &str = "agents";
+/// Where the Portal itself runs: a different namespace from the workspaces, which is the only
+/// shape in which the ingress rule's namespace can be wrong (AG-39).
+const PORTAL_NAMESPACE: &str = "joinedcontext";
 const TOKEN: &str = "the-projected-service-account-token-of-the-portal";
 const TICKET: &str = "gv3oq7lk2xhbm5yz4rtwpc6sdfae8nij";
 const RUN_ID: &str = "e3b0c442-98fc-1c14-9afb-4c7b2756a120";
@@ -126,6 +129,7 @@ async fn schedule() -> Vec<Request> {
     let scheduled = schedule_workspace_job(
         Some(&kube),
         NAMESPACE,
+        PORTAL_NAMESPACE,
         &run(),
         TICKET,
         PROXY_BASE,
@@ -143,6 +147,7 @@ async fn a_portal_without_a_cluster_schedules_nothing_and_says_so() {
     let scheduled = schedule_workspace_job(
         None,
         NAMESPACE,
+        PORTAL_NAMESPACE,
         &run(),
         TICKET,
         PROXY_BASE,
@@ -264,7 +269,8 @@ async fn the_network_policy_names_the_two_peers_and_nothing_else() {
         .expect("a rule for the credential proxy");
     assert_eq!(
         proxy_rule["to"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
-        json!("jc-agent-proxy")
+        json!("agent-runner-proxy"),
+        "the label the proxy's pods really carry, or the workspace reaches no proxy at all"
     );
 
     let ingress = spec["ingress"].as_array().expect("ingress rules");
@@ -274,10 +280,32 @@ async fn the_network_policy_names_the_two_peers_and_nothing_else() {
         json!(AGENT_SERVER_PORT),
         "on the agent server's port alone"
     );
+    let from = &ingress[0]["from"][0];
     assert_eq!(
-        ingress[0]["from"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
-        json!("portal")
+        from["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
+        json!("portal-portal"),
+        "the label the Portal's own pods really carry"
     );
+    assert_eq!(
+        from["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"],
+        json!(PORTAL_NAMESPACE),
+        "AG-39: the Portal's namespace, not every namespace holding a pod with that label"
+    );
+    for rule in ingress.iter().chain(egress.iter()) {
+        for peer in rule["from"]
+            .as_array()
+            .into_iter()
+            .chain(rule["to"].as_array())
+            .flatten()
+        {
+            assert!(
+                peer["namespaceSelector"]
+                    .as_object()
+                    .is_none_or(|it| !it.is_empty()),
+                "an empty namespaceSelector matches every namespace in the cluster: {peer}"
+            );
+        }
+    }
 }
 
 #[tokio::test]

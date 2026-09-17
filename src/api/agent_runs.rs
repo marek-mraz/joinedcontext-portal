@@ -530,6 +530,7 @@ pub async fn create_run(
     match kube::schedule_workspace_job(
         state.kube.as_deref(),
         &settings.namespace,
+        &settings.portal_namespace,
         &run,
         &ticket,
         &settings.proxy_base,

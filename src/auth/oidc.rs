@@ -602,14 +602,49 @@ pub async fn logout(
         .into_response())
 }
 
+/// The member an OpenID Provider puts in `events` to say the token ends a session
+/// (OpenID Connect Back-Channel Logout 1.0, Â§2.4).
+const LOGOUT_EVENT: &str = "http://schemas.openid.net/event/backchannel-logout";
+
+/// Whether this JWT's payload is a logout token rather than an ID token: it carries the
+/// back-channel logout event and no `nonce`. The realm signs both, and an ID token travels
+/// in the open as `id_token_hint`, so without this check its holder could end the session of
+/// whoever it names (AP-29). Read before verification, and only to refuse; the signature is
+/// still what admits it.
+fn ends_a_session(jwt: &str) -> bool {
+    use base64::Engine as _;
+    let Some(payload) = jwt.split('.').nth(1) else {
+        return false;
+    };
+    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload) else {
+        return false;
+    };
+    let Ok(claims) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
+    claims.get("nonce").is_none()
+        && claims
+            .get("events")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|events| events.contains_key(LOGOUT_EVENT))
+}
+
 /// `POST /api/v1/auth/backchannel-logout` — the Keycloak back-channel logout endpoint.
 ///
-/// The logout token is verified against the realm keys before anything is revoked.
+/// The logout token is verified against the realm keys before anything is revoked. The call
+/// carries no session cookie and no bearer, because the provider makes it server to server:
+/// the signed token is the whole authentication, which is why this route stands outside the
+/// CSRF guard beside the forge webhook (AP-29).
 pub async fn backchannel_logout(
     State(state): State<AppState>,
     Form(form): Form<BackChannelLogoutForm>,
 ) -> Result<Response, ApiError> {
     let client = oidc(&state)?;
+    if !ends_a_session(&form.logout_token) {
+        return Err(ApiError::BadRequest(
+            "the token carries no back-channel logout event, or carries a nonce".into(),
+        ));
+    }
     let token: CoreIdToken = form
         .logout_token
         .parse()
@@ -634,7 +669,12 @@ pub fn router() -> Router<AppState> {
         .route("/auth/callback", get(callback))
         .route("/auth/me", get(me))
         .route("/auth/logout", post(logout))
-        .route("/auth/backchannel-logout", post(backchannel_logout))
+}
+
+/// The provider's own call, authenticated by the signature on its logout token and by nothing
+/// else: no cookie, so no CSRF token either (AP-29, CC-40).
+pub fn backchannel_router() -> Router<AppState> {
+    Router::new().route("/auth/backchannel-logout", post(backchannel_logout))
 }
 
 #[cfg(test)]

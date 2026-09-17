@@ -150,6 +150,30 @@ mod keys {
         )
         .expect("a signed token")
     }
+
+    /// A back-channel logout token as the realm signs one. `event` and `nonce` are what
+    /// separates it from the ID token that travels in the open as `id_token_hint`: the realm
+    /// signs both with the same key, so only the claims tell them apart (AP-29).
+    pub fn logout_token(issuer: &str, username: &str, event: bool, nonce: bool) -> String {
+        let mut claims = json!({
+            "iss": issuer,
+            "aud": "joinedcontext-portal",
+            "sub": format!("f:1:{username}"),
+            "iat": now(),
+            "exp": now() + 300,
+            "jti": "logout-token-1",
+            "sid": "session-1",
+        });
+        if event {
+            claims["events"] = json!({ "http://schemas.openid.net/event/backchannel-logout": {} });
+        }
+        if nonce {
+            claims["nonce"] = json!("n-1");
+        }
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some("realm-rs256".into());
+        encode(&header, &claims, &realm().rs256).expect("a signed token")
+    }
 }
 
 fn set_cookie_values(response: &axum::response::Response) -> Vec<String> {
@@ -846,4 +870,77 @@ async fn a_cookie_session_reports_the_portal_front() {
     assert_eq!(status, StatusCode::OK, "{me}");
     assert_eq!(me["username"], "demo.steward");
     assert_eq!(me["front"], "portal");
+}
+
+/// The provider's call carries no cookie, so it carries no CSRF token either. Before T-0803 the
+/// guard answered it 403 and the sessions it named stayed valid (AP-29, CC-40).
+async fn back_channel_logout(app: axum::Router, token: &str) -> (StatusCode, String) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/backchannel-logout")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                // A JWT is base64url and dots, so it is its own form value.
+                .body(Body::from(format!("logout_token={token}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (status, String::from_utf8_lossy(&body).into_owned())
+}
+
+#[tokio::test]
+async fn a_logout_from_the_provider_ends_the_sessions_it_names() {
+    let realm = realm().await;
+    let app = app_with_realm(&realm).await;
+
+    let (status, me) = me_with(app.clone(), &[("cookie", session_cookies(300))]).await;
+    assert_eq!(status, StatusCode::OK, "the session stands before: {me}");
+
+    let token = keys::logout_token(&issuer_of(&realm), "demo.steward", true, false);
+    let (status, body) = back_channel_logout(app.clone(), &token).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let (status, me) = me_with(app, &[("cookie", session_cookies(300))]).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the session the logout named is still answered: {me}"
+    );
+}
+
+#[tokio::test]
+async fn only_a_token_saying_it_ends_a_session_is_taken_for_one() {
+    let realm = realm().await;
+    let issuer = issuer_of(&realm);
+    let app = app_with_realm(&realm).await;
+
+    // An ID token of this client verifies just as well, and travels in the open as
+    // `id_token_hint`: without the event and the nonce rule its holder could end the session.
+    let refused = [
+        (
+            "no event",
+            keys::logout_token(&issuer, "demo.steward", false, false),
+        ),
+        (
+            "a nonce",
+            keys::logout_token(&issuer, "demo.steward", true, true),
+        ),
+        ("not a jwt", "not-a-jwt".to_owned()),
+        ("nothing at all", String::new()),
+    ];
+    for (why, token) in refused {
+        let (status, body) = back_channel_logout(app.clone(), &token).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+        assert!(
+            !body.contains(&token) || token.is_empty(),
+            "{why}: the refusal repeats the token: {body}"
+        );
+    }
+
+    let (status, me) = me_with(app, &[("cookie", session_cookies(300))]).await;
+    assert_eq!(status, StatusCode::OK, "no refusal revoked anything: {me}");
 }
