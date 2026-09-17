@@ -21,6 +21,7 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  TableSkeleton,
 } from "../../components/ui";
 import type { Identity } from "../../auth/AuthProvider";
 import type { Manifest } from "../../api/manifest";
@@ -253,6 +254,11 @@ function KeyTable({
             <TableHeaderCell>{t("access.keys.field.lastUsed")}</TableHeaderCell>
             <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
           </TableHead>
+          {/* T-1053: the keys table reads like its siblings while it loads — a skeleton rather
+              than an empty frame that looks like an account with no keys. */}
+          {keys.isPending ? (
+            <TableSkeleton columns={5} />
+          ) : (
           <TableBody>
             {items.map((key) => (
               <TableRow key={key.keyId}>
@@ -318,6 +324,7 @@ function KeyTable({
               </TableRow>
             ))}
           </TableBody>
+          )}
         </Table>
       )}
     </div>
