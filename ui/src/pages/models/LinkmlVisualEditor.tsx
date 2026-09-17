@@ -273,6 +273,46 @@ export function LinkmlVisualEditor({
                   }
                 />
               </Field>
+              {/* T-1088, DM-13: the hierarchy the model declares, editable where it is read.
+                  A parent can only be another class of this model, so it is a choice, not a
+                  free text a typo turns into a dangling reference. */}
+              <Field id="class-parent" label={t("models.classParent")}>
+                <select
+                  id="class-parent"
+                  className="focus-ring w-full rounded border border-border bg-surface px-2 py-1 text-sm"
+                  value={activeClass.is_a ?? ""}
+                  onChange={(event) =>
+                    run({
+                      op: "setClass",
+                      name: activeClass.name,
+                      field: "is_a",
+                      value: event.target.value,
+                    })
+                  }
+                >
+                  <option value="">{t("models.classParentNone")}</option>
+                  {model.classes
+                    .filter((other) => other.name !== activeClass.name)
+                    .map((other) => (
+                      <option key={other.name} value={other.name}>
+                        {other.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field id="class-mixins" label={t("models.classMixins")}>
+                <Input
+                  id="class-mixins"
+                  value={(activeClass.mixins ?? []).join(", ")}
+                  onChange={(event) =>
+                    run({
+                      op: "setClassMixins",
+                      name: activeClass.name,
+                      mixins: event.target.value.split(","),
+                    })
+                  }
+                />
+              </Field>
               <Field id="class-description" label={t("models.description")}>
                 <Input
                   id="class-description"
@@ -416,6 +456,20 @@ export function LinkmlVisualEditor({
                   id="slot-uri"
                   value={iriDraft ?? activeSlot.slot_uri ?? ""}
                   onChange={(event) => setSlotIri(activeSlot.name, event.target.value)}
+                />
+              </Field>
+              {/* T-1088: which profiles take this slot, beside the rest of what it declares. */}
+              <Field id="slot-subsets" label={t("models.slotSubsets")}>
+                <Input
+                  id="slot-subsets"
+                  value={(activeSlot.subsets ?? []).join(", ")}
+                  onChange={(event) =>
+                    run({
+                      op: "setSlotSubsets",
+                      name: activeSlot.name,
+                      subsets: event.target.value.split(","),
+                    })
+                  }
                 />
               </Field>
               <Field id="slot-unit" label={t("models.unit")} help={t("models.unitHint")}>

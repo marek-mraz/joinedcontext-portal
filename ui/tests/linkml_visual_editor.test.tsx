@@ -106,6 +106,34 @@ describe("LinkML visual editor", () => {
     expect(source()).toContain("ngsi_ld_kind: GeoProperty");
   });
 
+  /**
+   * T-1088, DM-13: the hierarchy the model declares is edited where it is read. The parent is a
+   * choice among the model's own classes, so a typo cannot leave a dangling reference behind.
+   */
+  it("sets a class's parent and mixins, and a slot's profiles, through the document", async () => {
+    const { source, user } = renderEditor();
+
+    await user.click(screen.getByRole("button", { name: "AirQualityObserved" }));
+    // A class to specialise has to exist before it can be chosen.
+    expect(screen.getByLabelText("The class it specialises")).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("The class it specialises")).queryByRole("option", {
+        name: "AirQualityObserved",
+      }),
+      "a class is never offered itself as its own parent",
+    ).toBeNull();
+
+    await user.type(screen.getByLabelText("Mixed in (comma separated)"), "AirQualityObserved");
+    // Itself is refused, so the document is untouched and no mixins key appears.
+    expect(source()).not.toContain("mixins:");
+
+    await user.click(screen.getByRole("button", { name: "pm10" }));
+    await user.type(screen.getByLabelText("Profiles (comma separated)"), "public");
+    expect(
+      parseModel(source()).slots.find((candidate) => candidate.name === "pm10")?.subsets,
+    ).toEqual(["public"]);
+  });
+
   it("refuses to mint a slot IRI under a namespace that belongs to someone else", async () => {
     const { source, user } = renderEditor();
 

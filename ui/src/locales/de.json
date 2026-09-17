@@ -1024,7 +1024,11 @@
       "refused": "Die Änderung wurde abgelehnt: {reason}",
       "confirmBreaking": "Als Version {version} speichern, eine inkompatible Änderung",
       "handOffRefused": "Die Änderung des Assistenten ließ sich nicht auf dieses Modell anwenden:"
-    }
+    },
+    "classParent": "Die Klasse, die sie erweitert",
+    "classParentNone": "Keine",
+    "classMixins": "Eingemischt (kommagetrennt)",
+    "slotSubsets": "Profile (kommagetrennt)"
   },
   "apps": {
     "title": "Anwendungen",

@@ -1024,7 +1024,11 @@
       "refused": "Zmena bola odmietnutá: {reason}",
       "confirmBreaking": "Uložiť ako verziu {version}, nekompatibilná zmena",
       "handOffRefused": "Zmenu od asistenta sa do tohto modelu nepodarilo použiť:"
-    }
+    },
+    "classParent": "Trieda, ktorú rozširuje",
+    "classParentNone": "Žiadna",
+    "classMixins": "Primiešané (oddelené čiarkou)",
+    "slotSubsets": "Profily (oddelené čiarkou)"
   },
   "apps": {
     "title": "Aplikácie",

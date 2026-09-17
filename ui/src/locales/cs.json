@@ -1024,7 +1024,11 @@
       "refused": "Změna byla odmítnuta: {reason}",
       "confirmBreaking": "Uložit jako verzi {version}, nekompatibilní změna",
       "handOffRefused": "Změnu od asistenta se do tohoto modelu nepodařilo použít:"
-    }
+    },
+    "classParent": "Třída, kterou rozšiřuje",
+    "classParentNone": "Žádná",
+    "classMixins": "Přimíchané (oddělené čárkou)",
+    "slotSubsets": "Profily (oddělené čárkou)"
   },
   "apps": {
     "title": "Aplikace",

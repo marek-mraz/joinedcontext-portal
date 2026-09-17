@@ -1024,7 +1024,11 @@
       "populate": "Populate the editor",
       "cancel": "Cancel",
       "close": "Close"
-    }
+    },
+    "classParent": "The class it specialises",
+    "classParentNone": "None",
+    "classMixins": "Mixed in (comma separated)",
+    "slotSubsets": "Profiles (comma separated)"
   },
   "apps": {
     "title": "Applications",
