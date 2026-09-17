@@ -41,6 +41,11 @@ pub struct PipelineMetrics {
     pub buffer_depth: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latency_p99_ms: Option<f64>,
+    /// The same counters per component of the stream, by the Bento `label` the reconciler
+    /// wrote (T-1125): the studio paints a node with the numbers of its own label. Empty for a
+    /// stream deployed before the labels, whose samples carry none.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub nodes: std::collections::BTreeMap<String, NodeCounters>,
 }
 
 /// One sample line of the Prometheus text exposition format.
@@ -116,6 +121,18 @@ enum Family {
 /// output rather than a sum, which would mean nothing.
 /// The runner registers each stream under the pipeline's own name, so the pipeline name is
 /// also the `stream` label to select on.
+/// What one component of a stream counted, as its own label reports it (T-1125).
+#[derive(Debug, Default, Clone, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeCounters {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub received: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sent: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<u64>,
+}
+
 pub(crate) fn scrape(body: &str, pipeline: &str, scraped_at: String) -> PipelineMetrics {
     let mut metrics = PipelineMetrics {
         pipeline: pipeline.to_string(),
@@ -131,6 +148,20 @@ pub(crate) fn scrape(body: &str, pipeline: &str, scraped_at: String) -> Pipeline
             continue;
         };
         let add = |slot: &mut Option<u64>| *slot = Some(slot.unwrap_or(0) + sample.value as u64);
+        // The component's own counters, kept beside the stream's total so the studio can paint
+        // the node where a message stopped rather than only the pipeline that stopped.
+        if let Some(node) = label(sample.labels, "label").filter(|one| !one.is_empty()) {
+            let counters = metrics.nodes.entry(node.to_owned()).or_default();
+            let slot = match family {
+                Family::Received => Some(&mut counters.received),
+                Family::Sent => Some(&mut counters.sent),
+                Family::Errors => Some(&mut counters.errors),
+                _ => None,
+            };
+            if let Some(slot) = slot {
+                *slot = Some(slot.unwrap_or(0) + sample.value as u64);
+            }
+        }
         match family {
             Family::Received => add(&mut metrics.received),
             Family::Sent => add(&mut metrics.sent),
@@ -342,5 +373,37 @@ uptime_seconds 900
         assert_eq!(sample.name, "uptime_seconds");
         assert_eq!(sample.labels, "");
         assert_eq!(sample.value, 900.0);
+    }
+
+    /// T-1125, PL-24: Bento reports a component's counters under its `label`, so the studio can
+    /// say which node a message reached instead of only what the stream totalled. The samples
+    /// of another stream never reach either number.
+    #[test]
+    fn the_counters_of_each_component_are_kept_beside_the_stream_total() {
+        let metrics = scraped("aq-mqtt-ingest");
+
+        assert_eq!(metrics.received, Some(128_401), "the stream's own total");
+        let input = metrics.nodes.get("mqtt").expect("the input's counters");
+        assert_eq!(input.received, Some(128_401));
+        assert_eq!(input.sent, None, "an input sends nothing of its own");
+
+        let output = metrics.nodes.get("gateway").expect("the output's counters");
+        assert_eq!(output.sent, Some(128_390));
+        assert_eq!(output.errors, Some(2));
+
+        // The other stream's samples carry the same label and are not folded in.
+        assert_eq!(
+            scraped("other-stream").nodes.get("mqtt").unwrap().received,
+            Some(77)
+        );
+    }
+
+    /// A stream deployed before the labels reports none, and the total still answers.
+    #[test]
+    fn a_stream_without_labels_reports_no_nodes_and_still_totals() {
+        let body = "input_received{path=\"root.input\",stream=\"plain\"} 5\n";
+        let metrics = scrape(body, "plain", "2026-09-06T16:20:11Z".into());
+        assert_eq!(metrics.received, Some(5));
+        assert!(metrics.nodes.is_empty());
     }
 }

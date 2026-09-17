@@ -583,13 +583,37 @@ pub fn render_stream(
         }
     });
 
+    // T-1125, PL-24: Bento reports its counters under the component's `label`, so an unlabelled
+    // stream can only be read as one total. Labelling the input, the output and each processor
+    // by its place is what lets the studio say which node a message stopped at. The labels are
+    // the stream's own and never leave it, so they carry no name a caller chose.
     Ok(serde_json::json!({
-        "input": input,
+        "input": labelled(input, "input"),
         "pipeline": {
             "processors": processors
+                .into_iter()
+                .enumerate()
+                .map(|(at, processor)| labelled(processor, &format!("processor_{at}")))
+                .collect::<Vec<_>>()
         },
-        "output": output
+        "output": labelled(output, "output")
     }))
+}
+
+/// One Bento component with a `label`, so its counters are attributable (PL-24, T-1125).
+///
+/// A component that already carries one keeps it: a label the author wrote is theirs, and the
+/// metrics they read elsewhere are named by it. Anything that is not a map is returned as it
+/// came, because only a map can carry the key.
+fn labelled(component: serde_json::Value, label: &str) -> serde_json::Value {
+    let mut component = component;
+    match component.as_object_mut() {
+        Some(fields) if !fields.contains_key("label") => {
+            fields.insert("label".to_owned(), serde_json::json!(label));
+            component
+        }
+        _ => component,
+    }
 }
 
 /// The author's processors from a `bento.yaml`. Its `input` is refused, the DataSource is the
@@ -1603,10 +1627,14 @@ output:
         let processors = rendered["pipeline"]["processors"]
             .as_array()
             .expect("processors");
-        // `this` would parse an RSS or CSV body as JSON and fail on every fetch.
+        // `this` would parse an RSS or CSV body as JSON and fail on every fetch. The label is
+        // the reconciler's own, so the counters of this processor are attributable (T-1125).
         assert_eq!(
             processors[1],
-            serde_json::json!({ "mutation": "root = if errored() { deleted() }" })
+            serde_json::json!({
+                "label": "processor_1",
+                "mutation": "root = if errored() { deleted() }"
+            })
         );
     }
 
@@ -1724,6 +1752,48 @@ output:
         assert!(
             matches!(err, RenderError::Class(_)),
             "expected RenderError::Class, got: {err:?}"
+        );
+    }
+
+    /// T-1125, PL-24: every component of a rendered stream carries a `label`, because Bento
+    /// reports its counters under one and an unlabelled stream can only be read as a total.
+    #[test]
+    fn every_component_of_a_rendered_stream_is_labelled() {
+        let rendered = render_stream(
+            &helsinki_pipeline_spec(),
+            "p",
+            "helsinki",
+            &helsinki_datasource_spec(),
+            "src",
+            "abc123",
+            None,
+        )
+        .expect("renders");
+        assert_eq!(rendered["input"]["label"], serde_json::json!("input"));
+        assert_eq!(rendered["output"]["label"], serde_json::json!("output"));
+        for (at, processor) in rendered["pipeline"]["processors"]
+            .as_array()
+            .expect("processors")
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(
+                processor["label"],
+                serde_json::json!(format!("processor_{at}")),
+                "processor {at} carries no label: {processor}"
+            );
+        }
+    }
+
+    /// A label the author wrote is theirs: the metrics they read elsewhere are named by it.
+    #[test]
+    fn a_label_the_author_wrote_is_kept() {
+        let mine = serde_json::json!({ "label": "mine", "mutation": "root = this" });
+        assert_eq!(labelled(mine.clone(), "processor_0"), mine);
+        // Anything that cannot carry the key comes back as it came.
+        assert_eq!(
+            labelled(serde_json::json!("plain"), "input"),
+            serde_json::json!("plain")
         );
     }
 }
