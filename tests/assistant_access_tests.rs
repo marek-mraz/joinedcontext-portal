@@ -345,10 +345,30 @@ async fn a_granted_tool_runs_as_the_person_who_started_the_conversation() {
 async fn a_profile_without_an_access_block_offers_only_read_only_tools() {
     let (_, tool, prompts) = converse(None, person("admin@hel.fi", &["portal-approver"])).await;
 
-    // jc_endpoint_propose renders manifests and writes nothing, so it carries readOnlyHint.
-    assert!(prompts.contains(SHARE_SECTION));
+    // `jc_endpoint_propose` opens a change when it is given a manifest or a draft, so it is not
+    // read-only and a profile that declares no access block does not get it: AG-70 defaults such
+    // a profile to the operations annotated `readOnlyHint`, and the share is not one (T-0917).
+    assert!(!prompts.contains(SHARE_SECTION));
     assert!(!prompts.contains("## WHEN THE PERSON ASKS TO COMPLETE A CONTEXT SPACE"));
-    assert_eq!(tool["status"], "ok", "{tool}");
+    assert_eq!(tool["status"], "failed", "{tool}");
+    assert!(
+        tool["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("jc_endpoint_propose")),
+        "the refusal names the operation the profile does not grant: {tool}"
+    );
+}
+
+/// The access block the deployed `app-builder` profile carries for the endpoint steps, so a test
+/// of what the share does is not also a test of what an undeclared profile may call (AG-70).
+fn endpoint_access() -> Value {
+    json!({
+        "operations": ["jc_catalog_search", "jc_endpoint_propose", "jc_resource_propose"],
+        "kinds": [
+            { "kind": "Endpoint", "verbs": ["read", "propose"] },
+            { "kind": "ContextSpace", "verbs": ["read", "propose"] }
+        ]
+    })
 }
 
 const CHANGE_SECTION: &str = "## WHEN THE PERSON ASKS TO CHANGE OR REMOVE SOMETHING";
@@ -398,7 +418,7 @@ async fn a_change_to_an_existing_endpoint_opens_its_form_with_the_change_and_kee
     let mut seeded = bikes_space();
     seeded.push(endpoint);
     let (state, events, prompts) = converse_with(
-        None,
+        Some(endpoint_access()),
         person("admin@hel.fi", &["portal-approver"]),
         Conversation {
             answer: "I will add CSV to the news endpoint.\n\n```json\n{\"tool\":\"change_resource\",\"kind\":\"Endpoint\",\"name\":\"helsinki-news\",\"patch\":{\"spec\":{\"enabledRepresentations\":[\"ngsi-ld\",\"geojson\",\"csv\"]}}}\n```\n",
@@ -935,7 +955,7 @@ async fn an_edit_endpoint_call_of_the_earlier_prompt_still_names_the_real_endpoi
         json!({ "contextSpaceRef": "helsinki", "slug": "newsnewsnewsnewsnewsnewsne", "audience": "public", "enabledRepresentations": ["ngsi-ld"] }),
     );
     let (state, events, _) = converse_with(
-        None,
+        Some(endpoint_access()),
         person("admin@hel.fi", &["portal-approver"]),
         Conversation {
             answer: "```json\n{\"tool\":\"edit_endpoint\",\"name\":\"helsinki-parking\",\"audience\":\"public\"}\n```",

@@ -18,7 +18,7 @@ const ACCESS = {
       egressHosts: ["registry.npmjs.org"],
       operations: [
         { name: "jc_catalog_search", readOnly: true, profile: true, person: true, reason: null },
-        { name: "jc_endpoint_propose", readOnly: true, profile: true, person: false, reason: "no role grants propose on Endpoint" },
+        { name: "jc_endpoint_propose", readOnly: false, profile: true, person: false, reason: "no role grants propose on Endpoint" },
         { name: "jc_space_complete", readOnly: false, profile: false, person: true, reason: "the agent profile does not grant jc_space_complete (AG-70)" },
       ],
     },

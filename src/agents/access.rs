@@ -153,6 +153,9 @@ mod tests {
         assert!(access.names(op("jc_catalog_search")));
         assert!(access.names(op("jc_kpi_compute")));
         assert!(!access.names(op("jc_space_complete")));
+        // It renders from parameters and opens a change from a manifest or a draft, so it is
+        // not read-only and a profile that declares nothing does not get it (T-0917).
+        assert!(!access.names(op("jc_endpoint_propose")));
         assert!(!access.names(op("jc_change_approve")));
     }
 

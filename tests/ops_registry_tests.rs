@@ -471,6 +471,42 @@ fn the_change_operations_publish_the_wrapper_they_answer() {
     assert_eq!(list["properties"]["items"]["type"], json!("array"));
 }
 
+/// AG-07, AG-63, T-0917: an agent runtime asks a person before a write only when the operation
+/// says a write is possible. So no operation that can answer a `changeId` — the id of the merge
+/// request it just opened — may be annotated `readOnlyHint`, whichever of its paths writes.
+#[test]
+fn nothing_that_can_open_a_change_is_annotated_read_only() {
+    fn answers_a_change(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => {
+                map.get("properties")
+                    .and_then(Value::as_object)
+                    .is_some_and(|props| props.contains_key("changeId"))
+                    || map.values().any(answers_a_change)
+            }
+            Value::Array(items) => items.iter().any(answers_a_change),
+            _ => false,
+        }
+    }
+
+    let mut checked = 0;
+    for op in ops::registry() {
+        if !answers_a_change(&(op.output)()) {
+            continue;
+        }
+        checked += 1;
+        assert!(
+            !op.annotations.read_only_hint,
+            "{} can answer a changeId and is annotated readOnlyHint: true",
+            op.name
+        );
+    }
+    assert!(
+        checked >= 7,
+        "expected the propose operations, checked {checked}"
+    );
+}
+
 /// AG-59, CC-48, T-0840: what the Portal serves, the registry serves. These four reads had a
 /// route and no operation, so an MCP client could not see a pipeline's counters, what happened
 /// in the project, the federation, or a model's LinkML.

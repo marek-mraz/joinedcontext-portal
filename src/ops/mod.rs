@@ -1125,10 +1125,14 @@ fn core_operations() -> Vec<Operation> {
             description: "Renders an Endpoint and its draft Policy manifests from a request to share data",
             input: endpoint_propose_input_schema,
             output: proposal_output_schema,
+            // Parameters render a proposal and nothing is written, but a `manifest` or a
+            // `draft` opens a merge request, so the annotation says what the operation can do
+            // and not what its lightest path does: a client that reads `readOnlyHint` decides
+            // from it whether to ask a person first (AG-07, AG-63).
             annotations: OperationAnnotations {
-                read_only_hint: true,
+                read_only_hint: false,
                 destructive_hint: false,
-                idempotent_hint: true,
+                idempotent_hint: false,
             },
             kind: "Endpoint",
             verb: Some(Verb::Propose),
