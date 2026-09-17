@@ -110,11 +110,33 @@ export function unmappedTerms(
   if (!example) {
     return [];
   }
-  const defined = new Set(
-    Object.keys(
-      (context?.["@context"] as Record<string, unknown> | undefined) ?? context ?? {},
-    ),
-  );
+  // A `@context` is one object, or an array of objects and URLs of more (JSON-LD 1.1 §4.1).
+  const inner = context?.["@context"] ?? context;
+  const parts = Array.isArray(inner) ? inner : [inner];
+  const defined = new Set<string>();
+  let certain = true;
+  for (const part of parts) {
+    if (typeof part === "string") {
+      // A context this panel cannot fetch may define any of these terms (T-1096). Naming one
+      // unmapped would be a false alarm, and a false alarm about a model is worse than silence.
+      certain = false;
+      continue;
+    }
+    if (part === null || typeof part !== "object") {
+      continue;
+    }
+    const entries = part as Record<string, unknown>;
+    if (entries["@vocab"] !== undefined) {
+      // Every term the example carries resolves under the vocabulary, so none is unmapped.
+      return [];
+    }
+    for (const term of Object.keys(entries)) {
+      defined.add(term);
+    }
+  }
+  if (!certain) {
+    return [];
+  }
   return Object.keys(example).filter(
     (term) => !KEYWORDS.includes(term) && !defined.has(term) && !term.startsWith("@"),
   );

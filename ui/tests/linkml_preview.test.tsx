@@ -290,3 +290,46 @@ describe("what a dashboard may do with a slot", () => {
     }
   });
 });
+
+/**
+ * T-1096, DM-21: a `@context` is one object, or an array of objects and URLs of more. The panel
+ * names a term the context does not define, so it must read every shape — and must stay silent
+ * where it cannot be sure, because a false "unmapped" about a model is worse than no warning.
+ */
+describe("the terms a context does not define", () => {
+  const example = { id: "urn:ngsi-ld:X:a:b:1", type: "X", pm10: 1, station: "s" };
+
+  it("reads the terms of every object of an array context", () => {
+    expect(
+      unmappedTerms(example, {
+        "@context": [{ pm10: "bb:pm10" }, { station: "bb:station" }],
+      }),
+    ).toEqual([]);
+    expect(unmappedTerms(example, { "@context": [{ pm10: "bb:pm10" }] })).toEqual(["station"]);
+  });
+
+  it("says nothing when a vocabulary resolves every term", () => {
+    expect(unmappedTerms(example, { "@context": { "@vocab": "https://bb.sk/terms/" } })).toEqual([]);
+    expect(
+      unmappedTerms(example, { "@context": [{ pm10: "bb:pm10" }, { "@vocab": "https://bb.sk/" }] }),
+    ).toEqual([]);
+  });
+
+  it("says nothing when a context it cannot fetch might define the rest", () => {
+    expect(
+      unmappedTerms(example, {
+        "@context": ["https://uri.etsi.org/ngsi-ld/v1/ngsi-ld-core-context.jsonld"],
+      }),
+      "a remote context may define them; a false alarm is worse than silence",
+    ).toEqual([]);
+    expect(
+      unmappedTerms(example, {
+        "@context": ["https://uri.etsi.org/ngsi-ld/v1/ngsi-ld-core-context.jsonld", { pm10: "bb:pm10" }],
+      }),
+    ).toEqual([]);
+  });
+
+  it("still names a term nothing defines", () => {
+    expect(unmappedTerms(example, { "@context": { pm10: "bb:pm10" } })).toEqual(["station"]);
+  });
+});
