@@ -88,6 +88,12 @@ describe("the action inspector", () => {
     expect(within(failed).getByRole("img", { name: en.agentRun.step.failed })).toBeInTheDocument();
 
     await userEvent.click(within(failed).getByText(en.agentRun.step.label.propose_endpoint));
+    // T-1031, AG-56: a failed step opens to what it was given as well as why it failed, so an
+    // operator reads the arguments that produced the failure instead of guessing them.
+    expect(within(failed).getByText(en.agentRun.step.input)).toBeInTheDocument();
+    expect(within(failed).getByText(/air-quality-public/)).toBeInTheDocument();
+    expect(within(failed).getByText(en.agentRun.step.error)).toBeInTheDocument();
+
     await userEvent.click(within(failed).getByRole("button", { name: en.agentRun.step.fix }));
     expect(onSend).toHaveBeenCalledTimes(1);
     const text = onSend.mock.calls[0][0] as string;
