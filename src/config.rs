@@ -70,6 +70,9 @@ pub struct Config {
     /// credentials with (PF-32, ADR-N-015). `None` leaves the store untouched: a Portal outside
     /// a cluster reconciles a repository and issues nothing.
     pub artifact_store: Option<crate::artifact_store::Settings>,
+    /// Which backend resolves a pipeline's `secretRef`s (PL-15, CC-06). A deployment setting,
+    /// never a manifest field; `None` leaves a pipeline that declares one undeployed.
+    pub pipeline_secrets: Option<crate::pipeline_secrets::Backend>,
 }
 
 impl std::fmt::Debug for Config {
@@ -91,6 +94,7 @@ impl std::fmt::Debug for Config {
             .field("functions_url", &self.functions_url)
             .field("apps_dir", &self.apps_dir)
             .field("artifact_store", &self.artifact_store)
+            .field("pipeline_secrets", &self.pipeline_secrets)
             .field("branding_file", &self.branding_file)
             .field(
                 "database_url",
@@ -134,6 +138,33 @@ fn artifact_store_settings(
             .unwrap_or_else(|| "us-east-1".to_owned()),
         root_access_key,
         root_secret_key,
+    })
+}
+
+/// Which secret backend the reconciler resolves a pipeline's references with (PL-15, CC-06).
+///
+/// SOPS first, because the repository is a store this Portal already has in its hands every
+/// sync and OpenBao is a component a deployment has to run. Naming neither is not an error: a
+/// Portal without a backend refuses only the pipelines that declare a reference, and says so on
+/// each of them.
+fn pipeline_secret_backend(
+    lookup: &impl Fn(&str) -> Option<String>,
+) -> Option<crate::pipeline_secrets::Backend> {
+    let present = |var: &str| lookup(var).filter(|v| !v.trim().is_empty());
+    if let Some(age_key_file) = present("JC_PORTAL_SOPS_AGE_KEY_FILE") {
+        return Some(crate::pipeline_secrets::Backend::Sops {
+            age_key_file: age_key_file.into(),
+        });
+    }
+    let address = present("JC_PORTAL_OPENBAO_ADDR")?;
+    Some(crate::pipeline_secrets::Backend::OpenBao {
+        address,
+        // The Kubernetes auth role this Portal logs in as. Named here rather than defaulted:
+        // a role guessed wrong is a login refused on every sync with no line saying why.
+        role: present("JC_PORTAL_OPENBAO_ROLE")?,
+        jwt_path: present("JC_PORTAL_OPENBAO_JWT_PATH")
+            .unwrap_or_else(|| "/var/run/secrets/kubernetes.io/serviceaccount/token".to_owned())
+            .into(),
     })
 }
 
@@ -657,6 +688,7 @@ impl Config {
         };
 
         let artifact_store = artifact_store_settings(&lookup);
+        let pipeline_secrets = pipeline_secret_backend(&lookup);
 
         Ok(Self {
             bind,
@@ -679,6 +711,7 @@ impl Config {
             agent_settings,
             basemap,
             artifact_store,
+            pipeline_secrets,
         })
     }
 
@@ -690,6 +723,7 @@ impl Config {
             oidc: None,
             trust_edge_token: false,
             artifact_store: None,
+            pipeline_secrets: None,
             cookie_key: Key::generate(),
             sync_interval: Duration::ZERO,
             gitea_webhook_secret: None,

@@ -201,24 +201,30 @@ impl AppState {
                         tracing::warn!(error = %err, "the artifact store endpoint is unusable, so no organization credential is issued")
                     }
                 }
-                // The reader of every organization is handed to the workloads that serve its
-                // artifacts, as a Secret in this Portal's own namespace (T-0925). Outside a
-                // cluster there is nowhere to write one, which is not an error.
-                match (
-                    crate::apps::kube::KubeClient::in_cluster(),
-                    crate::apps::kube::KubeClient::own_namespace(),
-                ) {
-                    (Ok(Some(kube)), Some(namespace)) => {
-                        syncer = syncer.with_credential_secrets(Arc::new(kube), namespace);
-                    }
-                    (Err(err), _) => {
-                        tracing::warn!(error = %err, "the ServiceAccount mount is unreadable, so no reader credential is handed over")
-                    }
-                    _ => tracing::info!(
-                        "no cluster: artifact store credentials are minted, not handed over"
-                    ),
-                }
             }
+            // The Secrets this reconciler writes into its own namespace: an organization's
+            // artifact-store reader (T-0925) and the pipeline runner's environment (T-0927).
+            // Outside a cluster there is nowhere to write one, which is not an error.
+            match (
+                crate::apps::kube::KubeClient::in_cluster(),
+                crate::apps::kube::KubeClient::own_namespace(),
+            ) {
+                (Ok(Some(kube)), Some(namespace)) => {
+                    syncer = syncer.with_credential_secrets(Arc::new(kube), namespace);
+                }
+                (Err(err), _) => {
+                    tracing::warn!(error = %err, "the ServiceAccount mount is unreadable, so no credential is handed over")
+                }
+                _ => tracing::info!("no cluster: credentials are resolved and handed to nobody"),
+            }
+            // What resolves a pipeline's `secretRef`s (T-0927, PL-15). Without it a pipeline
+            // that declares one is not deployed, with the reason on the Pipeline; the values
+            // reach the runner through the same Secret writer the credentials above use.
+            if let Some(backend) = state.config.pipeline_secrets.clone() {
+                syncer =
+                    syncer.with_pipeline_secrets(crate::pipeline_secrets::Resolver::new(backend));
+            }
+
             // With a database the replicas elect one reconciler; without one there is nothing
             // to elect with, and a Portal that runs alone reconciles alone (T-0191, CC-03).
             if let Some(pool) = state.db.as_ref() {

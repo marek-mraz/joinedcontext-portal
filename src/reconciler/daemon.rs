@@ -38,6 +38,11 @@ use crate::git::{Author, FileWrite, GitError, GiteaClient};
 use crate::resource::ResourceEnvelope;
 use crate::store::Mirror;
 
+/// The resident runner's Deployment, which mounts the Secret this reconciler writes (T-0927).
+/// One name, because a deployment that runs a second runner gives it the same chart and the
+/// same Secret; a runner per project is a task of its own.
+const PIPELINE_RUNNER_DEPLOYMENT: &str = "pipeline-runner";
+
 /// Status of the background Git mirror synchronization.
 ///
 /// Served to the browser, so it deliberately never carries a token,
@@ -105,6 +110,9 @@ pub struct Syncer {
     /// artifacts: the cluster to write the Secret into, and the namespace it belongs in
     /// (T-0925). `None` mints the credentials and hands them to nobody.
     credentials: Option<(Arc<crate::apps::kube::KubeClient>, String)>,
+    /// Which secret backend answers a pipeline's `secretRef` (T-0927, PL-15). `None` leaves a
+    /// pipeline that declares one undeployed, with the reason on the Pipeline.
+    pipeline_secrets: Option<crate::pipeline_secrets::Resolver>,
 }
 
 impl Syncer {
@@ -125,6 +133,7 @@ impl Syncer {
             apps_dir: None,
             artifact_store: None,
             credentials: None,
+            pipeline_secrets: None,
         }
     }
 
@@ -133,6 +142,15 @@ impl Syncer {
     /// outside a cluster does.
     pub fn with_artifact_store(mut self, store: Arc<crate::artifact_store::Client>) -> Self {
         self.artifact_store = Some(store);
+        self
+    }
+
+    /// Which backend resolves a pipeline's `secretRef`s into the runner's environment
+    /// (T-0927, PL-15). Writing the Secret needs the cluster too: without
+    /// [`with_credential_secrets`](Self::with_credential_secrets) the values resolve and reach
+    /// nobody, so the pipelines that need them stay undeployed.
+    pub fn with_pipeline_secrets(mut self, resolver: crate::pipeline_secrets::Resolver) -> Self {
+        self.pipeline_secrets = Some(resolver);
         self
     }
 
@@ -496,9 +514,17 @@ impl Syncer {
             return Ok((loaded, revision));
         }
 
+        // 5a'. Resolve what every pipeline's `secretRef`s name and hand the values to the
+        //      runner as one Secret (T-0927, PL-15). A pipeline whose reference does not
+        //      resolve, or whose `envVar` another pipeline already claims, is named here and
+        //      refused by the wave below rather than started without its credential.
+        let refused = self
+            .resolve_pipeline_secrets(&fresh_mirror, scratch.path())
+            .await;
+
         // 5b. Deploy resident streams for eligible DataSource pipelines (PL-47).
         if let Some(deployer) = self.streams.as_ref() {
-            let outcomes = deployer.converge(&fresh_mirror, &bentos).await;
+            let outcomes = deployer.converge(&fresh_mirror, &bentos, &refused).await;
             // A Live stream that reads nothing is the failure nobody sees: the runner keeps the
             // stream, the Portal says Live, and the counters are the only witness (T-0914). One
             // scrape per project with a Live stream, read for each of them.
@@ -575,6 +601,26 @@ impl Syncer {
                 "NoRunner",
                 "no pipeline runner is configured (JC_PORTAL_PIPELINE_RUNNER_URL)",
             );
+        }
+
+        // A pipeline whose credential did not resolve says so last, over whatever the wave
+        // above wrote: it is stopped whether or not this Portal has a runner to deploy to, and
+        // the missing reference is the reason the author can act on (T-0927, PL-15). The
+        // condition names the reference, never the value.
+        for ((namespace, name), reason) in &refused {
+            let Some(mut envelope) = fresh_mirror.get(namespace, "Pipeline", name) else {
+                continue;
+            };
+            if let Some(status) = envelope.status.as_mut() {
+                status.phase = crate::resource::Phase::Error;
+                status.conditions = vec![make_condition(
+                    "StreamDeployed",
+                    "False",
+                    "SecretUnresolved",
+                    reason,
+                )];
+            }
+            fresh_mirror.upsert(envelope);
         }
 
         // 5c. The realm's managed groups, brought to what `users/groups/` says (PF-63). The
@@ -706,6 +752,88 @@ impl Syncer {
         }
 
         Ok((loaded, revision))
+    }
+
+    /// Resolves every pipeline's references and writes them into the runner's one Secret.
+    ///
+    /// Returns the pipelines that must not be deployed, by `(project, name)`, with the reason
+    /// for each: a reference that resolved to nothing, a reference with no `envVar`, or a
+    /// variable another pipeline of this runner already claims (T-0927).
+    ///
+    /// Nothing configured is not a failure: a Portal with no backend refuses only the pipelines
+    /// that declare a reference, and a Portal outside a cluster resolves them and has nowhere to
+    /// write them, which is the same refusal for the same reason.
+    async fn resolve_pipeline_secrets(
+        &self,
+        mirror: &Mirror,
+        repository: &std::path::Path,
+    ) -> BTreeMap<(String, String), String> {
+        use crate::pipeline_secrets::{RunnerEnvironment, SecretError};
+
+        let mut runner = RunnerEnvironment::default();
+        for namespace in mirror.namespaces() {
+            let page = mirror.list(
+                &namespace,
+                "Pipeline",
+                &crate::store::ListOptions::default(),
+            );
+            for envelope in page.items {
+                let references = pipeline_references(mirror, &namespace, &envelope);
+                if references.is_empty() {
+                    continue;
+                }
+                let resolved = match self.pipeline_secrets.as_ref() {
+                    Some(resolver) => resolver.resolve(repository, &references).await,
+                    None => Err(SecretError::NoBackend {
+                        name: references[0].name.clone(),
+                    }),
+                };
+                runner.add(&namespace, &envelope.metadata.name, resolved);
+            }
+        }
+
+        if !runner.is_empty() {
+            match self.credentials.as_ref() {
+                Some((kube, namespace)) => self.write_runner_secret(kube, namespace, &runner).await,
+                None => tracing::info!(
+                    "no cluster: a pipeline's credentials resolve and reach no runner"
+                ),
+            }
+        }
+
+        runner.refused().clone()
+    }
+
+    /// Writes the runner's Secret and rolls the runner when its content changed.
+    ///
+    /// An environment variable is read once, when the pod starts, so a rotated credential
+    /// reaches a running pipeline only with a restart. The annotation carries the fingerprint of
+    /// the values, so an unchanged environment patches the same bytes and rolls nothing.
+    async fn write_runner_secret(
+        &self,
+        kube: &crate::apps::kube::KubeClient,
+        namespace: &str,
+        runner: &crate::pipeline_secrets::RunnerEnvironment,
+    ) {
+        if let Err(err) = kube.apply(&runner.secret(namespace)).await {
+            tracing::warn!(error = %err, "the pipeline runner's secrets were not written");
+            return;
+        }
+        tracing::info!(
+            variables = runner.variables().count(),
+            "the pipeline runner's secrets are in place"
+        );
+        let rollout = serde_json::json!({
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": { "name": PIPELINE_RUNNER_DEPLOYMENT, "namespace": namespace },
+            "spec": { "template": { "metadata": { "annotations": {
+                "joinedcontext.com/pipeline-secrets": runner.fingerprint(),
+            }}}},
+        });
+        if let Err(err) = kube.apply(&rollout).await {
+            tracing::warn!(error = %err, "the pipeline runner was not rolled, so a rotated credential is not in its environment yet");
+        }
     }
 
     /// Writes one organization's reader credential into the namespace its serving workloads
@@ -1029,6 +1157,37 @@ fn failing(metrics: &str, pipeline: &str) -> Option<String> {
         "the stream is running and has written nothing: {errors} error(s) and no message sent \
          since it started; the runner's log names the reason"
     ))
+}
+
+/// Every `secretRef` one Pipeline needs: its own, and those of the `DataSource` it reads.
+///
+/// PL-50 puts a connector's credentials on the `DataSource` (`spec.secrets`) and PL-15 puts the
+/// pipeline's own on the Pipeline (`spec.secretRefs`); the runner has one environment and reads
+/// both from it, so they are resolved together.
+fn pipeline_references(
+    mirror: &Mirror,
+    namespace: &str,
+    envelope: &ResourceEnvelope,
+) -> Vec<jc_core::envelope::SecretRef> {
+    let list = |value: Option<&serde_json::Value>| -> Vec<jc_core::envelope::SecretRef> {
+        value
+            .cloned()
+            .map(serde_json::from_value)
+            .and_then(Result::ok)
+            .unwrap_or_default()
+    };
+
+    let mut references = list(envelope.spec.get("secretRefs"));
+    let data_source = envelope
+        .spec
+        .pointer("/source/dataSourceRef")
+        .and_then(crate::api::assistant::ref_name);
+    if let Some(name) = data_source {
+        if let Some(source) = mirror.get(namespace, "DataSource", &name) {
+            references.extend(list(source.spec.get("secrets")));
+        }
+    }
+    references
 }
 
 #[cfg(test)]

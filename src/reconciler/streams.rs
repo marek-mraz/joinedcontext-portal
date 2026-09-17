@@ -115,6 +115,7 @@ impl StreamDeployer {
         &self,
         mirror: &Mirror,
         bentos: &Bentos,
+        refused: &std::collections::BTreeMap<(String, String), String>,
     ) -> Vec<(String, String, StreamOutcome)> {
         let mut outcomes = Vec::new();
         let mut current_live = HashSet::new();
@@ -128,6 +129,12 @@ impl StreamDeployer {
             let page = mirror.list(&ns, "Pipeline", &crate::store::ListOptions::default());
             for envelope in page.items {
                 let name = envelope.metadata.name.clone();
+                // A pipeline whose credential did not resolve is not started: a stream that
+                // cannot connect fails in the runner's log, where nobody is looking (T-0927).
+                if let Some(reason) = refused.get(&(ns.clone(), name.clone())) {
+                    outcomes.push((ns.clone(), name, StreamOutcome::Error(reason.clone())));
+                    continue;
+                }
                 if beyond.contains(&name) {
                     outcomes.push((
                         ns.clone(),
@@ -1471,7 +1478,9 @@ output:
         });
 
         let deployer = StreamDeployer::new("http://dummy-runner:4195");
-        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+        let outcomes = deployer
+            .converge(&mirror, &Bentos::new(), &Default::default())
+            .await;
         assert_eq!(outcomes.len(), 1);
         match &outcomes[0].2 {
             StreamOutcome::Error(msg) => {
@@ -1492,7 +1501,9 @@ output:
 
         let deployer = StreamDeployer::new(server.uri());
         let mirror = helsinki_test_mirror();
-        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+        let outcomes = deployer
+            .converge(&mirror, &Bentos::new(), &Default::default())
+            .await;
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
 
@@ -1506,7 +1517,9 @@ output:
             .await;
 
         let deployer_err = StreamDeployer::new(server_err.uri());
-        let outcomes_err = deployer_err.converge(&mirror, &Bentos::new()).await;
+        let outcomes_err = deployer_err
+            .converge(&mirror, &Bentos::new(), &Default::default())
+            .await;
         assert_eq!(outcomes_err.len(), 1);
         match &outcomes_err[0].2 {
             StreamOutcome::Error(err) => {
@@ -1532,7 +1545,9 @@ output:
 
         let deployer = StreamDeployer::new(server.uri());
         let mirror = helsinki_test_mirror();
-        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+        let outcomes = deployer
+            .converge(&mirror, &Bentos::new(), &Default::default())
+            .await;
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
     }
@@ -1566,7 +1581,9 @@ output:
         let mirror = helsinki_test_mirror();
         // PUT, then left running, then sent again to the empty runner: two PUTs in three passes.
         for _ in 0..3 {
-            let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+            let outcomes = deployer
+                .converge(&mirror, &Bentos::new(), &Default::default())
+                .await;
             assert_eq!(outcomes[0].2, StreamOutcome::Live);
         }
     }
@@ -1607,7 +1624,9 @@ output:
         let mirror = helsinki_test_mirror();
         // Two passes over the same manifests: one PUT.
         for _ in 0..2 {
-            let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+            let outcomes = deployer
+                .converge(&mirror, &Bentos::new(), &Default::default())
+                .await;
             assert_eq!(outcomes[0].2, StreamOutcome::Live);
         }
         // A changed period renders differently: the second PUT.
@@ -1616,7 +1635,9 @@ output:
             .expect("the test pipeline");
         changed.spec["period"] = serde_json::json!("120s");
         mirror.upsert(changed);
-        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+        let outcomes = deployer
+            .converge(&mirror, &Bentos::new(), &Default::default())
+            .await;
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
     }
 
@@ -1637,11 +1658,15 @@ output:
 
         let deployer = StreamDeployer::new(server.uri());
         let mirror = helsinki_test_mirror();
-        let outcomes = deployer.converge(&mirror, &Bentos::new()).await;
+        let outcomes = deployer
+            .converge(&mirror, &Bentos::new(), &Default::default())
+            .await;
         assert_eq!(outcomes[0].2, StreamOutcome::Live);
 
         let empty_mirror = Mirror::new();
-        let outcomes_empty = deployer.converge(&empty_mirror, &Bentos::new()).await;
+        let outcomes_empty = deployer
+            .converge(&empty_mirror, &Bentos::new(), &Default::default())
+            .await;
         assert!(outcomes_empty.is_empty());
     }
 

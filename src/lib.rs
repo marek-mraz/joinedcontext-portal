@@ -21,6 +21,7 @@ pub mod ops;
 pub use ops::drafts;
 pub use ops::verdict;
 pub mod permissions;
+pub mod pipeline_secrets;
 pub mod plan;
 pub mod quotas;
 pub mod reconciler;
