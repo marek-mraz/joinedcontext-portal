@@ -1410,3 +1410,40 @@ async fn a_change_is_read_over_mcp_only_by_a_caller_who_reads_its_kind() {
         "a caller who does not read the change's kind is not handed its diff: {answer}"
     );
 }
+
+/// T-1020, UI-44: a refusal over MCP says what would let the call through, so the model can
+/// tell the person rather than retry blindly. AG-11's refusal names where a change is decided
+/// instead, and a missing role is named as one.
+#[tokio::test]
+async fn a_refused_call_says_why_over_mcp() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+
+    let answered = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {
+            "name": "jc_change_approve",
+            "arguments": { "project": "ovzdusie", "id": "chg-00000001" }
+        }}),
+    )
+    .await;
+
+    let said = format!("{answered}");
+    assert!(
+        said.contains("a person does") || said.contains("unknown tool"),
+        "a refused call names the reason or the tool is not offered at all: {answered}"
+    );
+    assert!(
+        !said.contains("\"isError\":false"),
+        "a refused call is not reported as a success: {answered}"
+    );
+}
