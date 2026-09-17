@@ -112,6 +112,9 @@ export function DeleteResourceDialog({
             <Input
               id={inputId}
               value={typed}
+              // The one thing the dialog is for: typing the name back. Tabbing past the close
+              // button and the heading to reach it is a keyboard tax nobody asked for (T-1054).
+              autoFocus
               autoComplete="off"
               spellCheck={false}
               onChange={(event) => setTyped(event.target.value)}

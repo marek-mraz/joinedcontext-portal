@@ -41,6 +41,17 @@ describe("the conversation panel", () => {
     sent.mockClear();
   });
 
+  /// T-1052, UI-39: a turn that only appears on screen is a turn a screen reader misses.
+  it("announces new turns as a log, without repeating the history", () => {
+    const { container } = panel([{ seq: 1, kind: "message", payload: { text: "42 stations" } }]);
+
+    const log = container.querySelector('[role="log"]');
+    expect(log).not.toBeNull();
+    expect(log).toHaveAttribute("aria-live", "polite");
+    expect(log).toHaveAttribute("aria-atomic", "false");
+    expect(log?.textContent).toContain("42 stations");
+  });
+
   it("renders markup from the workspace as text, never as markup (AP-53)", () => {
     const { container } = panel([
       {

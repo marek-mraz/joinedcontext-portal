@@ -122,6 +122,18 @@ describe("removing a resource from its list", () => {
     expect(sent[0].headers.get("x-csrf-token")).toBe("csrf-token-value");
   });
 
+  /// T-1054: the dialog exists to have a name typed into it, so that is where the caret goes.
+  it("opens with the caret in the field the dialog is for", async () => {
+    renderList({ verbs: ["propose", "delete"] });
+    await userEvent.click(await screen.findByRole("button", { name: "Delete Zvolen air quality" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const field = within(dialog).getByLabelText(`Type ${NAME} to confirm`);
+    await waitFor(() => {
+      expect(document.activeElement).toBe(field);
+    });
+  });
+
   it("names what still references the resource when the removal is refused", async () => {
     renderList({ verbs: ["delete"], answer: "referenced" });
     await userEvent.click(await screen.findByRole("button", { name: "Delete Zvolen air quality" }));

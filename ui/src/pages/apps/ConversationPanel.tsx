@@ -292,7 +292,15 @@ export function ConversationPanel({
         </span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      {/* UI-39: a conversation that only appears is a conversation a screen reader misses. The
+          log announces what arrives, politely and by itself — `aria-atomic="false"` so the
+          reader hears the new turn and not the whole history again (T-1052). */}
+      <div
+        role="log"
+        aria-live="polite"
+        aria-atomic="false"
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+      >
         {events.length === 0 && (
           <p className="text-sm text-fg-muted">{t("agentRun.conversation.empty")}</p>
         )}
