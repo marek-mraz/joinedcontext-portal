@@ -348,13 +348,18 @@ export function ModelsPage({
   // and an AirQualityObserved can sit in one model and a slot can relate them. A name the model
   // already has is kept and reported: what is in hand may have been edited, and an import must
   // not undo that.
-  const onImport = (imported: string, catalogueModel: CatalogueModel) => {
+  const onImport = (imported: string, catalogueModel: CatalogueModel, space?: string) => {
     const editing = source.trim() !== "" && parseModel(source).classes.length > 0;
     const { source: joined, conflicts } = editing
       ? mergeModels(source, imported)
       : { source: imported, conflicts: [] };
     setSource(joined);
     setImportConflicts(conflicts.map((conflict) => `${conflict.section}: ${conflict.name}`));
+    // The space the person picked in the import travels with the model (DM-57, T-1108);
+    // without one the editor asks for it, as it always did.
+    if (space) {
+      setNewSpace(space);
+    }
     if (!editing) {
       setChosen({
         source: imported,
@@ -609,7 +614,10 @@ export function ModelsPage({
         {tab === "import" ? (
           <div className="flex flex-col gap-4">
             <ModelFileDrop project={project} onPopulate={onPopulate} />
-            <SmartDataModelsImport onImport={onImport} />
+            <SmartDataModelsImport
+              onImport={onImport}
+              spaces={(spaces.data ?? []).map((space) => space.metadata.name)}
+            />
           </div>
         ) : null}
         {tab === "editor" ? (

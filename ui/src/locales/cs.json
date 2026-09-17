@@ -973,7 +973,13 @@
       "keepAll": "Všechny převzaté atributy zůstávají; nevybrané se označí jako zastaralé.",
       "import": "Importovat {name}",
       "loading": "Načítá se převzatý model…",
-      "mergedKept": "Ponecháno, co model už měl: {names}. Import přidal zbytek."
+      "mergedKept": "Ponecháno, co model už měl: {names}. Import přidal zbytek.",
+      "findAttribute": "Najít atribut",
+      "requiredAttribute": "povinný",
+      "showMore": "Zobrazit dalších {count}",
+      "noAttribute": "Žádný atribut tohoto modelu neodpovídá.",
+      "space": "Prostor pro tento model",
+      "spaceLater": "Vybrat později, v editoru"
     },
     "addClass": "Přidat třídu",
     "addSlot": "Přidat atribut",

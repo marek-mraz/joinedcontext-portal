@@ -987,7 +987,13 @@
       "keepAll": "Every upstream slot is kept; unpicked ones are marked deprecated.",
       "import": "Import {name}",
       "loading": "Fetching the upstream model…",
-      "mergedKept": "Kept what this model already had: {names}. The import added the rest."
+      "mergedKept": "Kept what this model already had: {names}. The import added the rest.",
+      "findAttribute": "Find an attribute",
+      "requiredAttribute": "required",
+      "showMore": "Show {count} more",
+      "noAttribute": "No attribute of this model matches.",
+      "space": "Space for this model",
+      "spaceLater": "Choose later, in the editor"
     },
     "addClass": "Add class",
     "addSlot": "Add slot",

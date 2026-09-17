@@ -973,7 +973,13 @@
       "keepAll": "Alle fremden Attribute bleiben erhalten; nicht gewählte werden als veraltet markiert.",
       "import": "{name} importieren",
       "loading": "Fremdmodell wird geladen…",
-      "mergedKept": "Beibehalten, was das Modell schon hatte: {names}. Der Import hat den Rest ergänzt."
+      "mergedKept": "Beibehalten, was das Modell schon hatte: {names}. Der Import hat den Rest ergänzt.",
+      "findAttribute": "Attribut finden",
+      "requiredAttribute": "erforderlich",
+      "showMore": "{count} weitere anzeigen",
+      "noAttribute": "Kein Attribut dieses Modells passt.",
+      "space": "Raum für dieses Modell",
+      "spaceLater": "Später im Editor wählen"
     },
     "addClass": "Klasse hinzufügen",
     "addSlot": "Attribut hinzufügen",

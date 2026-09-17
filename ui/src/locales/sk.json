@@ -973,7 +973,13 @@
       "keepAll": "Všetky prevzaté atribúty zostávajú; nevybrané sa označia ako zastarané.",
       "import": "Importovať {name}",
       "loading": "Načítava sa prevzatý model…",
-      "mergedKept": "Ponechané, čo model už mal: {names}. Import pridal zvyšok."
+      "mergedKept": "Ponechané, čo model už mal: {names}. Import pridal zvyšok.",
+      "findAttribute": "Nájsť atribút",
+      "requiredAttribute": "povinný",
+      "showMore": "Zobraziť ďalších {count}",
+      "noAttribute": "Žiadny atribút tohto modelu nezodpovedá.",
+      "space": "Priestor pre tento model",
+      "spaceLater": "Vybrať neskôr, v editore"
     },
     "addClass": "Pridať triedu",
     "addSlot": "Pridať atribút",

@@ -11,6 +11,7 @@ import {
   matches,
 } from "../src/pages/models/SmartDataModelsImport";
 import { parseModel } from "../src/pages/models/linkml";
+import en from "../src/locales/en.json";
 
 const CATALOGUE = {
   refreshedAt: "2026-09-06T04:00:00Z",
@@ -72,7 +73,7 @@ slots:
     slot_uri: sdm:dateObserved
 `;
 
-function renderWizard(options: { catalogue?: unknown; status?: number } = {}) {
+function renderWizard(options: { catalogue?: unknown; status?: number; spaces?: string[]; previewStatus?: number } = {}) {
   const onImport = vi.fn();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
@@ -86,10 +87,17 @@ function renderWizard(options: { catalogue?: unknown; status?: number } = {}) {
       );
     }
     return Promise.resolve(
-      new Response(JSON.stringify({ linkml: IMPORTED }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify(
+          options.previewStatus && options.previewStatus >= 400
+            ? { status: options.previewStatus, title: "Service Unavailable" }
+            : { linkml: IMPORTED },
+        ),
+        {
+          status: options.previewStatus ?? 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -97,7 +105,7 @@ function renderWizard(options: { catalogue?: unknown; status?: number } = {}) {
   render(
     <QueryClientProvider client={client}>
       <I18nextProvider i18n={i18n}>
-        <SmartDataModelsImport onImport={onImport} />
+        <SmartDataModelsImport onImport={onImport} spaces={options.spaces ?? []} />
       </I18nextProvider>
     </QueryClientProvider>,
   );
@@ -174,6 +182,71 @@ describe("Smart Data Models import wizard", () => {
     expect(imported.slots.map((slot) => slot.name)).toEqual(["pm10", "pm25", "dateObserved"]);
     expect(imported.slots.find((slot) => slot.name === "pm25")?.deprecated).toBe(true);
     expect(imported.slots.find((slot) => slot.name === "pm10")?.deprecated).toBe(false);
+  });
+
+  /// T-1109: Model Tools timing out is the ordinary failure here; picking the model again to
+  /// try once more is a step nobody should have to know about.
+  it("offers a retry when the import itself failed, and runs it", async () => {
+    const { user, fetchMock } = renderWizard({ previewStatus: 503 });
+
+    await user.click(await screen.findByRole("button", { name: /AirQualityObserved/ }));
+    const before = fetchMock.mock.calls.filter((call) =>
+      new URL((call[0] as Request).url).pathname.includes("/tools/import-sdm"),
+    ).length;
+    expect(before).toBeGreaterThan(0);
+
+    await user.click(await screen.findByRole("button", { name: en.app.error.retry }));
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.filter((call) =>
+          new URL((call[0] as Request).url).pathname.includes("/tools/import-sdm"),
+        ).length,
+      ).toBeGreaterThan(before);
+    });
+  });
+
+  /// T-1107: a model of the catalogue can carry two hundred attributes.
+  it("finds an attribute by name and puts the required ones first", async () => {
+    const { user } = renderWizard();
+
+    await user.click(await screen.findByRole("button", { name: /AirQualityObserved/ }));
+    await screen.findByLabelText("pm10");
+
+    // The model's own order is pm10, pm25, dateObserved; required first regardless.
+    const before = screen.getAllByRole("checkbox").map((box) => box.getAttribute("name"));
+    expect(before.length).toBe(3);
+
+    await user.type(screen.getByLabelText(en.models.sdm.findAttribute), "pm2");
+    await waitFor(() => {
+      expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    });
+    expect(screen.getByLabelText(/pm25/)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(en.models.sdm.findAttribute));
+    await user.type(screen.getByLabelText(en.models.sdm.findAttribute), "nothing-of-the-sort");
+    expect(await screen.findByText(en.models.sdm.noAttribute)).toBeInTheDocument();
+  });
+
+  /// T-1108, DM-57: the space a model belongs to, chosen where the model is chosen.
+  it("carries the space the person picked into the import", async () => {
+    const { user, onImport } = renderWizard({ spaces: ["mobility", "air-quality"] });
+
+    await user.click(await screen.findByRole("button", { name: /AirQualityObserved/ }));
+    await user.selectOptions(await screen.findByLabelText(en.models.sdm.space), "air-quality");
+    await user.click(screen.getByRole("button", { name: "Import AirQualityObserved" }));
+
+    expect(onImport).toHaveBeenCalledTimes(1);
+    expect(onImport.mock.calls[0][2]).toBe("air-quality");
+  });
+
+  it("leaves the space to the editor when the project has none to offer", async () => {
+    const { user, onImport } = renderWizard();
+
+    await user.click(await screen.findByRole("button", { name: /AirQualityObserved/ }));
+    expect(screen.queryByLabelText(en.models.sdm.space)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Import AirQualityObserved" }));
+
+    expect(onImport.mock.calls[0][2]).toBeUndefined();
   });
 
   it("works from the cached index when a refresh did not reach the catalogue", async () => {

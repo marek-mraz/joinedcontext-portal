@@ -37,9 +37,17 @@ export interface Catalogue {
 }
 
 export interface SmartDataModelsImportProps {
-  /** Hands the adapted LinkML source to the editor, with the model it came from. */
-  onImport: (source: string, model: CatalogueModel) => void;
+  /**
+   * Hands the adapted LinkML source to the editor, with the model it came from and the space
+   * the person chose for it, when they chose one (DM-57).
+   */
+  onImport: (source: string, model: CatalogueModel, space?: string) => void;
+  /** The project's Context Spaces, so the model can be placed before it is imported (T-1108). */
+  spaces?: string[];
 }
+
+/** How many attributes the panel shows before "show the rest": a list, not a scroll box. */
+const ATTRIBUTE_PAGE = 50;
 
 /** Whether a model answers the search, by name, description or attribute name. */
 export function matches(model: CatalogueModel, needle: string): boolean {
@@ -72,13 +80,20 @@ export function deprecateUnused(source: string, keep: string[]): string {
   });
 }
 
-export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps): JSX.Element {
+export function SmartDataModelsImport({
+  onImport,
+  spaces = [],
+}: SmartDataModelsImportProps): JSX.Element {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [subject, setSubject] = useState("");
   const [selected, setSelected] = useState<CatalogueModel | null>(null);
   const [refreshes, setRefreshes] = useState(0);
   const [keep, setKeep] = useState<string[] | null>(null);
+  /** What the person typed to find an attribute among the two hundred a model may have. */
+  const [attribute, setAttribute] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [space, setSpace] = useState("");
 
   const catalogue = useQuery({
     queryKey: ["tools", "sdm-catalog", refreshes],
@@ -116,17 +131,32 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
   );
 
   const imported = preview.data?.linkml;
-  const upstreamSlots = useMemo(
-    () => (imported ? parseModel(imported).slots.map((slot) => slot.name) : []),
-    [imported],
-  );
+  const model = useMemo(() => (imported ? parseModel(imported) : undefined), [imported]);
+  const upstreamSlots = useMemo(() => (model?.slots ?? []).map((slot) => slot.name), [model]);
   const chosen = keep ?? upstreamSlots;
+
+  // A model of the catalogue can carry two hundred attributes, which is a scroll box nobody
+  // reads (T-1107). What is required comes first, what the person typed narrows it, and the
+  // rest waits behind one button rather than filling the panel.
+  const offered = useMemo(() => {
+    const needle = attribute.trim().toLowerCase();
+    const matching = (model?.slots ?? []).filter((slot) =>
+      needle === "" ? true : slot.name.toLowerCase().includes(needle),
+    );
+    const required = matching.filter((slot) => slot.required === true);
+    const optional = matching.filter((slot) => slot.required !== true);
+    return { required, optional, total: matching.length };
+  }, [model, attribute]);
+  const shown = showAll
+    ? [...offered.required, ...offered.optional]
+    : [...offered.required, ...offered.optional].slice(0, ATTRIBUTE_PAGE);
+  const hidden = offered.total - shown.length;
 
   const doImport = () => {
     if (!imported || !selected) {
       return;
     }
-    onImport(deprecateUnused(imported, chosen), selected);
+    onImport(deprecateUnused(imported, chosen), selected, space || undefined);
   };
 
   return (
@@ -221,32 +251,79 @@ export function SmartDataModelsImport({ onImport }: SmartDataModelsImportProps):
         {!selected ? (
           <p className="text-body text-fg-muted">{t("models.sdm.pick")}</p>
         ) : preview.isError ? (
-          <Alert tone="danger" role="status">
+          // Model Tools timing out is the ordinary failure here, and selecting the model again
+          // to retry is a step nobody should have to know about (T-1109).
+          <Alert
+            tone="danger"
+            role="status"
+            actions={
+              <Button size="sm" onClick={() => void preview.refetch()}>
+                {t("app.error.retry")}
+              </Button>
+            }
+          >
             {t("models.sdm.previewFailed")}
           </Alert>
         ) : imported ? (
           <>
             <p className="text-body">{t("models.sdm.keepAll")}</p>
+            <Input
+              className="w-full"
+              type="search"
+              aria-label={t("models.sdm.findAttribute")}
+              placeholder={t("models.sdm.findAttribute")}
+              value={attribute}
+              onChange={(event) => {
+                setAttribute(event.target.value);
+                setShowAll(false);
+              }}
+            />
             <ul className="flex max-h-56 flex-col gap-1 overflow-auto text-body">
-              {upstreamSlots.map((name) => (
-                <li key={name}>
+              {shown.map((slot) => (
+                <li key={slot.name}>
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={chosen.includes(name)}
+                      checked={chosen.includes(slot.name)}
                       onChange={(event) =>
                         setKeep(
                           event.target.checked
-                            ? [...chosen, name]
-                            : chosen.filter((slot) => slot !== name),
+                            ? [...chosen, slot.name]
+                            : chosen.filter((name) => name !== slot.name),
                         )
                       }
                     />
-                    {name}
+                    {slot.name}
+                    {slot.required ? (
+                      <span className="text-caption text-fg-muted">
+                        {t("models.sdm.requiredAttribute")}
+                      </span>
+                    ) : null}
                   </label>
                 </li>
               ))}
             </ul>
+            {offered.total === 0 ? (
+              <p className="text-caption text-fg-muted">{t("models.sdm.noAttribute")}</p>
+            ) : null}
+            {hidden > 0 ? (
+              <Button size="sm" className="self-start" onClick={() => setShowAll(true)}>
+                {t("models.sdm.showMore", { count: hidden })}
+              </Button>
+            ) : null}
+            {spaces.length > 0 ? (
+              <label className="flex flex-col gap-1 text-body">
+                {t("models.sdm.space")}
+                <Select value={space} onChange={(event) => setSpace(event.target.value)}>
+                  <option value="">{t("models.sdm.spaceLater")}</option>
+                  {spaces.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            ) : null}
             <pre className="max-h-56 overflow-auto rounded border border-border bg-surface-subtle p-3 font-mono text-xs text-fg">
               {imported}
             </pre>
