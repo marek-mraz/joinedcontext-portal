@@ -2003,6 +2003,7 @@ mod tests {
     ("GET", "/internal/agent-runs/{id}", "the runner's own callback, authenticated as a workload"),
     ("GET", "/internal/agent-runs/{id}/diagnostics/{component}/{name}", "the runner's own callback, authenticated as a workload"),
     ("GET", "/internal/agent-runs/{id}/inbox", "the runner's own callback, authenticated as a workload"),
+    ("POST", "/internal/agent-runs/{id}/mcp", "the whole registry for one run, narrowed by its AgentProfile (AG-70) and refused an approval (AG-11)"),
     ("POST", "/internal/pipeline-tests/{id}", "the runner's own callback, authenticated as a workload"),
     ("GET", "/mcp", "the MCP door itself, which dispatches this registry"),
     ("POST", "/mcp", "the MCP door itself, which dispatches this registry"),
