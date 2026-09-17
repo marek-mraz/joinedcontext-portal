@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use utoipa::ToSchema;
 
+use super::groups::GroupSync;
 use super::leader::Leadership;
 use super::streams::{
     eligible, is_stream_pipeline, make_condition, Bentos, StreamDeployer, StreamOutcome,
@@ -88,6 +89,9 @@ pub struct Syncer {
     /// settings that say which namespace they belong in (T-0411, AP-18).
     converger: Option<Arc<Converger>>,
     streams: Option<Arc<StreamDeployer>>,
+    /// `None` when no Keycloak admin client is configured: the `Group` manifests are then read
+    /// and served, and the realm is written by nobody (PF-63).
+    groups: Option<Arc<GroupSync>>,
     /// Where a run says what it did (OPS-48). `None` leaves the loop silent, which is what a
     /// Portal built without a state does in a unit test.
     activity: Option<ActivityStore>,
@@ -106,6 +110,7 @@ impl Syncer {
             leadership: None,
             converger: None,
             streams: None,
+            groups: None,
             activity: None,
         }
     }
@@ -117,6 +122,12 @@ impl Syncer {
     }
 
     /// Deploys Bento streams for approved DataSource pipelines on each run (PL-47).
+    /// Makes each run bring the realm's managed groups to what the manifests say (PF-63).
+    pub fn with_groups(mut self, groups: Arc<GroupSync>) -> Self {
+        self.groups = Some(groups);
+        self
+    }
+
     pub fn with_streams(mut self, deployer: Arc<StreamDeployer>) -> Self {
         self.streams = Some(deployer);
         self
@@ -249,6 +260,37 @@ impl Syncer {
                 severity: "error".to_string(),
                 correlation_id: None,
                 details: serde_json::Value::Null,
+            })
+            .collect();
+        self.record(events).await;
+    }
+
+    /// One `config.drifted` per group the console and the repository disagreed on, so the feed
+    /// carries what the reconcile overwrote (PF-63, OPS-48).
+    async fn say_group_drift(&self, outcomes: &[super::groups::GroupOutcome]) {
+        if self.activity.is_none() {
+            return;
+        }
+        let events: Vec<ActivityEvent> = outcomes
+            .iter()
+            .filter(|outcome| !outcome.drift.is_empty() || outcome.error.is_some())
+            .map(|outcome| ActivityEvent {
+                time: chrono::Utc::now(),
+                project: crate::permissions::ORG_NAMESPACE.to_string(),
+                space: None,
+                kind: "config.drifted".to_string(),
+                source: "reconciler".to_string(),
+                summary: match &outcome.error {
+                    Some(err) => format!("Group {}: {err}", outcome.name),
+                    None => format!("Group {}: {}", outcome.name, outcome.drift.join("; ")),
+                },
+                severity: if outcome.error.is_some() {
+                    "error".to_string()
+                } else {
+                    "warning".to_string()
+                },
+                correlation_id: None,
+                details: serde_json::json!({ "group": outcome.name, "drift": outcome.drift }),
             })
             .collect();
         self.record(events).await;
@@ -481,6 +523,29 @@ impl Syncer {
                 "NoRunner",
                 "no pipeline runner is configured (JC_PORTAL_PIPELINE_RUNNER_URL)",
             );
+        }
+
+        // 5c. The realm's managed groups, brought to what `users/groups/` says (PF-63). The
+        //     drift lands on the Group manifests of this run's mirror, so the Access page shows
+        //     where the console and the repository disagreed.
+        if let Some(groups) = self.groups.as_ref() {
+            let outcomes = groups.converge(&fresh_mirror).await;
+            for outcome in &outcomes {
+                match (&outcome.error, outcome.drift.is_empty()) {
+                    (Some(err), _) => {
+                        tracing::warn!(group = %outcome.name, error = %err, "group did not converge")
+                    }
+                    (None, false) => {
+                        tracing::info!(group = %outcome.name, drift = %outcome.drift.join("; "), "group brought back to the manifest")
+                    }
+                    (None, true) => {}
+                }
+                for warning in &outcome.warnings {
+                    tracing::warn!(group = %outcome.name, %warning, "group member is not a realm user yet");
+                }
+            }
+            super::groups::record(&fresh_mirror, &outcomes);
+            self.say_group_drift(&outcomes).await;
         }
 
         self.mirror.replace_all(&fresh_mirror);

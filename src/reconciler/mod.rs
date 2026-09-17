@@ -8,6 +8,7 @@
 //! [`daemon`] is the loop that reads the repository and refreshes the live-state mirror.
 
 pub mod daemon;
+pub mod groups;
 pub mod leader;
 pub mod streams;
 

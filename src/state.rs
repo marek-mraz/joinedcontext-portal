@@ -213,6 +213,28 @@ impl AppState {
                 }
                 _ => tracing::info!("no app settings or no cluster: apps are read, not deployed"),
             }
+            // The realm's managed groups (PF-63). Without an admin client the manifests are
+            // still read and served; nothing in the realm is written.
+            match (
+                state.config.oidc.as_ref(),
+                state.config.keycloak_admin.clone(),
+            ) {
+                (Some(oidc), Some((id, secret))) => {
+                    match crate::reconciler::groups::GroupSync::new(
+                        oidc.issuer.as_str(),
+                        id,
+                        secret,
+                    ) {
+                        Some(groups) => syncer = syncer.with_groups(Arc::new(groups)),
+                        None => tracing::warn!(
+                            "the issuer is not a realm URL, so no Keycloak group is managed"
+                        ),
+                    }
+                }
+                _ => tracing::info!(
+                    "no Keycloak admin client: Group manifests are read, the realm is not written"
+                ),
+            }
             if let Some(url) = state.config.pipeline_runner_url.clone() {
                 syncer = syncer.with_streams(Arc::new(StreamDeployer::new(url)));
             } else {

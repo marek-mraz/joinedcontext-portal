@@ -50,6 +50,10 @@ pub struct Config {
     /// The group (or realm role) whose members may do everything everywhere, so the first
     /// `RoleBinding` can be written into an empty repository (T-0526, PF-50).
     pub bootstrap_admins: String,
+    /// The client the reconciler manages the realm's groups with: a `ServiceAccount` client
+    /// holding `manage-users` and `query-groups` of `realm-management` and nothing else
+    /// (PF-63). `None` leaves the `Group` manifests read and the realm written by nobody.
+    pub keycloak_admin: Option<(String, String)>,
     /// Where an App's four Kubernetes objects are applied (AP-13, AP-18, T-0411). `None` leaves
     /// the reconciler reading apps and applying nothing, which is what a Portal outside a
     /// cluster does; it is never a guess, because guessing a namespace here would mean writing
@@ -605,6 +609,22 @@ impl Config {
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| Self::DEFAULT_BOOTSTRAP_ADMINS.to_owned());
 
+        // Both halves or neither: an id without a secret would send an unauthenticated token
+        // request every tick and log a refusal every time.
+        let keycloak_admin = match (
+            lookup("JC_PORTAL_KEYCLOAK_ADMIN_CLIENT_ID").filter(|v| !v.trim().is_empty()),
+            lookup("JC_PORTAL_KEYCLOAK_ADMIN_CLIENT_SECRET").filter(|v| !v.trim().is_empty()),
+        ) {
+            (Some(id), Some(secret)) => Some((id, secret)),
+            (Some(_), None) => {
+                return Err(ConfigError::Invalid {
+                    var: "JC_PORTAL_KEYCLOAK_ADMIN_CLIENT_SECRET",
+                    reason: "the group reconciler has a client id and no secret".to_owned(),
+                })
+            }
+            _ => None,
+        };
+
         Ok(Self {
             bind,
             public_base_url,
@@ -621,6 +641,7 @@ impl Config {
             branding_file,
             database_url,
             bootstrap_admins,
+            keycloak_admin,
             app_settings,
             agent_settings,
             basemap,
@@ -650,6 +671,7 @@ impl Config {
             // The dev realm's approver role: a test session that carries it may do everything,
             // one that does not is bound by whatever Role/RoleBinding the test puts in the mirror.
             bootstrap_admins: "portal-approver".to_owned(),
+            keycloak_admin: None,
         }
     }
 
