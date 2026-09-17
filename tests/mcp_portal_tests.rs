@@ -200,6 +200,32 @@ async fn setup_app_and_keys() -> (axum::Router, String, EncodingKey, String) {
     config.public_base_url = "https://portal.test".parse().unwrap();
 
     let mirror = std::sync::Arc::new(Mirror::new());
+    // A caller with grants in the project but not on every kind: the change fixture proposes an
+    // Endpoint, so this one reads the project and not that change (T-0977).
+    mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "Role".to_string(),
+        metadata: ObjectMeta::new(
+            "pipelines-only",
+            joinedcontext_portal::permissions::ORG_NAMESPACE,
+        ),
+        spec: json!({ "rules": [{ "kinds": ["Pipeline"], "verbs": ["read"] }] }),
+        status: None,
+    });
+    mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "RoleBinding".to_string(),
+        metadata: ObjectMeta::new(
+            "pipelines-only-binding",
+            joinedcontext_portal::permissions::ORG_NAMESPACE,
+        ),
+        spec: json!({
+            "subjects": [{ "user": "pipeline.editor" }],
+            "role": "pipelines-only",
+            "scope": { "organization": "hel" }
+        }),
+        status: None,
+    });
     // Seed some resources
     mirror.upsert(ResourceEnvelope {
         api_version: API_VERSION.to_string(),
@@ -1348,4 +1374,39 @@ async fn a_change_plan_and_a_model_source_are_readable_resources() {
             "{missing} answered something: {answer}"
         );
     }
+}
+
+/// T-0977: `resources/read` on a change asks the same two questions the REST route asks —
+/// `read` on the project and `read` on the kind the change proposes. It used to ask only the
+/// first, so a caller granted Pipelines here was handed the whole diff of a change that
+/// rewrites a Role, secrets of the role model included.
+#[tokio::test]
+async fn a_change_is_read_over_mcp_only_by_a_caller_who_reads_its_kind() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+
+    // The fixture change proposes an Endpoint. A caller granted every kind but that one holds
+    // `read` on the project, so the project-level check alone would let them through.
+    let narrow = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "pipeline.editor",
+        &["portal-pipelines"],
+        &[],
+    );
+    let answer = rpc(
+        app.clone(),
+        &narrow,
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+                "params": { "uri": "jc://ovzdusie/changes/chg-00000001" } }),
+    )
+    .await;
+    let text = answer["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        !text.contains("chg-00000001"),
+        "a caller who does not read the change's kind is not handed its diff: {answer}"
+    );
 }

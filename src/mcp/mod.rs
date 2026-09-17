@@ -721,10 +721,15 @@ async fn read_resource(
         // A change's plan, the same document the change route serves and with the same
         // redaction on it (AG-60, CC-06). A model reads what a proposal would do without
         // spending a tool call on it.
-        [project, "changes", change_id] if may_read(state, caller, project) => {
-            let change = crate::api::changes::change_for(state, project, change_id)
-                .await
-                .ok()?;
+        // The same door as the REST route (T-0977): `change_readable` asks for `read` on the
+        // project *and* on the kind the change proposes, so a caller who may read a Pipeline
+        // here is not handed a change that rewrites a Role. `change_for` asks neither, and
+        // reading it behind a project-level check handed out the whole diff.
+        [project, "changes", change_id] => {
+            let change =
+                crate::api::changes::change_readable(state, &caller.identity, project, change_id)
+                    .await
+                    .ok()?;
             Some(("application/json", serde_json::to_string(&change).ok()?))
         }
         // The model's own source. The Portal holds the LinkML; the JSON Schema and the
