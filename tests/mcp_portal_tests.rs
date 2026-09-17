@@ -788,7 +788,33 @@ async fn mcp_prompts_name_the_units_and_their_operations() {
         .iter()
         .filter_map(|p| p["name"].as_str())
         .collect();
-    assert_eq!(names, ["load", "share", "analyse", "model", "change"]);
+    assert_eq!(
+        names,
+        ["find", "build", "load", "share", "analyse", "model", "change"]
+    );
+
+    // T-1038: every operation a guide names is one the registry has, so a client following a
+    // guide is never sent to a tool that does not exist.
+    for unit in &names {
+        let guide = rpc(
+            app.clone(),
+            &token,
+            json!({ "jsonrpc": "2.0", "id": 9, "method": "prompts/get",
+                "params": { "name": unit, "arguments": { "project": "ovzdusie" } } }),
+        )
+        .await;
+        let text = guide["result"]["messages"][0]["content"]["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{unit} has no guide: {guide}"));
+        for word in text.split(|c: char| !c.is_alphanumeric() && c != '_') {
+            if word.starts_with("jc_") {
+                assert!(
+                    joinedcontext_portal::ops::find(word).is_some(),
+                    "{unit} names {word}, which the registry does not have"
+                );
+            }
+        }
+    }
 
     let got = rpc(
         app.clone(),

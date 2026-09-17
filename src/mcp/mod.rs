@@ -630,6 +630,22 @@ async fn dispatch(state: AppState, caller: crate::ops::Caller, body: Bytes) -> R
 /// The units as prompts: name, one-line description, the operations in order (AG-63).
 const UNITS: &[(&str, &str, &str)] = &[
     (
+        "find",
+        "Find what a project holds and what of it you may read: the catalogue, then the data.",
+        "1. jc_catalog_search with the words you are looking for; each answer carries the space, \
+         the endpoint and whether your grant admits you.\n2. jc_resource_get the endpoint to read \
+         what it publishes, or jc_model_source_get its model.\n3. jc_endpoint_list_all across \
+         projects when the space is not this one's.",
+    ),
+    (
+        "build",
+        "Build an application over an endpoint you may read, and publish it once a person approves.",
+        "1. jc_catalog_search for the endpoint the application reads.\n2. jc_run_create naming it, \
+         with the prompt describing the application.\n3. jc_run_get for the versions as they \
+         arrive; jc_run_message to change what it built.\n4. jc_run_publish opens the change; a \
+         person approves it.",
+    ),
+    (
         "load",
         "Load a data source into a space: check the source, build and test the pipeline, propose both.",
         "1. jc_draft_put a DataSource, jc_datasource_check it until the verdict is ok.\n2. jc_draft_put a Pipeline that maps the sample, jc_pipeline_test it.\n3. jc_datasource_propose and jc_pipeline_propose; the change waits for approval.",
