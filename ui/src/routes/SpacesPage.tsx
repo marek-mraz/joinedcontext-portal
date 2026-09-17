@@ -5,11 +5,12 @@ import { useTranslation } from "react-i18next";
 import { usePermissions } from "../api/permissions";
 import { Link } from "@tanstack/react-router";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
-import { asManifests, isChange, localized, ORG_NAMESPACE, refName } from "../api/manifest";
+import { asManifests, isChange, localized, refName } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
+import { ProjectQuota, useProjectUsage } from "../components/ProjectQuota";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { EditResourceAction } from "../components/EditResourceDialog";
 import { contextSpaceSchema } from "../schemas/kinds";
@@ -41,13 +42,6 @@ interface SpaceForm {
   ttlDays?: number;
 }
 
-interface Quotas {
-  contextSpaces?: number;
-  residentPipelines?: number;
-  publicEndpoints?: number;
-  ingestEventsPerSecond?: number;
-}
-
 function toEnvelope(project: string, form: SpaceForm) {
   const { name, title, ...spec } = form;
   return {
@@ -62,45 +56,6 @@ function toEnvelope(project: string, form: SpaceForm) {
   };
 }
 
-/** How much of a quota is used, as a labelled bar rather than a colour alone. */
-function QuotaBar({
-  label,
-  used,
-  limit,
-}: {
-  label: string;
-  used: number;
-  limit?: number;
-}): JSX.Element {
-  const { t } = useTranslation();
-  const percent = limit && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  return (
-    <div className="min-w-[12rem]">
-      <div className="flex items-baseline justify-between gap-3 text-caption">
-        <span className="font-medium text-fg-muted">{label}</span>
-        <span className="font-mono tabular-nums text-fg">
-          {limit === undefined ? t("quota.unlimited", { used }) : `${used} / ${limit}`}
-        </span>
-      </div>
-      {limit === undefined ? null : (
-        <div
-          role="progressbar"
-          aria-valuenow={used}
-          aria-valuemin={0}
-          aria-valuemax={limit}
-          aria-label={label}
-          className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-neutral-200"
-        >
-          <div
-            className={percent >= 100 ? "h-full rounded-full bg-danger" : "h-full rounded-full bg-primary"}
-            style={{ width: `${percent}%` }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
 const COLUMNS = 5;
 
 /** Context Spaces of one project: what exists, what it costs against the quota, where it lives. */
@@ -109,6 +64,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
   const queryClient = useQueryClient();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
+  const usage = useProjectUsage(project);
   const [dialogOpen, setDialogOpen] = useState(false);
   const mayPropose = usePermissions(project).can("ContextSpace", "propose");
   const [change, setChange] = useState<Change | null>(null);
@@ -122,21 +78,6 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
           params: { path: { project, plural: "spaces" } },
         }),
       ),
-  });
-
-  // The quota lives on the Project manifest, which is organization-scoped: it sits in the `org`
-  // namespace, not in the project itself. The list always answers, so a project without a
-  // manifest is simply unlimited rather than a 404.
-  const projectQuery = useQuery({
-    queryKey: queryKeys.list(ORG_NAMESPACE, "projects"),
-    retry: false,
-    queryFn: async () =>
-      unwrap(
-        await api.GET("/api/v1/projects/{project}/{plural}", {
-          params: { path: { project: ORG_NAMESPACE, plural: "projects" } },
-        }),
-      ),
-    select: (list) => asManifests(list.items ?? []).find((item) => item.metadata.name === project),
   });
 
   const create = useMutation({
@@ -219,16 +160,17 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
   }
 
   const spaces = asManifests(list.data.items ?? []);
-  const quotas = (projectQuery.data?.spec as { quotas?: Quotas } | undefined)?.quotas;
-  const limit = quotas?.contextSpaces;
-  const quotaExceeded = limit !== undefined && spaces.length >= limit;
+  // The API counts what the project holds and knows which quota is in force, the project's own
+  // or the organization's default (PF-73, PF-75); the page only reads the numbers.
+  const contextSpaces = usage.data?.contextSpaces;
+  const limit = contextSpaces?.limit;
+  const quotaExceeded = limit !== undefined && (contextSpaces?.used ?? spaces.length) >= limit;
 
   return (
     <div className="flex flex-col gap-section">
       <PageHeader
         title={t("spaces.title")}
         description={t("spaces.lead")}
-        aside={<QuotaBar label={t("quota.contextSpaces")} used={spaces.length} limit={limit} />}
         actions={
           mayPropose ? (
             <div className="flex items-center gap-2">
@@ -254,6 +196,8 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
           ) : null
         }
       />
+
+      <ProjectQuota project={project} />
 
       {quotaExceeded ? (
         <Alert role="status" tone="warning">

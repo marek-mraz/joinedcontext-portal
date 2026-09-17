@@ -146,7 +146,17 @@
   "quota": {
     "contextSpaces": "Kontexträume",
     "unlimited": "{used}, ohne Limit",
-    "exceeded": "Das Projektkontingent von {limit} Kontexträumen ist aufgebraucht. Bitten Sie eine Plattformadministration, es zu erhöhen."
+    "exceeded": "Das Projektkontingent von {limit} Kontexträumen ist aufgebraucht. Bitten Sie eine Plattformadministration, es zu erhöhen.",
+    "title": "Kontingent",
+    "lead": "Was dieses Projekt hält und was es halten darf. Eine Änderung darüber hinaus wird abgelehnt, bevor sie vorgeschlagen wird.",
+    "ofLimit": "{used} von {limit}",
+    "noLimit": "{used}, ohne Grenze",
+    "dimension": {
+      "contextSpaces": "Kontexträume",
+      "residentPipelines": "Dauerhafte Pipelines",
+      "publicEndpoints": "Öffentliche Endpunkte",
+      "apps": "Apps"
+    }
   },
   "changes": {
     "accepted": "Als Änderung vorgeschlagen:",

@@ -214,6 +214,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * `GET /api/v1/projects/{project}`: the project and what it holds of each quota, so a person
+         *     sees the limit before the verdict does (PF-75). A project no binding of the caller covers is
+         *     `404`, like every other read of it (PF-59, R20).
+         */
+        get: operations["get_project"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/activity": {
         parameters: {
             query?: never;
@@ -1969,6 +1990,14 @@ export interface components {
             /** @description Whether `POST /api/v1/projects` would open a project for this caller. */
             creation: components["schemas"]["Affordance"];
         };
+        /** @description One project as the Portal holds it, with what it is using of its quota (PF-75). */
+        ProjectDetail: {
+            apiVersion: string;
+            kind: string;
+            metadata: Record<string, never>;
+            spec: Record<string, never>;
+            status: components["schemas"]["ProjectStatus"];
+        };
         /**
          * @description The projects the configuration repository holds (PF-05): one per `projects/<slug>/`
          *     directory the mirror has a manifest from.
@@ -1977,6 +2006,13 @@ export interface components {
             apiVersion: string;
             items: components["schemas"]["ProjectSummary"][];
             kind: string;
+        };
+        ProjectStatus: {
+            /**
+             * @description Every countable dimension by its manifest field name (`contextSpaces`,
+             *     `residentPipelines`, `publicEndpoints`, `apps`).
+             */
+            usage: Record<string, never>;
         };
         ProjectSummary: {
             /** @description The project slug, the `{project}` segment of every other path. */
@@ -2185,6 +2221,16 @@ export interface components {
             leader: boolean;
             manifests: number;
             revision?: string | null;
+        };
+        /** @description One quota dimension of a project: what it holds and what it may (PF-75). */
+        Usage: {
+            /**
+             * Format: int32
+             * @description Absent when no quota limits this dimension.
+             */
+            limit?: number | null;
+            /** Format: int32 */
+            used: number;
         };
         /**
          * @description Proposal validation strictness mode (PF-57).
@@ -2654,6 +2700,47 @@ export interface operations {
             };
             /** @description No git forge configured */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project and its quota usage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No binding of the caller covers the project */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

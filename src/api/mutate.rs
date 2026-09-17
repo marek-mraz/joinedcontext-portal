@@ -429,6 +429,19 @@ pub async fn propose_with_identity(
         &envelope.spec,
     )?;
 
+    // 4b-quota. What the project may hold (PF-73, PF-74): the count the repository would have
+    //       after this write, against the quota in force. Refused here, before a Change exists,
+    //       so every door - the route, an operation, the assistant, an import - refuses it.
+    if operation != Operation::Delete {
+        crate::quotas::check(
+            &state.mirror,
+            project,
+            kind_info.kind,
+            &envelope.metadata.name,
+            &envelope.spec,
+        )?;
+    }
+
     // 4c. Who may propose this kind here, with this content (T-0526, PF-50): the bindings of
     //     the organization repository, before a Change exists. 403 names the verb or the field.
     crate::permissions::for_request(state, identity, project).check(

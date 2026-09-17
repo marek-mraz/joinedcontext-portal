@@ -459,3 +459,75 @@ async fn anyone_on_a_strict_installation_waits_for_a_person() {
         "strict waits for a person (PF-57)"
     );
 }
+
+/// PF-75: the project carries what it holds of each quota, so a person sees the limit before the
+/// verdict does; a project no binding of the caller covers is not there at all (PF-59, R20).
+#[tokio::test]
+async fn the_project_carries_its_usage_against_the_quota_in_force() {
+    let gitea = common::forge().await;
+    let state = common::state_on(&gitea);
+    state.mirror.upsert(envelope(
+        "Organization",
+        "bb",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "domain": "banskabystrica.sk", "projects": { "quota": { "contextSpaces": 3 } } }),
+    ));
+    state.mirror.upsert(envelope(
+        "Project",
+        "ovzdusie",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "organizationRef": { "name": "bb" } }),
+    ));
+    state.mirror.upsert(envelope(
+        "ContextSpace",
+        "vzduch",
+        "ovzdusie",
+        json!({ "isSandbox": false }),
+    ));
+    state.mirror.upsert(envelope(
+        "Role",
+        "viewer",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": ["ContextSpace", "Project"], "verbs": ["read"] }] }),
+    ));
+    state.mirror.upsert(envelope(
+        "RoleBinding",
+        "viewers",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({
+            "role": "viewer",
+            "subjects": [{ "user": "reader@hel.fi" }],
+            "scope": { "project": "ovzdusie" }
+        }),
+    ));
+
+    let answer = common::send(
+        &state,
+        person("reader"),
+        "GET",
+        "/api/v1/projects/ovzdusie",
+        None,
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.text);
+    let detail: Value = serde_json::from_str(&answer.text).expect("the project");
+    assert_eq!(detail["status"]["usage"]["contextSpaces"]["used"], 1);
+    assert_eq!(detail["status"]["usage"]["contextSpaces"]["limit"], 3);
+    // A dimension no quota limits is listed with its count and no limit.
+    assert_eq!(detail["status"]["usage"]["apps"]["used"], 0);
+    assert!(
+        detail["status"]["usage"]["apps"]["limit"].is_null(),
+        "{}",
+        answer.text
+    );
+
+    let stranger = common::send(
+        &state,
+        person("nobody"),
+        "GET",
+        "/api/v1/projects/ovzdusie",
+        None,
+    )
+    .await;
+    assert_eq!(stranger.status, StatusCode::NOT_FOUND, "{}", stranger.text);
+}

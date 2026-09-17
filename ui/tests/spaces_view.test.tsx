@@ -53,16 +53,21 @@ const CHANGE = {
   status: { lane: "green", phase: "PendingApproval", plan: { create: 1 } },
 };
 
+/** The project as `GET /api/v1/projects/{project}` answers it: the manifest and its usage. */
 function project(quota?: number) {
   return {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "Project",
     metadata: { name: "banskabystrica", namespace: "org" },
-    spec: {
-      organizationRef: "banskabystrica.sk",
-      ...(quota === undefined ? {} : { quotas: { contextSpaces: quota } }),
+    spec: { organizationRef: "banskabystrica.sk" },
+    status: {
+      usage: {
+        apps: { used: 0 },
+        contextSpaces: { used: 2, ...(quota === undefined ? {} : { limit: quota }) },
+        publicEndpoints: { used: 1, limit: 4 },
+        residentPipelines: { used: 0, limit: 3 },
+      },
     },
-    status: { phase: "Live" },
   };
 }
 
@@ -84,8 +89,8 @@ function renderSpaces(options: { quota?: number } = { quota: 3 }) {
     if (request.method === "POST") {
       return json(CHANGE, 202);
     }
-    if (path === "/api/v1/projects/org/projects") {
-      return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [project(options.quota)] });
+    if (path === "/api/v1/projects/banskabystrica") {
+      return json(project(options.quota));
     }
     if (path.includes("/projects/banskabystrica/projects")) {
       return json({ status: 404, title: "Resource Not Found" }, 404);
@@ -147,21 +152,27 @@ describe("context spaces view", () => {
     );
   });
 
-  it("counts the used quota against the project limit", async () => {
+  it("shows every quota of the project with what it holds of it", async () => {
     renderSpaces({ quota: 3 });
 
-    const bar = await screen.findByRole("progressbar", { name: en.quota.contextSpaces });
+    const bar = await screen.findByRole("progressbar", { name: en.quota.dimension.contextSpaces });
     expect(bar).toHaveAttribute("aria-valuenow", "2");
     expect(bar).toHaveAttribute("aria-valuemax", "3");
-    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    expect(screen.getByText("2 of 3")).toBeInTheDocument();
+    // Every dimension, not only the one this page creates; a dimension without a limit says so.
+    expect(screen.getByText("1 of 4")).toBeInTheDocument();
+    expect(screen.getByText(en.quota.dimension.residentPipelines)).toBeInTheDocument();
+    expect(screen.getByText("0, no limit")).toBeInTheDocument();
   });
 
-  it("reads the quota from the organization's Project manifest, never from inside the project", async () => {
+  it("reads the numbers from the project route, which knows the quota in force", async () => {
     const fetchMock = renderSpaces({ quota: 3 });
-    await screen.findByRole("progressbar", { name: en.quota.contextSpaces });
+    await screen.findByRole("progressbar", { name: en.quota.dimension.contextSpaces });
     const paths = fetchMock.mock.calls.map((call) => new URL((call[0] as Request).url).pathname);
-    expect(paths).toContain("/api/v1/projects/org/projects");
-    expect(paths.some((path) => path.includes("/projects/banskabystrica/projects"))).toBe(false);
+    expect(paths).toContain("/api/v1/projects/banskabystrica");
+    // The page no longer reads the Project manifest itself, so it cannot miss the
+    // organization's default (PF-73).
+    expect(paths).not.toContain("/api/v1/projects/org/projects");
   });
 
   it("blocks a new space once the quota is used up", async () => {

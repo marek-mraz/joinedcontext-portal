@@ -146,7 +146,17 @@
   "quota": {
     "contextSpaces": "Kontextové prostory",
     "unlimited": "{used}, bez limitu",
-    "exceeded": "Kvóta projektu {limit} kontextových prostorů je vyčerpaná. O její navýšení požádejte správce platformy."
+    "exceeded": "Kvóta projektu {limit} kontextových prostorů je vyčerpaná. O její navýšení požádejte správce platformy.",
+    "title": "Kvóta",
+    "lead": "Co tento projekt má a co mít může. Změna, která by ji překročila, se odmítne ještě před návrhem.",
+    "ofLimit": "{used} z {limit}",
+    "noLimit": "{used}, bez limitu",
+    "dimension": {
+      "contextSpaces": "Kontextové prostory",
+      "residentPipelines": "Trvalé linky",
+      "publicEndpoints": "Veřejná rozhraní",
+      "apps": "Aplikace"
+    }
   },
   "changes": {
     "accepted": "Navrženo jako změna:",

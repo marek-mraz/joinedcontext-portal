@@ -21,6 +21,7 @@ pub use ops::drafts;
 pub use ops::verdict;
 pub mod permissions;
 pub mod plan;
+pub mod quotas;
 pub mod reconciler;
 pub mod resource;
 pub mod server;

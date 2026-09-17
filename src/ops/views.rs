@@ -295,6 +295,34 @@ fn revisions_input_schema() -> Value {
     })
 }
 
+fn project_usage_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "The project and what it holds of each quota (PF-75)",
+        "properties": {
+            "metadata": { "type": "object" },
+            "spec": { "type": "object" },
+            "status": {
+                "type": "object",
+                "properties": {
+                    "usage": {
+                        "type": "object",
+                        "description": "Per dimension: `used`, and `limit` when a quota sets one",
+                        "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                                "used": { "type": "integer" },
+                                "limit": { "type": "integer" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "required": ["status"]
+    })
+}
+
 fn endpoints_everywhere_output_schema() -> Value {
     json!({
         "type": "object",
@@ -631,6 +659,34 @@ pub fn operations() -> Vec<Operation> {
                     )
                     .await?;
                     Ok(serde_json::to_value(status)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_project_get",
+            title: "Read A Project",
+            description: "The project and what it holds of each quota: context spaces, resident pipelines, public endpoints and apps",
+            input: super::empty_input_schema,
+            output: project_usage_output_schema,
+            annotations: Annotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+            },
+            kind: "*",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<EmptyInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let _: EmptyInput = parse_input(val)?;
+                    let axum::Json(detail) = crate::api::projects::get_project(
+                        as_user(caller),
+                        axum::extract::State(state.clone()),
+                        axum::extract::Path(project.to_owned()),
+                    )
+                    .await?;
+                    Ok(serde_json::to_value(detail)?)
                 })
             },
         },

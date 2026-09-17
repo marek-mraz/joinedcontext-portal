@@ -510,6 +510,58 @@
         }
       }
     },
+    "/api/v1/projects/{project}": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "summary": "`GET /api/v1/projects/{project}`: the project and what it holds of each quota, so a person\nsees the limit before the verdict does (PF-75). A project no binding of the caller covers is\n`404`, like every other read of it (PF-59, R20).",
+        "operationId": "get_project",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project and its quota usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No binding of the caller covers the project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/activity": {
       "get": {
         "tags": [
@@ -7734,6 +7786,34 @@
           }
         }
       },
+      "ProjectDetail": {
+        "type": "object",
+        "description": "One project as the Portal holds it, with what it is using of its quota (PF-75).",
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "spec",
+          "status"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "spec": {
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectStatus"
+          }
+        }
+      },
       "ProjectList": {
         "type": "object",
         "description": "The projects the configuration repository holds (PF-05): one per `projects/<slug>/`\ndirectory the mirror has a manifest from.",
@@ -7754,6 +7834,18 @@
           },
           "kind": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectStatus": {
+        "type": "object",
+        "required": [
+          "usage"
+        ],
+        "properties": {
+          "usage": {
+            "type": "object",
+            "description": "Every countable dimension by its manifest field name (`contextSpaces`,\n`residentPipelines`, `publicEndpoints`, `apps`)."
           }
         }
       },
@@ -8368,6 +8460,29 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "description": "One quota dimension of a project: what it holds and what it may (PF-75).",
+        "required": [
+          "used"
+        ],
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Absent when no quota limits this dimension.",
+            "minimum": 0
+          },
+          "used": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

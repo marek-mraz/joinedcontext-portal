@@ -28,7 +28,9 @@ use crate::api::health::{Health, Readiness};
 use crate::api::ops::{OperationAnnotations, OperationSummary};
 use crate::api::pipelines::PipelineMetrics;
 use crate::api::preferences::Preferences;
-use crate::api::projects::{OpenProject, ProjectList, ProjectSummary};
+use crate::api::projects::{
+    OpenProject, ProjectDetail, ProjectList, ProjectStatus, ProjectSummary, Usage,
+};
 use crate::api::resources::{ListMeta, ResourceList};
 use crate::api::service_accounts::{KeyInfo, KeyList, MintedKey};
 use crate::auth::oidc::{LogoutTarget, Me};
@@ -59,6 +61,7 @@ use crate::tools::model_tools::{
         crate::auth::oidc::logout,
         crate::api::projects::list_projects,
         crate::api::projects::open_project,
+        crate::api::projects::get_project,
         crate::api::resources::list,
         crate::api::resources::list_endpoints_everywhere,
         crate::api::blueprints::list_blueprints,
@@ -174,6 +177,9 @@ use crate::tools::model_tools::{
         ResourceList,
         ListMeta,
         OpenProject,
+        ProjectDetail,
+        ProjectStatus,
+        Usage,
         ProjectList,
         ProjectSummary,
         Change,

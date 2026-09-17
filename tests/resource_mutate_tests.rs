@@ -1287,3 +1287,109 @@ async fn a_kind_the_platform_cannot_load_is_refused_before_anything_is_written()
         "{detail}"
     );
 }
+
+/// PF-73, PF-74: the write that would put the project over a quota is refused before a change
+/// exists, and the refusal names the count and the limit. The dry run says the same, so a person
+/// learns it from the form and not from the merge request.
+#[tokio::test]
+async fn the_pipeline_above_the_quota_is_refused_with_the_count_and_the_limit() {
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None);
+    let org = |spec: serde_json::Value| ResourceEnvelope {
+        api_version: API_VERSION.into(),
+        kind: "Organization".into(),
+        metadata: ObjectMeta::new("bb", joinedcontext_portal::permissions::ORG_NAMESPACE),
+        spec,
+        status: None,
+    };
+    state.mirror.upsert(org(
+        json!({ "domain": "banskabystrica.sk", "projects": { "quota": { "residentPipelines": 1 } } }),
+    ));
+    let pipeline = |name: &str| {
+        json!({
+            "apiVersion": API_VERSION,
+            "kind": "Pipeline",
+            "metadata": { "name": name, "namespace": "ovzdusie" },
+            "spec": {
+                "class": "resident",
+                "source": { "dataSourceRef": { "kind": "DataSource", "name": "mqtt-mesto" } },
+                "compute": { "kind": "bloblang", "bloblang": "root = this" },
+                "targetEndpoint": "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air"
+            }
+        })
+    };
+    state
+        .mirror
+        .upsert(serde_json::from_value::<ResourceEnvelope>(pipeline("first")).expect("a pipeline"));
+
+    let post = |uri: &str, body: serde_json::Value| {
+        let app = server::app(state.clone());
+        let config = config.clone();
+        let uri = uri.to_owned();
+        async move {
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(uri)
+                        .header(header::COOKIE, session_and_csrf_cookies(&config))
+                        .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(serde_json::to_vec(&body).expect("json")))
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            let status = response.status();
+            let bytes = response
+                .into_body()
+                .collect()
+                .await
+                .expect("body")
+                .to_bytes();
+            (status, String::from_utf8_lossy(&bytes).into_owned())
+        }
+    };
+
+    let (status, body) = post("/api/v1/projects/ovzdusie/pipelines", pipeline("second")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        body.contains("residentPipelines 2 of 1"),
+        "the refusal names the count and the limit: {body}"
+    );
+
+    // The same answer on the door a form uses, before anything is proposed.
+    let (status, body) = post(
+        "/api/v1/projects/ovzdusie/pipelines?dryRun=All",
+        pipeline("second"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("residentPipelines 2 of 1"), "{body}");
+
+    // The project's own quota is what counts, and it may be raised there.
+    state.mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.into(),
+        kind: "Project".into(),
+        metadata: ObjectMeta::new("ovzdusie", joinedcontext_portal::permissions::ORG_NAMESPACE),
+        spec: json!({ "organizationRef": { "name": "bb" }, "quotas": { "residentPipelines": 5 } }),
+        status: None,
+    });
+    let (status, body) = post(
+        "/api/v1/projects/ovzdusie/pipelines?dryRun=All",
+        pipeline("second"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// PF-73: a `Project` that raises a quota above the organization's default is a red-lane change,
+/// so an org-admin decides it and not the project's own steward.
+#[tokio::test]
+async fn a_project_that_raises_its_quota_is_a_red_lane_change() {
+    use joinedcontext_portal::change::classify;
+
+    let spec = json!({ "organizationRef": { "name": "bb" }, "quotas": { "residentPipelines": 9 } });
+    assert_eq!(classify("Project", Operation::Create, &spec), Lane::Red);
+    assert_eq!(classify("Project", Operation::Update, &spec), Lane::Red);
+}

@@ -1829,7 +1829,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 51);
+        assert_eq!(ops.len(), 52);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -1874,6 +1874,7 @@ mod tests {
             "jc_service_account_key_list",
             "jc_ckan_status",
             "jc_endpoint_list_all",
+            "jc_project_get",
             "jc_project_revisions",
             "jc_run_answer",
             "jc_run_message",
@@ -1922,6 +1923,7 @@ mod tests {
     ("GET", "/endpoints", "jc_endpoint_list_all"),
     ("GET", "/projects", "the door before a project; every operation runs inside one"),
     ("POST", "/projects", "jc_project_create"),
+    ("GET", "/projects/{project}", "jc_project_get"),
     ("GET", "/projects/{project}/activity", "jc_activity_list"),
     ("GET", "/projects/{project}/activity/stream", "a live stream, not a call and an answer"),
     ("GET", "/projects/{project}/agent-runs", "jc_run_list"),

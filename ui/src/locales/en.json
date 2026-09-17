@@ -146,7 +146,17 @@
   "quota": {
     "contextSpaces": "Context Spaces",
     "unlimited": "{used}, no limit",
-    "exceeded": "The project quota of {limit} Context Spaces is used up. Ask a platform administrator to raise it."
+    "exceeded": "The project quota of {limit} Context Spaces is used up. Ask a platform administrator to raise it.",
+    "title": "Quota",
+    "lead": "What this project holds, and what it may. A change that would go over is refused before it is proposed.",
+    "ofLimit": "{used} of {limit}",
+    "noLimit": "{used}, no limit",
+    "dimension": {
+      "contextSpaces": "Context Spaces",
+      "residentPipelines": "Resident pipelines",
+      "publicEndpoints": "Public endpoints",
+      "apps": "Apps"
+    }
   },
   "changes": {
     "accepted": "Proposed as a change:",

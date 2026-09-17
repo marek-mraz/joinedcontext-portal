@@ -58,8 +58,105 @@ pub async fn list_projects(
     }))
 }
 
+/// One quota dimension of a project: what it holds and what it may (PF-75).
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Usage {
+    pub used: u32,
+    /// Absent when no quota limits this dimension.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectStatus {
+    /// Every countable dimension by its manifest field name (`contextSpaces`,
+    /// `residentPipelines`, `publicEndpoints`, `apps`).
+    #[schema(value_type = Object)]
+    pub usage: std::collections::BTreeMap<String, Usage>,
+}
+
+/// One project as the Portal holds it, with what it is using of its quota (PF-75).
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDetail {
+    pub api_version: String,
+    pub kind: String,
+    #[schema(value_type = Object)]
+    pub metadata: Value,
+    #[schema(value_type = Object)]
+    pub spec: Value,
+    pub status: ProjectStatus,
+}
+
+/// `GET /api/v1/projects/{project}`: the project and what it holds of each quota, so a person
+/// sees the limit before the verdict does (PF-75). A project no binding of the caller covers is
+/// `404`, like every other read of it (PF-59, R20).
+#[utoipa::path(
+    get,
+    path = "/api/v1/projects/{project}",
+    tag = "resources",
+    params(("project" = String, Path, description = "Project slug")),
+    responses(
+        (status = 200, description = "The project and its quota usage", body = ProjectDetail),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "No binding of the caller covers the project", body = ProblemDetails)
+    )
+)]
+pub async fn get_project(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    axum::extract::Path(project): axum::extract::Path<String>,
+) -> Result<Json<ProjectDetail>, ApiError> {
+    let identity = &user.0.identity;
+    let not_found = || ApiError::NotFound(format!("project '{project}' not found"));
+    if !crate::permissions::for_request(&state, identity, &project).may_read_project() {
+        return Err(not_found());
+    }
+    let manifest = state
+        .mirror
+        .get(crate::permissions::ORG_NAMESPACE, "Project", &project);
+    // A project directory the repository holds without a Project manifest is still a project:
+    // its usage is real and the page should show it (PF-05).
+    if manifest.is_none()
+        && !state
+            .mirror
+            .namespaces()
+            .iter()
+            .any(|held| held == &project)
+    {
+        return Err(not_found());
+    }
+
+    let quotas = crate::quotas::effective(&state.mirror, &project);
+    let limits = crate::quotas::limits(&quotas);
+    let usage = crate::quotas::usage(&state.mirror, &project)
+        .into_iter()
+        .map(|(dimension, used)| {
+            let limit = limits.get(&dimension).copied();
+            (dimension, Usage { used, limit })
+        })
+        .collect();
+
+    Ok(Json(ProjectDetail {
+        api_version: API_VERSION.to_string(),
+        kind: "Project".to_string(),
+        metadata: manifest
+            .as_ref()
+            .and_then(|env| serde_json::to_value(&env.metadata).ok())
+            .unwrap_or_else(
+                || json!({ "name": project, "namespace": crate::permissions::ORG_NAMESPACE }),
+            ),
+        spec: manifest.map(|env| env.spec).unwrap_or(Value::Null),
+        status: ProjectStatus { usage },
+    }))
+}
+
 pub fn router() -> Router<AppState> {
-    Router::new().route("/projects", get(list_projects).post(open_project))
+    Router::new()
+        .route("/projects", get(list_projects).post(open_project))
+        .route("/projects/{project}", get(get_project))
 }
 
 // ---------------------------------------------------------------------------
