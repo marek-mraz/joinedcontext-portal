@@ -371,11 +371,17 @@ async fn reject(
     Ok(ProposeOutcome::Change(change).into_value())
 }
 
-/// An agent run never decides a change (AG-11): approving and rejecting are a person's.
-pub fn refuse_agent(caller: &Caller) -> Result<(), OpError> {
-    if caller.via == Via::Agent {
+/// Deciding a change is a person's, and an MCP client is refused with an agent run (AG-11,
+/// owner decision T-1005): the client is a tool a model drives even when it carries the
+/// person's token, so leaving `Via::Mcp` open would let an agent approve by choosing another
+/// transport. Approving and rejecting stay in the Portal and on the REST route. The run and
+/// service-account operations keep [`refuse_agent`]: they are not a change's decision.
+pub fn refuse_agent_decision(caller: &Caller) -> Result<(), OpError> {
+    if matches!(caller.via, Via::Agent | Via::Mcp) {
         return Err(OpError::Api(ApiError::Denied(
-            "an agent never approves or rejects a change; a person does (AG-11)".into(),
+            "an agent never approves or rejects a change; a person does, in the Portal or over \
+             the REST route (AG-11)"
+                .into(),
         )));
     }
     Ok(())
@@ -476,7 +482,7 @@ pub fn operations() -> Vec<Operation> {
             validate: |val| parse_input::<ChangeRejectInput>(val.clone()).map(|_| ()),
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    refuse_agent(caller)?;
+                    refuse_agent_decision(caller)?;
                     reject(caller, state, project, parse_input(val)?).await
                 })
             },

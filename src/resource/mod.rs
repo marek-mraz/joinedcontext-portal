@@ -62,6 +62,7 @@ pub fn phase_str(phase: Phase) -> &'static str {
         Phase::Deploying => "Deploying",
         Phase::Live => "Live",
         Phase::Error => "Error",
+        Phase::Drifted => "Drifted",
     }
 }
 

@@ -754,3 +754,57 @@ async fn permissions_me_says_whether_a_project_may_be_opened_and_why_not() {
         "{effective}"
     );
 }
+
+/// AG-11 and the owner's decision of 2026-09-17 (T-1005): deciding a change is a person's, and
+/// an MCP client is refused with an agent run. The client is a tool a model drives even when it
+/// carries the person's token, so leaving `Via::Mcp` open would let an agent approve by choosing
+/// another transport. A session caller passes this gate and meets the route's own checks.
+#[tokio::test]
+async fn a_change_is_never_decided_over_mcp_or_by_an_agent() {
+    let config = Config::for_tests();
+    let state = AppState::new(config, None).with_mirror(Arc::new(Mirror::new()));
+    let person = ops::Caller {
+        identity: joinedcontext_portal::auth::session::Identity {
+            subject: "sub-steward".into(),
+            username: "steward".into(),
+            email: Some("steward@banskabystrica.sk".into()),
+            name: None,
+            roles: vec!["portal-approver".into()],
+            groups: vec!["platform-admins".into()],
+        },
+        via: ops::Via::Session,
+        access: None,
+    };
+    let over_mcp = ops::Caller {
+        via: ops::Via::Mcp,
+        ..person.clone()
+    };
+    let agent = ops::Caller {
+        via: ops::Via::Agent,
+        ..person.clone()
+    };
+
+    for name in ["jc_change_approve", "jc_change_reject"] {
+        let Some(op) = ops::find(name) else { continue };
+        let input = json!({ "id": "chg-0000beef" });
+
+        for (who, caller) in [("mcp", &over_mcp), ("agent", &agent)] {
+            let refused = ops::call(op, caller, &state, "ovzdusie", input.clone())
+                .await
+                .unwrap_err();
+            let said = format!("{refused:?}");
+            assert!(
+                said.contains("a person does"),
+                "{name} over {who} must be refused by the AG-11 gate: {said}"
+            );
+        }
+
+        // The person is not stopped here; whatever answers comes from the route's own checks.
+        let answered = ops::call(op, &person, &state, "ovzdusie", input).await;
+        let said = format!("{answered:?}");
+        assert!(
+            !said.contains("a person does"),
+            "{name}: a session caller must pass the AG-11 gate: {said}"
+        );
+    }
+}

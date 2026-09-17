@@ -123,7 +123,7 @@ impl Caller {
         // told the profile does not grant what it plainly lists explains nothing. The true reason
         // is that no profile can grant it.
         if op.kind == "Change" && op.verb.is_some() {
-            resources::refuse_agent(self)?;
+            resources::refuse_agent_decision(self)?;
         }
         self.grants(op)
     }
@@ -1569,7 +1569,7 @@ fn core_operations() -> Vec<Operation> {
             },
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    resources::refuse_agent(caller)?;
+                    resources::refuse_agent_decision(caller)?;
                     let input: ChangeApproveInput =
                         serde_json::from_value(val).map_err(|e| {
                             let (path, message) = serde_error_path_and_message(&e);

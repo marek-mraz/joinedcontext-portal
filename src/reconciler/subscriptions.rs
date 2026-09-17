@@ -53,11 +53,6 @@ pub struct SubscriptionSync {
     org_domain: String,
 }
 
-#[derive(serde::Deserialize)]
-struct RealmToken {
-    access_token: String,
-}
-
 impl SubscriptionSync {
     /// A sync against one platform host, authenticating as the Portal's own client.
     pub fn new(
@@ -89,25 +84,7 @@ impl SubscriptionSync {
     }
 
     async fn token(&self) -> Result<String, String> {
-        let response = self
-            .http
-            .post(format!("{}/protocol/openid-connect/token", self.issuer))
-            .form(&[
-                ("grant_type", "client_credentials"),
-                ("client_id", self.client_id.as_str()),
-                ("client_secret", self.client_secret.as_str()),
-            ])
-            .send()
-            .await
-            .map_err(|err| err.to_string())?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "the realm refused the reconciler's client: {}",
-                response.status()
-            ));
-        }
-        let token: RealmToken = response.json().await.map_err(|err| err.to_string())?;
-        Ok(token.access_token)
+        super::realm::token(&self.http, &self.issuer, &self.client_id, &self.client_secret).await
     }
 
     /// Brings every space's subscriptions to what the repository declares.
