@@ -1317,7 +1317,8 @@
     "removeLead": "{id} wird über diesen Endpunkt aus dem Raum entfernt.",
     "removeConfirm": "Löschen",
     "removeNote": "Die Policy des Endpunkts entscheidet: Die Löschung läuft mit Ihrer Anmeldung, nicht mit einer Dienstidentität, und lässt sich nicht rückgängig machen.",
-    "deleteDenied": "This endpoint's grant does not let you delete a {type}"
+    "deleteDenied": "This endpoint's grant does not let you delete a {type}",
+    "export": "Diese Seite exportieren"
   },
   "agentRun": {
     "loading": "Lese den Lauf…",

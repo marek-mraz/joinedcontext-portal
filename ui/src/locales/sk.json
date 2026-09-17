@@ -1317,7 +1317,8 @@
     "removeLead": "{id} sa odstráni z priestoru cez tento endpoint.",
     "removeConfirm": "Zmazať",
     "removeNote": "Rozhoduje Policy endpointu: zmazanie beží s vaším prihlásením, nie so servisnou identitou, a nedá sa vrátiť.",
-    "deleteDenied": "Grant tejto koncovky ti nedovoľuje mazať {type}"
+    "deleteDenied": "Grant tejto koncovky ti nedovoľuje mazať {type}",
+    "export": "Exportovať túto stranu"
   },
   "agentRun": {
     "loading": "Čítam spustenie…",

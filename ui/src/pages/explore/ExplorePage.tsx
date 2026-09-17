@@ -151,6 +151,19 @@ export function ExplorePage({
   const count = page.data?.count;
   const hasNext = count !== undefined ? offset + limit < count : rows.length === limit;
 
+  // UI-33: the page the person is looking at, as the file they can keep. It is written from
+  // the rows already in hand rather than fetched again: a second read through the endpoint
+  // would be a second answer, and a person exporting "this page" means this one.
+  const download = () => {
+    const file = new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" });
+    const href = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = `${query.type}-${offset + 1}-${offset + rows.length}.json`;
+    link.click();
+    URL.revokeObjectURL(href);
+  };
+
   function changeQuery(next: EntityQuery) {
     setQuery(next);
     setOffset(0);
@@ -260,6 +273,9 @@ export function ExplorePage({
             </Button>
             <Button size="sm" disabled={!hasNext} onClick={() => setOffset(offset + limit)}>
               {t("explore.next")}
+            </Button>
+            <Button size="sm" disabled={rows.length === 0} onClick={download}>
+              {t("explore.export")}
             </Button>
           </div>
           <div className="overflow-x-auto">

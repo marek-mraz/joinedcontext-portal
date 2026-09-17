@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { queryKeys } from "../src/api/client";
 import { ExplorePage } from "../src/pages/explore/ExplorePage";
+import en from "../src/locales/en.json";
 
 function list(items: unknown[]) {
   return { apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items };
@@ -110,6 +111,74 @@ afterEach(() => {
 });
 
 describe("the explorer", () => {
+  /// T-1116, UI-33: the page a person is looking at, as a file they can keep. It is written
+  /// from the rows in hand, so the file is the view and not a second answer.
+  it("writes the page it shows to a file", async () => {
+    const captured: Blob[] = [];
+    const revoked: string[] = [];
+    let named = "";
+    const urls = URL as unknown as Record<string, unknown>;
+    const realCreate = urls.createObjectURL;
+    const realRevoke = urls.revokeObjectURL;
+    urls.createObjectURL = (blob: Blob) => {
+      captured.push(blob);
+      return "blob:the-page";
+    };
+    urls.revokeObjectURL = (href: string) => revoked.push(href);
+    const clicked = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        named = this.download;
+      });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: Request) => {
+        const request = input as Request;
+        if (request.url.includes("/entities?")) {
+          return Promise.resolve(
+            new Response(JSON.stringify([ROW]), {
+              status: 200,
+              headers: { "Content-Type": "application/json", "NGSILD-Results-Count": "1" },
+            }),
+          );
+        }
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(queryKeys.list("helsinki", "endpoints"), ENDPOINTS);
+    client.setQueryData(queryKeys.list("helsinki", "spaces"), SPACES);
+    client.setQueryData(queryKeys.list("helsinki", "datamodels"), MODELS);
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <ExplorePage project="helsinki" initialSpace="helsinki" initialEndpoint="helsinki-bikes" />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/Entity type/i),
+      "BikeHireDockingStation",
+    );
+    const button = await screen.findByRole("button", { name: en.explore.export });
+    await waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+    await userEvent.click(button);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0].type).toBe("application/json");
+    expect(JSON.parse(await captured[0].text())).toEqual([ROW]);
+    expect(named).toBe("BikeHireDockingStation-1-1.json");
+    expect(revoked).toEqual(["blob:the-page"]);
+
+    clicked.mockRestore();
+    urls.createObjectURL = realCreate;
+    urls.revokeObjectURL = realRevoke;
+  });
+
   it("reads the endpoint list another page already cached as the API's List (T-0625)", async () => {
     vi.stubGlobal(
       "fetch",
