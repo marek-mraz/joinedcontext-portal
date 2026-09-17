@@ -230,7 +230,7 @@ impl Driver {
 
 /// The pages the assistant may open, and what each one needs (UI-59). The route is built here,
 /// so a page the enum does not name cannot be reached however the model spells it.
-const PAGES: [(&str, &str); 9] = [
+const PAGES: [(&str, &str); 18] = [
     ("spaces", "/projects/{project}/spaces"),
     ("space", "/projects/{project}/spaces/{name}"),
     ("models", "/projects/{project}/models"),
@@ -240,6 +240,18 @@ const PAGES: [(&str, &str); 9] = [
     ("policies", "/projects/{project}/policies"),
     ("shared", "/projects/{project}/shared"),
     ("draft", "/projects/{project}/{plural}?draft={name}"),
+    // The rest of what `ui/src/router.tsx` serves (T-1011, T-1012): the assistant opens the
+    // page a person would, so every route a person reaches by clicking is one it can name.
+    ("activity", "/projects/{project}/activity"),
+    ("approvals", "/projects/{project}/approvals"),
+    ("approval", "/projects/{project}/approvals/{name}"),
+    ("explore", "/projects/{project}/explore"),
+    ("ckan", "/projects/{project}/ckan"),
+    ("federation", "/projects/{project}/federation"),
+    ("assistant", "/projects/{project}/assistant"),
+    ("app", "/projects/{project}/apps/{name}"),
+    // A resource of any kind, the way `model` and `endpoint` open one of theirs.
+    ("resource", "/projects/{project}/{plural}?name={name}"),
 ];
 
 /// One `jc_ui_navigate` call.
@@ -537,5 +549,58 @@ mod tests {
     #[test]
     fn no_operation_is_no_section() {
         assert_eq!(section(&[]), "");
+    }
+
+    /// T-1011, T-1012: the assistant opens the page a person would, so every route
+    /// `ui/src/router.tsx` serves is one it can name. A page the router has and the table does
+    /// not is a page the person has to find by hand while the assistant says it cannot.
+    #[test]
+    fn every_page_a_person_reaches_is_one_the_assistant_can_name() {
+        for page in [
+            "activity",
+            "approvals",
+            "approval",
+            "explore",
+            "ckan",
+            "federation",
+            "assistant",
+            "app",
+            "resource",
+        ] {
+            assert!(
+                PAGES.iter().any(|(name, _)| *name == page),
+                "{page} is a route of the Portal and not a page of the table"
+            );
+        }
+    }
+
+    /// Every template names only the placeholders the call can fill, so a route cannot be built
+    /// with a hole in it.
+    #[test]
+    fn a_page_template_names_only_project_name_and_plural() {
+        for (page, template) in PAGES {
+            let mut rest = template;
+            while let Some(start) = rest.find('{') {
+                let end = rest[start..]
+                    .find('}')
+                    .map(|offset| start + offset)
+                    .unwrap_or_else(|| panic!("{page}: unclosed placeholder in {template}"));
+                let placeholder = &rest[start + 1..end];
+                assert!(
+                    matches!(placeholder, "project" | "name" | "plural"),
+                    "{page}: {template} names {placeholder}, which no call fills"
+                );
+                rest = &rest[end + 1..];
+            }
+        }
+    }
+
+    /// A page that takes a name is refused without one rather than opening the list instead.
+    #[test]
+    fn the_new_pages_carry_what_they_name() {
+        let answer = "```json\n{ \"tool\": \"jc_ui_navigate\", \"arguments\": { \"page\": \"approval\", \"name\": \"chg-0000beef\" } }\n```";
+        let call = navigate_call(answer).expect("a call").expect("a page");
+        assert_eq!(call.page, "approval");
+        assert_eq!(call.name.as_deref(), Some("chg-0000beef"));
     }
 }
