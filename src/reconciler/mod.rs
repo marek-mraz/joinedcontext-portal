@@ -12,6 +12,7 @@ pub mod drift;
 pub mod groups;
 pub mod leader;
 pub mod realm;
+pub mod registrations;
 pub mod streams;
 pub mod subscriptions;
 

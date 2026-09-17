@@ -29,6 +29,7 @@ use utoipa::ToSchema;
 
 use super::groups::GroupSync;
 use super::leader::Leadership;
+use super::registrations::RegistrationOutcome;
 use super::streams::{
     eligible, is_stream_pipeline, make_condition, Bentos, StreamDeployer, StreamOutcome,
 };
@@ -97,6 +98,7 @@ pub struct Syncer {
     streams: Option<Arc<StreamDeployer>>,
     /// `None` when no gateway address is configured: a `Subscription` is then read from the
     /// repository and written into no broker (T-0931, CC-72).
+    registrations: Option<Arc<super::registrations::RegistrationSync>>,
     subscriptions: Option<Arc<super::subscriptions::SubscriptionSync>>,
     /// `None` when no Keycloak admin client is configured: the `Group` manifests are then read
     /// and served, and the realm is written by nobody (PF-63).
@@ -132,6 +134,7 @@ impl Syncer {
             leadership: None,
             converger: None,
             streams: None,
+            registrations: None,
             subscriptions: None,
             groups: None,
             activity: None,
@@ -201,6 +204,15 @@ impl Syncer {
 
     /// Makes each run write what every `Subscription` manifest declares into its space, and
     /// remove the subscription of a manifest that is gone (CC-72, DS-16).
+    /// The broker projection of `ContextSourceRegistration` manifests (T-0345, PF-48).
+    pub fn with_registrations(
+        mut self,
+        registrations: Arc<super::registrations::RegistrationSync>,
+    ) -> Self {
+        self.registrations = Some(registrations);
+        self
+    }
+
     pub fn with_subscriptions(
         mut self,
         subscriptions: Arc<super::subscriptions::SubscriptionSync>,
@@ -666,6 +678,38 @@ impl Syncer {
                                 "SubscriptionWritten",
                                 "False",
                                 "SpaceRefused",
+                                reason,
+                            )];
+                        }
+                    }
+                }
+                fresh_mirror.upsert(envelope);
+            }
+        }
+
+        // 5b''. Every `ContextSourceRegistration`, written into the tenant of the hub space it
+        //       names (T-0345, PF-48). A hub is a configuration, so the manifest's status is
+        //       where a person sees whether the member was actually registered.
+        if let Some(registrations) = self.registrations.as_ref() {
+            let outcomes = registrations.converge(&fresh_mirror, &self.mirror).await;
+            for (namespace, name, outcome) in outcomes {
+                let Some(mut envelope) =
+                    fresh_mirror.get(&namespace, "ContextSourceRegistration", &name)
+                else {
+                    continue;
+                };
+                if let Some(status) = envelope.status.as_mut() {
+                    match &outcome {
+                        RegistrationOutcome::Written => {
+                            status.phase = crate::resource::Phase::Live;
+                            status.conditions = Vec::new();
+                        }
+                        RegistrationOutcome::Error(reason) => {
+                            status.phase = crate::resource::Phase::Error;
+                            status.conditions = vec![make_condition(
+                                "RegistrationWritten",
+                                "False",
+                                "BrokerRefused",
                                 reason,
                             )];
                         }

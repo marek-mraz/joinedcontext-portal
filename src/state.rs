@@ -301,6 +301,21 @@ impl AppState {
                      manifests are read, no broker is written"
                 ),
             }
+            // A declared ContextSourceRegistration is written straight at the broker, in the
+            // tenant of its hub space (T-0345, SP-08): it is a control-plane act with no
+            // gateway operation behind it and no credential on the hop. Without the broker's
+            // address the manifests are read and served and no hub is federated.
+            match state.config.broker_url.clone() {
+                Some(broker) => {
+                    syncer = syncer.with_registrations(Arc::new(
+                        crate::reconciler::registrations::RegistrationSync::new(broker),
+                    ));
+                }
+                None => tracing::info!(
+                    "no broker address: ContextSourceRegistration manifests are read, no hub is \
+                     federated"
+                ),
+            }
             // The `SyncSource` loop needs the forge and a way out to the origins. Without the
             // second there is no loop at all: a driver that cannot fetch would report every
             // source as failing every minute (MF-27).

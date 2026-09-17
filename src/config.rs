@@ -28,6 +28,13 @@ pub struct Config {
     /// `Subscription` is written (`/cs/{space}/ngsi-ld/v1/subscriptions`, T-0931). `None`
     /// leaves subscriptions read from the repository and written nowhere.
     pub gateway_url: Option<String>,
+    /// The context broker as the Portal reaches it inside the cluster, which is where a
+    /// declared `ContextSourceRegistration` is written, in the tenant of its hub space
+    /// (`POST /ngsi-ld/v1/csourceRegistrations`, T-0345, SP-08). It is also the address the
+    /// registration tells the broker to read a member at, because a hub reads a member's tenant
+    /// on the same broker (PF-48). `None` leaves registrations read from the repository and
+    /// written nowhere.
+    pub broker_url: Option<String>,
     /// The organization's domain, the third segment of every URN this instance writes
     /// (`urn:ngsi-ld:{Type}:{orgDomain}:{space}:{localId}`).
     pub org_domain: Option<String>,
@@ -97,6 +104,7 @@ impl std::fmt::Debug for Config {
             )
             .field("pipeline_runner_url", &self.pipeline_runner_url)
             .field("gateway_url", &self.gateway_url)
+            .field("broker_url", &self.broker_url)
             .field("org_domain", &self.org_domain)
             .field("pipeline_test_capture_url", &self.pipeline_test_capture_url)
             .field("model_tools_url", &self.model_tools_url)
@@ -620,6 +628,29 @@ impl Config {
             None => None,
         };
 
+        // The broker's own address, checked the same way: a typo here is a registration the
+        // hub never learns about, and a hub that federates nothing looks exactly like a hub
+        // whose members are empty.
+        let broker_url = match lookup("JC_PORTAL_BROKER_URL") {
+            Some(value) => {
+                let parsed: Url =
+                    value
+                        .parse()
+                        .map_err(|e: url::ParseError| ConfigError::Invalid {
+                            var: "JC_PORTAL_BROKER_URL",
+                            reason: e.to_string(),
+                        })?;
+                if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                    return Err(ConfigError::Invalid {
+                        var: "JC_PORTAL_BROKER_URL",
+                        reason: format!("scheme '{}' is not http or https", parsed.scheme()),
+                    });
+                }
+                Some(value.trim_end_matches('/').to_owned())
+            }
+            None => None,
+        };
+
         // The template is not a URL until `{project}` is filled in, so it is checked against a
         // stand-in: an operator learns about a typo at startup, not on the first scrape.
         let pipeline_runner_url = match lookup("JC_PORTAL_PIPELINE_RUNNER_URL") {
@@ -741,6 +772,7 @@ impl Config {
             gitea_webhook_secret,
             pipeline_runner_url,
             gateway_url,
+            broker_url,
             org_domain: lookup("JC_PORTAL_ORG_DOMAIN").filter(|v| !v.trim().is_empty()),
             pipeline_test_capture_url,
             model_tools_url,
@@ -772,6 +804,7 @@ impl Config {
             gitea_webhook_secret: None,
             pipeline_runner_url: None,
             gateway_url: None,
+            broker_url: None,
             org_domain: None,
             pipeline_test_capture_url: None,
             model_tools_url: None,
