@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert } from "../../components/ui";
+import { effectiveSlots } from "./linkml";
 import type { LinkmlModel } from "./linkml";
 import { IDENTITY_SLOTS, subsetProblems, toggleClass, toggleSlot } from "./subset";
 import type { Subset } from "./subset";
@@ -53,7 +54,7 @@ export function ModelSubsetPicker({ model, subset, onChange }: ModelSubsetPicker
                 {klass.name}
               </label>
               <ul className="ml-6 mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
-                {klass.slots.map((slot) => {
+                {effectiveSlots(model, klass).map((slot) => {
                   const identity = IDENTITY_SLOTS.includes(slot);
                   return (
                     <li key={slot}>

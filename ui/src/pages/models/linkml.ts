@@ -551,6 +551,43 @@ export function setOrDelete(
   document.setIn(path, value);
 }
 
+/**
+ * Every slot a class carries: its own, and the ones its parent and its mixins bring (DM-13).
+ *
+ * A class that specialises another answers with the parent's slots too, so an endpoint
+ * projecting by class sees what the entity will actually carry rather than the line the class
+ * happens to declare itself (T-1112). A hierarchy that loops is walked once and no further.
+ */
+export function effectiveSlots(model: LinkmlModel, klass: LinkmlClass): string[] {
+  const byName = new Map(model.classes.map((one) => [one.name, one]));
+  const slots: string[] = [];
+  const walked = new Set<string>();
+  const walk = (current: LinkmlClass): void => {
+    if (walked.has(current.name)) {
+      return;
+    }
+    walked.add(current.name);
+    // The parent's first: a reader meets the inherited shape before what this class adds.
+    const parent = current.is_a === undefined ? undefined : byName.get(current.is_a);
+    if (parent !== undefined) {
+      walk(parent);
+    }
+    for (const mixin of current.mixins ?? []) {
+      const mixed = byName.get(mixin);
+      if (mixed !== undefined) {
+        walk(mixed);
+      }
+    }
+    for (const slot of current.slots) {
+      if (!slots.includes(slot)) {
+        slots.push(slot);
+      }
+    }
+  };
+  walk(klass);
+  return slots;
+}
+
 export type Affordance = "range" | "select" | "temporal" | "geometry" | "link" | "text";
 
 /**

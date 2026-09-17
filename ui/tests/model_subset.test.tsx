@@ -6,7 +6,7 @@ import { I18nextProvider } from "react-i18next";
 import { beforeEach, describe, expect, it } from "vitest";
 import i18n from "../src/i18n";
 import { ModelSubsetPicker } from "../src/pages/models/ModelSubsetPicker";
-import { parseModel } from "../src/pages/models/linkml";
+import { parseModel, effectiveSlots } from "../src/pages/models/linkml";
 import { EMPTY_SUBSET, subsetProblems, subsetSource, wholeSubset } from "../src/pages/models/subset";
 import type { Subset } from "../src/pages/models/subset";
 
@@ -154,5 +154,75 @@ describe("model subset", () => {
       </I18nextProvider>,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("unknown class 'Bicycle'");
+  });
+});
+
+/**
+ * T-1112, DM-13: a class carries the slots its parent and its mixins bring, so an endpoint
+ * projecting by class must see them. The picker showed only the line the class declared itself,
+ * which is not what the entity carries.
+ */
+describe("the slots a class actually carries", () => {
+  const model = parseModel(`
+id: https://hel.fi/models/air
+name: air
+classes:
+  Entity:
+    slots: [id_, createdAt]
+  Timed:
+    slots: [observedAt]
+  AirQualityObserved:
+    is_a: Entity
+    mixins: [Timed]
+    slots: [pm10]
+slots:
+  id_: {}
+  createdAt: {}
+  observedAt: {}
+  pm10: {}
+`);
+
+  it("answers the parent's and the mixins' slots before its own", () => {
+    const klass = model.classes.find((one) => one.name === "AirQualityObserved");
+    expect(effectiveSlots(model, klass!)).toEqual(["id_", "createdAt", "observedAt", "pm10"]);
+  });
+
+  it("answers a class with no hierarchy exactly its own slots", () => {
+    const entity = model.classes.find((one) => one.name === "Entity");
+    expect(effectiveSlots(model, entity!)).toEqual(["id_", "createdAt"]);
+  });
+
+  it("walks a hierarchy that loops once and no further", () => {
+    const looping = parseModel(`
+id: https://hel.fi/models/loop
+name: loop
+classes:
+  A:
+    is_a: B
+    slots: [a]
+  B:
+    is_a: A
+    slots: [b]
+slots:
+  a: {}
+  b: {}
+`);
+    const a = looping.classes.find((one) => one.name === "A");
+    expect(effectiveSlots(looping, a!).sort()).toEqual(["a", "b"]);
+  });
+
+  it("ignores a parent the model does not declare rather than failing", () => {
+    const dangling = parseModel(`
+id: https://hel.fi/models/dangling
+name: dangling
+classes:
+  A:
+    is_a: Nowhere
+    slots: [a]
+slots:
+  a: {}
+`);
+    const a = dangling.classes.find((one) => one.name === "A");
+    expect(effectiveSlots(dangling, a!)).toEqual(["a"]);
   });
 });
