@@ -72,7 +72,7 @@ function stubFetch(forms: unknown[], preferences: Record<string, unknown> = {}) 
   return fetchMock;
 }
 
-function renderDialog(kind?: string) {
+function renderDialog(kind?: string, submitting?: boolean) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -85,6 +85,7 @@ function renderDialog(kind?: string) {
           schema={SCHEMA}
           kind={kind}
           submitLabel="Propose"
+          submitting={submitting}
           onSubmit={() => {}}
         />
       </I18nextProvider>
@@ -108,6 +109,26 @@ afterEach(() => {
 });
 
 describe("a manifest form", () => {
+  /// T-0962, UI-01: a disabled button is one that cannot be pressed for any reason. A person
+  /// who clicked and sees nothing move clicks again, so the button says a proposal is in flight.
+  it("says a proposal is in flight, and is not clickable while it is", async () => {
+    stubFetch([]);
+    renderDialog(undefined, true);
+
+    const submit = await screen.findByRole("button", { name: "Propose" });
+    expect(submit).toHaveAttribute("aria-busy", "true");
+    expect(submit).toBeDisabled();
+  });
+
+  it("is an ordinary button when nothing is in flight", async () => {
+    stubFetch([]);
+    renderDialog();
+
+    const submit = await screen.findByRole("button", { name: "Propose" });
+    expect(submit).not.toHaveAttribute("aria-busy");
+    expect(submit).toBeEnabled();
+  });
+
   it("draws the order and the grouping the manifest asks for", async () => {
     stubFetch([ENDPOINT_FORM]);
     renderDialog("Endpoint");

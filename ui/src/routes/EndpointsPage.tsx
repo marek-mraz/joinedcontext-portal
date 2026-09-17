@@ -1066,7 +1066,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         uiSchema={uiSchema}
         formData={editing ?? undefined}
         submitLabel={t("endpoints.propose")}
-        disabled={propose.isPending}
+        submitting={propose.isPending}
         error={formError}
         onSubmit={(form, draftRef) => propose.mutate({ form, create: isNew, draft: draftRef })}
         onChange={(form) => {

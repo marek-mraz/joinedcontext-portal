@@ -20,6 +20,8 @@ export interface SchemaFormProps<T> {
   submitLabel?: string;
   /** Why the submit is closed right now (PL-49): disables the button and says so beside it. */
   submitDisabledReason?: string;
+  /** A submit is in flight: the button says so and stays pressed-proof (UI-01, T-0962). */
+  submitting?: boolean;
   /** Rendered beside the submit, on its left: a cancel, a secondary action. */
   actions?: ReactNode;
   /** Rendered under the last field, above the submit line. */
@@ -89,7 +91,7 @@ function patternOf(error: RJSFValidationError, schema?: JsonSchema): string | un
  * validation with translated messages, and no error list (each field carries its own).
  */
 export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
-  const { schema, uiSchema, formData, disabled, submitLabel, submitDisabledReason, actions, afterFields, onSubmit, onChange } =
+  const { schema, uiSchema, formData, disabled, submitLabel, submitDisabledReason, submitting, actions, afterFields, onSubmit, onChange } =
     props;
   const { t } = useTranslation();
 
@@ -100,10 +102,18 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
         ...(uiSchema?.["ui:submitButtonOptions"] as Record<string, unknown> | undefined),
         // rjsf's own default is the untranslated word "Submit".
         submitText: submitLabel ?? t("form.submit"),
-        ...(submitDisabledReason ? { props: { disabled: true, title: submitDisabledReason } } : {}),
+        ...(submitDisabledReason || submitting
+          ? {
+              props: {
+                disabled: Boolean(submitDisabledReason) || Boolean(submitting),
+                ...(submitDisabledReason ? { title: submitDisabledReason } : {}),
+                ...(submitting ? { loading: true } : {}),
+              },
+            }
+          : {}),
       },
     }),
-    [uiSchema, submitLabel, submitDisabledReason, t],
+    [uiSchema, submitLabel, submitDisabledReason, submitting, t],
   );
 
   const transformErrors = React.useCallback(

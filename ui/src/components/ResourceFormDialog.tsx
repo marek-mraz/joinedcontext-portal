@@ -54,6 +54,12 @@ export interface ResourceFormDialogProps<T> {
   disabled?: boolean;
   /** Why proposing is closed right now (PL-49): both views disable their button and say so. */
   submitDisabledReason?: string;
+  /**
+   * A proposal is in flight. The form is closed for the duration and the button says so, which
+   * `disabled` alone cannot: a disabled button is one that cannot be pressed for any reason,
+   * and a person who clicked and sees nothing move clicks again (UI-01, T-0962).
+   */
+  submitting?: boolean;
   error?: string | null;
   size?: DialogSize;
   /** Adds the YAML view of the manifest beside the form; both edit the same data. */
@@ -121,8 +127,9 @@ export function ResourceFormDialog<T>({
   lockedName,
   formData,
   submitLabel,
-  disabled,
+  disabled: closed,
   submitDisabledReason,
+  submitting,
   error,
   size = "xl",
   source,
@@ -140,6 +147,9 @@ export function ResourceFormDialog<T>({
 }: ResourceFormDialogProps<T>): JSX.Element {
   const { t, i18n } = useTranslation();
   const branding = useBranding();
+  // A proposal in flight closes the form as surely as a caller's own `disabled` does; what it
+  // adds is that the button says which of the two it is (T-0962).
+  const disabled = closed || submitting === true;
 
   // One fetch for the whole of `portal/forms/`, shared by every dialog through the query cache.
   const forms = useQuery({
@@ -778,6 +788,7 @@ export function ResourceFormDialog<T>({
               disabled={disabled}
               submitLabel={submitLabel}
               submitDisabledReason={effectiveSubmitDisabledReason}
+              submitting={submitting}
               onSubmit={handleSubmit}
               onChange={onChange}
               afterFields={afterFields}

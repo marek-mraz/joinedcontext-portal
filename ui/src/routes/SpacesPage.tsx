@@ -286,7 +286,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
         description={t("spaces.addHint")}
         schema={contextSpaceSchema(t)}
         submitLabel={t("spaces.propose")}
-        disabled={create.isPending}
+        submitting={create.isPending}
         error={formError}
         onSubmit={(form) => create.mutate(form)}
       />

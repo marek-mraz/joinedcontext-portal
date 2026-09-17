@@ -658,7 +658,7 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
           }
           formData={draft}
           submitLabel={t("datasources.propose")}
-          disabled={propose.isPending}
+          submitting={propose.isPending}
           error={formError}
           onChange={(data) => {
             setDraft(data);

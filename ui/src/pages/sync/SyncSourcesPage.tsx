@@ -153,7 +153,7 @@ export function SyncSourcesPage({ project }: { project: string }): JSX.Element {
         schema={syncSourceSchema(t, origin)}
         formData={{ name: "", interval: "6h", mode: "mirror", conflictPolicy: "fail" }}
         submitLabel={t("syncSources.propose")}
-        disabled={proposal.mutation.isPending}
+        submitting={proposal.mutation.isPending}
         error={proposal.error}
         source={{
           toManifest: (form) => syncSourceToManifest(project, form),

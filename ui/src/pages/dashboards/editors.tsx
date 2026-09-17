@@ -135,7 +135,8 @@ export function DashboardEditor({
       draftName={openedAs ?? (editing?.name || undefined)}
       formData={editing ?? undefined}
       submitLabel={t("dashboards.propose")}
-      disabled={proposal.mutation.isPending || loadingDrafts}
+      disabled={loadingDrafts}
+      submitting={proposal.mutation.isPending}
       error={proposal.error}
       source={{
         toManifest: (form) => dashboardToManifest(project, form),
@@ -203,7 +204,7 @@ export function LayerEditor({
       draftName={openedAs ?? (editing?.name || undefined)}
       formData={editing ?? undefined}
       submitLabel={t("dashboards.propose")}
-      disabled={proposal.mutation.isPending}
+      submitting={proposal.mutation.isPending}
       error={proposal.error}
       source={{
         toManifest: (form) => layerToManifest(project, form),

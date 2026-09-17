@@ -279,7 +279,7 @@ export function SubmitButton(props: SubmitButtonProps): React.JSX.Element | null
   }
   // A gate the caller closes (PL-49, UI-47): the button stays visible, disabled, with the reason
   // beside it, never hidden.
-  const gate = (options.props ?? {}) as { disabled?: boolean; title?: string };
+  const gate = (options.props ?? {}) as { disabled?: boolean; title?: string; loading?: boolean };
   return (
     <>
       {after ? <div className="mt-4 flex flex-col gap-3">{after}</div> : null}
@@ -290,7 +290,13 @@ export function SubmitButton(props: SubmitButtonProps): React.JSX.Element | null
           </span>
         ) : null}
         {secondary}
-        <Button type="submit" variant="primary" disabled={gate.disabled} title={gate.title}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={gate.disabled}
+          title={gate.title}
+          loading={gate.loading}
+        >
           {options.submitText}
         </Button>
       </div>
