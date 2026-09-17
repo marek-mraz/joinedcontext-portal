@@ -335,3 +335,94 @@ async fn a_realm_that_refuses_the_client_writes_nothing_and_says_so_per_manifest
         "no space was touched at all"
     );
 }
+
+#[tokio::test]
+async fn a_space_that_refuses_the_write_leaves_the_reason_on_the_manifest() {
+    let server = MockServer::start().await;
+    realm(&server).await;
+    Mock::given(method("POST"))
+        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions")))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "type": "https://uri.etsi.org/ngsi-ld/errors/OperationNotSupported",
+            "title": "the service account may not write this space"
+        })))
+        .mount(&server)
+        .await;
+
+    let mirror = mirror_with(&[("alerts", declared())]);
+    let previous = mirror_with(&[]);
+    let outcomes = sync(&server)
+        .converge(
+            &mirror,
+            &previous,
+            std::path::Path::new("/nonexistent"),
+            None,
+        )
+        .await;
+
+    let SubscriptionOutcome::Error(reason) = &outcomes[0].2 else {
+        panic!("a refused write is not a written subscription: {outcomes:?}");
+    };
+    assert!(reason.contains("403"), "{reason}");
+    assert!(
+        reason.contains("may not write this space"),
+        "the space's own words are what the author needs: {reason}"
+    );
+}
+
+#[tokio::test]
+async fn each_subscription_is_written_to_the_space_its_manifest_names() {
+    let server = MockServer::start().await;
+    realm(&server).await;
+    for space in [SPACE, "traffic"] {
+        Mock::given(method("POST"))
+            .and(path(format!("/cs/{space}/ngsi-ld/v1/subscriptions")))
+            .respond_with(ResponseTemplate::new(201))
+            .mount(&server)
+            .await;
+    }
+
+    let mut elsewhere = declared();
+    elsewhere["contextSpaceRef"] = json!({ "kind": "ContextSpace", "name": "traffic" });
+    // A geoQ rides along: the manifest writes it as a query string and the broker takes an
+    // object, so this is where the two meet.
+    elsewhere["geoQ"] =
+        json!("georel=near;maxDistance==2000&geometry=Point&coordinates=[24.9,60.2]");
+    let mirror = mirror_with(&[("alerts", declared()), ("jams", elsewhere)]);
+    let previous = mirror_with(&[]);
+    let outcomes = sync(&server)
+        .converge(
+            &mirror,
+            &previous,
+            std::path::Path::new("/nonexistent"),
+            None,
+        )
+        .await;
+
+    assert!(
+        outcomes
+            .iter()
+            .all(|(_, _, outcome)| outcome == &SubscriptionOutcome::Written),
+        "{outcomes:?}"
+    );
+    let posted = seen(&server).await;
+    let air = posted
+        .iter()
+        .find(|(verb, path, _)| verb == "POST" && path.contains("air-quality"))
+        .expect("the air-quality subscription");
+    let traffic = posted
+        .iter()
+        .find(|(verb, path, _)| verb == "POST" && path.contains("traffic"))
+        .expect("the traffic subscription");
+    assert_eq!(air.2["id"], json!(ID));
+    assert_eq!(
+        traffic.2["id"],
+        json!("urn:ngsi-ld:Subscription:hel.fi:traffic:jams")
+    );
+    assert_eq!(traffic.2["geoQ"]["geometry"], json!("Point"));
+    assert_eq!(traffic.2["geoQ"]["coordinates"], json!([24.9, 60.2]));
+    assert!(
+        air.2.get("geoQ").is_none(),
+        "a manifest without a geoQ sends none"
+    );
+}
