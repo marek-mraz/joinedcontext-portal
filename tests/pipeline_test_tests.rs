@@ -476,3 +476,64 @@ async fn anonymous_is_401_and_a_capture_for_no_test_is_404() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+/// T-1027: a data source's Check says what it could not do. When no runner answers, the probe
+/// is reported as skipped with a reason a person can read, never left out — a Check with no
+/// probe section says nothing at all, and the recording stops on it.
+#[tokio::test]
+async fn a_data_source_check_with_no_runner_still_names_a_probe() {
+    // No runner configured at all, the state the recording hits while the pod restarts.
+    let state = AppState::new(config(None), None).with_mirror(mirror("porvoo"));
+    let source = json!({
+        "apiVersion": "joinedcontext.com/v1alpha1",
+        "kind": "DataSource",
+        "metadata": { "name": "bikes" },
+        "spec": { "type": "http", "http": { "url": "https://feeds.example/bikes.json" } }
+    });
+    let (status, body) = send(
+        &state,
+        "dev@hel.fi",
+        "/api/v1/projects/porvoo/datasources?dryRun=All",
+        &source,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let skipped = body["probe"]["skipped"].as_str().unwrap_or_default();
+    assert!(
+        !skipped.is_empty(),
+        "the Check names why the probe did not run: {body}"
+    );
+    assert!(
+        body["probe"].get("records").is_none(),
+        "a probe that did not run reports no records: {body}"
+    );
+    // The runner's absence is not the feed's fault, so the reason does not start like one.
+    assert!(
+        !skipped.starts_with("the feed "),
+        "a runner that did not answer is not blamed on the feed: {skipped}"
+    );
+
+    // A runner that is there but refuses (starting up, or out of room) reads the same way.
+    let refusing = MockServer::start().await;
+    // Only the create call happens: the stream the delete would remove was never made.
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/[a-z-]+/streams/pipeline-test-[a-z2-7]{26}$"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&refusing)
+        .await;
+    let state = AppState::new(config(Some(&refusing)), None).with_mirror(mirror("porvoo"));
+    let (status, body) = send(
+        &state,
+        "dev@hel.fi",
+        "/api/v1/projects/porvoo/datasources?dryRun=All",
+        &source,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let skipped = body["probe"]["skipped"].as_str().unwrap_or_default();
+    assert!(!skipped.is_empty(), "the Check names a reason: {body}");
+    assert!(
+        !skipped.starts_with("the feed "),
+        "a refusing runner is not blamed on the feed: {skipped}"
+    );
+}
