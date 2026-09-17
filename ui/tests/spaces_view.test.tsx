@@ -71,7 +71,7 @@ function project(quota?: number) {
   };
 }
 
-function renderSpaces(options: { quota?: number; refusal?: string } = { quota: 3 }) {
+function renderSpaces(options: { quota?: number; refusal?: string; listFails?: string } = { quota: 3 }) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const path = new URL(request.url).pathname;
@@ -98,7 +98,9 @@ function renderSpaces(options: { quota?: number; refusal?: string } = { quota: 3
       return json({ status: 404, title: "Resource Not Found" }, 404);
     }
     if (path.endsWith("/spaces")) {
-      return json(SPACES);
+      return options.listFails
+        ? json({ status: 503, title: "Service Unavailable", detail: options.listFails }, 503)
+        : json(SPACES);
     }
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
@@ -143,6 +145,23 @@ describe("context spaces view", () => {
     expect(within(sandbox).getByText("doprava")).toBeInTheDocument();
     expect(within(sandbox).getByText("citybikes")).toBeInTheDocument();
     expect(within(sandbox).getByText(en.phase.deploying)).toBeInTheDocument();
+  });
+
+  /// T-0961, UI-01: a list that cannot be read says so where the list would be, in the API's
+  /// own words, with the way back. It does not leave a person watching an empty table.
+  it("puts the API's own reason where the table would be, with a retry", async () => {
+    const fetchMock = renderSpaces({ listFails: "the mirror is still loading" });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("the mirror is still loading");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByText("ovzdusie")).toBeNull();
+
+    const before = fetchMock.mock.calls.length;
+    await userEvent.click(within(alert).getByRole("button", { name: en.app.error.retry }));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(before);
+    });
   });
 
   it("links each mirrored space to its manifest in the forge", async () => {
@@ -234,7 +253,8 @@ describe("context spaces view", () => {
     await userEvent.type(within(dialog).getByLabelText(/Name/), "Mobilita Mesta");
     await userEvent.click(within(dialog).getByRole("button", { name: en.spaces.propose }));
 
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(en.form.pattern);
+    // The message says what a name may be, rather than naming the pattern it broke (T-0960).
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(en.form.dns1123);
     expect(posts(fetchMock)).toHaveLength(0);
   });
 });

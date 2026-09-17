@@ -225,7 +225,8 @@ describe("data sources view", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: en.datasources.propose }));
 
     const alerts = await within(dialog).findAllByRole("alert");
-    expect(alerts.some((alert) => alert.textContent?.includes(en.form.pattern))).toBe(true);
+    // What a name may be, not the pattern it broke (T-0960).
+    expect(alerts.some((alert) => alert.textContent?.includes(en.form.dns1123))).toBe(true);
     expect(writes(fetchMock)).toHaveLength(0);
   });
 
