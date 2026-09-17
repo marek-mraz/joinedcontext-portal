@@ -132,7 +132,13 @@ impl Watch {
     }
 
     async fn token(&self) -> Result<String, String> {
-        realm::token(&self.http, &self.issuer, &self.client_id, &self.client_secret).await
+        realm::token(
+            &self.http,
+            &self.issuer,
+            &self.client_id,
+            &self.client_secret,
+        )
+        .await
     }
 
     /// The entity the space holds under this id, or `None` when it holds none.
@@ -174,10 +180,7 @@ impl Watch {
             .map_err(|err| err.to_string())?;
         match response.status().is_success() {
             true => Ok(()),
-            false => Err(format!(
-                "{space} refused the write: {}",
-                response.status()
-            )),
+            false => Err(format!("{space} refused the write: {}", response.status())),
         }
     }
 
@@ -216,10 +219,12 @@ impl Watch {
         }
         // A project whose entities all match still has to answer "nothing drifted, as of now".
         for entity in &declared {
-            found.entry(entity.project.clone()).or_insert_with(|| Found {
-                observed_at,
-                entities: Vec::new(),
-            });
+            found
+                .entry(entity.project.clone())
+                .or_insert_with(|| Found {
+                    observed_at,
+                    entities: Vec::new(),
+                });
         }
         Ok(found)
     }
@@ -315,7 +320,9 @@ mod tests {
                 "type": "AirQualityObserved",
                 "airQualityIndex": { "type": "Property", "value": index }
             }),
-            source: PathBuf::from("/tmp/stage-1234/projects/mesto/spaces/ovzdusie/entities/seed/s.json"),
+            source: PathBuf::from(
+                "/tmp/stage-1234/projects/mesto/spaces/ovzdusie/entities/seed/s.json",
+            ),
         }
     }
 
@@ -345,8 +352,7 @@ mod tests {
             "only the declared attribute, and the telemetry beside it is not drift"
         );
         assert_eq!(
-            drifted.source,
-            "projects/mesto/spaces/ovzdusie/entities/seed/s.json",
+            drifted.source, "projects/mesto/spaces/ovzdusie/entities/seed/s.json",
             "the path inside the repository, not the staging directory"
         );
     }

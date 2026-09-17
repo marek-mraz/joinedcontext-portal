@@ -84,7 +84,13 @@ impl SubscriptionSync {
     }
 
     async fn token(&self) -> Result<String, String> {
-        super::realm::token(&self.http, &self.issuer, &self.client_id, &self.client_secret).await
+        super::realm::token(
+            &self.http,
+            &self.issuer,
+            &self.client_id,
+            &self.client_secret,
+        )
+        .await
     }
 
     /// Brings every space's subscriptions to what the repository declares.
