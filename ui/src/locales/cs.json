@@ -968,7 +968,8 @@
       "previewFailed": "Model se nepodařilo načíst z katalogu. Zkuste to znovu nebo ho importujte podle identifikátoru.",
       "keepAll": "Všechny převzaté atributy zůstávají; nevybrané se označí jako zastaralé.",
       "import": "Importovat {name}",
-      "loading": "Načítá se převzatý model…"
+      "loading": "Načítá se převzatý model…",
+      "mergedKept": "Ponecháno, co model už měl: {names}. Import přidal zbytek."
     },
     "addClass": "Přidat třídu",
     "addSlot": "Přidat atribut",

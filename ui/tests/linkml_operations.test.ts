@@ -1,6 +1,6 @@
 /** T-0575: the operations a person, a test and an assistant edit a model with (DM-13, DM-16, DM-31). */
 import { describe, expect, it } from "vitest";
-import { parseModel } from "../src/pages/models/linkml";
+import { mergeModels, parseModel } from "../src/pages/models/linkml";
 import { applyOperations } from "../src/pages/models/operations";
 import type { Operation } from "../src/pages/models/operations";
 
@@ -268,5 +268,74 @@ imports:
     expect(cleared.source).not.toContain("mixins");
     expect(parseModel(cleared.source).classes.find((k) => k.name === "AirQualityObserved")?.mixins).
       toBeUndefined();
+  });
+});
+
+/**
+ * T-1102, DM-07: importing a second catalogue model joins it to the one being edited, so a
+ * Vehicle and an AirQualityObserved can sit in one model and a slot can relate them. Importing
+ * used to replace the source, which is why two imported models could never be connected.
+ */
+describe("a second imported model joined to the first", () => {
+  const VEHICLE = `id: https://smartdatamodels.org/Vehicle
+name: Vehicle
+prefixes:
+  sdm: https://smartdatamodels.org/
+classes:
+  Vehicle:
+    class_uri: sdm:Vehicle
+    slots: [vehicleType]
+slots:
+  vehicleType:
+    range: string
+enums:
+  VehicleCategory:
+    permissible_values:
+      municipalServices: {}
+`;
+
+  it("adds what the incoming model has and keeps what the current one already had", () => {
+    const { source, conflicts } = mergeModels(SOURCE, VEHICLE);
+    const model = parseModel(source);
+
+    // Both classes are there, so a slot can now relate one to the other.
+    expect(model.classes.map((klass) => klass.name).sort()).toContain("Vehicle");
+    expect(model.classes.map((klass) => klass.name)).toContain("AirQualityObserved");
+    expect(model.slots.map((slot) => slot.name)).toContain("vehicleType");
+    expect(model.enums.map((one) => one.name)).toContain("VehicleCategory");
+    expect(model.prefixes.sdm).toBe("https://smartdatamodels.org/");
+    expect(conflicts).toEqual([]);
+
+    // And the connection itself is an operation that already exists.
+    const related = applyOperations(source, [
+      { op: "addSlot", name: "observedBy", range: "Vehicle", kind: "Relationship" } as Operation,
+      { op: "attachSlot", class: "AirQualityObserved", slot: "observedBy" } as Operation,
+    ]);
+    expect(related.refused).toEqual([]);
+    const observedBy = parseModel(related.source).slots.find((s) => s.name === "observedBy");
+    expect(observedBy?.kind).toBe("Relationship");
+    expect(observedBy?.range).toBe("Vehicle");
+  });
+
+  it("never overwrites what the person has edited, and says what it kept", () => {
+    // The same model twice is complete agreement: nothing to add and nothing to report.
+    expect(mergeModels(SOURCE, SOURCE)).toEqual({ source: SOURCE, conflicts: [] });
+
+    // A slot of the same name defined differently is what the person must be told about: the
+    // version in hand may have been edited, and the import must not undo that.
+    const differing = VEHICLE.replace(
+      "slots:\n  vehicleType:\n    range: string",
+      "slots:\n  pm10:\n    range: integer",
+    ).replace("slots: [vehicleType]", "slots: [pm10]");
+    const { source, conflicts } = mergeModels(SOURCE, differing);
+    expect(conflicts).toContainEqual({ section: "slots", name: "pm10" });
+    // And the slot kept is the one that was already there.
+    expect(parseModel(source).slots.find((slot) => slot.name === "pm10")?.range).toBe(
+      parseModel(SOURCE).slots.find((slot) => slot.name === "pm10")?.range,
+    );
+  });
+
+  it("leaves the model alone when the incoming source does not parse", () => {
+    expect(mergeModels(SOURCE, "classes: [this is: not: a map").source).toBe(SOURCE);
   });
 });

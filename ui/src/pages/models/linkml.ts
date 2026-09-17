@@ -526,6 +526,53 @@ export function positionOf(
  * Every visual edit goes through the YAML document rather than through a re-serialised object,
  * so the user's comments, key order and formatting survive an edit made in the tree (DM-13).
  */
+/** What a merge could not take, because the model already had something by that name. */
+export interface MergeConflict {
+  section: "classes" | "slots" | "enums" | "prefixes";
+  name: string;
+}
+
+/**
+ * A second imported model folded into the one being edited (T-1102, DM-07).
+ *
+ * Importing replaced the source, so a person could hold one catalogue model at a time and never
+ * connect two: a Vehicle and an AirQualityObserved had to live in one model before a slot could
+ * relate them. This adds what the incoming model has and the current one does not, and keeps
+ * what is already there — a name that exists is reported rather than overwritten, because the
+ * version in hand may have been edited and the import must not undo that.
+ *
+ * The current document is mutated through the YAML AST, so its comments and its order survive.
+ */
+export function mergeModels(
+  current: string,
+  incoming: string,
+): { source: string; conflicts: MergeConflict[] } {
+  const conflicts: MergeConflict[] = [];
+  const parsed = parseDocument(incoming);
+  if (parsed.errors.length > 0) {
+    return { source: current, conflicts };
+  }
+  const other = record(parsed.toJS({ maxAliasCount: 100 }));
+  const merged = edit(current, (document) => {
+    for (const section of ["prefixes", "classes", "slots", "enums"] as const) {
+      const entries = record(other[section]);
+      const held = record(parseDocument(current).toJS({ maxAliasCount: 100 })[section]);
+      for (const [name, value] of Object.entries(entries)) {
+        if (document.hasIn([section, name])) {
+          // Two models declaring the same prefix for the same namespace agree; only a name
+          // whose definition differs is something the person has to know was kept.
+          if (JSON.stringify(held[name]) !== JSON.stringify(value)) {
+            conflicts.push({ section, name });
+          }
+          continue;
+        }
+        document.setIn([section, name], value);
+      }
+    }
+  });
+  return { source: merged, conflicts };
+}
+
 export function edit(source: string, mutate: (document: Document) => void): string {
   const document = parseDocument(source);
   if (document.errors.length > 0) {

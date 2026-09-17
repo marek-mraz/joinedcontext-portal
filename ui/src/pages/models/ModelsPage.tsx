@@ -15,6 +15,7 @@ import { LinkmlEditor } from "./LinkmlEditor";
 import { MappingsEditor } from "./MappingsEditor";
 import type { MappingModel } from "./MappingsEditor";
 import { ModelFileDrop } from "./ModelFileDrop";
+import { mergeModels } from "./linkml";
 import { SmartDataModelsImport } from "./SmartDataModelsImport";
 import type { CatalogueModel } from "./SmartDataModelsImport";
 import { blankSource, parseModel } from "./linkml";
@@ -95,6 +96,8 @@ export function ModelsPage({
   const [tab, setTab] = useState<Tab>(baseline || prefilled || editing ? "editor" : "import");
   const [chosen, setChosen] = useState(baseline);
   const [breakingConfirmed, setBreakingConfirmed] = useState(false);
+  /** What a second import could not take because the model already had it (T-1102). */
+  const [importConflicts, setImportConflicts] = useState<string[]>([]);
   // What the person typed; before the first keystroke the source is the loaded or blank one.
   const [edited, setEdited] = useState<string | undefined>(baseline?.source ?? prefilled);
   const [saving, setSaving] = useState(false);
@@ -250,14 +253,25 @@ export function ModelsPage({
     return [...servingSpaces.map((space) => `ContextSpace/${space}`), ...servingEndpoints];
   }, [spaces.data, endpoints.data, published, model.name]);
 
+  // T-1102: a second import joins the model being edited instead of replacing it, so a Vehicle
+  // and an AirQualityObserved can sit in one model and a slot can relate them. A name the model
+  // already has is kept and reported: what is in hand may have been edited, and an import must
+  // not undo that.
   const onImport = (imported: string, catalogueModel: CatalogueModel) => {
-    setSource(imported);
-    setChosen({
-      source: imported,
-      version: "1.0.0",
-      lifecycle: "draft",
-      name: catalogueModel.name,
-    });
+    const editing = source.trim() !== "" && parseModel(source).classes.length > 0;
+    const { source: joined, conflicts } = editing
+      ? mergeModels(source, imported)
+      : { source: imported, conflicts: [] };
+    setSource(joined);
+    setImportConflicts(conflicts.map((conflict) => `${conflict.section}: ${conflict.name}`));
+    if (!editing) {
+      setChosen({
+        source: imported,
+        version: "1.0.0",
+        lifecycle: "draft",
+        name: catalogueModel.name,
+      });
+    }
     setTab("editor");
   };
 
@@ -509,6 +523,11 @@ export function ModelsPage({
         ) : null}
         {tab === "editor" ? (
           <div className="flex flex-col gap-3">
+            {importConflicts.length > 0 ? (
+              <Alert tone="info" role="status">
+                {t("models.sdm.mergedKept", { names: importConflicts.join(", ") })}
+              </Alert>
+            ) : null}
             {creating ? (
               <section
                 aria-labelledby="models-new"

@@ -982,7 +982,8 @@
       "previewFailed": "The model could not be fetched from the catalogue. Try again, or import it by identifier.",
       "keepAll": "Every upstream slot is kept; unpicked ones are marked deprecated.",
       "import": "Import {name}",
-      "loading": "Fetching the upstream model…"
+      "loading": "Fetching the upstream model…",
+      "mergedKept": "Kept what this model already had: {names}. The import added the rest."
     },
     "addClass": "Add class",
     "addSlot": "Add slot",

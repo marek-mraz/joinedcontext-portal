@@ -968,7 +968,8 @@
       "previewFailed": "Model sa nepodarilo načítať z katalógu. Skúste to znova alebo ho importujte podľa identifikátora.",
       "keepAll": "Všetky prevzaté atribúty zostávajú; nevybrané sa označia ako zastarané.",
       "import": "Importovať {name}",
-      "loading": "Načítava sa prevzatý model…"
+      "loading": "Načítava sa prevzatý model…",
+      "mergedKept": "Ponechané, čo model už mal: {names}. Import pridal zvyšok."
     },
     "addClass": "Pridať triedu",
     "addSlot": "Pridať atribút",

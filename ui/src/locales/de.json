@@ -968,7 +968,8 @@
       "previewFailed": "Das Modell konnte nicht aus dem Katalog geladen werden. Versuchen Sie es erneut oder importieren Sie es über die Kennung.",
       "keepAll": "Alle fremden Attribute bleiben erhalten; nicht gewählte werden als veraltet markiert.",
       "import": "{name} importieren",
-      "loading": "Fremdmodell wird geladen…"
+      "loading": "Fremdmodell wird geladen…",
+      "mergedKept": "Beibehalten, was das Modell schon hatte: {names}. Der Import hat den Rest ergänzt."
     },
     "addClass": "Klasse hinzufügen",
     "addSlot": "Attribut hinzufügen",
