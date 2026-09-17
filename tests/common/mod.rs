@@ -1,4 +1,8 @@
 //! Signed-in requests against the Portal router and the forge fixtures the permission tests share.
+//!
+//! Each test binary that declares `mod common;` compiles the whole file, and none of them uses
+//! all of it, so what one binary leaves unused is not dead code.
+#![allow(dead_code)]
 
 use std::sync::Arc;
 
@@ -20,7 +24,7 @@ use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
 
-const CSRF: &str = "test-csrf-token-permissions";
+pub const CSRF: &str = "test-csrf-token-permissions";
 
 /// The mock forge's repository path.
 pub const REPO: &str = "/api/v1/repos/test-owner/test-repo";
@@ -53,7 +57,7 @@ pub fn encode(text: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(text)
 }
 
-fn cookie(config: &Config, identity: Identity) -> String {
+pub fn cookie(config: &Config, identity: Identity) -> String {
     let now = session::now_unix();
     let session = Session {
         identity,

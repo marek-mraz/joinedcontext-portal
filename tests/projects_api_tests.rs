@@ -133,3 +133,325 @@ async fn empty_repository_lists_no_project() {
     let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(list["items"].as_array().unwrap().len(), 0);
 }
+
+// ---------------------------------------------------------------------------
+// Opening a project (PF-65, PF-66, PF-67, T-0869)
+// ---------------------------------------------------------------------------
+
+mod common;
+
+use common::{envelope, person, REPO};
+use serde_json::{json, Value};
+use wiremock::matchers::{method as http_method, path as url_path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+/// A forge that takes the two files and opens the merge request, and answers the open-pull list
+/// the name check reads (PF-67).
+async fn forge_with_no_open_projects() -> MockServer {
+    let gitea = common::forge().await;
+    Mock::given(http_method("GET"))
+        .and(url_path(format!("{REPO}/pulls")))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&gitea)
+        .await;
+    gitea
+}
+
+/// An organization whose `projects.creation` is `creation`, with `banskabystrica` already open.
+fn organization(state: &AppState, creation: &str) {
+    state.mirror.upsert(envelope(
+        "Organization",
+        "bb",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "domain": "banskabystrica.sk", "projects": { "creation": creation } }),
+    ));
+}
+
+async fn open(state: &AppState, who: Identity, body: Value) -> (StatusCode, String) {
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header(header::COOKIE, common::cookie(&state.config, who))
+                .header(joinedcontext_portal::auth::csrf::CSRF_HEADER, common::CSRF)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The files the merge request carries, by path.
+async fn written(gitea: &MockServer) -> Vec<String> {
+    gitea
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.method.as_str() == "PUT" && r.url.path().contains("/contents/"))
+        .filter_map(|r| {
+            r.url
+                .path()
+                .split_once("/contents/")
+                .map(|(_, path)| path.to_owned())
+        })
+        .collect()
+}
+
+/// The body of each file the merge request wrote, decoded.
+async fn bodies(gitea: &MockServer) -> Vec<String> {
+    gitea
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.method.as_str() == "PUT" && r.url.path().contains("/contents/"))
+        .filter_map(|r| {
+            let body: Value = serde_json::from_slice(&r.body).ok()?;
+            let content = body.get("content")?.as_str()?;
+            let bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, content).ok()?;
+            String::from_utf8(bytes).ok()
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn anyone_may_open_a_project_and_gets_steward_on_it_and_nothing_else() {
+    let gitea = forge_with_no_open_projects().await;
+    let state = common::state_on(&gitea);
+    organization(&state, "anyone");
+
+    let (status, body) = open(
+        &state,
+        person("nobody"),
+        json!({ "name": "doprava", "displayName": "Doprava" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let change: Value = serde_json::from_str(&body).expect("a change");
+    assert_eq!(change["status"]["lane"], "yellow", "{body}");
+
+    let paths = written(&gitea).await;
+    assert!(
+        paths.iter().any(|p| p == "projects/doprava/project.yaml"),
+        "{paths:?}"
+    );
+    assert!(
+        paths
+            .iter()
+            .any(|p| p == "users/assignments/doprava-creator.yaml"),
+        "{paths:?}"
+    );
+
+    let binding = bodies(&gitea)
+        .await
+        .into_iter()
+        .find(|body| body.contains("kind: RoleBinding"))
+        .expect("the creator's binding");
+    // Steward, on their own project, and nothing wider (PF-66, PF-52).
+    assert!(binding.contains("role: steward"), "{binding}");
+    assert!(binding.contains("project: doprava"), "{binding}");
+    assert!(!binding.contains("organization:"), "{binding}");
+    assert!(binding.contains("nobody@hel.fi"), "{binding}");
+}
+
+#[tokio::test]
+async fn org_admin_is_the_default_and_a_person_without_propose_on_project_is_refused() {
+    let gitea = forge_with_no_open_projects().await;
+    let state = common::state_on(&gitea);
+    // No `projects.creation` at all: the default is `org-admin` (PF-65).
+    state.mirror.upsert(envelope(
+        "Organization",
+        "bb",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "domain": "banskabystrica.sk" }),
+    ));
+
+    let (status, body) = open(&state, person("nobody"), json!({ "name": "doprava" })).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("propose on Project"), "{body}");
+    assert!(written(&gitea).await.is_empty(), "nothing was written");
+}
+
+#[tokio::test]
+async fn a_group_setting_refuses_a_person_the_group_manifest_does_not_name() {
+    let gitea = forge_with_no_open_projects().await;
+    let state = common::state_on(&gitea);
+    organization(&state, "group:city-leads");
+    state.mirror.upsert(envelope(
+        "Group",
+        "city-leads",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "members": [{ "user": "lead@hel.fi" }] }),
+    ));
+
+    let (status, body) = open(&state, person("nobody"), json!({ "name": "doprava" })).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("city-leads"), "{body}");
+
+    let (status, body) = open(&state, person("lead"), json!({ "name": "doprava" })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+}
+
+#[tokio::test]
+async fn a_name_that_is_taken_or_not_a_label_is_refused_before_anything_is_written() {
+    let gitea = forge_with_no_open_projects().await;
+    let state = common::state_on(&gitea);
+    organization(&state, "anyone");
+    state
+        .mirror
+        .upsert(manifest("helsinki", "ContextSpace", "helsinki"));
+
+    let (status, body) = open(&state, person("nobody"), json!({ "name": "helsinki" })).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let (status, body) = open(&state, person("nobody"), json!({ "name": "Doprava Mesta" })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("DNS-1123"), "{body}");
+
+    // `org` is the organization's own namespace, never a project (PF-67).
+    let (status, body) = open(&state, person("nobody"), json!({ "name": "org" })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    assert!(written(&gitea).await.is_empty(), "nothing was written");
+}
+
+#[tokio::test]
+async fn a_name_another_open_change_already_reserved_is_refused() {
+    let gitea = common::forge().await;
+    Mock::given(http_method("GET"))
+        .and(url_path(format!("{REPO}/pulls")))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+            "number": 4,
+            "html_url": "https://gitea.example/pulls/4",
+            "state": "open",
+            "title": "open project doprava",
+            "head": { "ref": "portal/create-project-doprava-0000000a" },
+            "base": { "ref": "main" },
+            "created_at": "2026-09-16T09:00:00Z",
+            "user": { "login": "someone", "full_name": "Someone", "email": "someone@hel.fi" },
+            "mergeable": true,
+            "merged": false
+        }])))
+        .mount(&gitea)
+        .await;
+    let state = common::state_on(&gitea);
+    organization(&state, "anyone");
+
+    let (status, body) = open(&state, person("nobody"), json!({ "name": "doprava" })).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("waiting for approval"), "{body}");
+}
+
+#[tokio::test]
+async fn the_door_opens_a_project_and_nothing_else() {
+    let gitea = forge_with_no_open_projects().await;
+    let state = common::state_on(&gitea);
+    organization(&state, "anyone");
+
+    // The person who may open a project by the setting still proposes nothing else: the
+    // resource routes ask for a binding, which they do not have (PF-65, PF-50).
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/doprava/pipelines")
+                .header(
+                    header::COOKIE,
+                    common::cookie(&state.config, person("nobody")),
+                )
+                .header(joinedcontext_portal::auth::csrf::CSRF_HEADER, common::CSRF)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "apiVersion": API_VERSION,
+                        "kind": "Pipeline",
+                        "metadata": { "name": "aq", "namespace": "doprava" },
+                        "spec": {
+                            "class": "resident",
+                            "targetEndpoint": "urn:ngsi-ld:Endpoint:banskabystrica.sk:doprava:air"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn anyone_plus_lax_merges_the_project_at_once_and_the_message_says_who_did() {
+    use joinedcontext_portal::git::GiteaClient;
+
+    let gitea = forge_with_no_open_projects().await;
+    let branding = std::env::temp_dir().join(format!("jc-branding-{}.yaml", std::process::id()));
+    std::fs::write(&branding, "instanceName: \"Test\"\nvalidation: lax\n").expect("branding file");
+    let mut config = Config::for_tests();
+    config.branding_file = Some(branding.to_string_lossy().into_owned());
+    let client = GiteaClient::new(
+        gitea.uri().parse().expect("mock url"),
+        "test-owner",
+        "test-repo",
+        "token-xyz",
+    )
+    .expect("client");
+    let state = AppState::new(config, None).with_gitea(Arc::new(client));
+    organization(&state, "anyone");
+
+    let (status, body) = open(&state, person("nobody"), json!({ "name": "doprava" })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+
+    let merges: Vec<String> = gitea
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.url.path().ends_with("/merge"))
+        .map(|r| String::from_utf8_lossy(&r.body).into_owned())
+        .collect();
+    assert_eq!(merges.len(), 1, "the platform merged it once: {merges:?}");
+    assert!(
+        merges[0].contains("Merged by the platform"),
+        "{}",
+        merges[0]
+    );
+    assert!(merges[0].contains("lax"), "{}", merges[0]);
+
+    let _ = std::fs::remove_file(&branding);
+}
+
+#[tokio::test]
+async fn anyone_on_a_strict_installation_waits_for_a_person() {
+    let gitea = forge_with_no_open_projects().await;
+    let state = common::state_on(&gitea);
+    organization(&state, "anyone");
+
+    let (status, body) = open(&state, person("nobody"), json!({ "name": "doprava" })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let change: Value = serde_json::from_str(&body).expect("a change");
+    assert_eq!(change["status"]["phase"], "PendingApproval", "{body}");
+    assert!(
+        !gitea
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .any(|r| r.url.path().ends_with("/merge")),
+        "strict waits for a person (PF-57)"
+    );
+}

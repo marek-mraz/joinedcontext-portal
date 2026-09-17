@@ -2,7 +2,6 @@
 //! or pausing is `propose` on the source, detaching is `delete`, and none of them touches the
 //! loop or the forge for a person without the binding.
 
-#[allow(dead_code)]
 mod common;
 
 use std::sync::Arc;
