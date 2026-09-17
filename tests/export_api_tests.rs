@@ -15,6 +15,7 @@ use http_body_util::BodyExt;
 use joinedcontext_portal::auth::session::{self, Identity, Session};
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::git::GiteaClient;
+use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
 use serde_json::{json, Value};
@@ -216,6 +217,41 @@ async fn forge() -> MockServer {
     server
 }
 
+/// A `Role` that reads every kind an export carries and a `RoleBinding` that gives it to the
+/// caller for one context space only, as `roles_matrix_tests::state_with` builds them.
+fn bound_to(space: &str) -> Vec<ResourceEnvelope> {
+    let manifest = |kind: &str, name: &str, spec: Value| ResourceEnvelope {
+        api_version: API_VERSION.into(),
+        kind: kind.into(),
+        metadata: ObjectMeta {
+            name: name.into(),
+            namespace: Some("org".into()),
+            ..Default::default()
+        },
+        spec,
+        status: None,
+    };
+    vec![
+        manifest(
+            "Role",
+            "space-reader",
+            json!({ "rules": [{
+                "kinds": ["DataModel", "Endpoint", "Pipeline", "App", "ContextSpace"],
+                "verbs": ["read"]
+            }] }),
+        ),
+        manifest(
+            "RoleBinding",
+            "space-reader-binding",
+            json!({
+                "subjects": [{ "user": "jana.kovacova" }],
+                "role": "space-reader",
+                "scope": { "contextSpace": space }
+            }),
+        ),
+    ]
+}
+
 fn session_cookie(config: &Config) -> String {
     cookie_for(config, vec!["portal-approver".into()])
 }
@@ -274,10 +310,28 @@ impl Answer {
 }
 
 async fn get(uri: &str, with_forge: bool) -> Answer {
+    get_as(uri, with_forge, None).await
+}
+
+/// One export, optionally as a caller the mirror binds to a `Role` rather than as a bootstrap
+/// administrator (PF-60, T-1206).
+///
+/// The bootstrap group answers every permission question with yes, so a fixture that uses it
+/// cannot express a grant bound to one context space — which is exactly the boundary the export
+/// filter draws. `bound` seeds the pair the binding needs and signs the caller in as its subject.
+async fn get_as(uri: &str, with_forge: bool, bound: Option<&str>) -> Answer {
     let server = forge().await;
     let config = Config::for_tests();
-    let cookie = session_cookie(&config);
+    let cookie = match bound {
+        None => session_cookie(&config),
+        Some(_) => cookie_for(&config, Vec::new()),
+    };
     let mut state = AppState::new(config, None);
+    if let Some(space) = bound {
+        for envelope in bound_to(space) {
+            state.mirror.upsert(envelope);
+        }
+    }
     if with_forge {
         let client = GiteaClient::new(server.uri().parse().unwrap(), "bb", "org", "token")
             .expect("gitea client");
@@ -589,6 +643,44 @@ async fn a_whole_project_archive_says_what_its_files_mean() {
     assert!(readme.contains("## Missing"), "{readme}");
     assert!(readme.contains("- noise: JSON Schema"), "{readme}");
     assert!(!readme.contains("doprava-public"));
+}
+
+/// PF-60, T-0986: a grant bound to one context space exports that space's manifests and no
+/// other. The export hands out manifests, so the binding is the boundary; before the filter
+/// asked `may_read_manifest` it asked only about the kind, and this caller got both spaces.
+#[tokio::test]
+async fn an_export_leaves_out_the_spaces_the_grant_is_not_bound_to() {
+    let answer = get_as(
+        "/api/v1/projects/banskabystrica/export",
+        true,
+        Some("ovzdusie"),
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.text());
+    let exported = answer.text();
+
+    assert!(
+        exported.contains("name: air-quality"),
+        "the space the binding names is exported: {exported}"
+    );
+    assert!(
+        !exported.contains("name: noise"),
+        "a model of another space is not: {exported}"
+    );
+    // The Endpoint of `ovzdusie` still travels, so this is the space boundary and not a
+    // narrowing to one kind.
+    assert!(exported.contains("name: public-air"), "{exported}");
+}
+
+/// The same caller with no binding at all reads nothing, which is what makes the test above
+/// about the space and not about being signed in (PF-59, R20).
+#[tokio::test]
+async fn a_caller_the_project_does_not_bind_exports_nothing_of_it() {
+    let answer = get_as("/api/v1/projects/banskabystrica/export", true, None).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    let exported = answer.text();
+    assert!(exported.contains("name: air-quality"), "{exported}");
+    assert!(exported.contains("name: noise"), "{exported}");
 }
 
 #[tokio::test]
