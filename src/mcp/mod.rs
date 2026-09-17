@@ -171,12 +171,8 @@ pub async fn handle_mcp(
 
     match method {
         "initialize" => {
-            let client_version = params.get("protocolVersion").and_then(Value::as_str);
-            let protocol_version = match client_version {
-                Some(v) if v == "2026-07-28" || v == "2025-06-18" || v == "2025-03-26" => v,
-                Some(v) => v,
-                None => "2026-07-28",
-            };
+            let protocol_version =
+                negotiated_version(params.get("protocolVersion").and_then(Value::as_str));
             json_response(
                 StatusCode::OK,
                 &result(
@@ -198,8 +194,8 @@ pub async fn handle_mcp(
             )
         }
         "server/discover" => {
-            let client_version = params.get("protocolVersion").and_then(Value::as_str);
-            let protocol_version = client_version.unwrap_or("2026-07-28");
+            let protocol_version =
+                negotiated_version(params.get("protocolVersion").and_then(Value::as_str));
             let count = if let Some(project) = params.get("project").and_then(Value::as_str) {
                 crate::ops::listing(&caller, &state, project).len()
             } else {
@@ -494,6 +490,39 @@ pub async fn handle_mcp(
                     "mimeType": "application/json"
                 }));
             }
+            // The model's source beside its manifest, so a model that read the DataModel can
+            // read what it actually says (AG-60, DM-19).
+            if may_read_kind(&state, &caller, &project, "DataModel") {
+                let models =
+                    state
+                        .mirror
+                        .list(&project, "DataModel", &crate::store::ListOptions::default());
+                for model in models.items {
+                    resources.push(json!({
+                        "uri": format!("jc://{project}/datamodels/{}/linkml", model.metadata.name),
+                        "name": model.metadata.name,
+                        "title": format!("LinkML source of {}", model.metadata.name),
+                        "mimeType": "application/yaml"
+                    }));
+                }
+            }
+            // The open changes and their plans (AG-60, CC-34). The list is what the change
+            // route lists for this caller; a plan is read one at a time, because reading one
+            // asks the forge.
+            if may_read(&state, &caller, &project) {
+                let open = crate::api::changes::list_changes_for(&state, &project)
+                    .await
+                    .map(|list| list.items)
+                    .unwrap_or_default();
+                for change in open {
+                    resources.push(json!({
+                        "uri": format!("jc://{project}/changes/{}", change.metadata.name),
+                        "name": change.metadata.name,
+                        "title": format!("Change {}", change.metadata.name),
+                        "mimeType": "application/json"
+                    }));
+                }
+            }
             for info in jc_core::KINDS {
                 resources.push(json!({
                     "uri": format!("jc://schemas/{}", info.kind),
@@ -614,6 +643,22 @@ fn project_of(params: &Value, state: &AppState, caller: &crate::ops::Caller) -> 
         .unwrap_or_else(|| "default".to_string())
 }
 
+/// Every revision of the protocol this server implements, newest first (AG-60, CC-47).
+const PROTOCOL_VERSIONS: &[&str] = &["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"];
+
+/// What the handshake answers: the client's revision when this server speaks it, and the one it
+/// does speak otherwise (T-0846).
+///
+/// Echoing an unknown revision tells the client the server speaks it, and the disagreement then
+/// surfaces deep in the session as `method not found` instead of at negotiation, which is the
+/// one moment a client can still choose another revision.
+fn negotiated_version(asked: Option<&str>) -> &'static str {
+    asked
+        .and_then(|asked| PROTOCOL_VERSIONS.iter().find(|known| **known == asked))
+        .copied()
+        .unwrap_or(PROTOCOL_VERSIONS[0])
+}
+
 fn may_read(state: &AppState, caller: &crate::ops::Caller, project: &str) -> bool {
     crate::permissions::for_request(state, &caller.identity, project).may_read_project()
 }
@@ -624,7 +669,9 @@ fn may_read_kind(state: &AppState, caller: &crate::ops::Caller, project: &str, k
     crate::permissions::for_request(state, &caller.identity, project).may_read(kind)
 }
 
-/// `jc://schemas/{Kind}`, `jc://{project}/drafts/{Kind}/{name}` or `jc://{project}/{plural}/{name}`.
+/// `jc://schemas/{Kind}`, `jc://{project}/drafts/{Kind}/{name}`,
+/// `jc://{project}/changes/{changeId}`, `jc://{project}/datamodels/{name}/linkml` or
+/// `jc://{project}/{plural}/{name}`.
 async fn read_resource(
     state: &AppState,
     caller: &crate::ops::Caller,
@@ -636,6 +683,25 @@ async fn read_resource(
         ["schemas", kind] => {
             let schema = jc_core::registry::schema_of(kind)?;
             Some(("application/schema+json", schema.to_string()))
+        }
+        // A change's plan, the same document the change route serves and with the same
+        // redaction on it (AG-60, CC-06). A model reads what a proposal would do without
+        // spending a tool call on it.
+        [project, "changes", change_id] if may_read(state, caller, project) => {
+            let change = crate::api::changes::change_for(state, project, change_id)
+                .await
+                .ok()?;
+            Some(("application/json", serde_json::to_string(&change).ok()?))
+        }
+        // The model's own source. The Portal holds the LinkML; the JSON Schema and the
+        // `@context` are the endpoint façade's renderings of it, and are read there (EP-47).
+        [project, "datamodels", name, "linkml"]
+            if may_read_kind(state, caller, project, "DataModel") =>
+        {
+            let source = crate::api::datamodels::read_source(state, project, name)
+                .await
+                .ok()?;
+            Some(("application/yaml", source))
         }
         [project, "drafts", kind, name] if may_read_kind(state, caller, project, kind) => {
             let draft = crate::ops::drafts::draft_store(state)

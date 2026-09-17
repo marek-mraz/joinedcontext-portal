@@ -15,7 +15,7 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use p256::pkcs8::EncodePrivateKey;
 use serde_json::{json, Value};
 use tower::ServiceExt;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use joinedcontext_portal::config::Config;
@@ -26,6 +26,99 @@ use joinedcontext_portal::store::Mirror;
 
 const REALM_PATH: &str = "/realms/banskabystrica";
 const PORTAL_AUDIENCE: &str = "joinedcontext-portal";
+
+/// One open change and one model source on the forge, so the two resource shapes AG-60 names
+/// have something to answer with (T-0847).
+async fn forge_mocks(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(server)
+        .await;
+    let pull = json!({
+        "number": 1,
+        "html_url": "https://gitea.example.sk/pulls/1",
+        "state": "open",
+        "title": "create ContextSpace mobility",
+        "head": { "ref": "portal/create-contextspace-mobility-11111111" },
+        "base": { "ref": "main" },
+        "created_at": "2026-09-06T09:14:22Z",
+        "user": { "login": "jana.kovacova", "full_name": "Jana Kováčová",
+                  "email": "jana.kovacova@banskabystrica.sk" },
+        "mergeable": true,
+        "merged": false
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([pull.clone()])))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(pull))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls/1/files"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "filename": "projects/ovzdusie/spaces/mobility/space.yaml", "status": "added" }
+        ])))
+        .mount(server)
+        .await;
+    let space_yaml = concat!(
+        "apiVersion: joinedcontext.com/v1alpha1\n",
+        "kind: ContextSpace\n",
+        "metadata:\n",
+        "  name: mobility\n",
+        "  namespace: ovzdusie\n",
+        "spec:\n",
+        "  isSandbox: true\n",
+    );
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        ))
+        .and(query_param("ref", "portal/create-contextspace-mobility-11111111"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "blob-1",
+            "content": base64_of(space_yaml)
+        })))
+        .mount(server)
+        .await;
+    let linkml = concat!(
+        "id: https://hel.fi/models/ovzdusie/air\n",
+        "name: air\n",
+        "classes:\n",
+        "  AirQualityObserved:\n",
+        "    attributes:\n",
+        "      pm10:\n",
+        "        range: float\n",
+    );
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/ovzdusie/datamodels/air.linkml.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "blob-2",
+            "content": base64_of(linkml)
+        })))
+        .mount(server)
+        .await;
+    // Anything else on the forge is absent, which is what a create's base branch answers.
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(
+            "^/api/v1/repos/test-owner/test-repo/contents/.*",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .with_priority(9)
+        .mount(server)
+        .await;
+}
+
+fn base64_of(text: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(text.as_bytes())
+}
 
 fn issuer_of(server: &MockServer) -> String {
     format!("{}{REALM_PATH}", server.uri().trim_end_matches('/'))
@@ -120,6 +213,15 @@ async fn setup_app_and_keys() -> (axum::Router, String, EncodingKey, String) {
         status: None,
     });
 
+    // A model, so its LinkML source is a resource beside its manifest (T-0847).
+    mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "DataModel".to_string(),
+        metadata: ObjectMeta::new("air", "ovzdusie"),
+        spec: json!({ "contextSpaceRef": "ovzdusie", "linkml": "./air.linkml.yaml" }),
+        status: None,
+    });
+
     // Add role for viewer
     mirror.upsert(ResourceEnvelope {
         api_version: API_VERSION.to_string(),
@@ -144,10 +246,22 @@ async fn setup_app_and_keys() -> (axum::Router, String, EncodingKey, String) {
         status: None,
     });
 
+    // The same mock server plays the forge: `/realms/...` is Keycloak, `/api/v1/repos/...` is
+    // Gitea, so a change's plan and a model's source are readable over MCP (T-0847).
+    forge_mocks(&mock_server).await;
+    let gitea = joinedcontext_portal::git::GiteaClient::new(
+        mock_server.uri().parse().expect("mock url"),
+        "test-owner",
+        "test-repo",
+        "token-xyz",
+    )
+    .expect("gitea client");
+
     let state = AppState::from_config(config)
         .await
         .expect("state")
-        .with_mirror(mirror);
+        .with_mirror(mirror)
+        .with_gitea(std::sync::Arc::new(gitea));
 
     (
         server::app(state),
@@ -1084,4 +1198,149 @@ async fn a_proposal_without_a_verdict_names_verdict_required_on_the_mcp_door() {
         uris.contains(&"jc://ovzdusie/drafts/DataSource/unchecked"),
         "the gate let the proposal through: {uris:?}"
     );
+}
+
+/// T-0846, CC-47: the handshake answers a revision this server implements. Echoing an unknown
+/// one tells the client the server speaks it, and the disagreement then surfaces mid-session as
+/// `method not found` instead of at negotiation, the one moment a client can still choose.
+#[tokio::test]
+async fn the_handshake_answers_a_revision_this_server_implements() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+
+    for method_name in ["initialize", "server/discover"] {
+        // Every revision the server speaks is echoed, the client's own string.
+        for known in ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"] {
+            let answer = rpc(
+                app.clone(),
+                &token,
+                json!({ "jsonrpc": "2.0", "id": 1, "method": method_name,
+                        "params": { "protocolVersion": known } }),
+            )
+            .await;
+            assert_eq!(
+                answer["result"]["protocolVersion"], known,
+                "{method_name} did not agree to {known}: {answer}"
+            );
+        }
+        // Anything else is answered with what this server does speak.
+        for unknown in ["2027-99-01", "", "1.0", "2025-06-18-draft"] {
+            let answer = rpc(
+                app.clone(),
+                &token,
+                json!({ "jsonrpc": "2.0", "id": 2, "method": method_name,
+                        "params": { "protocolVersion": unknown } }),
+            )
+            .await;
+            assert_eq!(
+                answer["result"]["protocolVersion"], "2026-07-28",
+                "{method_name} told the client it speaks `{unknown}`: {answer}"
+            );
+        }
+        // No version at all is the newest, as before.
+        let bare = rpc(
+            app.clone(),
+            &token,
+            json!({ "jsonrpc": "2.0", "id": 3, "method": method_name }),
+        )
+        .await;
+        assert_eq!(bare["result"]["protocolVersion"], "2026-07-28", "{bare}");
+    }
+}
+
+/// T-0847, AG-60: a change's plan and a model's source are resources, so a model reads them
+/// without spending a tool call, and both are advertised in `resources/list`.
+#[tokio::test]
+async fn a_change_plan_and_a_model_source_are_readable_resources() {
+    let (app, issuer, signer, kid) = setup_app_and_keys().await;
+    let token = sign_token(
+        &signer,
+        &kid,
+        &issuer,
+        PORTAL_AUDIENCE,
+        "steward.user",
+        &["portal-approver"],
+        &["platform-admins"],
+    );
+
+    let listed = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "resources/list",
+                "params": { "project": "ovzdusie" } }),
+    )
+    .await;
+    let uris: Vec<&str> = listed["result"]["resources"]
+        .as_array()
+        .expect("resources")
+        .iter()
+        .filter_map(|r| r["uri"].as_str())
+        .collect();
+    assert!(
+        uris.contains(&"jc://ovzdusie/datamodels/air/linkml"),
+        "the model's source is not advertised: {uris:?}"
+    );
+    assert!(
+        uris.contains(&"jc://ovzdusie/changes/chg-00000001"),
+        "the open change is not advertised: {uris:?}"
+    );
+
+    let plan = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/read",
+                "params": { "uri": "jc://ovzdusie/changes/chg-00000001" } }),
+    )
+    .await;
+    let text = plan["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the change's plan is not readable: {plan}"));
+    assert!(text.contains("chg-00000001"), "{text}");
+    assert!(text.contains("mobility"), "{text}");
+
+    let source = rpc(
+        app.clone(),
+        &token,
+        json!({ "jsonrpc": "2.0", "id": 3, "method": "resources/read",
+                "params": { "uri": "jc://ovzdusie/datamodels/air/linkml" } }),
+    )
+    .await;
+    assert_eq!(
+        source["result"]["contents"][0]["mimeType"],
+        json!("application/yaml"),
+        "{source}"
+    );
+    assert!(
+        source["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("AirQualityObserved"),
+        "{source}"
+    );
+
+    // A model nobody declared and a change nobody opened answer as an unknown resource does.
+    for missing in [
+        "jc://ovzdusie/datamodels/nope/linkml",
+        "jc://ovzdusie/changes/chg-00000099",
+    ] {
+        let answer = rpc(
+            app.clone(),
+            &token,
+            json!({ "jsonrpc": "2.0", "id": 4, "method": "resources/read",
+                    "params": { "uri": missing } }),
+        )
+        .await;
+        assert_eq!(
+            answer["error"]["code"], -32002,
+            "{missing} answered something: {answer}"
+        );
+    }
 }
