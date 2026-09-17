@@ -357,6 +357,7 @@ pub async fn open_project(
         native_files: 0,
         lane: crate::change::Lane::Yellow,
         source: None,
+        verified: Vec::new(),
     };
     let mut change = crate::api::import::propose_bundle(
         &state,

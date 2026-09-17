@@ -470,6 +470,48 @@ async fn the_archive_is_a_zip_with_the_native_files_and_a_bundle_index() {
     }
 }
 
+/// MF-42: the index carries the SHA-256 of every file the archive holds, over the bytes as
+/// exported, so an import can say whether the transfer arrived whole.
+#[tokio::test]
+async fn the_index_carries_the_checksum_of_every_file_in_the_archive() {
+    use sha2::{Digest, Sha256};
+
+    let answer = get("/api/v1/projects/banskabystrica/export?format=zip", true).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(answer.body.clone())).expect("a readable zip");
+
+    let index: serde_json::Value =
+        serde_yaml_ng::from_str(&entry(&mut archive, "bundle.yaml")).expect("the index parses");
+    let files = index["spec"]["files"].as_array().expect("files");
+
+    // Every file of the project, and nothing that only describes the bundle.
+    let listed: Vec<&str> = files
+        .iter()
+        .filter_map(|file| file["path"].as_str())
+        .collect();
+    assert!(
+        listed
+            .iter()
+            .all(|path| path.starts_with("projects/banskabystrica/")),
+        "{listed:?}"
+    );
+    assert!(
+        listed.contains(&"projects/banskabystrica/pipelines/aq-mqtt-ingest/bento.yaml"),
+        "the native file is checksummed too: {listed:?}"
+    );
+
+    for file in files {
+        let path = file["path"].as_str().expect("a path");
+        let content = entry(&mut archive, path);
+        assert_eq!(
+            file["sha256"].as_str().unwrap_or_default(),
+            format!("{:x}", Sha256::digest(content.as_bytes())),
+            "the checksum of {path} is of the bytes the archive carries"
+        );
+    }
+}
+
 fn entry(archive: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>, name: &str) -> String {
     use std::io::Read;
     let mut text = String::new();

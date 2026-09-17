@@ -1216,6 +1216,7 @@ pub async fn run(
             },
             lane,
             source: Some("jc_space_complete".into()),
+            verified: Vec::new(),
         };
 
         let ch = crate::api::import::propose_bundle(

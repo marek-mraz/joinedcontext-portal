@@ -123,6 +123,33 @@ pub struct ImportReport {
     /// Where the bundle came from, when it carried a `kind: Bundle` index (MF-20).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Per file, whether what the import wrote equals the checksum the bundle index carries,
+    /// with the namespace mapping undone (MF-42). Empty when the bundle carries no checksums:
+    /// an unverifiable transfer says so rather than claiming every file is equal.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified: Vec<Verified>,
+}
+
+/// One file of a bundle as the import verified it (MF-42).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Verified {
+    /// The path the bundle index gave the file.
+    pub path: String,
+    /// Whether the checksum matched.
+    pub equal: bool,
+}
+
+impl ImportReport {
+    /// `n of m files equal`, the line the `Change` body leads with (MF-42), or `None` when the
+    /// bundle carried no checksums.
+    pub fn verification_summary(&self) -> Option<String> {
+        if self.verified.is_empty() {
+            return None;
+        }
+        let equal = self.verified.iter().filter(|file| file.equal).count();
+        Some(format!("{equal} of {} files equal", self.verified.len()))
+    }
 }
 
 /// One manifest or native file on its way into the repository.
@@ -233,6 +260,11 @@ fn parse_text(text: &str, path: Option<&str>) -> Result<Vec<Incoming>, ApiError>
         })
         .collect();
 
+    // One document that is not a manifest is the file's own format — Bento's config, a LinkML
+    // source — and it travels byte for byte (MF-17, T-0923). Re-serialising the parse would
+    // drop the comments and the layout that are half of what those formats carry, and would
+    // make the bundle's checksum disagree with what was written (MF-42).
+    let single = documents.len() == 1;
     let mut incoming = Vec::new();
     for document in documents {
         if document.is_null() {
@@ -250,7 +282,11 @@ fn parse_text(text: &str, path: Option<&str>) -> Result<Vec<Incoming>, ApiError>
             }
             continue;
         }
-        incoming.push(as_incoming(&document, path)?);
+        let mut item = as_incoming(&document, path)?;
+        if single && item.envelope.is_none() {
+            item.content = text.to_owned();
+        }
+        incoming.push(item);
     }
     if incoming.is_empty() && !text.trim().is_empty() {
         // A `.yaml` beside the manifests that is not a manifest: Bento's own config, a
@@ -881,7 +917,13 @@ pub async fn propose_bundle(
     }
 
     let title = format!("import {} resources into {project}", files.len());
-    let body = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "imported bundle".into());
+    let detail = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "imported bundle".into());
+    // The one line an approver reads before the report: whether the transfer arrived whole
+    // (MF-42). A bundle without checksums has no such line rather than a reassuring one.
+    let body = match report.verification_summary() {
+        Some(summary) => format!("{summary}\n\n{detail}"),
+        None => detail,
+    };
     let pull = gitea
         .create_pull_request(&branch, &default_branch, &title, &body)
         .await?;
@@ -899,6 +941,69 @@ pub async fn propose_bundle(
     Ok(change)
 }
 
+/// What the bundle index says each of its files hashes to, against what arrived (MF-42).
+///
+/// The comparison is made on the manifest as it was uploaded — before the namespace mapping,
+/// the domain rewrite and the `imported-from` annotation this import applies — because that is
+/// the written manifest with the mapping undone, and it is the form the exporter hashed. A
+/// bundle with no `spec.files` answers an empty list: an import that cannot verify a transfer
+/// says nothing about it rather than reporting every file equal.
+fn verify(incoming: &[Incoming]) -> Result<Vec<Verified>, ApiError> {
+    use sha2::{Digest, Sha256};
+
+    let expected: BTreeMap<String, String> = incoming
+        .iter()
+        .filter_map(|item| item.envelope.as_ref())
+        .find(|envelope| envelope.kind == BUNDLE_KIND)
+        .and_then(|index| index.spec.get("files").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|file| {
+            let path = file.get("path")?.as_str()?.to_owned();
+            let sha256 = file.get("sha256")?.as_str()?.to_owned();
+            Some((path, sha256))
+        })
+        .collect();
+    if expected.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut verified = Vec::new();
+    for item in incoming {
+        let Some(path) = item.path.as_deref() else {
+            continue;
+        };
+        let Some(wanted) = expected.get(path) else {
+            continue;
+        };
+        let bytes = match &item.envelope {
+            Some(envelope) if envelope.kind == BUNDLE_KIND => continue,
+            Some(envelope) => serde_yaml_ng::to_string(envelope)
+                .map_err(|e| ApiError::Internal(format!("manifest did not serialise: {e}")))?,
+            // A native file travels byte for byte, so the bytes that arrived are the bytes
+            // that will be written.
+            None => item.content.clone(),
+        };
+        let found = format!("{:x}", Sha256::digest(bytes.as_bytes()));
+        verified.push(Verified {
+            path: path.to_owned(),
+            equal: &found == wanted,
+        });
+    }
+    // A file the index lists and the upload does not hold was lost on the way: it is unequal,
+    // not absent from the report (MF-42).
+    for path in expected.keys() {
+        if !verified.iter().any(|file| &file.path == path) {
+            verified.push(Verified {
+                path: path.clone(),
+                equal: false,
+            });
+        }
+    }
+    verified.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(verified)
+}
+
 /// What the import would do, and the files it would write.
 #[allow(clippy::type_complexity)]
 fn plan_import(
@@ -913,6 +1018,7 @@ fn plan_import(
     let mut natives: Vec<(String, String)> = Vec::new();
     let mut source: Option<String> = None;
     let mut refused: Vec<String> = Vec::new();
+    let verified = verify(incoming)?;
 
     for item in incoming {
         let Some(envelope) = item.envelope.clone() else {
@@ -986,6 +1092,7 @@ fn plan_import(
         native_files: natives.len(),
         lane: Lane::Green,
         source,
+        verified,
     };
 
     // Conflicts first: a rename rewrites references, so it has to happen before anything is

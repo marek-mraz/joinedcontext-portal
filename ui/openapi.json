@@ -6920,6 +6920,13 @@
               "null"
             ],
             "description": "Where the bundle came from, when it carried a `kind: Bundle` index (MF-20)."
+          },
+          "verified": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Verified"
+            },
+            "description": "Per file, whether what the import wrote equals the checksum the bundle index carries,\nwith the namespace mapping undone (MF-42). Empty when the bundle carries no checksums:\nan unverifiable transfer says so rather than claiming every file is equal."
           }
         }
       },
@@ -8602,6 +8609,24 @@
           "trace": {}
         },
         "additionalProperties": false
+      },
+      "Verified": {
+        "type": "object",
+        "description": "One file of a bundle as the import verified it (MF-42).",
+        "required": [
+          "path",
+          "equal"
+        ],
+        "properties": {
+          "equal": {
+            "type": "boolean",
+            "description": "Whether the checksum matched."
+          },
+          "path": {
+            "type": "string",
+            "description": "The path the bundle index gave the file."
+          }
+        }
       }
     }
   },

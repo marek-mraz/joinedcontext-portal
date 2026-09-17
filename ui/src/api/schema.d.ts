@@ -1677,6 +1677,12 @@ export interface components {
             skipped: string[];
             /** @description Where the bundle came from, when it carried a `kind: Bundle` index (MF-20). */
             source?: string | null;
+            /**
+             * @description Per file, whether what the import wrote equals the checksum the bundle index carries,
+             *     with the namespace mapping undone (MF-42). Empty when the bundle carries no checksums:
+             *     an unverifiable transfer says so rather than claiming every file is equal.
+             */
+            verified?: components["schemas"]["Verified"][];
         };
         /** @description A model to import from the Smart Data Models catalogue. */
         ImportSdmRequest: {
@@ -2248,6 +2254,13 @@ export interface components {
             inputDigest: string;
             ok: boolean;
             trace?: unknown;
+        };
+        /** @description One file of a bundle as the import verified it (MF-42). */
+        Verified: {
+            /** @description Whether the checksum matched. */
+            equal: boolean;
+            /** @description The path the bundle index gave the file. */
+            path: string;
         };
     };
     responses: never;

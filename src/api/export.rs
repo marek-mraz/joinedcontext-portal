@@ -258,22 +258,21 @@ fn attachment(body: Vec<u8>, content_type: &'static str, filename: String) -> Re
 /// tree a person unpacks, and an index it refuses is a bundle the platform rejects as soon as
 /// it is looked at (T-0823).
 fn bundle_index(
-    project: &str,
-    revision: &str,
-    exporter: &str,
+    header: &IndexHeader<'_>,
     items: Vec<jc_core::kinds::BundleItem>,
     native_files: Vec<String>,
-    omitted: usize,
+    files: Vec<jc_core::kinds::BundleFile>,
     description: Option<&Description>,
 ) -> Result<String, ApiError> {
     let spec = jc_core::kinds::BundleSpec {
         exported_at: chrono::Utc::now(),
-        exported_by: exporter.to_owned(),
+        exported_by: header.exporter.to_owned(),
         source_instance: None,
-        source_revision: revision.to_owned(),
+        source_revision: header.revision.to_owned(),
         items,
         native_files,
-        omitted: omitted as u32,
+        files,
+        omitted: header.omitted as u32,
         readme: description.map(|d| d.readme.clone()),
         schemas: description.map(|d| jc_core::kinds::BundleSchemas {
             kinds: d.kinds.clone(),
@@ -287,11 +286,28 @@ fn bundle_index(
         "apiVersion": API_VERSION,
         "kind": "Bundle",
         // A Bundle is organization-scoped, whichever project it describes (MF-17).
-        "metadata": { "name": project, "namespace": crate::permissions::ORG_NAMESPACE },
+        "metadata": { "name": header.project, "namespace": crate::permissions::ORG_NAMESPACE },
         "spec": spec,
     });
     serde_yaml_ng::to_string(&bundle)
         .map_err(|e| ApiError::Internal(format!("bundle index did not serialise: {e}")))
+}
+
+/// The checksum of every file the bundle carries, over the bytes as exported (MF-42).
+///
+/// An import compares what it wrote against these, with the namespace mapping undone, so a
+/// transfer between two instances is verified before anybody deletes the source.
+fn bundle_files(included: &[&Exported]) -> Vec<jc_core::kinds::BundleFile> {
+    use sha2::{Digest, Sha256};
+    let mut files: Vec<jc_core::kinds::BundleFile> = included
+        .iter()
+        .map(|file| jc_core::kinds::BundleFile {
+            path: file.path.clone(),
+            sha256: format!("{:x}", Sha256::digest(file.content.as_bytes())),
+        })
+        .collect();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files
 }
 
 /// One manifest of an export as the index lists it (MF-17).
@@ -728,7 +744,9 @@ pub async fn export(
         .collect();
     let header = IndexHeader {
         project: &project,
-        revision: &revision,
+        // The commit, never the branch name a caller may have asked for: `sourceRevision` is a
+        // commit id (MF-17) and the README says which one the export was taken at.
+        revision: &commit,
         exporter: &user.0.identity.username,
         omitted,
     };
@@ -742,6 +760,9 @@ pub async fn export(
             .compression_method(zip::CompressionMethod::Deflated);
         let mut items = Vec::new();
         let mut native_files = Vec::new();
+        // What the archive actually carries, which is not `included`: a native file has no kind
+        // to filter on and travels whatever the filters say. The checksums are of these (MF-42).
+        let mut archived: Vec<&Exported> = Vec::new();
         for file in &files {
             // A native file has no kind to filter on and belongs to whatever manifest sits
             // beside it, so the archive keeps it whatever the filters say.
@@ -754,6 +775,7 @@ pub async fn export(
                 }
                 None => native_files.push(file.path.clone()),
             }
+            archived.push(file);
             let zipped = |err: zip::result::ZipError| {
                 ApiError::Internal(format!("archive entry failed: {err}"))
             };
@@ -774,12 +796,10 @@ pub async fn export(
             entries.push((
                 "bundle.yaml".to_owned(),
                 bundle_index(
-                    &project,
-                    &commit,
-                    &user.0.identity.username,
+                    &header,
                     items,
                     native_files,
-                    omitted,
+                    bundle_files(&archived),
                     description.as_ref(),
                 )?,
             ));
@@ -876,15 +896,9 @@ pub async fn export(
                     .map(|envelope| bundle_item(envelope, &file.path))
             })
             .collect();
-        let document = bundle_index(
-            &project,
-            &commit,
-            &user.0.identity.username,
-            items,
-            Vec::new(),
-            omitted,
-            Some(description),
-        )?;
+        // A stream is documents, not files, so it carries no checksums: there is no path for
+        // an import to verify against (MF-42). The archive is the transfer format.
+        let document = bundle_index(&header, items, Vec::new(), Vec::new(), Some(description))?;
         body.push_str("---\n");
         body.push_str(&document);
     }

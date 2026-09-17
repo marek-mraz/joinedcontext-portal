@@ -1044,3 +1044,130 @@ spec:
         "{analyst}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Verifying a transfer (MF-42)
+// ---------------------------------------------------------------------------
+
+/// The lowercase hexadecimal SHA-256, as the bundle index carries it.
+fn sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// A manifest as the exporter writes it: parsed and serialised back by the platform's own type,
+/// which is the form both sides hash.
+fn exported(manifest: &str) -> String {
+    let envelope: ResourceEnvelope = serde_yaml_ng::from_str(manifest).expect("the fixture parses");
+    serde_yaml_ng::to_string(&envelope).expect("serialises")
+}
+
+/// The index of `bundle_archive()` with a checksum per file, as the current exporter writes it.
+fn bundle_with_checksums(space: &str) -> String {
+    format!(
+        "{BUNDLE}  files:\n\
+         {}{}{}",
+        format_args!(
+            "    - {{ path: projects/helsinki/spaces/ovzdusie/space.yaml, sha256: {} }}\n",
+            sha256(exported(space).as_bytes())
+        ),
+        format_args!(
+            "    - {{ path: projects/helsinki/endpoints/public-air.yaml, sha256: {} }}\n",
+            sha256(exported(ENDPOINT).as_bytes())
+        ),
+        format_args!(
+            "    - {{ path: projects/helsinki/pipelines/aq/bento.yaml, sha256: {} }}\n",
+            sha256(BENTO.as_bytes())
+        ),
+    )
+}
+
+async fn verify_archive(files: &[(&str, &str)]) -> (StatusCode, Value) {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let (content_type, body) = multipart(&archive(files), &[("dryRun", "true")]);
+    post(state, &cookie, &content_type, body).await
+}
+
+#[tokio::test]
+async fn a_round_trip_reports_every_file_equal() {
+    let index = bundle_with_checksums(SPACE);
+    let (status, report) = verify_archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        ("projects/helsinki/endpoints/public-air.yaml", ENDPOINT),
+        ("projects/helsinki/pipelines/aq/bento.yaml", BENTO),
+        ("bundle.yaml", &index),
+    ])
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{report}");
+    let verified = report["verified"].as_array().expect("verified");
+    assert_eq!(verified.len(), 3, "{report}");
+    assert!(
+        verified.iter().all(|file| file["equal"] == json!(true)),
+        "{report}"
+    );
+}
+
+#[tokio::test]
+async fn a_file_edited_on_the_way_is_reported_unequal_and_the_rest_is_not() {
+    // The index still carries the checksum of the manifest as it was exported.
+    let index = bundle_with_checksums(SPACE);
+    let tampered = SPACE.replace("Air quality", "Air quality (edited)");
+    let (status, report) = verify_archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", &tampered),
+        ("projects/helsinki/endpoints/public-air.yaml", ENDPOINT),
+        ("projects/helsinki/pipelines/aq/bento.yaml", BENTO),
+        ("bundle.yaml", &index),
+    ])
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{report}");
+    let verified = report["verified"].as_array().expect("verified");
+    let space = verified
+        .iter()
+        .find(|file| file["path"] == "projects/helsinki/spaces/ovzdusie/space.yaml")
+        .expect("the space is listed");
+    assert_eq!(space["equal"], json!(false), "{report}");
+    assert_eq!(
+        verified
+            .iter()
+            .filter(|file| file["equal"] == json!(true))
+            .count(),
+        2,
+        "the other two arrived whole: {report}"
+    );
+}
+
+#[tokio::test]
+async fn a_file_the_index_lists_and_the_bundle_lost_is_unequal_and_not_silently_absent() {
+    let index = bundle_with_checksums(SPACE);
+    let (status, report) = verify_archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        ("projects/helsinki/endpoints/public-air.yaml", ENDPOINT),
+        ("bundle.yaml", &index),
+    ])
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{report}");
+    let verified = report["verified"].as_array().expect("verified");
+    let lost = verified
+        .iter()
+        .find(|file| file["path"] == "projects/helsinki/pipelines/aq/bento.yaml")
+        .expect("the missing file is listed");
+    assert_eq!(lost["equal"], json!(false), "{report}");
+}
+
+#[tokio::test]
+async fn a_bundle_from_an_older_exporter_says_nothing_about_verification() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let (content_type, body) = multipart(&bundle_archive(), &[("dryRun", "true")]);
+    let (status, report) = post(state, &cookie, &content_type, body).await;
+
+    assert_eq!(status, StatusCode::OK, "{report}");
+    assert!(
+        report.get("verified").is_none(),
+        "no checksums means nothing verified, never everything equal: {report}"
+    );
+}
