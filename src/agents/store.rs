@@ -490,6 +490,7 @@ mod tests {
             steps: 0,
             tokens_used: 0,
             created_by: "demo.steward@hel.fi".to_owned(),
+            starter: serde_json::Value::Null,
             created_at: created_at.to_owned(),
             started_at: None,
             finished_at: None,

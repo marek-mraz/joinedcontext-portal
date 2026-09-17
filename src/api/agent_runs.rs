@@ -492,6 +492,7 @@ pub async fn create_run(
         steps: 0,
         tokens_used: 0,
         created_by: user.0.identity.username.clone(),
+        starter: serde_json::to_value(&user.0.identity).unwrap_or(serde_json::Value::Null),
         created_at,
         started_at: None,
         finished_at: None,
@@ -2324,9 +2325,47 @@ pub fn preview_router() -> Router<AppState> {
 /// route promises rather than to axum's default (AG-45, AG-46).
 const MAX_RELAYED_EVENT_BYTES: usize = 64 * 1024 + 1024;
 
+/// The operations registry, reached by an agent run through the proxy (AG-64, AG-70).
+///
+/// One registry behind every door: this is the same dispatcher a person's MCP client speaks to,
+/// entered as the person who started the run and narrowed by the run's profile. The two halves
+/// are the point — a profile may take away and never add, and `Via::Agent` keeps AG-11 whatever
+/// the profile says, so no agent approves a change through this door either.
+pub async fn internal_mcp(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<axum::response::Response, ApiError> {
+    authenticate_proxy(&state, &headers)?;
+    let run = state
+        .agents
+        .get_run(&id)
+        .await
+        .map_err(unavailable)?
+        .ok_or_else(|| ApiError::NotFound(format!("run '{id}' not found")))?;
+    if terminal(&run) {
+        return Err(ApiError::Conflict(format!(
+            "run '{}' is '{}' and calls nothing more",
+            run.id, run.status
+        )));
+    }
+    let identity: crate::auth::session::Identity = serde_json::from_value(run.starter.clone())
+        .map_err(|_| {
+            ApiError::Denied(format!(
+                "run '{}' carries no starter, so there is nobody to run its calls as",
+                run.id
+            ))
+        })?;
+    let profile = Profile::load(&state.mirror, &run.profile)?;
+    let caller = crate::ops::Caller::for_run(identity, profile.access.clone());
+    Ok(crate::mcp::dispatch_for(state, caller, body).await)
+}
+
 /// The two routes the credential proxy calls, served on the internal listener alone (AG-52).
 pub fn internal_router() -> Router<AppState> {
     Router::new()
+        .route("/internal/agent-runs/{id}/mcp", post(internal_mcp))
         .route(
             "/internal/agent-runs/events",
             post(internal_post_event).layer(axum::extract::DefaultBodyLimit::max(

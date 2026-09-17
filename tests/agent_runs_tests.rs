@@ -2194,6 +2194,7 @@ async fn expired_runs_are_reaped_and_ticket_invalidated_while_live_runs_remain()
         steps: 5,
         tokens_used: 1000,
         created_by: STEWARD.to_owned(),
+        starter: serde_json::Value::Null,
         created_at: "2020-01-01T00:00:00Z".to_owned(),
         started_at: Some("2020-01-01T00:01:00Z".to_owned()),
         finished_at: None,
@@ -2457,6 +2458,7 @@ async fn continues_validations_reject_invalid_runs() {
         steps: 0,
         tokens_used: 0,
         created_by: STEWARD.to_owned(),
+        starter: serde_json::Value::Null,
         created_at: "2026-09-12T08:00:00Z".to_owned(),
         started_at: None,
         finished_at: None,
@@ -2577,6 +2579,7 @@ async fn caller_without_portal_approver_sees_only_own_runs_while_approver_sees_b
         steps: 0,
         tokens_used: 0,
         created_by: "viewer.user".to_owned(),
+        starter: serde_json::Value::Null,
         created_at: "2026-09-12T09:00:00Z".to_owned(),
         started_at: None,
         finished_at: None,
@@ -2819,4 +2822,189 @@ async fn the_run_above_the_daily_quota_is_refused_with_the_count_and_the_limit()
         body.to_string().contains("agentRunsPerDay 3 of 2"),
         "the refusal names the count and the limit: {body}"
     );
+}
+
+/// A run reaches the operations registry through one door and arrives narrowed twice: the person
+/// who started it, and the run's own profile (AG-64, AG-70, T-0837).
+mod the_registry_a_run_reaches {
+    use super::*;
+
+    /// The JSON-RPC message the proxy relays, and what came back.
+    async fn mcp(internal: &axum::Router, run: &str, message: Value) -> (StatusCode, Value) {
+        internal_call(
+            internal,
+            Some(PROXY_TOKEN),
+            Method::POST,
+            &format!("/internal/agent-runs/{run}/mcp"),
+            Some(message),
+        )
+        .await
+    }
+
+    /// A profile that names an operation and the verb it needs: what an author writes to let a
+    /// run propose a change (AG-70).
+    fn profile_naming(operations: &[&str], kind_verbs: &[(&str, &[&str])]) -> Value {
+        let mut spec = builder_profile_spec();
+        spec["access"] = json!({
+            "operations": operations,
+            "kinds": kind_verbs.iter().map(|(kind, verbs)| json!({ "kind": kind, "verbs": verbs })).collect::<Vec<_>>(),
+        });
+        spec
+    }
+
+    async fn run_for(app: &axum::Router, config: &Config) -> String {
+        let cookie = session_cookie(config, STEWARD, &["portal-approver"]);
+        create_run(app, &cookie).await["id"]
+            .as_str()
+            .expect("an id")
+            .to_owned()
+    }
+
+    /// A profile without an access block grants the read-only operations and nothing else, so
+    /// the catalogue a run reads never offers what its call would refuse.
+    #[tokio::test]
+    async fn tools_list_offers_only_what_the_profile_names() {
+        let config = config();
+        let (app, internal) = both(mirror(Some(builder_profile_spec())), &config);
+        let run = run_for(&app, &config).await;
+
+        let (status, answer) = mcp(
+            &internal,
+            &run,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                    "params": { "project": PROJECT } }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        let names: Vec<&str> = answer["result"]["tools"]
+            .as_array()
+            .expect("a tool list")
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        assert!(!names.is_empty(), "the run reads nothing at all: {answer}");
+        assert!(
+            !names.contains(&"jc_resource_delete"),
+            "a profile that grants no deletion offered one: {names:?}"
+        );
+        assert!(
+            !names.contains(&"jc_change_approve"),
+            "a profile that grants no approval offered one: {names:?}"
+        );
+        assert!(
+            names.contains(&"jc_resource_list"),
+            "reading is what every profile grants: {names:?}"
+        );
+    }
+
+    /// The same list from the person's own door, with no run: the profile is what took the rest
+    /// away, and a steward at a keyboard still has it.
+    #[tokio::test]
+    async fn the_person_who_started_the_run_keeps_what_the_profile_took() {
+        let config = config();
+        let (app, internal) = both(mirror(Some(builder_profile_spec())), &config);
+        let run = run_for(&app, &config).await;
+
+        let (_, narrowed) = mcp(
+            &internal,
+            &run,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                    "params": { "project": PROJECT } }),
+        )
+        .await;
+        let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+        let (_, whole) = call(
+            &app,
+            &cookie,
+            Method::GET,
+            &format!("/api/v1/projects/{PROJECT}/ops"),
+            None,
+        )
+        .await;
+        let offered = narrowed["result"]["tools"].as_array().map_or(0, Vec::len);
+        let person = whole.as_array().map_or(0, Vec::len);
+        assert!(
+            offered < person,
+            "the run was offered {offered} of the person's {person} operations"
+        );
+    }
+
+    /// AG-11 holds on this door too: a run never decides a change, whatever its profile says.
+    #[tokio::test]
+    async fn a_run_never_approves_or_rejects_a_change() {
+        let config = config();
+        let profile = profile_naming(
+            &["jc_change_approve", "jc_change_reject"],
+            &[("Change", &["approve"])],
+        );
+        let (app, internal) = both(mirror(Some(profile)), &config);
+        let run = run_for(&app, &config).await;
+
+        for tool in ["jc_change_approve", "jc_change_reject"] {
+            let (status, answer) = mcp(
+                &internal,
+                &run,
+                json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+                    "name": tool,
+                    "arguments": { "project": PROJECT, "id": "chg-00000001", "reason": "no" }
+                }}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{answer}");
+            assert_eq!(answer["result"]["isError"], json!(true), "{answer}");
+            let said = serde_json::to_string(&answer).unwrap_or_default();
+            assert!(
+                said.contains("an agent never approves or rejects a change"),
+                "{tool}: {said}"
+            );
+        }
+    }
+
+    /// A run that has ended calls nothing, and a message larger than the door reads is refused
+    /// before it is parsed.
+    #[tokio::test]
+    async fn a_finished_run_and_an_oversized_message_are_refused() {
+        let config = config();
+        let (app, internal) = both(mirror(Some(builder_profile_spec())), &config);
+        let run = run_for(&app, &config).await;
+
+        let (status, _) = mcp(
+            &internal,
+            &run,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+                "name": "jc_resource_list",
+                "arguments": { "project": PROJECT, "kind": "Endpoint", "pad": "x".repeat(2 * 1024 * 1024) }
+            }}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+
+        let (status, _) = internal_call(
+            &internal,
+            Some(PROXY_TOKEN),
+            Method::POST,
+            "/internal/agent-runs/no-such-run/mcp",
+            Some(json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// The door is the proxy's alone: a workspace that reached it with any other token is nobody.
+    #[tokio::test]
+    async fn the_door_is_the_proxy_token_and_nothing_else() {
+        let config = config();
+        let (app, internal) = both(mirror(Some(builder_profile_spec())), &config);
+        let run = run_for(&app, &config).await;
+
+        let (status, _) = internal_call(
+            &internal,
+            Some("not-the-proxy-token"),
+            Method::POST,
+            &format!("/internal/agent-runs/{run}/mcp"),
+            Some(json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
 }

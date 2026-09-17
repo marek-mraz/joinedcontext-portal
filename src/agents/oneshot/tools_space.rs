@@ -27,6 +27,7 @@ impl Driver {
         let caller = crate::ops::Caller {
             identity: self.identity.clone(),
             via: crate::ops::Via::Agent,
+            access: None,
         };
         // The operation reads its own fields only: the call's `tool` key goes, and the
         // assistant never proposes, the person does on the page it opens (AG-73).
@@ -443,6 +444,7 @@ impl Driver {
                 let caller = crate::ops::Caller {
                     identity: self.identity.clone(),
                     via: crate::ops::Via::Agent,
+                    access: None,
                 };
                 let test = json!({
                     "pipeline": plan.pipeline,

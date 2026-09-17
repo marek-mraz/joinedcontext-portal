@@ -49,6 +49,7 @@ pub async fn list_ops(
             Front::Edge => Via::Session,
             Front::Bearer => Via::Bearer,
         },
+        access: None,
     };
     Ok(Json(ops::listing(&caller, &state, &project)))
 }
@@ -105,6 +106,7 @@ pub async fn run_op(
             Front::Edge => Via::Session,
             Front::Bearer => Via::Bearer,
         },
+        access: None,
     };
 
     respond(ops::call(op, &caller, &state, &project, body_val).await)

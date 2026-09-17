@@ -159,6 +159,15 @@ pub struct AgentRun {
     pub steps: i32,
     pub tokens_used: i64,
     pub created_by: String,
+    /// The identity that started the run, as the Portal read it from that person's session.
+    ///
+    /// A run outlives the session that started it, and a workspace calling back through the
+    /// proxy carries no session of its own. The operations registry judges a person by their
+    /// bindings, and most bindings name a group — so a name alone would quietly refuse a steward
+    /// their own grants. Never serialized: a run's readers have no business with somebody's
+    /// groups (AG-64, PF-50).
+    #[serde(skip_serializing, default)]
+    pub starter: serde_json::Value,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,

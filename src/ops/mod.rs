@@ -75,11 +75,57 @@ impl Via {
 pub struct Caller {
     pub identity: Identity,
     pub via: Via,
+    /// What the run's `AgentProfile` grants, when this call belongs to an agent run (AG-70).
+    ///
+    /// `None` is a person at a keyboard or a program with their own token: their bindings alone
+    /// decide. A profile is the second half and only ever narrows — an operation the person may
+    /// not run stays refused whether the profile names it or not.
+    pub access: Option<crate::agents::access::Access>,
 }
 
 impl Caller {
     pub fn new(identity: Identity, via: Via) -> Self {
-        Self { identity, via }
+        Self {
+            identity,
+            via,
+            access: None,
+        }
+    }
+
+    /// A call made inside an agent run: the person who started it, narrowed by its profile.
+    pub fn for_run(identity: Identity, access: crate::agents::access::Access) -> Self {
+        Self {
+            identity,
+            via: Via::Agent,
+            access: Some(access),
+        }
+    }
+
+    /// The profile's half of a call, where a caller has one (AG-70).
+    pub fn grants(&self, op: &Operation) -> Result<(), OpError> {
+        match &self.access {
+            Some(access) if !access.names(op) => Err(OpError::Api(ApiError::Denied(
+                crate::agents::access::refusal(op.name),
+            ))),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether this caller may run the operation at all — asked before anything is asked of a
+    /// person (AG-63).
+    ///
+    /// A refusal that arrives after the confirmation has the person answer a question whose
+    /// answer changes nothing, and it teaches an agent that approving is something it does and
+    /// then fails at. The profile's half (AG-70) and the refusal no profile can lift (AG-11)
+    /// are both knowable from the caller and the operation alone, so they are decided here.
+    pub fn may_run(&self, op: &Operation) -> Result<(), OpError> {
+        // AG-11 before AG-70: a profile that names an approval is an author's mistake, and being
+        // told the profile does not grant what it plainly lists explains nothing. The true reason
+        // is that no profile can grant it.
+        if op.kind == "Change" && op.verb.is_some() {
+            resources::refuse_agent(self)?;
+        }
+        self.grants(op)
     }
 }
 
@@ -226,6 +272,7 @@ pub async fn call(
     project: &str,
     input: Value,
 ) -> Result<Value, OpError> {
+    caller.may_run(op)?;
     permitted(op, &caller.identity, state, project)?;
     (op.validate)(&input)?;
     (op.run)(caller, state, project, input).await
@@ -260,6 +307,7 @@ pub fn permitted(
 pub fn listing(caller: &Caller, state: &AppState, project: &str) -> Vec<OperationSummary> {
     registry()
         .iter()
+        .filter(|op| caller.may_run(op).is_ok())
         .filter(|op| permitted(op, &caller.identity, state, project).is_ok())
         .map(|op| OperationSummary {
             name: op.name.to_string(),

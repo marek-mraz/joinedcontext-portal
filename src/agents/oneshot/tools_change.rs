@@ -851,6 +851,7 @@ impl Driver {
                 let caller = crate::ops::Caller {
                     identity: self.identity.clone(),
                     via: crate::ops::Via::Agent,
+                    access: None,
                 };
                 let test = json!({ "pipeline": manifest, "sample": sample });
                 let out = match crate::ops::call(op, &caller, &self.state, &self.project, test)

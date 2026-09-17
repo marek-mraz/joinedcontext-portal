@@ -29,6 +29,7 @@ pub(super) fn offered(
     let caller = crate::ops::Caller {
         identity: identity.clone(),
         via: crate::ops::Via::Agent,
+        access: None,
     };
     crate::ops::listing(&caller, state, project)
         .into_iter()
@@ -167,6 +168,7 @@ impl Driver {
         let caller = crate::ops::Caller {
             identity: self.identity.clone(),
             via: crate::ops::Via::Agent,
+            access: None,
         };
         match crate::ops::call(
             op,

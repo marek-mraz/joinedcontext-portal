@@ -647,6 +647,7 @@ pub async fn start_conversation(
         steps: 0,
         tokens_used: 0,
         created_by: user.0.identity.username.clone(),
+        starter: serde_json::to_value(&user.0.identity).unwrap_or(serde_json::Value::Null),
         created_at,
         started_at: None,
         finished_at: None,

@@ -545,6 +545,7 @@ async fn the_reads_that_had_only_a_route_answer_through_the_registry() {
             groups: vec!["platform-admins".into()],
         },
         via: ops::Via::Mcp,
+        access: None,
     };
 
     let graph = ops::call(
@@ -615,6 +616,7 @@ async fn the_run_operations_answer_and_an_agent_is_refused_by_name() {
             groups: vec!["platform-admins".into()],
         },
         via: ops::Via::Mcp,
+        access: None,
     };
     let agent = ops::Caller {
         via: ops::Via::Agent,
@@ -675,6 +677,7 @@ async fn jc_project_create_follows_the_organizations_own_setting() {
     let caller = ops::Caller {
         identity: common::person("nobody"),
         via: ops::Via::Mcp,
+        access: None,
     };
     let op = ops::find("jc_project_create").expect("registered");
 

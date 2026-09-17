@@ -151,8 +151,30 @@ pub async fn handle_mcp(
     let caller = crate::ops::Caller {
         identity: session.identity,
         via: crate::ops::Via::Mcp,
+        access: None,
     };
 
+    dispatch(state, caller, body).await
+}
+
+/// The JSON-RPC half every door shares: what the message asks for, answered as the caller.
+///
+/// Two doors reach it. A person or a program signs in with their own token and arrives with
+/// no profile; an agent run arrives through the proxy's `/v1/mcp`, as the person who started
+/// it and narrowed by the run's `AgentProfile` (AG-70, AG-64). The narrowing is on the caller,
+/// so it holds for `tools/list` and `tools/call` alike, and for the resource half too.
+pub async fn dispatch_for(state: AppState, caller: crate::ops::Caller, body: Bytes) -> Response {
+    if body.len() > MAX_REQUEST_BYTES {
+        return too_large(&format!(
+            "the request is {} bytes; this route reads at most {MAX_REQUEST_BYTES}. Send fewer \
+             arguments, or put a large manifest in a draft and name it",
+            body.len()
+        ));
+    }
+    dispatch(state, caller, body).await
+}
+
+async fn dispatch(state: AppState, caller: crate::ops::Caller, body: Bytes) -> Response {
     let message: Value = match serde_json::from_slice::<Value>(&body) {
         Ok(v) if v.is_object() => v,
         _ => return parse_error(),
@@ -286,6 +308,18 @@ pub async fn handle_mcp(
             let mut input = arguments.clone();
             if let Some(map) = input.as_object_mut() {
                 map.remove("project");
+            }
+
+            // Refusal before the question (AG-63): a caller who may not run this is told so,
+            // rather than asked to confirm something that would be refused after they answered.
+            if let Err(refused) = caller
+                .may_run(op)
+                .and_then(|()| crate::ops::permitted(op, &caller.identity, &state, project))
+            {
+                return json_response(
+                    StatusCode::OK,
+                    &result(id, failure_result(&refused.to_string())),
+                );
             }
 
             // AG-63: a Yellow or Red lane, or a destructive tool, asks the person before it

@@ -767,6 +767,7 @@ async fn propose_draft(
             Front::Portal | Front::Edge => crate::ops::Via::Session,
             Front::Bearer => crate::ops::Via::Bearer,
         },
+        access: None,
     };
     let input = if dry_run {
         serde_json::json!({ "draft": draft, "manifest": manifest })

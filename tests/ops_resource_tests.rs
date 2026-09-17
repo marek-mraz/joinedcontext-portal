@@ -657,6 +657,7 @@ async fn an_organization_kind_is_read_through_the_operations_of_any_project() {
     let caller = Caller {
         identity: steward(),
         via: Via::Mcp,
+        access: None,
     };
 
     let list = ops::find("jc_resource_list").expect("registered");
@@ -728,6 +729,7 @@ async fn a_kind_no_binding_reads_is_not_there_through_the_operations_either() {
     let caller = Caller {
         identity: identity("viewer", &[]),
         via: Via::Mcp,
+        access: None,
     };
 
     let list = ops::find("jc_resource_list").expect("registered");
