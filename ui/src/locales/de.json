@@ -930,7 +930,8 @@
       "example": "Beispielentität",
       "form": "Formular",
       "options": "Filter und Ebenen",
-      "docs": "Dokumentation"
+      "docs": "Dokumentation",
+      "entity": "Entität"
     },
     "previewUnavailable": "Der Vorschaudienst hat nicht geantwortet; die Quelle bleibt unberührt.",
     "exampleUnmapped": "Die Beispielentität trägt Begriffe, die der @context nicht definiert: {terms}",

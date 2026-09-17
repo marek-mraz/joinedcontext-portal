@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
-import { LinkmlPreviewPanel, unmappedTerms } from "../src/pages/models/LinkmlPreviewPanel";
+import { LinkmlPreviewPanel, normalizedEntity, unmappedTerms } from "../src/pages/models/LinkmlPreviewPanel";
 
 const SOURCE = `id: https://banskabystrica.sk/models/air
 name: air
@@ -198,5 +198,56 @@ describe("LinkML preview panel", () => {
       "pm25",
     ]);
     expect(unmappedTerms(undefined, undefined)).toEqual([]);
+  });
+});
+
+/**
+ * T-1092, DM-05: the generator's example is keyValues, which is not what a consumer parses. The
+ * entity tab shows the payload an endpoint actually serves — each attribute wrapped in the
+ * member its slot declares — so the author can tell a Property from a Relationship before the
+ * space carries either.
+ */
+describe("the entity an endpoint would serve", () => {
+  it("wraps each attribute in the member its slot declares", () => {
+    const entity = normalizedEntity(
+      {
+        id: "urn:ngsi-ld:AirQualityObserved:hel.fi:ovzdusie:st-1",
+        type: "AirQualityObserved",
+        pm10: 31.4,
+        station: "urn:ngsi-ld:Device:hel.fi:ovzdusie:d-1",
+        label: { en: "Leppävaara" },
+        band: "good",
+        raw: { any: "shape" },
+      },
+      [
+        // NGSI-LD `unitCode` takes the UN/CEFACT common code, which the unit carries in its
+        // exact_mappings beside the UCUM symbol (DM-06).
+        { name: "pm10", kind: "Property", unit: { ucum_code: "ug/m3", exact_mappings: ["ucefact:GQ"] } },
+        { name: "station", kind: "Relationship" },
+        { name: "label", kind: "LanguageProperty" },
+        { name: "band", kind: "VocabProperty" },
+        { name: "raw", kind: "JsonProperty" },
+      ] as never,
+    );
+
+    // The keywords stay as they are: an id is not an attribute.
+    expect(entity?.id).toBe("urn:ngsi-ld:AirQualityObserved:hel.fi:ovzdusie:st-1");
+    expect(entity?.type).toBe("AirQualityObserved");
+    // Each native type carries its own member (the owner's target architecture, change 2).
+    expect(entity?.pm10).toEqual({ type: "Property", value: 31.4, unitCode: "GQ" });
+    expect(entity?.station).toEqual({
+      type: "Relationship",
+      object: "urn:ngsi-ld:Device:hel.fi:ovzdusie:d-1",
+    });
+    expect(entity?.label).toEqual({ type: "LanguageProperty", languageMap: { en: "Leppävaara" } });
+    expect(entity?.band).toEqual({ type: "VocabProperty", vocab: "good" });
+    expect(entity?.raw).toEqual({ type: "JsonProperty", json: { any: "shape" } });
+  });
+
+  it("treats a slot the model does not declare as a plain Property, and answers nothing for no example", () => {
+    expect(normalizedEntity({ unknown: 1 }, [])).toEqual({
+      unknown: { type: "Property", value: 1 },
+    });
+    expect(normalizedEntity(undefined, [])).toBeUndefined();
   });
 });

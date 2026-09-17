@@ -14,7 +14,8 @@ import {
   TableHeaderCell,
   TableRow,
 } from "../../components/ui";
-import { parseModel, slotAffordance } from "./linkml";
+import { DEFAULT_KIND, parseModel, slotAffordance, unitCode } from "./linkml";
+import type { LinkmlSlot } from "./linkml";
 
 /**
  * What the model compiles to, refreshed while the user types (DM-17).
@@ -44,12 +45,51 @@ export interface Artifacts {
   errors?: string[];
 }
 
-type Tab = "schema" | "context" | "example" | "form" | "options" | "docs";
+type Tab = "schema" | "context" | "example" | "entity" | "form" | "options" | "docs";
 
-const TABS: Tab[] = ["schema", "context", "example", "form", "options", "docs"];
+const TABS: Tab[] = ["schema", "context", "example", "entity", "form", "options", "docs"];
 
 /** The JSON-LD keywords an example carries that no `@context` has to define. */
 const KEYWORDS = ["id", "type", "@context", "@id", "@type"];
+
+/**
+ * The example as an endpoint serves it: one NGSI-LD entity in normalized form (T-1092).
+ *
+ * The generator's example is keyValues — `pm10: 31.4` — which is not what a consumer parses.
+ * Each attribute is wrapped in the member its slot declares, so the author sees the payload the
+ * space will actually carry and can tell a Property from a Relationship before publishing.
+ */
+export function normalizedEntity(
+  example: Record<string, unknown> | undefined,
+  slots: LinkmlSlot[],
+): Record<string, unknown> | undefined {
+  if (example === undefined) {
+    return undefined;
+  }
+  const kinds = new Map(slots.map((slot) => [slot.name, slot.kind]));
+  const units = new Map(slots.map((slot) => [slot.name, unitCode(slot.unit)]));
+  const entity: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(example)) {
+    if (KEYWORDS.includes(name)) {
+      entity[name] = value;
+      continue;
+    }
+    const kind = kinds.get(name) ?? DEFAULT_KIND;
+    const member =
+      kind === "Relationship"
+        ? { type: kind, object: value }
+        : kind === "LanguageProperty"
+          ? { type: kind, languageMap: value }
+          : kind === "JsonProperty"
+            ? { type: kind, json: value }
+            : kind === "VocabProperty"
+              ? { type: kind, vocab: value }
+              : { type: kind, value };
+    const unit = units.get(name);
+    entity[name] = unit === undefined ? member : { ...member, unitCode: unit };
+  }
+  return entity;
+}
 
 /**
  * The attributes of the example that the generated `@context` does not define (DM-21).
@@ -163,6 +203,9 @@ export function LinkmlPreviewPanel({
         {tab === "schema" ? <Json value={artifacts?.jsonSchema ?? null} /> : null}
         {tab === "context" ? <Json value={artifacts?.context ?? null} /> : null}
         {tab === "example" ? <Json value={artifacts?.example ?? null} /> : null}
+        {tab === "entity" ? (
+          <Json value={normalizedEntity(artifacts?.example, model.slots) ?? null} />
+        ) : null}
         {tab === "form" ? (
           artifacts?.jsonSchema ? (
             <SchemaForm

@@ -930,7 +930,8 @@
       "example": "Vzorová entita",
       "form": "Formulár",
       "options": "Filtre a vrstvy",
-      "docs": "Dokumentácia"
+      "docs": "Dokumentácia",
+      "entity": "Entita"
     },
     "previewUnavailable": "Služba náhľadu neodpovedala; zdroj to neovplyvnilo.",
     "exampleUnmapped": "Vzorová entita nesie pojmy, ktoré @context nedefinuje: {terms}",

@@ -930,7 +930,8 @@
       "example": "Example entity",
       "form": "Form",
       "options": "Filters and layers",
-      "docs": "Documentation"
+      "docs": "Documentation",
+      "entity": "Entity"
     },
     "previewUnavailable": "The preview service did not answer; the source is unaffected.",
     "exampleUnmapped": "The example carries terms the @context does not define: {terms}",
