@@ -435,6 +435,34 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     expect(within(dialog).queryByText(en.form.invalid)).toBeNull();
   });
 
+  /// T-1059, EP-75: the slug is minted once and the API refuses a change to it. The form has
+  /// no field for it, and a slug typed into the YAML view does not reach the proposal either —
+  /// the endpoint keeps the one it was published under, whatever the text said.
+  it("keeps the minted slug when the YAML view names another one", async () => {
+    const stored = EXISTING.items[0];
+    const fetchMock = setupTest(EXISTING);
+    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.edit }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("tab", { name: "YAML" }));
+    const editor = await within(dialog).findByLabelText("YAML");
+    const pasted = {
+      ...stored,
+      status: undefined,
+      spec: { ...stored.spec, slug: "aaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    };
+    fireEvent.change(editor, { target: { value: stringifyYaml(pasted) } });
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.propose }));
+
+    await waitFor(() => expect(writes(fetchMock).length).toBeGreaterThan(0));
+    const proposal = writes(fetchMock)[writes(fetchMock).length - 1];
+    const body = (await proposal.request.clone().json()) as { spec: { slug?: string } };
+    expect(body.spec.slug).toBe((stored.spec as { slug: string }).slug);
+  });
+
   it("checks a new endpoint's bundle whole and then its endpoint with its draft, so the verdict is the form's (T-0763)", async () => {
     const fetchMock = setupTest();
     await userEvent.click(await screen.findByRole("button", { name: en.endpoints.add }));

@@ -649,7 +649,8 @@
       "samplesOut": "Sample out",
       "noSample": "No sample",
       "nodeBloblang": "Mapping on the compute node"
-    }
+    },
+    "emptyHint": "Add a data source and a pipeline with the button, or ask the assistant to build one from what you already have."
   },
   "dashboards": {
     "lead": "Maps drawn from the endpoints of this project.",

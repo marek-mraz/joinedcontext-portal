@@ -649,7 +649,8 @@
       "samplesOut": "Vzorka na výstupe",
       "noSample": "Bez vzorky",
       "nodeBloblang": "Mapovanie na uzle výpočtu"
-    }
+    },
+    "emptyHint": "Pridajte dátový zdroj a pipeline tlačidlom, alebo požiadajte asistenta, aby ju postavil z toho, čo už máte."
   },
   "dashboards": {
     "lead": "Mapy nakreslené z endpointov tohto projektu.",

@@ -63,7 +63,11 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { update: 1 } },
 };
 
-function renderPipelines(metrics: unknown = METRICS, metricsStatus = 200) {
+function renderPipelines(
+  metrics: unknown = METRICS,
+  metricsStatus = 200,
+  pipelines: unknown = PIPELINES,
+) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const path = new URL(request.url).pathname;
@@ -85,7 +89,7 @@ function renderPipelines(metrics: unknown = METRICS, metricsStatus = 200) {
       return json(metrics, metricsStatus);
     }
     if (path.endsWith("/pipelines")) {
-      return json(PIPELINES);
+      return json(pipelines);
     }
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
@@ -124,6 +128,20 @@ describe("pipelines view", () => {
     expect(executionClass({ class: "auto", period: "30s" })).toBe("scheduled");
     expect(executionClass({ class: "auto", period: "5m" })).toBe("scheduled");
     expect(executionClass({ class: "auto", schedule: "10 0 * * *" })).toBe("scheduled");
+  });
+
+  /// T-1058: an empty list is where a person decides what to do next.
+  it("says the two ways in when the project has no pipeline yet", async () => {
+    renderPipelines(METRICS, 200, {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "List",
+      items: [],
+    });
+
+    expect(await screen.findByText(en.pipelines.empty)).toBeInTheDocument();
+    expect(screen.getByText(en.pipelines.emptyHint)).toBeInTheDocument();
+    // The way in is a button, in the empty state as well as in the header.
+    expect(screen.getAllByRole("button", { name: en.pipelines.add }).length).toBeGreaterThan(1);
   });
 
   it("shows the execution class of every pipeline", async () => {

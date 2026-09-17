@@ -383,7 +383,21 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
         <TableBody>
           {pipelines.length === 0 ? (
             <TableEmpty columns={COLUMNS}>
-              <EmptyState bare icon="pipelines" title={t("pipelines.empty")} />
+              {/* An empty list is where a person decides what to do next, so it says what the
+                  two ways in are rather than only that there is nothing here (UI-01). */}
+              <EmptyState
+                bare
+                icon="pipelines"
+                title={t("pipelines.empty")}
+                description={t("pipelines.emptyHint")}
+                action={
+                  <PermissionGuard project={project} kind="Pipeline" verb="propose">
+                    <Button variant="primary" onClick={() => openEditor(null)}>
+                      {t("pipelines.add")}
+                    </Button>
+                  </PermissionGuard>
+                }
+              />
             </TableEmpty>
           ) : (
             pipelines.map((pipeline) => {

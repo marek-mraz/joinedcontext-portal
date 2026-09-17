@@ -649,7 +649,8 @@
       "samplesOut": "Probe am Ausgang",
       "noSample": "Keine Probe",
       "nodeBloblang": "Mapping am Berechnungsknoten"
-    }
+    },
+    "emptyHint": "Fügen Sie mit der Schaltfläche eine Datenquelle und eine Pipeline hinzu, oder lassen Sie den Assistenten eine aus dem bauen, was Sie schon haben."
   },
   "dashboards": {
     "lead": "Karten, gezeichnet aus den Endpunkten dieses Projekts.",
