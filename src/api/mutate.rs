@@ -339,8 +339,12 @@ pub async fn propose_with_identity(
     path_name: Option<&str>,
     operation: Operation,
     dry_run: bool,
-    body_val: Value,
+    mut body_val: Value,
 ) -> Result<ProposeOutcome, ApiError> {
+    // 0. The files a manifest names but cannot contain (a Mapping's golden examples, DM-39),
+    // taken out of the body the way `draft` is, before anything reads it as an envelope.
+    let sidecar_files = body_val.as_object_mut().and_then(|map| map.remove("files"));
+
     // 1. Resolve plural catalogue entry
     let kind_info = resource::by_plural(plural).ok_or_else(|| {
         ApiError::NotFound(format!(
@@ -517,7 +521,18 @@ pub async fn propose_with_identity(
     let current = state
         .mirror
         .get(project, kind_info.kind, &envelope.metadata.name);
-    let plan = plan::diff(current.as_ref(), Some(&envelope));
+    let mut plan = plan::diff(current.as_ref(), Some(&envelope));
+
+    // The same folder as the manifest, so a path is checked against where it will be written.
+    let manifest_path = resolve_repo_path(&envelope, kind_info, project)?;
+    let sidecars = sidecars(sidecar_files, &manifest_path)?;
+    for (path, content) in &sidecars {
+        plan.fields.push(plan::FieldChange {
+            path: format!("files.{path}"),
+            from: None,
+            to: Some(Value::from(content.len())),
+        });
+    }
 
     // 6. Risk-classified approval lane
     let lane = change::classify(kind_info.kind, operation, &envelope.spec);
@@ -565,7 +580,7 @@ pub async fn propose_with_identity(
         )));
     }
     let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
-    let repo_path = resolve_repo_path(&envelope, kind_info, project)?;
+    let repo_path = manifest_path;
 
     let mut envelope_to_commit = envelope.clone();
     if !build_write {
@@ -599,6 +614,30 @@ pub async fn propose_with_identity(
         },
     };
 
+    // The files first: a reviewer opening the merge request never reads a manifest naming a file
+    // the change does not carry, and a refusal on one of them leaves no manifest behind.
+    for (path, content) in &sidecars {
+        let existing = gitea
+            .get_file(path, &branch)
+            .await
+            .ok()
+            .flatten()
+            .map(|f| f.sha);
+        gitea
+            .put_file(&FileWrite {
+                path,
+                branch: &branch,
+                message: &commit_msg,
+                content,
+                sha: existing.as_deref(),
+                author: Author {
+                    name: &author_name,
+                    email: &author_email,
+                },
+            })
+            .await?;
+    }
+
     gitea.put_file(&file_write).await?;
 
     let pr_title = format!("{op_str} {} {}", kind_info.kind, envelope.metadata.name);
@@ -618,6 +657,73 @@ pub async fn propose_with_identity(
     let change = Change::new(change_meta, change_status);
 
     Ok(ProposeOutcome::Change(change))
+}
+
+/// What a body's `files` member commits beside the manifest, each path resolved against the
+/// manifest's own folder (DM-39, `API/01 §4`).
+///
+/// A Mapping cannot be accepted without a golden test, and the two documents that test reads are
+/// files, not manifest fields. Rather than a route per kind that needs one, the propose body
+/// carries them and the Change commits them to the same branch. Every path stays under the
+/// manifest's folder: the body decides what a change contains, so a path that climbs out of it
+/// would let a proposal of a Mapping rewrite a Policy, a Role binding or the project file, under
+/// the propose permission of a different kind.
+const MAX_SIDECARS: usize = 16;
+const MAX_SIDECAR_BYTES: usize = 256 * 1024;
+
+fn sidecars(files: Option<Value>, manifest_path: &str) -> Result<Vec<(String, String)>, ApiError> {
+    let Some(files) = files else {
+        return Ok(Vec::new());
+    };
+    let files = files.as_object().ok_or_else(|| {
+        ApiError::BadRequest(
+            "'files' is an object of path to file content; see API/01 §4".to_owned(),
+        )
+    })?;
+    if files.len() > MAX_SIDECARS {
+        return Err(ApiError::BadRequest(format!(
+            "a proposal carries at most {MAX_SIDECARS} files beside its manifest, not {}; a repository's worth of files is an import (POST …/import)",
+            files.len()
+        )));
+    }
+    let folder = manifest_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+
+    let mut written: Vec<(String, String)> = Vec::new();
+    let mut bytes = 0usize;
+    for (path, content) in files {
+        let content = content.as_str().ok_or_else(|| {
+            ApiError::BadRequest(format!(
+                "file '{path}' is not text; its content is a string"
+            ))
+        })?;
+        let relative = path.strip_prefix("./").unwrap_or(path);
+        let bad = relative.is_empty()
+            || relative.starts_with('/')
+            || relative.contains('\\')
+            || relative.contains('\0')
+            || relative
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..");
+        if bad {
+            return Err(ApiError::BadRequest(format!(
+                "file path '{path}' is not a path under the manifest's own folder; it is relative, has no '..' and no leading '/'"
+            )));
+        }
+        let full = format!("{folder}/{relative}");
+        if written.iter().any(|(already, _)| already == &full) {
+            return Err(ApiError::BadRequest(format!(
+                "file path '{path}' is sent twice"
+            )));
+        }
+        bytes += content.len();
+        if bytes > MAX_SIDECAR_BYTES {
+            return Err(ApiError::BadRequest(format!(
+                "the files beside the manifest are more than {MAX_SIDECAR_BYTES} bytes together; a repository's worth of files is an import (POST …/import)"
+            )));
+        }
+        written.push((full, content.to_owned()));
+    }
+    Ok(written)
 }
 
 /// The `draft` member a form sends beside its manifest (AG-61), taken out of the body.

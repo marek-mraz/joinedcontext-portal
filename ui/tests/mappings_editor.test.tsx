@@ -389,6 +389,31 @@ describe("the editor on screen", () => {
     expect(Object.keys(derivations)).toContain("quality");
     expect(manifest.spec.tests).toHaveLength(1);
     await waitFor(() => expect(onProposed).toHaveBeenCalled());
+
+    // T-0905: the two documents the golden test reads travel with the manifest that names them,
+    // so the test has something to read the moment the change is approved (DM-39).
+    const body = posted[0].body as { files: Record<string, string>; spec: { tests: { input: string; expect: string }[] } };
+    const { input, expect: expected } = body.spec.tests[0];
+    expect(Object.keys(body.files).sort()).toEqual([expected, input].sort());
+    expect(JSON.parse(body.files[input])).toMatchObject({ type: "AirQualityObserved" });
+    // What the preview shows is what is committed: the entity the mapping produced, carrying the
+    // input's own identity, and not the preview's report around it.
+    const produced = JSON.parse(body.files[expected]) as Record<string, unknown>;
+    expect(produced.id).toBe((JSON.parse(body.files[input]) as { id: string }).id);
+    expect(produced).not.toHaveProperty("output");
+  });
+
+  it("will not propose a golden test whose example is not JSON (T-0905)", async () => {
+    const user = userEvent.setup();
+    render(<Harness project="banskabystrica" spaceOf={() => "ovzdusie"} />);
+    await user.selectOptions(screen.getByLabelText("Source slot for quality"), "band");
+    const propose = screen.getByRole("button", { name: "Propose the mapping" });
+    expect(propose).toBeEnabled();
+
+    const example = screen.getByLabelText("Input example (JSON)");
+    await user.clear(example);
+    await user.type(example, "{{ not json");
+    await waitFor(() => expect(propose).toBeDisabled());
   });
 
   it("will not propose a model onto itself or into no space", async () => {

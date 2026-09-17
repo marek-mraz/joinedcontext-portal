@@ -1534,3 +1534,188 @@ async fn a_project_that_raises_its_quota_is_a_red_lane_change() {
     assert_eq!(classify("Project", Operation::Create, &spec), Lane::Red);
     assert_eq!(classify("Project", Operation::Update, &spec), Lane::Red);
 }
+
+/// T-0905, DM-39: a Mapping names two golden-test documents it cannot carry inside itself. The
+/// proposal carries them as `files`, and the change commits all three to one branch and one
+/// merge request, the files before the manifest that names them.
+#[tokio::test]
+async fn a_proposal_commits_the_files_its_manifest_names() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(
+            r"^/api/v1/repos/test-owner/test-repo/contents/.*",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(wiremock::matchers::path_regex(
+            r"^/api/v1/repos/test-owner/test-repo/contents/.*",
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "commit": { "sha": "commit-sha-created" }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 51,
+            "html_url": "https://gitea.example.sk/pulls/51",
+            "state": "open",
+            "mergeable": true,
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    let app = server::app(state);
+
+    let response = app
+        .oneshot(mapping_proposal(
+            &config,
+            json!({
+                "./tests/air-to-partner-air.input.json": "{\n  \"id\": \"urn:ngsi-ld:AirQualityObserved:x\"\n}\n",
+                "./tests/air-to-partner-air.expect.json": "{\n  \"id\": \"urn:ngsi-ld:AirQualityObserved:x\"\n}\n"
+            }),
+        ))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    let requests = server.received_requests().await.expect("received requests");
+    let written: Vec<String> = requests
+        .iter()
+        .filter(|r| r.method.as_str() == "PUT")
+        .map(|r| r.url.path().to_owned())
+        .collect();
+    assert_eq!(written.len(), 3, "manifest and both documents: {written:?}");
+    assert!(
+        written[2].ends_with("/mappings/air-to-partner-air.yaml"),
+        "the manifest is written last, after the files it names: {written:?}"
+    );
+    for name in ["input", "expect"] {
+        assert!(
+            written
+                .iter()
+                .any(|p| p.ends_with(&format!("/mappings/tests/air-to-partner-air.{name}.json"))),
+            "the {name} document is committed beside the manifest: {written:?}"
+        );
+    }
+}
+
+/// A path that climbs out of the manifest's folder is refused, and nothing is written: the body
+/// says what a change contains, so `..` would let a Mapping's propose permission rewrite a
+/// Policy or a role binding.
+#[tokio::test]
+async fn a_file_outside_the_manifests_folder_is_refused_and_writes_nothing() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+
+    for bad in [
+        json!({ "../../users/roles/steward.yaml": "rules: []\n" }),
+        json!({ "/etc/passwd": "root\n" }),
+        json!({ "": "nothing\n" }),
+        json!({ "./tests/a.json": 7 }),
+    ] {
+        let app = server::app(state.clone());
+        let response = app
+            .oneshot(mapping_proposal(&config, bad.clone()))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{bad}");
+    }
+
+    let requests = server.received_requests().await.expect("received requests");
+    assert!(
+        !requests.iter().any(|r| r.method.as_str() == "PUT"),
+        "a refused proposal wrote a file"
+    );
+}
+
+/// One body carries a proposal's worth of files, not a repository's: more than that is an import.
+#[tokio::test]
+async fn too_many_or_too_large_files_are_refused() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+
+    let many: serde_json::Map<String, serde_json::Value> = (0..17)
+        .map(|n| (format!("./tests/{n}.json"), json!("{}")))
+        .collect();
+    let huge = json!({ "./tests/big.json": "x".repeat(256 * 1024 + 1) });
+
+    for body in [serde_json::Value::Object(many), huge] {
+        let app = server::app(state.clone());
+        let response = app
+            .oneshot(mapping_proposal(&config, body))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+}
+
+/// The Mapping proposal every files test sends, with the `files` member under test.
+fn mapping_proposal(config: &Config, files: serde_json::Value) -> Request<Body> {
+    let payload = json!({
+        "apiVersion": API_VERSION,
+        "kind": "Mapping",
+        "metadata": { "name": "air-to-partner-air", "namespace": "ovzdusie" },
+        "spec": {
+            "contextSpaceRef": "mobility",
+            "source": { "name": "air", "version": "1" },
+            "target": { "name": "partner-air", "version": "2" },
+            "transformation": { "class_derivations": { "PartnerAir": { "populated_from": "Air" } } },
+            "tests": [{
+                "input": "./tests/air-to-partner-air.input.json",
+                "expect": "./tests/air-to-partner-air.expect.json"
+            }]
+        },
+        "files": files
+    });
+    Request::builder()
+        .method("POST")
+        .uri("/api/v1/projects/ovzdusie/mappings")
+        .header(header::COOKIE, session_and_csrf_cookies(config))
+        .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&payload).expect("json bytes"),
+        ))
+        .expect("request")
+}

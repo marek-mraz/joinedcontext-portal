@@ -85,6 +85,8 @@ export function mappingManifest(
   target: MappingModel,
   transformation: string,
   native: { targetSlot: string; language: "bloblang"; source: string }[],
+  example: string,
+  produced: Record<string, unknown>,
 ) {
   const name = `${source.name}-to-${target.name}`;
   return {
@@ -100,6 +102,12 @@ export function mappingManifest(
       // DM-39: a Mapping carries at least one golden test. The pair is the example this tab
       // shows and what it produced, committed beside the manifest.
       tests: [{ input: `./tests/${name}.input.json`, expect: `./tests/${name}.expect.json` }],
+    },
+    // The two documents the test reads, committed in the same change as the manifest that names
+    // them (DM-39, API/01 §4): what the preview shows is what a reviewer approves.
+    files: {
+      [`./tests/${name}.input.json`]: example,
+      [`./tests/${name}.expect.json`]: `${JSON.stringify(produced, null, 2)}\n`,
     },
   };
 }
@@ -149,15 +157,6 @@ export function MappingsEditor({
   const sourceModel = models.find((model) => model.name === sourceName);
   const targetModel = models.find((model) => model.name === targetName);
   const space = spaceOf?.(targetName) ?? spaceOf?.(sourceName);
-  const refusal =
-    sourceName === targetName
-      ? t("mappings.sameModel")
-      : missingRequired.length > 0
-        ? t("mappings.unfilled", { slots: missingRequired.join(", ") })
-        : space === undefined
-          ? t("mappings.noSpace")
-          : null;
-
   const parsedExample = useMemo(() => {
     try {
       const value: unknown = JSON.parse(example);
@@ -169,6 +168,19 @@ export function MappingsEditor({
     }
   }, [example, t]);
   const result = parsedExample.value ? transform(parsedExample.value, rows) : undefined;
+
+  // The example is the golden test's input, so a proposal needs one that parses: an example
+  // that is not an object would commit a test nothing can read (DM-39).
+  const refusal =
+    sourceName === targetName
+      ? t("mappings.sameModel")
+      : parsedExample.error !== undefined
+        ? parsedExample.error
+        : missingRequired.length > 0
+          ? t("mappings.unfilled", { slots: missingRequired.join(", ") })
+          : space === undefined
+            ? t("mappings.noSpace")
+            : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -232,6 +244,8 @@ export function MappingsEditor({
                   targetModel,
                   toTransformationSpec(rows, className(source), className(target)),
                   blocks,
+                  example,
+                  result?.output ?? {},
                 ),
                 create: true,
               });
