@@ -223,6 +223,16 @@ struct Driver {
     unattended: bool,
     continues: Option<String>,
     steps_per_run: u32,
+    /// How many characters of a continued conversation's transcript this run may carry
+    /// (AG-68), a share of the profile's own token budget.
+    transcript_budget: usize,
+}
+
+/// The share of a run's token budget the prior transcript may spend, and four characters to
+/// the token: a fifth for what was said before, the rest for what this run has to do (AG-68,
+/// AG-41).
+fn transcript_budget(max_tokens_per_run: u64) -> usize {
+    usize::try_from(max_tokens_per_run / 5 * 4).unwrap_or(usize::MAX)
 }
 
 /// Starts the pass in the background. Returns at once; the run's stream is where the outcome
@@ -267,6 +277,7 @@ pub fn spawn(
         unattended: run.unattended,
         continues: run.continues.clone(),
         steps_per_run: profile.steps_per_run,
+        transcript_budget: transcript_budget(profile.max_tokens_per_run),
     };
     tokio::spawn(async move {
         let run_id = driver.run_id.clone();
@@ -1058,6 +1069,7 @@ mod tests {
             unattended: false,
             continues: None,
             steps_per_run: 30,
+            transcript_budget: transcript_budget(400_000),
         };
         let pack = driver
             .pack(&json!({}), &BTreeMap::new(), &[], "instruction", None, None)

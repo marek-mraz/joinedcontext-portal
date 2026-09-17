@@ -11,50 +11,11 @@ impl Driver {
         self.status(AgentRunStatus::Starting).await?;
         self.status(AgentRunStatus::Interviewing).await?;
 
-        let mut prior_events = Vec::new();
-        if let Some(ref prior_id) = self.continues {
-            if let Ok(evts) = self.state.agents.events_since(prior_id, 0).await {
-                prior_events = evts
-                    .into_iter()
-                    .filter(|e| e.kind == "message" || e.kind == "thought")
-                    .collect();
-                if prior_events.len() > 40 {
-                    prior_events = prior_events.split_off(prior_events.len() - 40);
-                }
-            }
-        }
-
         let mut conversation: Vec<(String, String)> = Vec::new();
-        let mut current_person = String::new();
-        let mut current_assistant = String::new();
-        for e in prior_events {
-            if e.kind == "message" {
-                if !current_person.is_empty() || !current_assistant.is_empty() {
-                    conversation.push((
-                        std::mem::take(&mut current_person),
-                        std::mem::take(&mut current_assistant),
-                    ));
-                }
-                current_person = e
-                    .payload
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-            } else if e.kind == "thought" {
-                let text = e
-                    .payload
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                if !current_assistant.is_empty() {
-                    current_assistant.push_str("\n\n");
-                }
-                current_assistant.push_str(text);
+        if let Some(ref prior_id) = self.continues {
+            if let Ok(events) = self.state.agents.events_since(prior_id, 0).await {
+                conversation = prior_transcript(events, self.transcript_budget);
             }
-        }
-        if !current_person.is_empty() || !current_assistant.is_empty() {
-            conversation.push((current_person, current_assistant));
         }
 
         if !self.prompt.trim().is_empty() {
@@ -1037,5 +998,296 @@ a removal of its binding with change_resource.
             }
         }
         pack
+    }
+}
+
+/// One tool call as the transcript carries it: what was called, how it went, and what came
+/// back — one line, never the raw payload (AG-68, AG-46).
+///
+/// A tool result is evidence: without it a continued conversation resumes with the prose the
+/// assistant wrote and nothing behind it. It is also the biggest thing in an event stream, so
+/// it is cut to `TOOL_LINE` characters here rather than allowed to spend the whole budget.
+fn tool_line(payload: &Value) -> Option<String> {
+    let tool = payload.get("tool").and_then(Value::as_str)?;
+    let status = payload
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("ok");
+    let input = payload
+        .get("input")
+        .map(one_line)
+        .filter(|text| !text.is_empty());
+    let outcome = match payload.get("error") {
+        Some(error) => one_line(error),
+        None => payload.get("output").map(one_line).unwrap_or_default(),
+    };
+    let mut line = format!("[{tool} {status}]");
+    if let Some(input) = input {
+        line.push(' ');
+        line.push_str(&cut(&input, TOOL_LINE / 3));
+    }
+    if !outcome.is_empty() {
+        line.push_str(" -> ");
+        line.push_str(&cut(&outcome, TOOL_LINE));
+    }
+    Some(line)
+}
+
+/// A JSON value as one line of text: a string as itself, anything else as compact JSON.
+fn one_line(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.replace('\n', " "),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+/// The first `limit` characters, on a character boundary, with an ellipsis when something was
+/// left behind.
+fn cut(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_owned();
+    }
+    let kept: String = text.chars().take(limit).collect();
+    format!("{kept}…")
+}
+
+/// How much of one tool result the transcript carries.
+const TOOL_LINE: usize = 400;
+
+/// The prior conversation as the model reads it when a run continues another (AG-68).
+///
+/// A `message` from the person opens a turn and an `answer` opens the next one, because that is
+/// what the live loop does with them; a `thought` is the assistant's reply; a `tool` event is
+/// the evidence behind that reply, as one line. A `question` carries no text of its own — the
+/// question is asked again as a `thought` — so it adds nothing here.
+///
+/// The trim is by size, not by a count of events: whole turns are kept from the newest
+/// backwards until `budget_chars` is spent, so a continuation keeps the end of the conversation
+/// rather than an arbitrary forty events of its middle.
+fn prior_transcript(events: Vec<AgentRunEvent>, budget_chars: usize) -> Vec<(String, String)> {
+    let mut turns: Vec<(String, String)> = Vec::new();
+    let mut person = String::new();
+    let mut assistant = String::new();
+    let mut open = false;
+    let mut flush = |person: &mut String, assistant: &mut String, open: &mut bool| {
+        if *open || !person.is_empty() || !assistant.is_empty() {
+            turns.push((std::mem::take(person), std::mem::take(assistant)));
+        }
+        *open = false;
+    };
+    let say = |assistant: &mut String, text: &str| {
+        if text.is_empty() {
+            return;
+        }
+        if !assistant.is_empty() {
+            assistant.push_str("\n\n");
+        }
+        assistant.push_str(text);
+    };
+
+    for event in events {
+        let text = || {
+            event
+                .payload
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        match event.kind.as_str() {
+            // A message the agent itself posted is its own words, not a new turn.
+            "message" if !sent_by_person(&event) => say(&mut assistant, &text()),
+            "message" => {
+                flush(&mut person, &mut assistant, &mut open);
+                person = text();
+                open = true;
+            }
+            "answer" => {
+                flush(&mut person, &mut assistant, &mut open);
+                person = event
+                    .payload
+                    .pointer("/answers/answer")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        event
+                            .payload
+                            .get("answers")
+                            .map(one_line)
+                            .unwrap_or_default()
+                    });
+                open = true;
+            }
+            "thought" => say(&mut assistant, &text()),
+            "tool" => {
+                if let Some(line) = tool_line(&event.payload) {
+                    say(&mut assistant, &line);
+                }
+            }
+            _ => {}
+        }
+    }
+    flush(&mut person, &mut assistant, &mut open);
+
+    // Newest first until the budget is spent, then back into order. A single turn larger than
+    // the whole budget is still kept: a transcript of nothing is worse than one that is long.
+    let mut spent = 0usize;
+    let mut kept = Vec::new();
+    for turn in turns.into_iter().rev() {
+        let size = turn.0.chars().count() + turn.1.chars().count();
+        if !kept.is_empty() && spent + size > budget_chars {
+            break;
+        }
+        spent += size;
+        kept.push(turn);
+    }
+    kept.reverse();
+    kept
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn event(kind: &str, payload: Value) -> AgentRunEvent {
+        AgentRunEvent {
+            run_id: "run-1".to_owned(),
+            seq: 0,
+            kind: kind.to_owned(),
+            payload,
+            created_at: "2026-09-17T10:00:00Z".to_owned(),
+        }
+    }
+
+    fn asked(text: &str) -> AgentRunEvent {
+        event("message", json!({ "text": text, "sentBy": "demo.steward" }))
+    }
+
+    /// AG-68: the evidence behind the answer travels with it. Without the tool line the model
+    /// resumes with the prose it wrote and nothing that produced it.
+    #[test]
+    fn a_tool_result_is_in_the_transcript() {
+        let transcript = prior_transcript(
+            vec![
+                asked("how is the air?"),
+                event(
+                    "tool",
+                    json!({ "tool": "query_endpoint", "status": "ok",
+                            "input": { "type": "AirQualityObserved" },
+                            "output": { "entities": [{ "pm10": 12 }] } }),
+                ),
+                event("thought", json!({ "text": "pm10 is 12." })),
+            ],
+            10_000,
+        );
+        assert_eq!(transcript.len(), 1);
+        assert_eq!(transcript[0].0, "how is the air?");
+        assert!(
+            transcript[0].1.contains("query_endpoint"),
+            "the tool call is missing: {}",
+            transcript[0].1
+        );
+        assert!(transcript[0].1.contains("pm10"), "{}", transcript[0].1);
+        assert!(transcript[0].1.contains("pm10 is 12."));
+    }
+
+    /// A failed call says so, and says why, because that is what the next turn has to work
+    /// around.
+    #[test]
+    fn a_failed_tool_call_carries_its_reason() {
+        let transcript = prior_transcript(
+            vec![
+                asked("read the bikes"),
+                event(
+                    "tool",
+                    json!({ "tool": "query_endpoint", "status": "failed",
+                            "input": { "type": "Bike" }, "error": "403 forbidden" }),
+                ),
+            ],
+            10_000,
+        );
+        assert!(transcript[0].1.contains("failed"), "{}", transcript[0].1);
+        assert!(
+            transcript[0].1.contains("403 forbidden"),
+            "{}",
+            transcript[0].1
+        );
+    }
+
+    /// The trim is by size and keeps the newest whole turns: a continuation resumes where the
+    /// conversation ended, not in the middle of it.
+    #[test]
+    fn the_budget_keeps_the_newest_whole_turns() {
+        let mut events = Vec::new();
+        for turn in 0..10 {
+            events.push(asked(&format!("question {turn} {}", "x".repeat(100))));
+            events.push(event(
+                "thought",
+                json!({ "text": format!("answer {turn} {}", "y".repeat(100)) }),
+            ));
+        }
+        let transcript = prior_transcript(events, 700);
+        assert!(
+            transcript.len() < 10 && !transcript.is_empty(),
+            "kept {} turns",
+            transcript.len()
+        );
+        assert!(
+            transcript
+                .last()
+                .expect("a turn")
+                .0
+                .starts_with("question 9"),
+            "the newest turn was dropped: {:?}",
+            transcript.last()
+        );
+        assert!(
+            !transcript
+                .first()
+                .expect("a turn")
+                .0
+                .starts_with("question 0"),
+            "nothing was trimmed"
+        );
+        let size: usize = transcript
+            .iter()
+            .map(|(person, assistant)| person.chars().count() + assistant.chars().count())
+            .sum();
+        assert!(size <= 700, "the trim spent {size} of 700");
+    }
+
+    /// One turn larger than the whole budget is still handed over: a transcript of nothing is
+    /// worse than one that is long.
+    #[test]
+    fn one_enormous_turn_is_kept_rather_than_dropped() {
+        let transcript = prior_transcript(vec![asked(&"z".repeat(5_000))], 100);
+        assert_eq!(transcript.len(), 1);
+    }
+
+    /// The person's answer to a question opens the next turn, the way the live loop treats it.
+    #[test]
+    fn an_answer_opens_a_turn() {
+        let transcript = prior_transcript(
+            vec![
+                asked("which space?"),
+                event("question", json!({ "questionId": "q-1" })),
+                event("thought", json!({ "text": "Which space?" })),
+                event("answer", json!({ "answers": { "answer": "helsinki" } })),
+                event("thought", json!({ "text": "Reading helsinki." })),
+            ],
+            10_000,
+        );
+        assert_eq!(transcript.len(), 2);
+        assert_eq!(transcript[1].0, "helsinki");
+        assert_eq!(transcript[1].1, "Reading helsinki.");
+    }
+
+    /// An empty prior run is an empty transcript, not a turn of two empty strings.
+    #[test]
+    fn a_conversation_with_nothing_in_it_is_empty() {
+        assert!(prior_transcript(Vec::new(), 10_000).is_empty());
+        assert!(prior_transcript(vec![event("status", json!({}))], 10_000).is_empty());
     }
 }
