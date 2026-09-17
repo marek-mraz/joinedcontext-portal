@@ -108,7 +108,8 @@ pub struct ResourceKey {
 }
 
 /// Kinds the specification defines and the Portal already serves, but jc-core does not
-/// implement yet: Entity seeds and Subscription (Architecture/06 section 3, DS-16). Dashboard
+/// implement yet: Entity seeds (Architecture/06 section 3). Subscription left with
+/// jc-core-v0.7.30 (T-0913), Dashboard
 /// and Layer left with jc-core-v0.7.7 (T-0528). Paths follow Architecture/06. Blueprint left
 /// this list when jc-core-v0.4.0 took the kind over and ContextSourceRegistration when
 /// jc-core-v0.6.0 did, which is exactly the move the next paragraph describes. That move is not
@@ -117,22 +118,13 @@ pub struct ResourceKey {
 ///
 /// They live apart from [`jc_core::KINDS`] so the difference stays visible: when @platform adds a
 /// kind to jc-core, its row moves out of this list and nothing else changes.
-pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[
-    KindInfo {
-        kind: "Subscription",
-        plural: "subscriptions",
-        scope: Scope::Project,
-        path_template: "projects/{project}/spaces/{space}/subscriptions/{name}.yaml",
-        project_path_template: None,
-    },
-    KindInfo {
-        kind: "Entity",
-        plural: "entities",
-        scope: Scope::Project,
-        path_template: "projects/{project}/spaces/{space}/entities/seed/{name}.yaml",
-        project_path_template: None,
-    },
-];
+pub const PORTAL_ONLY_KINDS: &[KindInfo] = &[KindInfo {
+    kind: "Entity",
+    plural: "entities",
+    scope: Scope::Project,
+    path_template: "projects/{project}/spaces/{space}/entities/seed/{name}.yaml",
+    project_path_template: None,
+}];
 
 /// Every kind the resource API serves: the jc-core catalogue first, the Portal-only kinds after,
 /// so a plural that exists in both always resolves to the crate's row.
@@ -247,6 +239,9 @@ mod tests {
                 "ModelProjection",
                 "SharedSpaceReference",
                 "ContextSourceRegistration",
+                // Arrived with jc-core-v0.7.30 (T-0913): the standing query a space declares,
+                // reconciled into its broker (CC-72, DS-16).
+                "Subscription",
                 "ServiceAccount",
                 "Pipeline",
                 "DataSource",

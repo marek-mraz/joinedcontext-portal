@@ -231,9 +231,10 @@ pub(crate) fn resolve_repo_path(
     kind_info: &resource::KindInfo,
     project: &str,
 ) -> Result<String, ApiError> {
-    // An Endpoint and a DataModel are filed under the space their `contextSpaceRef` names, as
-    // jc-core's `context_space` says; every other kind under the project's own space.
-    let by_reference = matches!(kind_info.kind, "Endpoint" | "DataModel");
+    // An Endpoint, a DataModel and a Subscription are filed under the space their
+    // `contextSpaceRef` names, as jc-core's `context_space` says; every other kind under the
+    // project's own space.
+    let by_reference = matches!(kind_info.kind, "Endpoint" | "DataModel" | "Subscription");
     let space = envelope
         .metadata
         .labels
@@ -423,8 +424,9 @@ pub async fn propose_with_identity(
     // 4a'. A kind jc-core does not define is a kind no loader can read: `jcctl`, the Portal's
     //       own sync and the gateway's store all refuse an unknown kind and refuse the whole
     //       repository with it, so one such file stops configuration reaching every endpoint.
-    //       `Subscription` is declared in Architecture/06 and not defined yet; a seed entity is
-    //       a plain `.json` NGSI-LD entity (CC-72), never a `kind: Entity` manifest (T-0833).
+    //       What is left of that gap is the seed entity: a plain `.json` NGSI-LD entity (CC-72),
+    //       never a `kind: Entity` manifest. `Subscription` closed it with jc-core-v0.7.30 and
+    //       is written like any other kind now (T-0833, T-0913).
     if jc_core::registry::by_kind(kind_info.kind).is_none() {
         return Err(ApiError::BadRequest(format!(
             "kind '{}' is declared but not defined by the platform yet, and a repository holding \

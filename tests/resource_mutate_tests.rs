@@ -1248,22 +1248,23 @@ async fn a_stale_proposal_branch_is_recreated_from_main() {
 
 #[tokio::test]
 async fn a_kind_the_platform_cannot_load_is_refused_before_anything_is_written() {
-    // T-0833: `Subscription` is declared in Architecture/06 and jc-core does not define it yet.
-    // Every loader refuses an unknown kind and refuses the whole repository with it, so one
-    // such file committed here would stop configuration reaching every endpoint.
+    // T-0833: `Entity` is declared in Architecture/06 and jc-core does not define it: a seed is a
+    // plain NGSI-LD `.json`, never a manifest. Every loader refuses an unknown kind and refuses
+    // the whole repository with it, so one such file committed here would stop configuration
+    // reaching every endpoint. `Subscription` used to be the other one, until T-0913.
     let config = Config::for_tests();
     let app = server::app(AppState::new(config.clone(), None));
     let body = json!({
         "apiVersion": API_VERSION,
-        "kind": "Subscription",
+        "kind": "Entity",
         "metadata": { "name": "air-alerts", "namespace": "ovzdusie" },
-        "spec": { "entities": [{ "type": "AirQualityObserved" }] }
+        "spec": { "type": "AirQualityObserved" }
     });
     let response = app
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/projects/ovzdusie/subscriptions")
+                .uri("/api/v1/projects/ovzdusie/entities")
                 .header(header::COOKIE, session_and_csrf_cookies(&config))
                 .header(CSRF_HEADER, TEST_CSRF_TOKEN)
                 .header(header::CONTENT_TYPE, "application/json")
@@ -1283,8 +1284,148 @@ async fn a_kind_the_platform_cannot_load_is_refused_before_anything_is_written()
     let problem: serde_json::Value = serde_json::from_slice(&bytes).expect("problem json");
     let detail = problem["detail"].as_str().unwrap_or_default();
     assert!(
-        detail.contains("Subscription") && detail.contains("not defined"),
+        detail.contains("Entity") && detail.contains("not defined"),
         "{detail}"
+    );
+}
+
+/// T-0913: the kind the Portal used to refuse is written like any other now, and the file lands
+/// in the space its `contextSpaceRef` names rather than in a folder named after the project.
+#[tokio::test]
+async fn a_subscription_is_proposed_into_the_space_it_watches() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+    let file = "projects/ovzdusie/spaces/air-quality/subscriptions/air-alerts.yaml";
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "default_branch": "main"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/repos/test-owner/test-repo/contents/{file}"
+        )))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path(format!(
+            "/api/v1/repos/test-owner/test-repo/contents/{file}"
+        )))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "commit": { "sha": "commit-sha-created" }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 7,
+            "html_url": "https://gitea.example.sk/pulls/7",
+            "state": "open",
+            "mergeable": true,
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    let app = server::app(state);
+
+    let payload = json!({
+        "apiVersion": API_VERSION,
+        "kind": "Subscription",
+        "metadata": { "name": "air-alerts", "namespace": "ovzdusie" },
+        "spec": {
+            "contextSpaceRef": { "kind": "ContextSpace", "name": "air-quality" },
+            "entities": [{ "type": "AirQualityObserved" }],
+            "notification": {
+                "endpoint": { "uri": "https://alerts.example.fi/hooks/air-quality" }
+            }
+        }
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/subscriptions")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).expect("json")))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let requests = server.received_requests().await.expect("received requests");
+    assert!(
+        requests
+            .iter()
+            .any(|r| r.method.as_str() == "PUT" && r.url.path().ends_with(file)),
+        "the subscription is written to {file}"
+    );
+}
+
+/// T-0913, MF-31: the platform calls the notification address, so a credential written into it
+/// is refused at the form rather than committed and found by whoever reads the repository.
+#[tokio::test]
+async fn a_subscription_carrying_a_literal_credential_is_refused() {
+    let config = Config::for_tests();
+    let app = server::app(AppState::new(config.clone(), None));
+    let payload = json!({
+        "apiVersion": API_VERSION,
+        "kind": "Subscription",
+        "metadata": { "name": "air-alerts", "namespace": "ovzdusie" },
+        "spec": {
+            "contextSpaceRef": { "kind": "ContextSpace", "name": "air-quality" },
+            "entities": [{ "type": "AirQualityObserved" }],
+            "notification": {
+                "endpoint": {
+                    "uri": "https://alerts.example.fi/hooks/air-quality?token=s3cr3t-value"
+                }
+            }
+        }
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/subscriptions")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).expect("json")))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    let problem: serde_json::Value = serde_json::from_slice(&bytes).expect("problem json");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("secretRef"), "{detail}");
+    assert!(
+        !detail.contains("s3cr3t-value"),
+        "the refusal repeated the secret: {detail}"
     );
 }
 
