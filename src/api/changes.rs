@@ -796,6 +796,9 @@ async fn approve_every_file(
                 ))
             })?;
             effective.check(kind, jc_core::kinds::Verb::Approve, None)?;
+            if file.deleted {
+                effective.check(kind, jc_core::kinds::Verb::Delete, None)?;
+            }
             continue;
         };
         let manifest =
@@ -810,9 +813,10 @@ async fn approve_every_file(
             "Role" | "RoleBinding" | "ServiceAccount"
         );
         if file.deleted {
-            if access {
-                effective.check(&envelope.kind, jc_core::kinds::Verb::Delete, None)?;
-            }
+            // `delete` is its own verb on every kind, not only the access ones: a cascade that
+            // removes a whole project is held to `approve` and `delete` on each kind it takes
+            // with it, so nobody approves away what their role never let them delete (PF-77).
+            effective.check(&envelope.kind, jc_core::kinds::Verb::Delete, None)?;
             lane = Lane::Red;
             continue;
         }

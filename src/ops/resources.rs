@@ -72,6 +72,7 @@ pub const CHECKED_BY_THE_ROUTE: &[&str] = &[
     "jc_project_get",
     "jc_endpoint_list_all",
     "jc_project_create",
+    "jc_project_delete",
     "jc_project_export",
     "jc_project_import",
     "jc_service_account_key_mint",

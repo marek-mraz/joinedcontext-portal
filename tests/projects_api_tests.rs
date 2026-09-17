@@ -531,3 +531,276 @@ async fn the_project_carries_its_usage_against_the_quota_in_force() {
     .await;
     assert_eq!(stranger.status, StatusCode::NOT_FOUND, "{}", stranger.text);
 }
+
+// ---------------------------------------------------------------------------
+// Deleting a project (PF-77, PF-78)
+// ---------------------------------------------------------------------------
+
+/// The repository as the forge holds it: the two projects and the organization's assignments.
+const TREE: &[&str] = &[
+    "org.yaml",
+    "projects/banskabystrica/project.yaml",
+    "projects/banskabystrica/spaces/ovzdusie/space.yaml",
+    "projects/banskabystrica/spaces/ovzdusie/model.linkml.yaml",
+    "projects/banskabystrica/endpoints/public-air.yaml",
+    "projects/helsinki/project.yaml",
+    "users/assignments/banskabystrica-creator.yaml",
+    "users/assignments/ovzdusie-reader.yaml",
+    "users/assignments/helsinki-creator.yaml",
+    "users/assignments/org-admins.yaml",
+    "users/roles/org-admin.yaml",
+];
+
+/// A forge that answers the tree, every blob and the open-pull list the deletion reads.
+async fn forge_with_a_tree(commits: Value) -> MockServer {
+    let gitea = forge_with_no_open_projects().await;
+    Mock::given(http_method("GET"))
+        .and(url_path(format!("{REPO}/git/trees/main")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "truncated": false,
+            "tree": TREE.iter().map(|path| json!({ "path": path, "type": "blob" })).collect::<Vec<_>>(),
+        })))
+        .mount(&gitea)
+        .await;
+    Mock::given(http_method("GET"))
+        .and(wiremock::matchers::path_regex(format!(
+            "^{REPO}/contents/.*"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "blob-1", "content": "", "encoding": "base64"
+        })))
+        .mount(&gitea)
+        .await;
+    Mock::given(http_method("GET"))
+        .and(url_path(format!("{REPO}/commits")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(commits))
+        .mount(&gitea)
+        .await;
+    gitea
+}
+
+/// The project, its spaces and endpoints, the roles that delete a project and the bindings that
+/// name it — the world a deletion has to sweep.
+fn world_to_delete(state: &AppState) {
+    organization(state, "org-admin");
+    state.mirror.upsert(envelope(
+        "Project",
+        "banskabystrica",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "organizationRef": { "name": "bb" } }),
+    ));
+    state.mirror.upsert(envelope(
+        "ContextSpace",
+        "ovzdusie",
+        "banskabystrica",
+        json!({ "isSandbox": false }),
+    ));
+    state.mirror.upsert(envelope(
+        "Endpoint",
+        "public-air",
+        "banskabystrica",
+        json!({ "slug": "k7m2qz4tv6xh3n5jb2ryd3wcfa", "audience": "public" }),
+    ));
+    state.mirror.upsert(envelope(
+        "Role",
+        "org-admin",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": ["Project", "ContextSpace", "Endpoint", "Role", "RoleBinding"], "verbs": ["propose", "approve", "delete", "read"] }] }),
+    ));
+    for (binding, scope) in [
+        ("org-admins", json!({ "organization": "bb" })),
+        (
+            "banskabystrica-creator",
+            json!({ "project": "banskabystrica" }),
+        ),
+        ("ovzdusie-reader", json!({ "contextSpace": "ovzdusie" })),
+        ("helsinki-creator", json!({ "project": "helsinki" })),
+    ] {
+        let subject = if binding == "org-admins" {
+            "admin@hel.fi"
+        } else {
+            "steward@hel.fi"
+        };
+        state.mirror.upsert(envelope(
+            "RoleBinding",
+            binding,
+            joinedcontext_portal::permissions::ORG_NAMESPACE,
+            json!({ "subjects": [{ "user": subject }], "role": "org-admin", "scope": scope }),
+        ));
+    }
+}
+
+async fn delete_project(state: &AppState, who: Identity, project: &str) -> (StatusCode, String) {
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/projects/{project}"))
+                .header(header::COOKIE, common::cookie(&state.config, who))
+                .header(joinedcontext_portal::auth::csrf::CSRF_HEADER, common::CSRF)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The paths the merge request removed.
+async fn removed(gitea: &MockServer) -> Vec<String> {
+    let mut paths: Vec<String> = gitea
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.method.as_str() == "DELETE" && r.url.path().contains("/contents/"))
+        .filter_map(|r| {
+            r.url
+                .path()
+                .split_once("/contents/")
+                .map(|(_, path)| path.to_owned())
+        })
+        .collect();
+    paths.sort();
+    paths
+}
+
+#[tokio::test]
+async fn deleting_a_project_removes_its_whole_tree_and_every_binding_that_names_it() {
+    let gitea = forge_with_a_tree(json!([])).await;
+    let state = common::state_on(&gitea);
+    world_to_delete(&state);
+
+    let (status, body) = delete_project(&state, person("admin"), "banskabystrica").await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let change: Value = serde_json::from_str(&body).expect("a change");
+    assert_eq!(change["status"]["lane"], "red", "{body}");
+    assert_eq!(change["status"]["plan"]["delete"], 6, "{body}");
+
+    assert_eq!(
+        removed(&gitea).await,
+        vec![
+            "projects/banskabystrica/endpoints/public-air.yaml",
+            "projects/banskabystrica/project.yaml",
+            "projects/banskabystrica/spaces/ovzdusie/model.linkml.yaml",
+            "projects/banskabystrica/spaces/ovzdusie/space.yaml",
+            // The grants written for the project and for one of its spaces go with it, so
+            // nothing outlives the project it was written for (PF-77).
+            "users/assignments/banskabystrica-creator.yaml",
+            "users/assignments/ovzdusie-reader.yaml",
+        ],
+        "another project's files and the organization's own bindings stay",
+    );
+}
+
+#[tokio::test]
+async fn a_share_from_another_project_refuses_the_deletion_and_names_it() {
+    let gitea = forge_with_a_tree(json!([])).await;
+    let state = common::state_on(&gitea);
+    world_to_delete(&state);
+    state.mirror.upsert(envelope(
+        "SharedSpaceReference",
+        "bb-air",
+        "helsinki",
+        json!({ "endpointSlug": "k7m2qz4tv6xh3n5jb2ryd3wcfa", "alias": "bb-air" }),
+    ));
+
+    let (status, body) = delete_project(&state, person("admin"), "banskabystrica").await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("helsinki/bb-air"), "{body}");
+    assert!(removed(&gitea).await.is_empty(), "nothing was written");
+}
+
+#[tokio::test]
+async fn a_project_nobody_bound_the_caller_to_is_not_there_and_one_they_only_read_is_refused() {
+    let gitea = forge_with_a_tree(json!([])).await;
+    let state = common::state_on(&gitea);
+    world_to_delete(&state);
+    // A reader of the project: bound, so the project is there, and refused, because reading is
+    // not deleting (PF-59, PF-77).
+    state.mirror.upsert(envelope(
+        "Role",
+        "viewer",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": ["Project", "ContextSpace"], "verbs": ["read"] }] }),
+    ));
+    state.mirror.upsert(envelope(
+        "RoleBinding",
+        "jana-reads-bb",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": "jana@hel.fi" }],
+            "role": "viewer",
+            "scope": { "project": "banskabystrica" },
+        }),
+    ));
+
+    let (status, body) = delete_project(&state, person("jana"), "banskabystrica").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    // A stranger is told the project is not there, never that it is not theirs (R20).
+    let (status, body) = delete_project(&state, person("nobody"), "banskabystrica").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert!(removed(&gitea).await.is_empty(), "nothing was written");
+}
+
+/// PF-78: the name of a deleted project stays reserved for the organization's cooling period,
+/// counted from the commit that removed it.
+#[tokio::test]
+async fn the_name_of_a_deleted_project_is_refused_until_the_cooling_period_passes() {
+    let day_ago = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+    let gitea = forge_with_a_tree(json!([{
+        "sha": "c0ffee", "commit": { "message": "delete project mobilita",
+        "author": { "name": "admin", "email": "admin@hel.fi", "date": day_ago } }
+    }]))
+    .await;
+    let state = common::state_on(&gitea);
+    organization(&state, "anyone");
+
+    let (status, body) = open(&state, person("jana"), json!({ "name": "mobilita" })).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("reserved until"), "{body}");
+
+    // The same name once the period has passed: a project again, nothing written before.
+    let long_ago = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
+    let gitea = forge_with_a_tree(json!([{
+        "sha": "c0ffee", "commit": { "message": "delete project mobilita",
+        "author": { "name": "admin", "email": "admin@hel.fi", "date": long_ago } }
+    }]))
+    .await;
+    let state = common::state_on(&gitea);
+    organization(&state, "anyone");
+    let (status, body) = open(&state, person("jana"), json!({ "name": "mobilita" })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+}
+
+/// PF-78: `nameCooldownDays: 0` is the organization saying it wants no reservation at all.
+#[tokio::test]
+async fn an_organization_may_set_no_cooling_period_at_all() {
+    let day_ago = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+    let gitea = forge_with_a_tree(json!([{
+        "sha": "c0ffee", "commit": { "message": "delete project mobilita",
+        "author": { "name": "admin", "email": "admin@hel.fi", "date": day_ago } }
+    }]))
+    .await;
+    let state = common::state_on(&gitea);
+    state.mirror.upsert(envelope(
+        "Organization",
+        "bb",
+        joinedcontext_portal::permissions::ORG_NAMESPACE,
+        json!({
+            "domain": "banskabystrica.sk",
+            "projects": { "creation": "anyone", "nameCooldownDays": 0 },
+        }),
+    ));
+
+    let (status, body) = open(&state, person("jana"), json!({ "name": "mobilita" })).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+}

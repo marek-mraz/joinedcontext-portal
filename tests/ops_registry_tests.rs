@@ -67,6 +67,21 @@ fn session_cookie(
 async fn every_registered_name_answers_on_post_ops() {
     let config = Config::for_tests();
     let state = AppState::new(config.clone(), None);
+    // The project the calls are addressed to exists (T-0922): an operation that reads or deletes
+    // one answers `404` for a project that is not there, which is R20 and not a missing route,
+    // and this test is about the route being there at all.
+    state
+        .mirror
+        .upsert(joinedcontext_portal::resource::ResourceEnvelope {
+            api_version: joinedcontext_portal::resource::API_VERSION.into(),
+            kind: "Project".into(),
+            metadata: joinedcontext_portal::resource::ObjectMeta::new(
+                "ovzdusie",
+                joinedcontext_portal::permissions::ORG_NAMESPACE,
+            ),
+            spec: serde_json::json!({ "organizationRef": { "name": "bb" } }),
+            status: None,
+        });
     let app = server::app(state);
 
     let steward_cookie = session_cookie(

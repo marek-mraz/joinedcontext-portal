@@ -62,6 +62,7 @@ use crate::tools::model_tools::{
         crate::api::projects::list_projects,
         crate::api::projects::open_project,
         crate::api::projects::get_project,
+        crate::api::projects::delete_project,
         crate::api::resources::list,
         crate::api::resources::list_endpoints_everywhere,
         crate::api::blueprints::list_blueprints,

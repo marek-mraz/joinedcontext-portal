@@ -156,7 +156,10 @@ pub async fn get_project(
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/projects", get(list_projects).post(open_project))
-        .route("/projects/{project}", get(get_project))
+        .route(
+            "/projects/{project}",
+            get(get_project).delete(delete_project),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +329,14 @@ pub async fn open_project(
         .gitea
         .as_deref()
         .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
+    // A name a deleted project held stays reserved for the organization's cooling period, so
+    // nobody opens a project that inherits another one's URNs, dashboards and links (PF-78).
+    if let Some(free) = reserved_until(&state, gitea, &name).await {
+        return Err(ApiError::Conflict(format!(
+            "project '{name}' was deleted and its name stays reserved until {} (PF-78)",
+            free.format("%Y-%m-%d")
+        )));
+    }
     // A name reserved by an open change is taken, even though nothing is merged yet (PF-67).
     let open = gitea.list_pull_requests("open").await?;
     let reserved = format!("portal/create-project-{name}-");
@@ -487,4 +498,285 @@ fn open_project_files(
             yaml(&binding)?,
         ),
     ])
+}
+
+// ---------------------------------------------------------------------------
+// Deleting a project (PF-77, PF-78)
+// ---------------------------------------------------------------------------
+
+/// Every file the deletion of `project` removes (PF-77).
+///
+/// Its own tree, and the role bindings of the organization whose scope names the project or one
+/// of its spaces: those live under `users/`, so a cascade that only removed `projects/{name}/`
+/// would leave grants behind pointing at a project that is gone.
+pub(crate) async fn deletion_plan(
+    state: &AppState,
+    gitea: &crate::git::GiteaClient,
+    project: &str,
+    git_ref: &str,
+) -> Result<Vec<String>, ApiError> {
+    let tree = gitea.list_tree(git_ref).await?;
+    let prefix = format!("projects/{project}/");
+    let mut files: Vec<String> = tree
+        .iter()
+        .filter(|path| path.starts_with(&prefix))
+        .cloned()
+        .collect();
+
+    let spaces: std::collections::HashSet<String> = state
+        .mirror
+        .list(
+            project,
+            "ContextSpace",
+            &crate::store::ListOptions::default(),
+        )
+        .items
+        .into_iter()
+        .map(|env| env.metadata.name)
+        .collect();
+    let info = resource::by_kind("RoleBinding")
+        .ok_or_else(|| ApiError::Internal("RoleBinding is not a kind of this Portal".into()))?;
+    for env in state
+        .mirror
+        .list(
+            crate::permissions::ORG_NAMESPACE,
+            "RoleBinding",
+            &crate::store::ListOptions::default(),
+        )
+        .items
+    {
+        let scope = env.spec.get("scope").cloned().unwrap_or(Value::Null);
+        let names_it = scope.get("project").and_then(Value::as_str) == Some(project)
+            || scope
+                .get("contextSpace")
+                .and_then(Value::as_str)
+                .is_some_and(|space| spaces.contains(space));
+        if !names_it {
+            continue;
+        }
+        let path = resource::repository_path(
+            info,
+            crate::permissions::ORG_NAMESPACE,
+            None,
+            &env.metadata.name,
+        )
+        .map_err(ApiError::Internal)?;
+        if tree.contains(&path) {
+            files.push(path);
+        }
+    }
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
+/// The `SharedSpaceReference` manifests of other projects pointing at this project's Endpoints
+/// (PF-77), as `{project}/{name}`.
+///
+/// A reference is another project's manifest: removing it is that project's own change, so the
+/// deletion waits and names what it is waiting for rather than breaking a live share.
+fn live_references(state: &AppState, project: &str) -> Vec<String> {
+    let slugs: std::collections::HashSet<String> = state
+        .mirror
+        .list(project, "Endpoint", &crate::store::ListOptions::default())
+        .items
+        .into_iter()
+        .filter_map(|env| {
+            env.spec
+                .get("slug")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .collect();
+    if slugs.is_empty() {
+        return Vec::new();
+    }
+    let mut naming: Vec<String> = state
+        .mirror
+        .matching(|env| {
+            env.kind == "SharedSpaceReference"
+                && env.metadata.namespace.as_deref() != Some(project)
+                && env
+                    .spec
+                    .get("endpointSlug")
+                    .and_then(Value::as_str)
+                    .is_some_and(|slug| slugs.contains(slug))
+        })
+        .into_iter()
+        .map(|env| {
+            format!(
+                "{}/{}",
+                env.metadata.namespace.unwrap_or_default(),
+                env.metadata.name
+            )
+        })
+        .collect();
+    naming.sort();
+    naming
+}
+
+/// How long a deleted project's name stays reserved (PF-78): the organization's setting, else
+/// the 30 days jc-core ships.
+fn cooldown_days(state: &AppState) -> u64 {
+    state
+        .mirror
+        .list(
+            crate::permissions::ORG_NAMESPACE,
+            "Organization",
+            &crate::store::ListOptions::default(),
+        )
+        .items
+        .iter()
+        .find_map(|env| {
+            env.spec
+                .pointer("/projects/nameCooldownDays")
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(u64::from(jc_core::kinds::DEFAULT_NAME_COOLDOWN_DAYS))
+}
+
+/// When the name of a project that was deleted becomes free again, if it is still reserved
+/// (PF-78). `None` means nobody deleted a project of this name, or the period has passed.
+///
+/// The commit that removed `projects/{name}/project.yaml` is the start of the period: the forge
+/// history is the record, so the reservation survives a restart and a re-sync of the mirror.
+async fn reserved_until(
+    state: &AppState,
+    gitea: &crate::git::GiteaClient,
+    name: &str,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    let days = cooldown_days(state);
+    if days == 0 {
+        return None;
+    }
+    let branch = gitea.default_branch().await.ok()?;
+    let history = gitea
+        .list_commits(&branch, &format!("projects/{name}/project.yaml"), 1)
+        .await
+        .unwrap_or_default();
+    let last = history.first()?;
+    let removed = chrono::DateTime::parse_from_rfc3339(&last.date).ok()?;
+    let free = removed.with_timezone(&chrono::Utc) + chrono::Duration::days(days as i64);
+    (chrono::Utc::now() < free).then_some(free)
+}
+
+/// `DELETE /api/v1/projects/{project}`: proposes the one red-lane change that removes a project
+/// and everything written for it (PF-77).
+#[utoipa::path(
+    delete,
+    path = "/api/v1/projects/{project}",
+    tag = "resources",
+    params(("project" = String, Path, description = "The project to delete")),
+    responses(
+        (status = 202, description = "The change that deletes the project", body = Change),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "The caller may not delete this project", body = ProblemDetails),
+        (status = 404, description = "No such project, or none this caller may read", body = ProblemDetails),
+        (status = 409, description = "A share points at it, or a deletion is already open", body = ProblemDetails),
+        (status = 503, description = "No git forge configured", body = ProblemDetails)
+    )
+)]
+pub async fn delete_project(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    axum::extract::Path(project): axum::extract::Path<String>,
+) -> Result<(StatusCode, Json<Change>), ApiError> {
+    let change = delete_project_for(&state, &user.0.identity, &project).await?;
+    Ok((StatusCode::ACCEPTED, Json(change)))
+}
+
+/// The deletion itself, so the route and the operations registry propose the same change.
+pub async fn delete_project_for(
+    state: &AppState,
+    identity: &crate::auth::session::Identity,
+    project: &str,
+) -> Result<Change, ApiError> {
+    let missing = || ApiError::NotFound(format!("project '{project}' not found"));
+    let effective = crate::permissions::for_request(state, identity, project);
+    // A project the caller may not read answers as a project that is not there (R20).
+    if !effective.may_read_project() {
+        return Err(missing());
+    }
+    let manifest = state
+        .mirror
+        .get(crate::permissions::ORG_NAMESPACE, "Project", project)
+        .ok_or_else(missing)?;
+    let target = serde_json::to_value(&manifest).map_err(|e| ApiError::Internal(e.to_string()))?;
+    effective.check("Project", jc_core::kinds::Verb::Delete, Some(&target))?;
+
+    let referenced = live_references(state, project);
+    if !referenced.is_empty() {
+        return Err(ApiError::Conflict(format!(
+            "project '{project}' is shared with {}: remove the SharedSpaceReference there first \
+             (PF-77)",
+            referenced.join(", ")
+        )));
+    }
+
+    let gitea = state
+        .gitea
+        .as_deref()
+        .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
+    let default_branch = gitea.default_branch().await?;
+    let files = deletion_plan(state, gitea, project, &default_branch).await?;
+    if files.is_empty() {
+        return Err(missing());
+    }
+
+    let branch = format!("portal/delete-project-{project}");
+    if let Some(pending) = crate::api::mutate::open_change_on(gitea, &branch, project).await? {
+        return Err(ApiError::Conflict(format!(
+            "deleting project '{project}' is already proposed: {}; approve or reject it first",
+            pending.name
+        )));
+    }
+    let branch =
+        crate::api::mutate::create_or_reuse_branch(gitea, &branch, &default_branch).await?;
+    let (author_name, author_email) = crate::api::mutate::author_credentials(identity, project);
+    for path in &files {
+        let Some(file) = gitea.get_file(path, &branch).await? else {
+            continue;
+        };
+        gitea
+            .delete_file(&crate::git::FileDelete {
+                path,
+                branch: &branch,
+                message: &format!("delete {path}"),
+                sha: &file.sha,
+                author: crate::git::Author {
+                    name: &author_name,
+                    email: &author_email,
+                },
+            })
+            .await?;
+    }
+
+    let title = format!("delete project {project}");
+    let listed = files
+        .iter()
+        .map(|path| format!("- {path}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let body = format!(
+        "Deleting project `{project}` removes {} files, and with them every space, endpoint, \
+         pipeline, app, service account, role and binding written for it (PF-77).\n\n{listed}\n\n\
+         Export each space's data before approving — `GET /api/v1/projects/{project}/export` \
+         while the project is still here — because the broker tenants are dropped when this \
+         merges (CC-07). The name stays reserved afterwards (PF-78).",
+        files.len()
+    );
+    let pull = gitea
+        .create_pull_request(&branch, &default_branch, &title, &body)
+        .await?;
+
+    let summary = crate::change::PlanSummary::new(0, 0, files.len());
+    Ok(Change::new(
+        crate::change::ChangeMeta::from_merge_request(pull.number, project),
+        crate::change::ChangeStatus::new(
+            crate::change::Lane::Red,
+            crate::change::ChangePhase::PendingApproval,
+            summary,
+        )
+        .with_merge_request(pull.url),
+    ))
 }

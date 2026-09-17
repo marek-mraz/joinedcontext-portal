@@ -57,6 +57,13 @@ pub struct CreateProjectInput {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct DeleteProjectInput {
+    /// The project to delete, named in full: this change is not undone by a second one.
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SourcePutInput {
     pub name: String,
     /// The LinkML document, as the editor writes it.
@@ -127,6 +134,17 @@ fn create_project_input_schema() -> Value {
             "name": { "type": "string", "description": "The project slug: a DNS-1123 label, and the {project} segment of every path of it (PF-67)" },
             "displayName": { "type": "string", "description": "What people call it; the slug when absent" },
             "description": { "type": "string", "description": "One line about what the project is for" }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+    })
+}
+
+fn delete_project_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "name": { "type": "string", "description": "The project to delete; it is named rather than taken from the path, because this one is not undone (PF-77)" }
         },
         "required": ["name"],
         "additionalProperties": false
@@ -295,6 +313,37 @@ pub fn operations() -> Vec<Operation> {
                             display_name: input.display_name,
                             description: input.description,
                         }),
+                    )
+                    .await?;
+                    Ok(crate::api::mutate::ProposeOutcome::Change(change).into_value())
+                })
+            },
+        },
+        Operation {
+            name: "jc_project_delete",
+            title: "Delete A Project",
+            description: "Proposes the one red-lane change that removes a project and every space, endpoint, app, service account, role and binding written for it",
+            input: delete_project_input_schema,
+            output: change_schema,
+            annotations: Annotations {
+                read_only_hint: false,
+                destructive_hint: true,
+                idempotent_hint: false,
+            },
+            // The route checks `delete` on `Project` where the caller is bound, which is the
+            // project itself and not the one the call was addressed to, so the registry leaves
+            // the decision to it (PF-77, AG-59).
+            kind: "*",
+            verb: None,
+            lane: Lane::Red,
+            validate: |val| parse_input::<DeleteProjectInput>(val.clone()).map(|_| ()),
+            run: |caller, state, _project, val| {
+                Box::pin(async move {
+                    let input: DeleteProjectInput = parse_input(val)?;
+                    let change = crate::api::projects::delete_project_for(
+                        state,
+                        &caller.identity,
+                        &input.name,
                     )
                     .await?;
                     Ok(crate::api::mutate::ProposeOutcome::Change(change).into_value())
