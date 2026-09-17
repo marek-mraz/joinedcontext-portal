@@ -302,10 +302,10 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   const head = (
     <TableHead>
       <TableHeaderCell>{t("pipelines.field.name")}</TableHeaderCell>
-      <TableHeaderCell>{t("pipelines.field.class")}</TableHeaderCell>
+      <TableHeaderCell secondary>{t("pipelines.field.class")}</TableHeaderCell>
       <TableHeaderCell>{t("pipelines.field.phase")}</TableHeaderCell>
-      <TableHeaderCell>{t("pipelines.field.stream")}</TableHeaderCell>
-      <TableHeaderCell>{t("pipelines.field.secrets")}</TableHeaderCell>
+      <TableHeaderCell secondary>{t("pipelines.field.stream")}</TableHeaderCell>
+      <TableHeaderCell secondary>{t("pipelines.field.secrets")}</TableHeaderCell>
       <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
     </TableHead>
   );
@@ -401,7 +401,7 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
                       </div>
                     ) : null}
                   </TableCell>
-                  <TableCell>
+                  <TableCell secondary>
                     <Badge tone={klass === "resident" ? "info" : "neutral"} title={t(`pipelines.class.${klass}Help`)}>
                       {t(`pipelines.class.${klass}`)}
                     </Badge>
@@ -409,14 +409,14 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
                   <TableCell>
                     <LifecycleBadge kind="phase" value={pipeline.status?.phase} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell secondary>
                     <StreamMetrics
                       project={project}
                       name={pipeline.metadata.name}
                       running={running && klass === "resident"}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell secondary>
                     {/* Names only: a secret's value is resolved by the reconciler and never
                         leaves the cluster, so there is nothing here to mask (PL-17). */}
                     <ul className="flex flex-col gap-1">
@@ -431,7 +431,7 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
                     </ul>
                   </TableCell>
                   <TableCell align="right">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <div className="flex items-center justify-end gap-1.5">
                       {mayPropose ? (
                         <Button size="sm" onClick={() => openEditor(pipeline)}>
                           {t("pipelines.edit")}

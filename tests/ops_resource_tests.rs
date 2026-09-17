@@ -105,6 +105,26 @@ async fn forge(existing: &[&str]) -> MockServer {
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })))
         .mount(&gitea)
         .await;
+    // A deletion reads the tree to find the files the resource owns beside its manifest (T-0900).
+    let tree: Vec<Value> = existing
+        .iter()
+        .map(|path| json!({ "path": path, "type": "blob" }))
+        .collect();
+    Mock::given(method("GET"))
+        .and(path_regex(format!("^{REPO}/git/trees/.*")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "tree": tree, "truncated": false })),
+        )
+        .mount(&gitea)
+        .await;
+    // One commit for every file of a resource goes to `POST /contents` (T-0900).
+    Mock::given(method("POST"))
+        .and(path(format!("{REPO}/contents")))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(json!({ "commit": { "sha": "commit-1" } })),
+        )
+        .mount(&gitea)
+        .await;
     for verb in ["PUT", "POST", "DELETE"] {
         Mock::given(method(verb))
             .and(path_regex(format!("^{REPO}/contents/.*")))
@@ -199,12 +219,23 @@ async fn written(gitea: &MockServer) -> Vec<String> {
         .unwrap_or_default()
         .iter()
         .filter(|request| request.method.as_str() != "GET")
-        .filter_map(|request| {
-            request
-                .url
-                .path()
-                .strip_prefix(&format!("{REPO}/contents/"))
-                .map(str::to_owned)
+        .flat_map(|request| {
+            let path = request.url.path();
+            // A one-file write names its path in the URL; a batch commit (`POST /contents`)
+            // names every file it touches in its body.
+            if let Some(one) = path.strip_prefix(&format!("{REPO}/contents/")) {
+                return vec![one.to_owned()];
+            }
+            if path != format!("{REPO}/contents") {
+                return Vec::new();
+            }
+            serde_json::from_slice::<Value>(&request.body)
+                .ok()
+                .and_then(|body| body["files"].as_array().cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|file| file["path"].as_str().map(str::to_owned))
+                .collect()
         })
         .collect()
 }
@@ -278,12 +309,18 @@ async fn an_endpoint_a_pipeline_a_policy_and_a_role_binding_are_proposed_at_thei
     ));
     let mut changed = endpoint();
     changed["spec"]["enabledRepresentations"] = json!(["ngsi-ld", "geojson", "csv"]);
-    // A binding names a role the organization has (PF-52).
+    // A binding names a role and a group the organization has (PF-52, PF-62).
     state.mirror.upsert(envelope(
         "Role",
         "pipeline-developer",
         "org",
         json!({ "rules": [{ "kinds": ["Pipeline"], "verbs": ["propose"] }] }),
+    ));
+    state.mirror.upsert(envelope(
+        "Group",
+        "air-quality-team",
+        "org",
+        json!({ "displayName": "Air quality team" }),
     ));
 
     for (project, manifest) in [

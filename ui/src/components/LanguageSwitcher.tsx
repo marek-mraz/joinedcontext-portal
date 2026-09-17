@@ -26,7 +26,10 @@ export function LanguageSwitcher(): React.JSX.Element {
           className={buttonClass("ghost", "sm")}
         >
           <Icon name="globe" className="size-4 text-fg-muted" />
-          <span>{t(`lang.${currentLang}`)}</span>
+          {/* The globe says what the button is at phone width; the language's name is what a
+              wider header has room for, and `aria-label` says it to a screen reader either
+              way (UI-27). */}
+          <span className="hidden sm:inline">{t(`lang.${currentLang}`)}</span>
           <Icon name="chevronDown" className="size-3.5 text-fg-subtle" />
         </button>
       </MenuTrigger>

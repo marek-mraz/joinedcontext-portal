@@ -229,6 +229,25 @@ for (const size of SIZES) {
         await expect(page.getByRole("main")).toBeAttached();
         await screen.then?.(page);
         await page.evaluate(() => document.fonts.ready);
+        if (size.viewport.width <= 400) {
+          // A phone scrolls down, never sideways (UI-27): a table wider than the screen scrolls
+          // inside its own frame, and the columns it cannot show are marked `secondary`.
+          const { overflow, widest } = await page.evaluate(() => {
+            const doc = document.documentElement;
+            const offenders: string[] = [];
+            document.querySelectorAll<HTMLElement>("body *").forEach((el) => {
+              const box = el.getBoundingClientRect();
+              if (box.right > doc.clientWidth + 1 && el.offsetParent !== null) {
+                offenders.push(`${el.tagName}.${String(el.className).slice(0, 70)} right=${Math.round(box.right)}`);
+              }
+            });
+            return { overflow: doc.scrollWidth - doc.clientWidth, widest: offenders.slice(0, 6) };
+          });
+          expect(
+            overflow,
+            `${screen.name} makes the page scroll sideways: ${widest.join(" | ")}`,
+          ).toBeLessThanOrEqual(1);
+        }
         await expect(page).toHaveScreenshot(`${screen.name}-${size.name}.png`, {
           fullPage: true,
           animations: "disabled",

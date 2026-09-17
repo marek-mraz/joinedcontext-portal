@@ -633,8 +633,8 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const head = (
     <TableHead>
       <TableHeaderCell>{t("endpoints.field.name")}</TableHeaderCell>
-      <TableHeaderCell>{t("endpoints.field.audience")}</TableHeaderCell>
-      <TableHeaderCell>{t("endpoints.field.representations")}</TableHeaderCell>
+      <TableHeaderCell secondary>{t("endpoints.field.audience")}</TableHeaderCell>
+      <TableHeaderCell secondary>{t("endpoints.field.representations")}</TableHeaderCell>
       <TableHeaderCell>{t("endpoints.field.phase")}</TableHeaderCell>
       <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
     </TableHead>
@@ -783,10 +783,10 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                       </div>
                     ) : null}
                   </TableCell>
-                  <TableCell>
+                  <TableCell secondary>
                     <SharedWithBadge endpoint={endpoint} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell secondary>
                     <ul className="flex flex-wrap gap-1">
                       {(spec.enabledRepresentations ?? []).map((rep) => (
                         <li key={rep}>
@@ -879,9 +879,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
           }
         >
           <TableHead>
-            <TableHeaderCell>{t("endpoints.shared.source")}</TableHeaderCell>
+            <TableHeaderCell secondary>{t("endpoints.shared.source")}</TableHeaderCell>
             <TableHeaderCell>{t("endpoints.field.name")}</TableHeaderCell>
-            <TableHeaderCell>{t("endpoints.field.representations")}</TableHeaderCell>
+            <TableHeaderCell secondary>{t("endpoints.field.representations")}</TableHeaderCell>
             <TableHeaderCell align="right">{t("endpoints.shared.reference")}</TableHeaderCell>
           </TableHead>
           <TableBody>
@@ -898,7 +898,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                 const label = localized(endpoint.metadata.title, locale, endpoint.metadata.name);
                 return (
                   <TableRow key={`${source}/${endpoint.metadata.name}`}>
-                    <TableCell>
+                    <TableCell secondary>
                       <div className="flex flex-col gap-0.5">
                         <Link
                           to="/projects/$project/$plural"
@@ -930,7 +930,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                         <SharedWithBadge endpoint={endpoint} />
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell secondary>
                       <ul className="flex flex-wrap gap-1">
                         {(spec.enabledRepresentations ?? []).map((rep) => (
                           <li key={rep}>

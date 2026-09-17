@@ -205,15 +205,20 @@ export function Shell({
           <BrandMark short />
         </Link>
         <div className="ml-auto flex items-center gap-1">
-          {/* One click from anywhere in the project, which is the whole of CC-49. */}
-          <ExportButton
-            project={project}
-            target={{}}
-            label={t("export.project")}
-            variant="ghost"
-            size="sm"
-            className="hidden sm:inline-flex"
-          />
+          {/* One click from anywhere in the project, which is the whole of CC-49 — from `sm`
+              up. At phone width the header has room for the language and the account and
+              nothing else, and the export is one tap away on the project's own pages.
+              The wrapper, not the button: the button's own `inline-flex` and a `hidden` on
+              the same element are the same CSS property, and the button was winning. */}
+          <div className="hidden sm:block">
+            <ExportButton
+              project={project}
+              target={{}}
+              label={t("export.project")}
+              variant="ghost"
+              size="sm"
+            />
+          </div>
           <LanguageSwitcher />
           <UserMenu />
         </div>

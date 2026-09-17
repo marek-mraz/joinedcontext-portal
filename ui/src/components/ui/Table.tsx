@@ -83,10 +83,13 @@ export function TableRow({
 
 export interface TableHeaderCellProps extends ThHTMLAttributes<HTMLTableCellElement> {
   align?: "left" | "right" | "center";
+  /** A column a phone does without: hidden below `sm`, there from `sm` up (UI-27). */
+  secondary?: boolean;
 }
 
 export function TableHeaderCell({
   align = "left",
+  secondary,
   className,
   children,
   ...rest
@@ -98,6 +101,7 @@ export function TableHeaderCell({
         "whitespace-nowrap px-4 py-2.5 text-caption font-semibold uppercase tracking-wide text-fg-muted",
         align === "right" && "text-right",
         align === "center" && "text-center",
+        secondary && "hidden sm:table-cell",
         className,
       )}
       {...rest}
@@ -111,11 +115,18 @@ export interface TableCellProps extends TdHTMLAttributes<HTMLTableCellElement> {
   align?: "left" | "right" | "center";
   /** The cell's content is the row's name: bolder, and first to be read. */
   primary?: boolean;
+  /**
+   * A cell of a column a phone does without (UI-27). Hidden below `sm` — with the same
+   * `secondary` on its header cell — so a row at 400 px is the name, the state and what one
+   * can do with it, instead of five columns of which two are cut off the screen.
+   */
+  secondary?: boolean;
 }
 
 export function TableCell({
   align = "left",
   primary,
+  secondary,
   className,
   children,
   ...rest
@@ -127,6 +138,7 @@ export function TableCell({
         primary && "font-medium",
         align === "right" && "text-right",
         align === "center" && "text-center",
+        secondary && "hidden sm:table-cell",
         className,
       )}
       {...rest}

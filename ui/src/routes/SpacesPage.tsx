@@ -111,10 +111,10 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
   const head = (
     <TableHead>
       <TableHeaderCell>{t("spaces.field.name")}</TableHeaderCell>
-      <TableHeaderCell>{t("spaces.field.dataModel")}</TableHeaderCell>
+      <TableHeaderCell secondary>{t("spaces.field.dataModel")}</TableHeaderCell>
       <TableHeaderCell>{t("spaces.field.phase")}</TableHeaderCell>
       <TableHeaderCell align="right">{t("spaces.field.inside")}</TableHeaderCell>
-      <TableHeaderCell align="right">{t("spaces.field.source")}</TableHeaderCell>
+      <TableHeaderCell align="right" secondary>{t("spaces.field.source")}</TableHeaderCell>
     </TableHead>
   );
 
@@ -241,7 +241,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                       ) : null}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell secondary>
                     {model ? (
                       <span className="font-mono text-caption">{model}</span>
                     ) : (
@@ -252,7 +252,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                     <LifecycleBadge kind="phase" value={space.status?.phase} />
                   </TableCell>
                   <TableCell align="right">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <div className="flex items-center justify-end gap-1.5">
                       <Link
                         to="/projects/$project/spaces/$name"
                         params={{ project, name: space.metadata.name }}
@@ -264,7 +264,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                       <DeleteResourceAction target={target} />
                     </div>
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" secondary>
                     {space.status?.sourceUrl ? (
                       <SourceLink href={space.status.sourceUrl} label={t("spaces.field.source")} />
                     ) : (

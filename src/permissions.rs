@@ -375,7 +375,9 @@ fn subjects_name_a_group(mirror: &Mirror, manifest: &Value) -> Result<(), ApiErr
                 .map(|env| env.metadata.name)
                 .collect();
             return Err(ApiError::BadRequest(format!(
-                "spec.subjects names the group '{group}', and no Group manifest declares it;                  propose the group first, or a binding to it matches nobody (PF-62, PF-64).                  Declared: {}",
+                "spec.subjects names the group '{group}', and no Group manifest declares it; \
+                 propose the group first, or a binding to it matches nobody (PF-62, PF-64). \
+                 Declared: {}",
                 if declared.is_empty() {
                     "none".to_owned()
                 } else {
