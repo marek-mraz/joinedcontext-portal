@@ -12,10 +12,64 @@ use crate::auth::session::Identity;
 use crate::auth::CurrentUser;
 use crate::change::{self, Change, ChangeMeta, ChangePhase, ChangeStatus, Operation};
 use crate::error::{ApiError, ProblemDetails};
-use crate::git::{Author, FileDelete};
+use crate::git::Author;
 use crate::plan;
 use crate::resource;
 use crate::state::AppState;
+
+/// Every file beside the manifest that belongs to the resource it describes (T-0900).
+///
+/// A resource's own files sit in the manifest's directory and are named after it: either
+/// `{name}.something` — `{name}.linkml.yaml`, `{name}.schema.json` — or everything under a
+/// `{name}/` directory. A manifest name is DNS-1123 and carries no dot, so nothing else in
+/// that directory can begin with `{name}.`.
+async fn owned_beside(
+    gitea: &crate::git::GiteaClient,
+    repo_path: &str,
+    name: &str,
+    git_ref: &str,
+) -> Result<Vec<String>, ApiError> {
+    let directory = repo_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let file_prefix = format!("{directory}/{name}.");
+    let folder_prefix = format!("{directory}/{name}/");
+    Ok(gitea
+        .list_tree(git_ref)
+        .await?
+        .into_iter()
+        .filter(|path| {
+            path != repo_path
+                && (path.starts_with(&file_prefix) || path.starts_with(&folder_prefix))
+        })
+        .collect())
+}
+
+/// Whether a manifest other than the one being deleted still names this file.
+///
+/// Two DataModels may share one LinkML source: the one that names it keeps it, and the delete
+/// removes the manifest alone. Compared by the file name the manifest would carry — the paths
+/// in a manifest are relative to it (`./{name}.linkml.yaml`), never repository paths.
+fn still_named(state: &AppState, project: &str, kind: &str, name: &str, path: &str) -> bool {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    !state
+        .mirror
+        .matching(|candidate| {
+            let same = candidate.kind == kind
+                && candidate.metadata.name == name
+                && candidate.metadata.namespace.as_deref() == Some(project);
+            !same && names_file(&candidate.spec, file)
+        })
+        .is_empty()
+}
+
+/// Whether any string in the spec ends with this file name.
+fn names_file(spec: &Value, file: &str) -> bool {
+    match spec {
+        Value::String(value) => value.trim_start_matches("./").ends_with(file),
+        Value::Object(map) => map.values().any(|child| names_file(child, file)),
+        Value::Array(items) => items.iter().any(|child| names_file(child, file)),
+        _ => false,
+    }
+}
 
 /// Traverses a JSON value to detect typed references `{kind, name, namespace?}` (MF-07).
 pub fn has_typed_ref(
@@ -225,21 +279,38 @@ pub async fn delete_with_identity(
     }
     let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
+    // The manifest is not the whole resource: a DataModel owns its LinkML source and whatever
+    // was rendered from it, and an App, a Pipeline and a Dashboard own native files the same
+    // way. They go in the same change, or the repository keeps an orphan a later resource of
+    // the same name would inherit (T-0900, MF-07, CC-08). Read once the removal is going
+    // ahead: a refusal must not cost a tree listing.
+    let mut removals = vec![(repo_path.clone(), existing.sha.clone())];
+    for path in owned_beside(gitea, &repo_path, name, &default_branch).await? {
+        if still_named(state, project, kind_info.kind, name, &path) {
+            continue;
+        }
+        if let Some(file) = gitea.get_file(&path, &default_branch).await? {
+            removals.push((path, file.sha));
+        }
+    }
+
     let (author_name, author_email) = author_credentials(identity, project);
     let commit_msg = format!("delete {} {name}", kind_info.kind);
 
-    let file_del = FileDelete {
-        path: &repo_path,
-        branch: &branch,
-        message: &commit_msg,
-        sha: &existing.sha,
-        author: Author {
-            name: &author_name,
-            email: &author_email,
-        },
-    };
-
-    gitea.delete_file(&file_del).await?;
+    // One commit for every file of the resource: a removal that lands in pieces can be
+    // approved in pieces, which is how an orphan survives a merged delete.
+    gitea
+        .change_files(
+            &branch,
+            &commit_msg,
+            Author {
+                name: &author_name,
+                email: &author_email,
+            },
+            &[],
+            &removals,
+        )
+        .await?;
 
     let pr_title = format!("delete {} {name}", kind_info.kind);
     let pr_body = format!(
@@ -636,10 +707,19 @@ mod tests {
             .mount(&server)
             .await;
 
-        Mock::given(method("DELETE"))
-            .and(path(
-                "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
+        Mock::given(method("GET"))
+            .and(wiremock::matchers::path_regex(
+                r"^/api/v1/repos/test-owner/test-repo/git/trees/.*$",
             ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "tree": [{ "path": "projects/ovzdusie/spaces/mobility/space.yaml", "type": "blob" }],
+                "truncated": false
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/api/v1/repos/test-owner/test-repo/contents"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "commit": { "sha": "commit-sha-deleted" }
             })))

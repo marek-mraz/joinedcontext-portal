@@ -17,7 +17,7 @@ use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
 use serde_json::json;
 use tower::ServiceExt;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{method, path, path_regex, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const TEST_CSRF_TOKEN: &str = "test-csrf-token-12345";
@@ -89,15 +89,7 @@ async fn delete_returns_202_with_change_and_commits_to_gitea() {
         .mount(&server)
         .await;
 
-    Mock::given(method("DELETE"))
-        .and(path(
-            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
-        ))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "commit": { "sha": "commit-sha-deleted" }
-        })))
-        .mount(&server)
-        .await;
+    mount_tree_and_commit(&server, &["projects/ovzdusie/spaces/mobility/space.yaml"]).await;
 
     Mock::given(method("POST"))
         .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
@@ -183,18 +175,12 @@ async fn delete_returns_202_with_change_and_commits_to_gitea() {
     let delete_req = requests
         .iter()
         .find(|r| {
-            r.method.as_str() == "DELETE"
-                && r.url
-                    .path()
-                    .starts_with("/api/v1/repos/test-owner/test-repo/contents/")
+            r.method.as_str() == "POST"
+                && r.url.path() == "/api/v1/repos/test-owner/test-repo/contents"
         })
-        .expect("DELETE contents request");
-    assert_eq!(
-        delete_req.url.path(),
-        "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml"
-    );
+        .expect("the commit that removes the files");
     let delete_body: serde_json::Value =
-        serde_json::from_slice(&delete_req.body).expect("DELETE request body");
+        serde_json::from_slice(&delete_req.body).expect("commit request body");
     assert_eq!(delete_body["author"]["name"], "Demo Steward");
     assert_eq!(
         delete_body["author"]["email"],
@@ -205,7 +191,14 @@ async fn delete_returns_202_with_change_and_commits_to_gitea() {
         delete_body["committer"]["email"],
         "demo.steward@banskabystrica.sk"
     );
-    assert_eq!(delete_body["sha"], "sha-space-123");
+    let files = delete_body["files"].as_array().expect("the files removed");
+    assert_eq!(files.len(), 1, "the manifest alone: {files:?}");
+    assert_eq!(files[0]["operation"], "delete");
+    assert_eq!(
+        files[0]["path"],
+        "projects/ovzdusie/spaces/mobility/space.yaml"
+    );
+    assert_eq!(files[0]["sha"], "sha-space-123");
     assert_eq!(delete_body["message"], "delete ContextSpace mobility");
 
     let pulls_req = requests
@@ -569,6 +562,32 @@ fn space_state(client: GiteaClient) -> (Config, AppState) {
     (config, state)
 }
 
+/// The tree the removal reads to find the files the resource owns beside its manifest, and
+/// the one commit that removes them (T-0900).
+async fn mount_tree_and_commit(server: &MockServer, tree: &[&str]) {
+    let entries: Vec<serde_json::Value> = tree
+        .iter()
+        .map(|path| json!({ "path": path, "type": "blob" }))
+        .collect();
+    Mock::given(method("GET"))
+        .and(path_regex(
+            r"^/api/v1/repos/test-owner/test-repo/git/trees/.*$",
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "tree": entries, "truncated": false })),
+        )
+        .mount(server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/contents"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "commit": { "sha": "commit-sha-deleted" }
+        })))
+        .mount(server)
+        .await;
+}
+
 async fn mount_repo_and_file(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/api/v1/repos/test-owner/test-repo"))
@@ -639,13 +658,7 @@ async fn a_stale_branch_is_recreated_from_main_before_the_removal_is_written() {
         .expect(1)
         .mount(&server)
         .await;
-    Mock::given(method("DELETE"))
-        .and(path(
-            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/space.yaml",
-        ))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "commit": { "sha": "c2" } })))
-        .mount(&server)
-        .await;
+    mount_tree_and_commit(&server, &["projects/ovzdusie/spaces/mobility/space.yaml"]).await;
     Mock::given(method("POST"))
         .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
@@ -735,5 +748,248 @@ async fn a_second_removal_while_one_is_open_names_the_open_change() {
     assert!(
         requests.iter().all(|r| r.method.as_str() == "GET"),
         "nothing was written"
+    );
+}
+
+/// T-0900: a DataModel is a manifest plus its LinkML source and whatever was rendered from it.
+/// On dev the manifest went and the source stayed, so the next model of that name would have
+/// inherited a schema nobody wrote for it.
+#[tokio::test]
+async fn deleting_a_datamodel_removes_its_source_and_its_artefacts_in_one_change() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+    for (file, sha) in [
+        ("datamodels/bikes.yaml", "sha-manifest"),
+        ("datamodels/bikes.linkml.yaml", "sha-source"),
+        ("datamodels/bikes.schema.json", "sha-schema"),
+        ("datamodels/shared.linkml.yaml", "sha-shared"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/{file}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sha": sha,
+                "content": "YXBpVmVyc2lvbjogam9pbmVkY29udGV4dC5jb20vdjFhbHBoYTEK",
+                "encoding": "base64"
+            })))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    mount_tree_and_commit(
+        &server,
+        &[
+            "projects/ovzdusie/spaces/mobility/datamodels/bikes.yaml",
+            "projects/ovzdusie/spaces/mobility/datamodels/bikes.linkml.yaml",
+            "projects/ovzdusie/spaces/mobility/datamodels/bikes.schema.json",
+            // Another model's source, named after it and kept.
+            "projects/ovzdusie/spaces/mobility/datamodels/shared.linkml.yaml",
+            "projects/ovzdusie/spaces/mobility/space.yaml",
+        ],
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 57,
+            "html_url": "https://gitea.example.sk/pulls/57",
+            "state": "open",
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+
+    let (config, state) = space_state(client);
+    let model = |name: &str, linkml: &str| ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "DataModel".to_string(),
+        metadata: ObjectMeta {
+            name: name.to_string(),
+            namespace: Some("ovzdusie".to_string()),
+            ..Default::default()
+        },
+        spec: json!({ "contextSpaceRef": "mobility", "linkml": linkml, "version": "0.1.0" }),
+        status: None,
+    };
+    state.mirror.upsert(model("bikes", "./bikes.linkml.yaml"));
+    state.mirror.upsert(model("shared", "./shared.linkml.yaml"));
+
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/projects/ovzdusie/datamodels/bikes")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let requests = server.received_requests().await.expect("received requests");
+    let commit = requests
+        .iter()
+        .find(|r| {
+            r.method.as_str() == "POST"
+                && r.url.path() == "/api/v1/repos/test-owner/test-repo/contents"
+        })
+        .expect("the commit that removes the files");
+    let body: serde_json::Value =
+        serde_json::from_slice(&commit.body).expect("commit request body");
+    let removed: Vec<&str> = body["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .map(|file| file["path"].as_str().expect("a path"))
+        .collect();
+
+    assert!(removed.contains(&"projects/ovzdusie/spaces/mobility/datamodels/bikes.yaml"));
+    assert!(removed.contains(&"projects/ovzdusie/spaces/mobility/datamodels/bikes.linkml.yaml"));
+    assert!(removed.contains(&"projects/ovzdusie/spaces/mobility/datamodels/bikes.schema.json"));
+    assert!(
+        !removed
+            .iter()
+            .any(|path| path.contains("shared") || path.ends_with("space.yaml")),
+        "only the model's own files: {removed:?}"
+    );
+    assert!(body["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .all(|file| file["operation"] == "delete"));
+}
+
+/// The other half of T-0900: a source another model still names is not this model's to remove.
+#[tokio::test]
+async fn a_source_another_manifest_still_names_survives_the_delete() {
+    let server = MockServer::start().await;
+    let base_url = server.uri().parse().expect("valid mock server url");
+    let client =
+        GiteaClient::new(base_url, "test-owner", "test-repo", "token-xyz").expect("client");
+
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+    for (file, sha) in [
+        ("datamodels/bikes.yaml", "sha-manifest"),
+        ("datamodels/bikes.linkml.yaml", "sha-source"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/{file}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sha": sha,
+                "content": "YXBpVmVyc2lvbjogam9pbmVkY29udGV4dC5jb20vdjFhbHBoYTEK",
+                "encoding": "base64"
+            })))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .and(query_param("state", "open"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/branches"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    mount_tree_and_commit(
+        &server,
+        &[
+            "projects/ovzdusie/spaces/mobility/datamodels/bikes.yaml",
+            "projects/ovzdusie/spaces/mobility/datamodels/bikes.linkml.yaml",
+        ],
+    )
+    .await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/repos/test-owner/test-repo/pulls"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "number": 58,
+            "html_url": "https://gitea.example.sk/pulls/58",
+            "state": "open",
+            "merged": false
+        })))
+        .mount(&server)
+        .await;
+
+    let (config, state) = space_state(client);
+    let model = |name: &str, linkml: &str| ResourceEnvelope {
+        api_version: API_VERSION.to_string(),
+        kind: "DataModel".to_string(),
+        metadata: ObjectMeta {
+            name: name.to_string(),
+            namespace: Some("ovzdusie".to_string()),
+            ..Default::default()
+        },
+        spec: json!({ "contextSpaceRef": "mobility", "linkml": linkml, "version": "0.1.0" }),
+        status: None,
+    };
+    state.mirror.upsert(model("bikes", "./bikes.linkml.yaml"));
+    // A second model that reads the first one's source: the file is not the first one's alone.
+    state
+        .mirror
+        .upsert(model("cargo-bikes", "./bikes.linkml.yaml"));
+
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/projects/ovzdusie/datamodels/bikes")
+                .header(header::COOKIE, session_and_csrf_cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let requests = server.received_requests().await.expect("received requests");
+    let commit = requests
+        .iter()
+        .find(|r| {
+            r.method.as_str() == "POST"
+                && r.url.path() == "/api/v1/repos/test-owner/test-repo/contents"
+        })
+        .expect("the commit that removes the files");
+    let body: serde_json::Value =
+        serde_json::from_slice(&commit.body).expect("commit request body");
+    let removed: Vec<&str> = body["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .map(|file| file["path"].as_str().expect("a path"))
+        .collect();
+    assert_eq!(
+        removed,
+        vec!["projects/ovzdusie/spaces/mobility/datamodels/bikes.yaml"],
+        "the manifest alone: another model reads that source"
     );
 }
