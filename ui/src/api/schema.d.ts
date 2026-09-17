@@ -197,9 +197,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Gated exactly like the resource lists: a live session, nothing more. Whoever may list a
-         *     project's resources may learn that the project exists; a directory with nothing the
-         *     mirror recognises is not a project.
+         * The projects this caller may read, and no others (PF-59, T-0974).
+         * @description A project a caller has no grant in answers `404` everywhere else, so naming it here would
+         *     hand out the organization's internal project and department list to anyone with a session.
+         *     The filter is the same question the resource lists ask, `may_read_project`, asked once per
+         *     project the mirror holds.
          */
         get: operations["list_projects"];
         put?: never;
@@ -1537,6 +1539,11 @@ export interface components {
             lane: components["schemas"]["Lane"];
             plan: components["schemas"]["PlanDiff"];
             probe?: null | components["schemas"]["Probe"];
+            /**
+             * @description Whether applying this makes the runner restart the pipeline's stream, so a person sees
+             *     it before approving rather than afterwards (T-1056, PL-45). Absent for every other kind.
+             */
+            restartsStream?: boolean;
             valid: boolean;
         };
         /** @description One directed relation between two nodes. */
@@ -1832,6 +1839,22 @@ export interface components {
             };
         };
         /**
+         * @description Folds every series of one stream into the counters the view shows. Series of the same family
+         *     are summed (a stream may have several inputs or outputs); the latency takes the slowest
+         *     output rather than a sum, which would mean nothing.
+         *     The runner registers each stream under the pipeline's own name, so the pipeline name is
+         *     also the `stream` label to select on.
+         *     What one component of a stream counted, as its own label reports it (T-1125).
+         */
+        NodeCounters: {
+            /** Format: int64 */
+            errors?: number | null;
+            /** Format: int64 */
+            received?: number | null;
+            /** Format: int64 */
+            sent?: number | null;
+        };
+        /**
          * @description How an object last reported (UI-27).
          * @enum {string}
          */
@@ -1922,7 +1945,7 @@ export interface components {
          * Phase
          * @description Lifecycle phase enumeration.
          */
-        Phase: "Draft" | "Pending" | "Deploying" | "Live" | "Error";
+        Phase: "Draft" | "Pending" | "Deploying" | "Live" | "Error" | "Drifted";
         PipelineMetrics: {
             /** Format: int64 */
             bufferDepth?: number | null;
@@ -1930,6 +1953,14 @@ export interface components {
             errors?: number | null;
             /** Format: double */
             latencyP99Ms?: number | null;
+            /**
+             * @description The same counters per component of the stream, by the Bento `label` the reconciler
+             *     wrote (T-1125): the studio paints a node with the numbers of its own label. Empty for a
+             *     stream deployed before the labels, whose samples carry none.
+             */
+            nodes?: {
+                [key: string]: components["schemas"]["NodeCounters"];
+            };
             pipeline: string;
             /**
              * Format: int64

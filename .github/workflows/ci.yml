@@ -19,6 +19,9 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --lib --bins
+      # The UI's types are generated from the committed spec, so a stale one is a compile the
+      # fast lane can catch in two seconds instead of leaving to the hourly full run (T-1210).
+      - run: cargo test --test openapi_tests
   gitleaks:
     runs-on: ubuntu-latest
     timeout-minutes: 3

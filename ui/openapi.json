@@ -405,7 +405,8 @@
         "tags": [
           "resources"
         ],
-        "summary": "Gated exactly like the resource lists: a live session, nothing more. Whoever may list a\nproject's resources may learn that the project exists; a directory with nothing the\nmirror recognises is not a project.",
+        "summary": "The projects this caller may read, and no others (PF-59, T-0974).",
+        "description": "A project a caller has no grant in answers `404` everywhere else, so naming it here would\nhand out the organization's internal project and department list to anyone with a session.\nThe filter is the same question the resource lists ask, `may_read_project`, asked once per\nproject the mirror holds.",
         "operationId": "list_projects",
         "responses": {
           "200": {
@@ -6565,6 +6566,10 @@
               }
             ]
           },
+          "restartsStream": {
+            "type": "boolean",
+            "description": "Whether applying this makes the runner restart the pipeline's stream, so a person sees\nit before approving rather than afterwards (T-1056, PL-45). Absent for every other kind."
+          },
           "valid": {
             "type": "boolean"
           }
@@ -7290,6 +7295,36 @@
           }
         }
       },
+      "NodeCounters": {
+        "type": "object",
+        "description": "Folds every series of one stream into the counters the view shows. Series of the same family\nare summed (a stream may have several inputs or outputs); the latency takes the slowest\noutput rather than a sum, which would mean nothing.\nThe runner registers each stream under the pipeline's own name, so the pipeline name is\nalso the `stream` label to select on.\nWhat one component of a stream counted, as its own label reports it (T-1125).",
+        "properties": {
+          "errors": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "received": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "sent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "NodeHealth": {
         "type": "string",
         "description": "How an object last reported (UI-27).",
@@ -7605,6 +7640,13 @@
             "enum": [
               "Error"
             ]
+          },
+          {
+            "type": "string",
+            "description": "The platform holds something the repository does not declare, or no longer holds what it does (CC-21, UI-25). Configuration cannot reach this phase — every component reads it from the repository (CC-72) — so it is a space whose seed entities the broker answers differently, and the two resolutions of UI-26 are what a person does about it.",
+            "enum": [
+              "Drifted"
+            ]
           }
         ],
         "title": "Phase",
@@ -7639,6 +7681,16 @@
               "null"
             ],
             "format": "double"
+          },
+          "nodes": {
+            "type": "object",
+            "description": "The same counters per component of the stream, by the Bento `label` the reconciler\nwrote (T-1125): the studio paints a node with the numbers of its own label. Empty for a\nstream deployed before the labels, whose samples carry none.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NodeCounters"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "pipeline": {
             "type": "string"
