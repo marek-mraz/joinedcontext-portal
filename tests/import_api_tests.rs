@@ -1171,3 +1171,87 @@ async fn a_bundle_from_an_older_exporter_says_nothing_about_verification() {
         "no checksums means nothing verified, never everything equal: {report}"
     );
 }
+
+// --- the slug is minted here, never carried in (T-0821, EP-02, EP-75, CC-74) ---------------
+
+/// The source's 26 characters are the source's capability URL. A bundle that kept them would
+/// make this instance answer at the address an old link already names, and two imports of one
+/// bundle would answer at one address — where the gateway's table keeps only the last.
+#[tokio::test]
+async fn an_imported_endpoint_is_minted_a_slug_of_this_instance() {
+    let server = forge().await;
+    upload(&server, vec![], &[]).await;
+
+    let endpoint = put_bodies(&server)
+        .await
+        .into_iter()
+        .find(|body| body.contains("kind: Endpoint"))
+        .expect("the endpoint was written");
+    let slug = endpoint
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("slug: "))
+        .expect("the endpoint carries a slug")
+        .trim()
+        .to_owned();
+
+    assert_ne!(
+        slug, "mluyob4nz52lok3ssk7pgn5vwt",
+        "the source's slug travelled"
+    );
+    assert!(slug.len() >= 26, "a slug is 26 characters or more: {slug}");
+    assert!(
+        slug.chars()
+            .all(|c| c.is_ascii_lowercase() || ('2'..='7').contains(&c)),
+        "base32 without the confusable digits (EP-02): {slug}"
+    );
+}
+
+/// Updating a project by re-importing its bundle must not move its endpoints under the people
+/// using them: the one slug that survives an import is the one this instance minted before.
+#[tokio::test]
+async fn re_importing_over_an_endpoint_keeps_the_address_this_instance_gave_it() {
+    let server = forge().await;
+    let existing = ENDPOINT.replace(
+        "slug: mluyob4nz52lok3ssk7pgn5vwt",
+        "slug: qqqqqqqqqqqqqqqqqqqqqqqqqq",
+    );
+    let (state, cookie) = state(&server, vec![&existing]);
+    let (content_type, body) = multipart(&bundle_archive(), &[("conflictPolicy", "replace")]);
+    let (status, answer) = post(state, &cookie, &content_type, body).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+
+    let endpoint = put_bodies(&server)
+        .await
+        .into_iter()
+        .find(|body| body.contains("kind: Endpoint"))
+        .expect("the endpoint was written");
+    assert!(
+        endpoint.contains("slug: qqqqqqqqqqqqqqqqqqqqqqqqqq"),
+        "the endpoint kept the address it already had: {endpoint}"
+    );
+}
+
+/// A rename is a second endpoint beside the first, so it cannot answer at the first's address.
+#[tokio::test]
+async fn a_renamed_endpoint_is_minted_its_own_slug() {
+    let server = forge().await;
+    let existing = ENDPOINT.replace(
+        "slug: mluyob4nz52lok3ssk7pgn5vwt",
+        "slug: qqqqqqqqqqqqqqqqqqqqqqqqqq",
+    );
+    let (state, cookie) = state(&server, vec![&existing]);
+    let (content_type, body) = multipart(&bundle_archive(), &[("conflictPolicy", "rename")]);
+    let (status, answer) = post(state, &cookie, &content_type, body).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+
+    let endpoint = put_bodies(&server)
+        .await
+        .into_iter()
+        .find(|body| body.contains("kind: Endpoint"))
+        .expect("the endpoint was written");
+    assert!(
+        !endpoint.contains("slug: qqqqqqqqqqqqqqqqqqqqqqqqqq")
+            && !endpoint.contains("slug: mluyob4nz52lok3ssk7pgn5vwt"),
+        "a renamed endpoint answers at neither address: {endpoint}"
+    );
+}

@@ -26,6 +26,7 @@ use serde_json::Value;
 use utoipa::ToSchema;
 
 use crate::api::mutate::{author_credentials, create_or_reuse_branch, find_literal_secret};
+use crate::apps::reconciler::generate_slug;
 use crate::auth::CurrentUser;
 use crate::change::{self, Change, ChangeMeta, ChangePhase, ChangeStatus, Lane, Operation};
 use crate::error::{ApiError, ProblemDetails};
@@ -1162,6 +1163,38 @@ fn plan_import(
                     rewrite_space(&mut envelope.spec, old, new);
                 }
             }
+        }
+    }
+
+    // The slug is the endpoint's public address and the platform mints it, per environment
+    // (EP-02, EP-75, CC-74). A bundle carries the source's, so an import that kept it would
+    // serve the destination's dataset at the source's capability URL — and two imports of one
+    // bundle would answer at one address, where the gateway's table keeps only the last
+    // (T-0821). The one slug that survives is the one this instance already minted for this
+    // endpoint, so updating a project by re-importing its bundle does not move its endpoints
+    // under the people using them.
+    for envelope in &mut keep {
+        if envelope.kind != "Endpoint" {
+            continue;
+        }
+        let stored = namespace_of(
+            &envelope.kind,
+            envelope.metadata.namespace.as_deref(),
+            project,
+        );
+        let held = state
+            .mirror
+            .get(stored, "Endpoint", &envelope.metadata.name)
+            .and_then(|existing| {
+                existing
+                    .spec
+                    .get("slug")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
+        let slug = held.unwrap_or_else(|| generate_slug().to_string());
+        if let Some(spec) = envelope.spec.as_object_mut() {
+            spec.insert("slug".to_owned(), Value::String(slug));
         }
     }
 
