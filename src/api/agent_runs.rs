@@ -2316,10 +2316,23 @@ pub fn preview_router() -> Router<AppState> {
     )
 }
 
+/// What the Portal accepts on one relayed event: the proxy's 64 KiB ceiling
+/// (`Architecture/19 §4`) plus the envelope the proxy wraps it in — the run id and the kind.
+///
+/// The proxy already refuses a larger event, and this is the same ceiling on the door behind it,
+/// so a caller that reaches the internal listener another way is held to what the documented
+/// route promises rather than to axum's default (AG-45, AG-46).
+const MAX_RELAYED_EVENT_BYTES: usize = 64 * 1024 + 1024;
+
 /// The two routes the credential proxy calls, served on the internal listener alone (AG-52).
 pub fn internal_router() -> Router<AppState> {
     Router::new()
-        .route("/internal/agent-runs/events", post(internal_post_event))
+        .route(
+            "/internal/agent-runs/events",
+            post(internal_post_event).layer(axum::extract::DefaultBodyLimit::max(
+                MAX_RELAYED_EVENT_BYTES,
+            )),
+        )
         .route("/internal/agent-runs/{id}", get(internal_get_run))
         .route("/internal/agent-runs/{id}/inbox", get(internal_inbox))
         .route(
