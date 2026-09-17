@@ -658,7 +658,9 @@ pub async fn backchannel_logout(
             ApiError::BadRequest("the logout token did not verify".into())
         })?;
 
-    state.revoke_subject(claims.subject().as_str(), session::now_unix());
+    state
+        .revoke_subject(claims.subject().as_str(), session::now_unix())
+        .await;
     tracing::info!(subject = %claims.subject().as_str(), "back-channel logout");
     Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }

@@ -75,6 +75,10 @@ pub struct AppState {
     pub mcp_elicitations: crate::mcp::elicitation::McpElicitations,
 }
 
+/// How long a logout mark is kept: a day past the longest a session lives, so no session can
+/// outlive the mark that refuses it (PF-11).
+const REVOCATION_TTL_SECS: i64 = 48 * 3600;
+
 impl AppState {
     pub fn new(config: Config, oidc: Option<OidcClient>) -> Self {
         let bearer = config
@@ -164,6 +168,8 @@ impl AppState {
         state.activity =
             crate::activity::ActivityStore::new(db.clone()).with_hub(state.activity_events.clone());
         state.db = db;
+        // What the process before this one refused stays refused (T-0980).
+        state.load_revocations().await;
         // A builder run is scheduled into the cluster this Portal runs in (AG-33). The client is
         // the same in-cluster one the app converger uses; outside a cluster it stays `None` and
         // a run is refused rather than recorded with no pod behind it.
@@ -345,10 +351,75 @@ impl AppState {
     }
 
     /// Marks every session of a subject as logged out (OIDC back-channel logout).
-    pub fn revoke_subject(&self, subject: &str, at: i64) {
+    ///
+    /// The mark is written to the database as well as to this process, because a restart used
+    /// to clear every mark and re-accept sessions somebody had logged out for as long as their
+    /// cookie lived (T-0980). Without a database the mark is this process's alone, which is what
+    /// a Portal without one can honestly promise.
+    pub async fn revoke_subject(&self, subject: &str, at: i64) {
         if let Ok(mut marks) = self.revocations.write() {
             let mark = marks.entry(subject.to_string()).or_insert(at);
             *mark = (*mark).max(at);
+        }
+        let Some(db) = self.db.as_ref() else {
+            return;
+        };
+        // A mark outlives every session it could refuse: `REVOCATION_TTL` past the mark itself.
+        if let Err(error) = sqlx::query(
+            "INSERT INTO revocations (subject, revoked_at, expires_at) VALUES ($1, $2, $3) \
+             ON CONFLICT (subject) DO UPDATE SET \
+               revoked_at = GREATEST(revocations.revoked_at, EXCLUDED.revoked_at), \
+               expires_at = GREATEST(revocations.expires_at, EXCLUDED.expires_at)",
+        )
+        .bind(subject)
+        .bind(at)
+        .bind(
+            time::OffsetDateTime::from_unix_timestamp(at + REVOCATION_TTL_SECS)
+                .unwrap_or_else(|_| time::OffsetDateTime::now_utc()),
+        )
+        .execute(db)
+        .await
+        {
+            // The mark holds in this process either way; saying so is what a restart needs.
+            tracing::error!(%error, "a logout mark was not persisted and a restart will lose it");
+        }
+    }
+
+    /// Reads the marks a previous process wrote, and drops the ones no session can outlive.
+    ///
+    /// ponytail: one read at startup, because one replica serves the UI. A second replica would
+    /// also have to see a mark the first one wrote, which is a read on the session path or a
+    /// notification — neither is worth its cost while the Deployment is one pod.
+    pub async fn load_revocations(&self) {
+        let Some(db) = self.db.as_ref() else {
+            return;
+        };
+        if let Err(error) = sqlx::query("DELETE FROM revocations WHERE expires_at < now()")
+            .execute(db)
+            .await
+        {
+            tracing::warn!(%error, "old logout marks were not trimmed");
+        }
+        match sqlx::query_as::<_, (String, i64)>(
+            "SELECT subject, revoked_at FROM revocations WHERE expires_at >= now()",
+        )
+        .fetch_all(db)
+        .await
+        {
+            Ok(rows) => {
+                if let Ok(mut marks) = self.revocations.write() {
+                    for (subject, at) in rows {
+                        let mark = marks.entry(subject).or_insert(at);
+                        *mark = (*mark).max(at);
+                    }
+                    tracing::info!(marks = marks.len(), "logout marks read back");
+                }
+            }
+            Err(error) => tracing::error!(
+                %error,
+                "logout marks could not be read: a session logged out before this start is \
+                 accepted again until its cookie expires"
+            ),
         }
     }
 
@@ -416,15 +487,15 @@ mod tests {
         }
     }
 
-    #[test]
-    fn back_channel_logout_revokes_older_sessions_only() {
+    #[tokio::test]
+    async fn back_channel_logout_revokes_older_sessions_only() {
         let state = AppState::new(Config::for_tests(), None);
         let now = now_unix();
         let old = session("sub-1", now - 10);
         let fresh = session("sub-1", now + 10);
         assert!(!state.is_revoked(&old));
 
-        state.revoke_subject("sub-1", now);
+        state.revoke_subject("sub-1", now).await;
         assert!(
             state.is_revoked(&old),
             "session issued before the logout must be refused"
@@ -433,6 +504,31 @@ mod tests {
         assert!(
             !state.is_revoked(&session("sub-2", now - 10)),
             "other users are untouched"
+        );
+    }
+
+    /// T-0980: without a database the mark is this process's alone, and saying so is the point
+    /// of the two paths — neither may panic or lose the in-memory mark.
+    #[tokio::test]
+    async fn a_portal_without_a_database_still_marks_and_reads_back_nothing() {
+        let state = AppState::new(Config::for_tests(), None);
+        let now = now_unix();
+        state.revoke_subject("sub-1", now).await;
+        state.load_revocations().await;
+        assert!(state.is_revoked(&session("sub-1", now - 1)));
+    }
+
+    /// The mark only ever moves forward: a later logout refuses more, an earlier one refuses
+    /// nothing it did not already.
+    #[tokio::test]
+    async fn a_mark_never_moves_backwards() {
+        let state = AppState::new(Config::for_tests(), None);
+        let now = now_unix();
+        state.revoke_subject("sub-1", now).await;
+        state.revoke_subject("sub-1", now - 100).await;
+        assert!(
+            state.is_revoked(&session("sub-1", now - 1)),
+            "the later mark stands"
         );
     }
 }
