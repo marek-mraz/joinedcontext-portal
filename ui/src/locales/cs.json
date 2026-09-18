@@ -112,9 +112,10 @@
     "confirmFirst": "Pro schválení změny v červeném pruhu napište výše {name}.",
     "rejectTitle": "Zamítnout tuto změnu?",
     "rejectLead": "Navrhovatel si důvod přečte u změny.",
-    "rejectReason": "Proč ji zamítáte? (nepovinné)",
+    "rejectReason": "Proč to zamítáte?",
     "rejectConfirm": "Zamítnout změnu",
-    "rejectCancel": "Zrušit"
+    "rejectCancel": "Zrušit",
+    "rejectReasonHint": "Autor si to přečte u změny a potřebuje to k její opravě."
   },
   "lane": {
     "green": "Zelená",

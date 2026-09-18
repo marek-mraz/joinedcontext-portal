@@ -112,9 +112,10 @@
     "confirmFirst": "Geben Sie oben {name} ein, um eine Änderung der roten Spur zu genehmigen.",
     "rejectTitle": "Diese Änderung ablehnen?",
     "rejectLead": "Die vorschlagende Person liest den Grund an der Änderung.",
-    "rejectReason": "Warum lehnen Sie sie ab? (optional)",
+    "rejectReason": "Warum lehnen Sie das ab?",
     "rejectConfirm": "Änderung ablehnen",
-    "rejectCancel": "Abbrechen"
+    "rejectCancel": "Abbrechen",
+    "rejectReasonHint": "Die Autorin oder der Autor liest es an der Änderung und braucht es, um sie zu korrigieren."
   },
   "lane": {
     "green": "Grün",

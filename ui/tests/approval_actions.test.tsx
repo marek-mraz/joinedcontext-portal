@@ -144,18 +144,31 @@ describe("approval actions", () => {
     await expect(posts(fetchMock)[0].clone().json()).resolves.toEqual({ reason: "The slug is wrong" });
   });
 
-  it("rejects with no reason when none is given, and Cancel rejects nothing", async () => {
+  it("cannot reject without a reason, and Escape or Cancel rejects nothing", async () => {
     const fetchMock = renderDetail();
     await userEvent.click(await screen.findByRole("button", { name: en.approvals.reject }));
-    let dialog = await screen.findByRole("dialog", { name: en.approvals.rejectTitle });
-    await userEvent.click(within(dialog).getAllByRole("button", { name: en.approvals.rejectCancel })[0]);
-    expect(posts(fetchMock)).toHaveLength(0);
+    const dialog = await screen.findByRole("dialog", { name: en.approvals.rejectTitle });
+    const confirm = within(dialog).getByRole("button", { name: en.approvals.rejectConfirm });
+    expect(confirm).toBeDisabled();
+    await userEvent.type(within(dialog).getByLabelText(en.approvals.rejectReason), "   ");
+    expect(confirm).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: en.approvals.reject }));
-    dialog = await screen.findByRole("dialog", { name: en.approvals.rejectTitle });
+    const again = await screen.findByRole("dialog", { name: en.approvals.rejectTitle });
+    await userEvent.click(within(again).getAllByRole("button", { name: en.approvals.rejectCancel })[0]);
+    expect(posts(fetchMock)).toHaveLength(0);
+  });
+
+  it("sends a reason with Unicode and a line break as typed", async () => {
+    const fetchMock = renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: en.approvals.reject }));
+    const dialog = await screen.findByRole("dialog", { name: en.approvals.rejectTitle });
+    await userEvent.type(within(dialog).getByLabelText(en.approvals.rejectReason), "Zlý slug{Enter}už existuje – µg/m³");
     await userEvent.click(within(dialog).getByRole("button", { name: en.approvals.rejectConfirm }));
     await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
-    expect(await posts(fetchMock)[0].clone().text()).toBe("");
+    await expect(posts(fetchMock)[0].clone().json()).resolves.toEqual({ reason: "Zlý slug\nuž existuje – µg/m³" });
   });
 
   it("disables both actions without the approver role, and says why", async () => {

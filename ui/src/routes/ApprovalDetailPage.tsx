@@ -112,7 +112,7 @@ export function ApprovalDetailPage({
       const res = await api.POST("/api/v1/projects/{project}/changes/{id}/reject", {
         params: { path: { project, id } },
         // The reason goes into the merge request's closing comment, where the proposer reads it.
-        body: reason.trim() === "" ? undefined : ({ reason: reason.trim() } as never),
+        body: { reason: reason.trim() } as never,
       });
       return unwrap(res);
     },
@@ -336,6 +336,7 @@ export function ApprovalDetailPage({
                 <Button onClick={() => setRejecting(false)}>{t("approvals.rejectCancel")}</Button>
                 <Button
                   variant="danger"
+                  disabled={rejectReason.trim() === ""}
                   loading={rejectMutation.isPending}
                   onClick={() => {
                     setRejecting(false);
@@ -354,9 +355,14 @@ export function ApprovalDetailPage({
               id={rejectReasonId}
               rows={3}
               maxLength={2000}
+              required
+              aria-describedby={`${rejectReasonId}-hint`}
               value={rejectReason}
               onChange={(event) => setRejectReason(event.target.value)}
             />
+            <p id={`${rejectReasonId}-hint`} className="text-sm text-fg-muted">
+              {t("approvals.rejectReasonHint")}
+            </p>
           </Dialog>
 
           {approveReason ? (

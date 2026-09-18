@@ -112,9 +112,10 @@
     "confirmFirst": "Type {name} above to approve a red-lane change.",
     "rejectTitle": "Reject this change?",
     "rejectLead": "The proposer reads the reason on the change.",
-    "rejectReason": "Why are you rejecting it? (optional)",
+    "rejectReason": "Why are you rejecting this?",
     "rejectConfirm": "Reject the change",
-    "rejectCancel": "Cancel"
+    "rejectCancel": "Cancel",
+    "rejectReasonHint": "The author reads it on the change and needs it to fix the change."
   },
   "lane": {
     "green": "Green",
