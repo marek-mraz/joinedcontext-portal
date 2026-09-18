@@ -235,6 +235,108 @@ describe("PipelineFlow component rendering & interactions", () => {
     expect(onSelect).toHaveBeenCalledWith("compute");
   });
 
+  /// T-1135: the canvas takes a stage dropped on it, which is the other half of the palette.
+  it("dropping a palette stage on the canvas adds it and selects it", () => {
+    const onChange = vi.fn();
+    const onSelect = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <PipelineFlow
+          form={{ name: "flow-test" }}
+          onChange={onChange}
+          trace={null}
+          selected={null}
+          onSelect={onSelect}
+          dataSources={[]}
+          endpoints={[]}
+        />
+      </I18nextProvider>,
+    );
+
+    const canvas = screen.getByTestId("flow-canvas");
+    const transfer = { getData: () => "bloblang", dropEffect: "" };
+    fireEvent.dragOver(canvas, { dataTransfer: transfer });
+    fireEvent.drop(canvas, { dataTransfer: transfer });
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ compute: expect.objectContaining({ kind: "bloblang" }) }),
+    );
+    expect(onSelect).toHaveBeenCalledWith("compute");
+  });
+
+  it("ignores anything dropped on the canvas that is not a stage", () => {
+    const onChange = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <PipelineFlow
+          form={{ name: "flow-test" }}
+          onChange={onChange}
+          trace={null}
+          selected={null}
+          onSelect={vi.fn()}
+          dataSources={[]}
+          endpoints={[]}
+        />
+      </I18nextProvider>,
+    );
+
+    fireEvent.drop(screen.getByTestId("flow-canvas"), {
+      dataTransfer: { getData: () => "https://example.test/a-link", dropEffect: "" },
+    });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  /// The canvas is reachable without a mouse: every node is a button, and the arrows walk them.
+  it("walks the nodes with the arrow keys, and stops at both ends", () => {
+    const onSelect = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <PipelineFlow
+          form={{ name: "flow-test", compute: { kind: "bloblang", bloblang: "root = this" } }}
+          onChange={vi.fn()}
+          trace={null}
+          selected="compute"
+          onSelect={onSelect}
+          dataSources={[]}
+          endpoints={[]}
+        />
+      </I18nextProvider>,
+    );
+
+    fireEvent.keyDown(screen.getByTestId("flow-node-compute"), { key: "ArrowRight" });
+    expect(onSelect).toHaveBeenLastCalledWith("output");
+    fireEvent.keyDown(screen.getByTestId("flow-node-compute"), { key: "ArrowLeft" });
+    expect(onSelect).toHaveBeenLastCalledWith("source");
+
+    // The ends hold: there is nothing left of the source or right of the output.
+    fireEvent.keyDown(screen.getByTestId("flow-node-source"), { key: "ArrowLeft" });
+    expect(onSelect).toHaveBeenLastCalledWith("source");
+    fireEvent.keyDown(screen.getByTestId("flow-node-output"), { key: "ArrowRight" });
+    expect(onSelect).toHaveBeenLastCalledWith("output");
+  });
+
+  it("selects a node with Enter and with the space bar, as a button does", () => {
+    const onSelect = vi.fn();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <PipelineFlow
+          form={{ name: "flow-test" }}
+          onChange={vi.fn()}
+          trace={null}
+          selected={null}
+          onSelect={onSelect}
+          dataSources={[]}
+          endpoints={[]}
+        />
+      </I18nextProvider>,
+    );
+
+    fireEvent.keyDown(screen.getByTestId("flow-node-source"), { key: "Enter" });
+    fireEvent.keyDown(screen.getByTestId("flow-node-output"), { key: " " });
+    expect(onSelect).toHaveBeenNthCalledWith(1, "source");
+    expect(onSelect).toHaveBeenNthCalledWith(2, "output");
+  });
+
   it("pressing Delete on selected compute node removes stage", () => {
     const onChange = vi.fn();
     const onSelect = vi.fn();

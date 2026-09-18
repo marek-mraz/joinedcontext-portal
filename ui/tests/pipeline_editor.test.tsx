@@ -306,6 +306,53 @@ describe("pipeline editor", () => {
     expect(endpointUrn("", endpoint)).toBeUndefined();
   });
 
+  /// T-1135: what the form has no control for is what an edit must not take away (T-0885).
+  it("keeps the fields the form does not show, and the ones it does", () => {
+    const rich = {
+      ...EXISTING,
+      spec: {
+        ...EXISTING.spec,
+        enabled: false,
+        policyRef: { kind: "Policy", name: "ingest-write" },
+        publish: { ckanInstanceRef: "opendata" },
+      },
+    } as Manifest;
+
+    const envelope = toEnvelope("banskabystrica", toForm(rich), rich);
+    const spec = envelope.spec as Record<string, unknown>;
+    // The pause button owns `enabled`, and the form has no control for the other two.
+    expect(spec.enabled).toBe(false);
+    expect(spec.policyRef).toEqual({ kind: "Policy", name: "ingest-write" });
+    expect(spec.publish).toEqual({ ckanInstanceRef: "opendata" });
+  });
+
+  it("reads a manifest back into the form, and refuses one with no name", () => {
+    const bare = {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "Pipeline",
+      metadata: { name: "bare", namespace: "banskabystrica" },
+    };
+    const form = fromManifest(bare);
+    expect(form.name).toBe("bare");
+    expect(form.source).toBeUndefined();
+    expect(form.compute).toBeUndefined();
+
+    // A document that names no resource is not a manifest, and the YAML view says so rather
+    // than proposing something addressed to nothing (MF-02).
+    expect(() => fromManifest({ kind: "Pipeline", spec: {} })).toThrow(/metadata.name/);
+    expect(() => fromManifest({})).toThrow(/metadata.name/);
+  });
+
+  it("builds no target URN when the endpoint names no space", () => {
+    const spaceless = {
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "Endpoint",
+      metadata: { name: "public-air", namespace: "banskabystrica" },
+      spec: { slug: "x" },
+    } as Manifest;
+    expect(endpointUrn("banskabystrica.sk", spaceless)).toBeUndefined();
+  });
+
   it("round-trips the form through the YAML view and keeps the manifest", async () => {
     renderPipelines();
     const dialog = await openNew();
