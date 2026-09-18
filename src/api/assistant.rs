@@ -559,6 +559,8 @@ pub async fn start_conversation(
             "message is longer than {MAX_PROMPT_CHARS} characters"
         )));
     }
+    // A conversation is a run like any other and counts against the same day (PF-74, T-1403).
+    crate::api::agent_runs::within_runs_per_day(&state, &project).await?;
 
     let profile_name = request.profile.clone().unwrap_or_else(default_profile);
     let profile = Profile::load(&state.mirror, &profile_name)?;

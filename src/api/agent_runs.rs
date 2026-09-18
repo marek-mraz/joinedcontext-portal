@@ -322,28 +322,7 @@ pub async fn create_run(
         None,
     )?;
 
-    // How many runs this project may start in a day (PF-73, PF-74). The store answers newest
-    // first, so the newest `max` runs are enough to know whether today is full.
-    if let Some(max) = crate::quotas::effective(&state.mirror, &project).agent_runs_per_day {
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let recent = state
-            .agents
-            .list_runs(&project, i64::from(max))
-            .await
-            .map_err(|err| ApiError::Internal(err.to_string()))?;
-        let started_today = recent
-            .iter()
-            .filter(|run| run.created_at.starts_with(&today))
-            .count() as u32;
-        if started_today >= max {
-            return Err(crate::quotas::over(
-                "agentRunsPerDay",
-                started_today + 1,
-                max,
-                &project,
-            ));
-        }
-    }
+    within_runs_per_day(&state, &project).await?;
 
     if !is_dns1123(&request.app_name) {
         return Err(ApiError::BadRequest(format!(
@@ -1113,6 +1092,34 @@ fn observation_out_of_bounds(request: &PreviewObservationRequest) -> Option<Stri
 
 /// How long the Portal waits for `jc-functions`, whose own limit is 5 s of script.
 const FUNCTION_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How many runs this project may start in a day (PF-73, PF-74), asked by every door that
+/// starts one: an application run and an assistant conversation (T-1403). The store answers
+/// newest first, so the newest `max` runs are enough to know whether today is full.
+pub(crate) async fn within_runs_per_day(state: &AppState, project: &str) -> Result<(), ApiError> {
+    let Some(max) = crate::quotas::effective(&state.mirror, project).agent_runs_per_day else {
+        return Ok(());
+    };
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let recent = state
+        .agents
+        .list_runs(project, i64::from(max))
+        .await
+        .map_err(|err| ApiError::Internal(err.to_string()))?;
+    let started_today = recent
+        .iter()
+        .filter(|run| run.created_at.starts_with(&today))
+        .count() as u32;
+    if started_today >= max {
+        return Err(crate::quotas::over(
+            "agentRunsPerDay",
+            started_today + 1,
+            max,
+            project,
+        ));
+    }
+    Ok(())
+}
 
 /// `[a-z][a-z0-9-]{0,39}`: the name of a function file (Architecture/20 §3).
 fn is_function_name(name: &str) -> bool {

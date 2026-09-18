@@ -2896,6 +2896,71 @@ async fn the_run_above_the_daily_quota_is_refused_with_the_count_and_the_limit()
     );
 }
 
+/// PF-74, T-1403: a conversation is a run and counts against the same day. Two runs of any kind
+/// fill a quota of two, and the next conversation is refused like the next application run,
+/// before a run is stored; before, a conversation was never refused.
+#[tokio::test]
+async fn a_conversation_above_the_daily_quota_is_refused_like_any_run() {
+    let config = config();
+    let mirror = mirror(Some(builder_profile_spec()));
+    mirror.upsert(envelope(
+        "Organization",
+        "bb",
+        "org",
+        json!({ "domain": "hel.fi", "projects": { "quota": { "agentRunsPerDay": 2 } } }),
+    ));
+    let app = router(mirror, &config);
+    let cookie = session_cookie(&config, STEWARD, &["portal-approver"]);
+    let converse = |message: &str| {
+        let (app, cookie) = (app.clone(), cookie.clone());
+        let body = json!({ "message": message });
+        async move {
+            call(
+                &app,
+                &cookie,
+                Method::POST,
+                &format!("/api/v1/projects/{PROJECT}/assistant/conversations"),
+                Some(body),
+            )
+            .await
+        }
+    };
+
+    let mut body = create_body();
+    body["appName"] = json!("first-app");
+    let (status, created) = call(
+        &app,
+        &cookie,
+        Method::POST,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let (status, created) = converse("Find datasets about bikes").await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+
+    let (status, refused) = converse("And about air quality?").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    assert!(
+        refused.to_string().contains("agentRunsPerDay 3 of 2"),
+        "the refusal names the count and the limit: {refused}"
+    );
+    let (_, listed) = call(
+        &app,
+        &cookie,
+        Method::GET,
+        &format!("/api/v1/projects/{PROJECT}/agent-runs"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        listed["items"].as_array().map(Vec::len),
+        Some(2),
+        "{listed}"
+    );
+}
+
 /// A run reaches the operations registry through one door and arrives narrowed twice: the person
 /// who started it, and the run's own profile (AG-64, AG-70, T-0837).
 mod the_registry_a_run_reaches {
