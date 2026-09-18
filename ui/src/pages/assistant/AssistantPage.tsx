@@ -22,6 +22,7 @@ import {
   TableRow,
   Textarea,
 } from "../../components/ui";
+import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { concreteTypes, dataNeeds, endpointSchema } from "../apps/AppGenerator";
 import { appDisplayName, useEndpointTitles } from "../apps/appTitle";
 import { TERMINAL_STATES } from "../apps/useAgentRun";
@@ -395,17 +396,20 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
                   <TableCell align="right">
                     <div className="flex items-center justify-end gap-2">
                       {isEndedConversation ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          loading={
-                            continueMutation.isPending && continueMutation.variables === run.id
-                          }
-                          disabled={continueMutation.isPending}
-                          onClick={() => continueMutation.mutate(run.id)}
-                        >
-                          {t("assistantPage.continue")}
-                        </Button>
+                        // Continuing a conversation starts another run, so the same verb (UI-44).
+                        <PermissionGuard project={project} kind="App" verb="propose">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={
+                              continueMutation.isPending && continueMutation.variables === run.id
+                            }
+                            disabled={continueMutation.isPending}
+                            onClick={() => continueMutation.mutate(run.id)}
+                          >
+                            {t("assistantPage.continue")}
+                          </Button>
+                        </PermissionGuard>
                       ) : null}
                       <Button size="sm" variant="secondary" onClick={() => handleOpen(run)}>
                         {t("assistantPage.open")}
@@ -504,19 +508,24 @@ export function AssistantPage({ project }: { project: string }): JSX.Element {
             </p>
           ) : null}
 
-          <Button
-            type="submit"
-            variant="primary"
-            loading={newWorkMutation.isPending}
-            disabled={
-              newWorkMutation.isPending ||
-              !newWorkName.trim() ||
-              !newWorkPrompt.trim() ||
-              needs.length === 0
-            }
-          >
-            {t("assistantPage.newWork.start")}
-          </Button>
+          {/* A run proposes the App it writes, so `App`/`propose` is the permission it needs
+              (`api/agent_runs.rs::create_run`). Without the guard a viewer filled the form and
+              met the 403 only after pressing Start (T-1584, UI-44). */}
+          <PermissionGuard project={project} kind="App" verb="propose">
+            <Button
+              type="submit"
+              variant="primary"
+              loading={newWorkMutation.isPending}
+              disabled={
+                newWorkMutation.isPending ||
+                !newWorkName.trim() ||
+                !newWorkPrompt.trim() ||
+                needs.length === 0
+              }
+            >
+              {t("assistantPage.newWork.start")}
+            </Button>
+          </PermissionGuard>
         </form>
       </Card>
 

@@ -10,6 +10,7 @@ import type { Change } from "../../api/manifest";
 import type { components } from "../../api/schema";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { Button } from "../../components/ui/Button";
+import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { Field } from "../../components/ui/Field";
 import { Textarea } from "../../components/ui/Input";
 import {
@@ -164,15 +165,19 @@ function ProfileCard({ project, profile }: { project: string; profile: ProfileAc
       {change ? <ChangeNotice change={change} project={ORG_NAMESPACE} /> : null}
 
       {text === null ? (
-        <Button
-          size="sm"
-          onClick={() => {
-            setChange(null);
-            setText(profile.access ? stringifyYaml(profile.access) : "");
-          }}
-        >
-          {t("assistantPage.access.edit")}
-        </Button>
+        // The block is proposed as the org's `AgentProfile`, so that is the permission the editor
+        // needs — not one in the project being read (T-1584, UI-44).
+        <PermissionGuard project={ORG_NAMESPACE} kind="AgentProfile" verb="propose">
+          <Button
+            size="sm"
+            onClick={() => {
+              setChange(null);
+              setText(profile.access ? stringifyYaml(profile.access) : "");
+            }}
+          >
+            {t("assistantPage.access.edit")}
+          </Button>
+        </PermissionGuard>
       ) : (
         <form
           className="space-y-2"
@@ -200,9 +205,11 @@ function ProfileCard({ project, profile }: { project: string; profile: ProfileAc
             </p>
           ) : null}
           <div className="flex gap-2">
-            <Button type="submit" variant="primary" size="sm" loading={propose.isPending}>
-              {t("assistantPage.access.propose")}
-            </Button>
+            <PermissionGuard project={ORG_NAMESPACE} kind="AgentProfile" verb="propose">
+              <Button type="submit" variant="primary" size="sm" loading={propose.isPending}>
+                {t("assistantPage.access.propose")}
+              </Button>
+            </PermissionGuard>
             <Button size="sm" onClick={() => setText(null)}>
               {t("assistantPage.access.cancel")}
             </Button>
