@@ -312,3 +312,130 @@ async fn a_viewer_is_refused_in_a_workspace_as_everywhere() {
     );
     assert!(!calls(&server).await.iter().any(|(m, _, _)| m == "PUT"));
 }
+
+// --- PF-82: a workspace grants nothing (T-1256) --------------------------------------------
+
+fn pipeline(name: &str) -> Value {
+    json!({
+        "apiVersion": API_VERSION,
+        "kind": "Pipeline",
+        "metadata": { "name": name, "namespace": "ovzdusie" },
+        "spec": {
+            "class": "resident",
+            "source": { "dataSourceRef": { "kind": "DataSource", "name": "mqtt-mesto" } },
+            "compute": { "kind": "bloblang", "bloblang": "root = this" },
+            "targetEndpoint": "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air"
+        }
+    })
+}
+
+#[tokio::test]
+async fn workspace_write_refused_when_quota_exceeded() {
+    let server = forge().await;
+    let state = state_on(&server).await;
+    open(&state, "air-v2", whole_project()).await;
+    state.mirror.upsert(
+        serde_json::from_value(json!({
+            "apiVersion": API_VERSION, "kind": "Organization",
+            "metadata": { "name": "bb", "namespace": "org" },
+            "spec": { "domain": "banskabystrica.sk", "projects": { "quota": { "residentPipelines": 1 } } }
+        }))
+        .unwrap(),
+    );
+    state
+        .mirror
+        .upsert(serde_json::from_value(pipeline("first")).unwrap());
+    let err = propose_into_workspace(
+        &steward(),
+        &state,
+        "ovzdusie",
+        "pipelines",
+        None,
+        Operation::Create,
+        pipeline("second"),
+        "air-v2",
+    )
+    .await
+    .unwrap_err();
+    assert!(err.to_string().contains("residentPipelines"), "{err}");
+    assert!(
+        !calls(&server).await.iter().any(|(m, _, _)| m == "PUT"),
+        "nothing was written"
+    );
+}
+
+#[tokio::test]
+async fn workspace_write_refused_when_secret_pasted() {
+    let server = forge().await;
+    let state = state_on(&server).await;
+    open(&state, "air-v2", whole_project()).await;
+    let source = json!({
+        "apiVersion": API_VERSION,
+        "kind": "DataSource",
+        "metadata": { "name": "feed", "namespace": "ovzdusie" },
+        "spec": { "type": "http", "connection": { "url": "https://example.invalid/feed", "password": "hunter2" } }
+    });
+    let err = propose_into_workspace(
+        &steward(),
+        &state,
+        "ovzdusie",
+        "datasources",
+        None,
+        Operation::Create,
+        source,
+        "air-v2",
+    )
+    .await
+    .unwrap_err();
+    let said = err.to_string();
+    assert!(
+        said.contains("secretRef") || said.contains("secret"),
+        "{said}"
+    );
+    assert!(
+        !said.contains("hunter2"),
+        "the value is never echoed: {said}"
+    );
+    assert!(!calls(&server).await.iter().any(|(m, _, _)| m == "PUT"));
+}
+
+#[tokio::test]
+async fn workspace_write_refused_above_own_rights() {
+    let server = forge().await;
+    let state = state_on(&server).await;
+    open(&state, "access", whole_project()).await;
+    // A person who may propose bindings but holds no `org-admin` themselves cannot grant it
+    // through a workspace any more than outside one (PF-52).
+    let binding = json!({
+        "apiVersion": API_VERSION,
+        "kind": "RoleBinding",
+        "metadata": { "name": "grab", "namespace": "ovzdusie" },
+        "spec": { "subjects": [{ "user": "friend@hel.fi" }], "role": "org-admin", "scope": { "project": "ovzdusie" } }
+    });
+    let into_ws = propose_into_workspace(
+        &steward(),
+        &state,
+        "ovzdusie",
+        "rolebindings",
+        None,
+        Operation::Create,
+        binding.clone(),
+        "access",
+    )
+    .await
+    .unwrap_err();
+    let plain = propose_with_identity(
+        &steward(),
+        &state,
+        "ovzdusie",
+        "rolebindings",
+        None,
+        Operation::Create,
+        false,
+        binding,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(into_ws.to_string(), plain.to_string());
+    assert!(!calls(&server).await.iter().any(|(m, _, _)| m == "PUT"));
+}
