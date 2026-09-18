@@ -184,12 +184,16 @@ async fn forge() -> MockServer {
 }
 
 fn session_cookie(config: &Config, groups: &[&str]) -> String {
+    session_cookie_of(config, "jana.kovacova", groups)
+}
+
+fn session_cookie_of(config: &Config, username: &str, groups: &[&str]) -> String {
     use axum::response::IntoResponse;
     let now = session::now_unix();
     let session = Session {
         identity: Identity {
-            subject: "f:1:jana".into(),
-            username: "jana.kovacova".into(),
+            subject: format!("f:1:{username}"),
+            username: username.into(),
             email: None,
             name: None,
             roles: Vec::new(),
@@ -1443,4 +1447,42 @@ async fn a_lax_installation_imports_an_unchecked_bundle() {
     let (status, body) = import_unchecked(state, &cookie, &[]).await;
 
     assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+}
+
+#[tokio::test]
+async fn one_persons_check_does_not_open_the_door_for_another() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    check(state.clone(), &cookie, &bundle_archive(), &[]).await;
+    let other = format!(
+        "{}; {CSRF_COOKIE}={CSRF}",
+        session_cookie_of(&state.config, "peter.novak", &["portal-approver"])
+    );
+    let (status, body) = import_unchecked(state, &other, &[]).await;
+
+    refusal(status, &body, "verdict_absent");
+    assert!(written(&server).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_bundle_whose_dry_run_is_refused_records_no_check() {
+    // A conflict under `fail` refuses the dry run; the import then answers the same conflict,
+    // never a door opened by a check that did not pass.
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![ENDPOINT]);
+    let (content_type, body) = multipart(&bundle_archive(), &[]);
+    let (status, _) = send(
+        state.clone(),
+        &cookie,
+        &content_type,
+        body,
+        &format!("{}?dryRun=All", import_uri()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, body) = import_unchecked(state, &cookie, &[]).await;
+
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_ne!(body["error"], "verdict_required", "{body}");
+    assert!(written(&server).await.is_empty());
 }
