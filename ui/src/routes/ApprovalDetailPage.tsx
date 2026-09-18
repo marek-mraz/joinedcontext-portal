@@ -51,6 +51,8 @@ export function ApprovalDetailPage({
   const [rejectReason, setRejectReason] = useState("");
   const [confirmInput, setConfirmInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  // The file whose field diff is shown; none picked shows the headline file (T-1397).
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   const detailQuery = useQuery({
     queryKey: queryKeys.change(project, id),
@@ -188,6 +190,7 @@ export function ApprovalDetailPage({
   const files = [...(proposal.files ?? [])].sort(
     (one, other) => LANE_ORDER[other.lane] - LANE_ORDER[one.lane],
   );
+  const selected = files.find((file) => file.path === selectedPath && file.fields);
 
   return (
     <div className="space-y-6">
@@ -248,7 +251,18 @@ export function ApprovalDetailPage({
                 {file.kind ? (
                   <span className="text-sm font-medium text-surface-fg">{file.kind}</span>
                 ) : null}
-                <span className="font-mono text-caption text-fg-subtle">{file.path}</span>
+                {file.fields ? (
+                  <button
+                    type="button"
+                    aria-pressed={selected?.path === file.path}
+                    onClick={() => setSelectedPath(selected?.path === file.path ? null : file.path)}
+                    className="font-mono text-caption text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+                  >
+                    {file.path}
+                  </button>
+                ) : (
+                  <span className="font-mono text-caption text-fg-subtle">{file.path}</span>
+                )}
                 <span className="ml-auto text-caption text-fg-muted">
                   {t(OPERATION_LABEL[file.operation])}
                 </span>
@@ -260,9 +274,9 @@ export function ApprovalDetailPage({
 
       <section aria-labelledby="plan-diff-heading" className="space-y-2">
         <h2 id="plan-diff-heading" className="text-base font-semibold text-surface-fg">
-          {t("approvals.diffType")}
+          {selected ? t("approvals.diffForFile", { path: selected.path }) : t("approvals.diffType")}
         </h2>
-        <PlanDiffViewer fields={proposal.planFields} />
+        <PlanDiffViewer fields={selected ? selected.fields : proposal.planFields} />
       </section>
 
       {actionError ? (

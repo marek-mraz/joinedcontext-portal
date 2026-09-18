@@ -6153,6 +6153,16 @@
           "lane"
         ],
         "properties": {
+          "fields": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FieldChange"
+            },
+            "description": "This manifest's own field-level diff, base against head and redacted (T-1397); absent for\na native file, which carries no manifest to diff."
+          },
           "kind": {
             "type": "string",
             "description": "The manifest's kind, or the kind the directory names for a native file beside one."

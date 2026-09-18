@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -314,6 +314,39 @@ describe("the files of a bundle (T-0861)", () => {
     expect(rows[0]).toHaveTextContent(en.lane.red);
     expect(rows[1]).toHaveTextContent("Pipeline");
     expect(rows[1]).toHaveTextContent(en.approvals.diffAdded);
+  });
+
+  it("shows the field diff of the file an approver clicks, and the headline again on a second click", async () => {
+    renderDetail({
+      change: proposal({
+        files: [
+          {
+            path: "users/assignments/mallory-admin.yaml",
+            kind: "RoleBinding",
+            operation: "Update",
+            lane: "red",
+            fields: [{ path: "spec.role", from: "viewer", to: "admin" }],
+          },
+          { path: "README.md", operation: "Update", lane: "green" },
+        ],
+      }),
+    });
+
+    const heading = await screen.findByRole("heading", { name: en.approvals.diffType });
+    expect(screen.getByText("spec.audience")).toBeInTheDocument();
+    // A file without a manifest has nothing to diff field by field, so it is not a button.
+    expect(screen.queryByRole("button", { name: "README.md" })).toBeNull();
+
+    const file = screen.getByRole("button", { name: "users/assignments/mallory-admin.yaml" });
+    fireEvent.click(file);
+    expect(heading).toHaveTextContent("users/assignments/mallory-admin.yaml");
+    expect(screen.getByText("spec.role")).toBeInTheDocument();
+    expect(screen.queryByText("spec.audience")).toBeNull();
+    expect(file).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(file);
+    expect(heading).toHaveTextContent(en.approvals.diffType);
+    expect(screen.getByText("spec.audience")).toBeInTheDocument();
   });
 
   it("shows no file section for a change the API listed no files for", async () => {

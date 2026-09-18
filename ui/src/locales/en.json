@@ -103,6 +103,7 @@
     "summary": "Summary",
     "field": "Field",
     "diffType": "Change type",
+    "diffForFile": "Changes in {path}",
     "actions": "Actions",
     "view": "View",
     "ownAsAdministrator": "You wrote this change; you approve it as an administrator of {kind}.",

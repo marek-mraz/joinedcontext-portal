@@ -1382,6 +1382,11 @@ export interface components {
          *     the same list. What the approver reads is what the server checks.
          */
         ChangeFile: {
+            /**
+             * @description This manifest's own field-level diff, base against head and redacted (T-1397); absent for
+             *     a native file, which carries no manifest to diff.
+             */
+            fields?: components["schemas"]["FieldChange"][] | null;
             /** @description The manifest's kind, or the kind the directory names for a native file beside one. */
             kind: string;
             /** @description The lane this file alone would take. */

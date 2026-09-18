@@ -103,6 +103,7 @@
     "summary": "Súhrn",
     "field": "Pole",
     "diffType": "Typ zmeny",
+    "diffForFile": "Zmeny v {path}",
     "actions": "Akcie",
     "view": "Zobraziť",
     "ownAsAdministrator": "Túto zmenu ste navrhli vy; schvaľujete ju ako administrátor {kind}.",

@@ -2254,6 +2254,24 @@ async fn the_detail_of_a_bundle_lists_every_file_with_its_kind_and_lane() {
         json!("red"),
         "a binding is the lane the confirmation is asked for"
     );
+    // T-1397: each manifest of the bundle carries its own diff, so the approver reads what the
+    // smuggled binding grants, not only the headline pipeline's fields.
+    let fields = binding["fields"]
+        .as_array()
+        .expect("the binding's own diff");
+    assert!(!fields.is_empty(), "{binding}");
+    assert!(
+        fields.iter().any(|field| field["path"]
+            .as_str()
+            .is_some_and(|p| p.starts_with("spec"))),
+        "{fields:?}"
+    );
+    assert!(
+        fields
+            .iter()
+            .all(|field| field.get("from").is_none() || field["from"].is_null()),
+        "a created file has nothing to change from: {fields:?}"
+    );
 }
 
 /// T-1224, CC-19, CC-63, UI-23: the lane a reviewer is shown is the lane the approval enforces.

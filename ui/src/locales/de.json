@@ -103,6 +103,7 @@
     "summary": "Zusammenfassung",
     "field": "Feld",
     "diffType": "Änderungstyp",
+    "diffForFile": "Änderungen in {path}",
     "actions": "Aktionen",
     "view": "Anzeigen",
     "ownAsAdministrator": "Sie haben diese Änderung verfasst; Sie genehmigen sie als Administrator von {kind}.",

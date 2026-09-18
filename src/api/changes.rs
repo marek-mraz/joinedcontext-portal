@@ -81,6 +81,10 @@ pub struct ChangeFile {
     pub operation: Operation,
     /// The lane this file alone would take.
     pub lane: Lane,
+    /// This manifest's own field-level diff, base against head and redacted (T-1397); absent for
+    /// a native file, which carries no manifest to diff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fields: Option<Vec<FieldChange>>,
 }
 
 /// Collection envelope for change proposals.
@@ -927,17 +931,37 @@ fn administers(
 async fn changed_files(gitea: &GiteaClient, pr: &PullRequest) -> Result<Vec<ChangeFile>, ApiError> {
     let mut listed = Vec::new();
     for file in gitea.pull_request_files(pr.number).await? {
-        let git_ref = if file.deleted {
-            &pr.base_branch
-        } else {
-            &pr.head_branch
+        let read = |git_ref: &str| {
+            let path = file.path.clone();
+            let git_ref = git_ref.to_owned();
+            async move {
+                gitea
+                    .get_file(&path, &git_ref)
+                    .await
+                    .map(|found| found.map(|found| found.content))
+            }
         };
-        let content = gitea
-            .get_file(&file.path, git_ref)
-            .await?
-            .map(|found| found.content)
-            .unwrap_or_default();
-        let envelope = serde_yaml_ng::from_str::<ResourceEnvelope>(&content).ok();
+        // Both sides of the file, so each manifest of a bundle carries its own diff (T-1397).
+        let head = if file.deleted {
+            None
+        } else {
+            read(&pr.head_branch).await?
+        };
+        let base = if file.added {
+            None
+        } else {
+            read(&pr.base_branch).await?
+        };
+        let parse = |content: &Option<String>| {
+            content
+                .as_deref()
+                .and_then(|content| serde_yaml_ng::from_str::<ResourceEnvelope>(content).ok())
+        };
+        let (head_envelope, base_envelope) = (parse(&head), parse(&base));
+        let fields = (head_envelope.is_some() || base_envelope.is_some())
+            .then(|| redact(plan::diff(base_envelope.as_ref(), head_envelope.as_ref()).fields));
+        // What the file is, as the side the merge request leaves: head, or base for a delete.
+        let envelope = head_envelope.or(base_envelope);
         let kind = envelope
             .as_ref()
             .map(|envelope| envelope.kind.clone())
@@ -963,6 +987,7 @@ async fn changed_files(gitea: &GiteaClient, pr: &PullRequest) -> Result<Vec<Chan
             kind,
             operation,
             lane,
+            fields,
         });
     }
     Ok(listed)
