@@ -2018,6 +2018,12 @@ mod tests {
     ("DELETE", "/projects/{project}", "jc_project_delete"),
     ("GET", "/projects/{project}/activity", "jc_activity_list"),
     ("GET", "/projects/{project}/activity/stream", "a live stream, not a call and an answer"),
+    // Drift is read and resolved on the page, not through the assistant (CC-21, UI-26): a
+    // resolution is a write to the live space or to the repository, and a model proposing one
+    // would be acting on a comparison it cannot see. Both are held to `propose` on `Entity`.
+    ("GET", "/projects/{project}/drift", "read on the page; a scan result is not an operation"),
+    ("POST", "/projects/{project}/drift/{space}/{id}/revert", "a resolution a person picks, held to propose on Entity"),
+    ("POST", "/projects/{project}/drift/{space}/{id}/adopt", "a resolution a person picks, held to propose on Entity"),
     ("GET", "/projects/{project}/agent-runs", "jc_run_list"),
     ("POST", "/projects/{project}/agent-runs", "jc_run_create"),
     ("GET", "/projects/{project}/agent-runs/{id}", "jc_run_get"),

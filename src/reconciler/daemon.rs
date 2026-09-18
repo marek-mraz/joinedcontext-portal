@@ -99,6 +99,8 @@ pub struct Syncer {
     /// `None` when no gateway address is configured: a `Subscription` is then read from the
     /// repository and written into no broker (T-0931, CC-72).
     registrations: Option<Arc<super::registrations::RegistrationSync>>,
+    /// The seed-entity drift scan and what its last run found (CC-21, UI-25, UI-26).
+    drift: Option<(Arc<super::drift::Watch>, Arc<super::drift::Store>)>,
     subscriptions: Option<Arc<super::subscriptions::SubscriptionSync>>,
     /// `None` when no Keycloak admin client is configured: the `Group` manifests are then read
     /// and served, and the realm is written by nobody (PF-63).
@@ -135,6 +137,7 @@ impl Syncer {
             converger: None,
             streams: None,
             registrations: None,
+            drift: None,
             subscriptions: None,
             groups: None,
             activity: None,
@@ -218,6 +221,17 @@ impl Syncer {
         subscriptions: Arc<super::subscriptions::SubscriptionSync>,
     ) -> Self {
         self.subscriptions = Some(subscriptions);
+        self
+    }
+
+    /// Makes each run compare the seed entities the repository declares against what the
+    /// spaces hold, and keep the answer where the API reads it (CC-21).
+    pub fn with_drift(
+        mut self,
+        watch: Arc<super::drift::Watch>,
+        store: Arc<super::drift::Store>,
+    ) -> Self {
+        self.drift = Some((watch, store));
         self
     }
 
@@ -845,6 +859,29 @@ impl Syncer {
         //    in the log; the Portal's own check (PF-50) holds either way.
         if let Err(err) = self.publish_roles(&repository, &default_branch).await {
             tracing::warn!(error = %err, "roles were not compiled into the repository");
+        }
+
+        // 8. Drift (CC-21): configuration cannot drift, because every component reads it from
+        //    the repository (CC-72, T-0421 option B). What can is a space's seed entities, so
+        //    that is what the scan compares — against the space surface every other client
+        //    reads, as this Portal's own service account, so it reports what a person could
+        //    see. Only the leader scans: a follower's answer would be the same read made twice.
+        if leader {
+            if let Some((watch, store)) = self.drift.as_ref() {
+                match watch.scan(scratch.path()).await {
+                    Ok(found) => {
+                        let drifted: usize = found.values().map(|f| f.entities.len()).sum();
+                        store.replace_all(found);
+                        if drifted > 0 {
+                            tracing::info!(drifted, "seed entities differ from what Git declares");
+                        }
+                    }
+                    // A scan that failed keeps the previous answer rather than replacing it
+                    // with an empty one: "nothing drifted" and "nothing was read" are not the
+                    // same thing, and the second must not look like the first on the page.
+                    Err(err) => tracing::warn!(error = %err, "the drift scan did not complete"),
+                }
+            }
         }
 
         Ok((loaded, revision))

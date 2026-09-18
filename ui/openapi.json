@@ -3009,6 +3009,114 @@
         }
       }
     },
+    "/api/v1/projects/{project}/drift": {
+      "get": {
+        "tags": [
+          "drift"
+        ],
+        "operationId": "list_drift",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the last scan found"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/drift/{space}/{id}/adopt": {
+      "post": {
+        "tags": [
+          "drift"
+        ],
+        "operationId": "adopt_drift",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "space",
+            "in": "path",
+            "description": "The Context Space holding the entity",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The entity's URN, percent-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The live entity proposed as the seed file's content"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/drift/{space}/{id}/revert": {
+      "post": {
+        "tags": [
+          "drift"
+        ],
+        "operationId": "revert_drift",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "space",
+            "in": "path",
+            "description": "The Context Space holding the entity",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The entity's URN, percent-encoded",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Git's entity written back into the space"
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/export": {
       "get": {
         "tags": [

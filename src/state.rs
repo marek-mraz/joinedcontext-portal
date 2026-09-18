@@ -55,6 +55,12 @@ pub struct AppState {
     pub activity: crate::activity::ActivityStore,
     /// The live half of the activity stream: the tail a connected browser follows.
     pub activity_events: crate::activity::ActivityHub,
+    /// What the last drift scan found, by project (CC-21). Always present; empty until the
+    /// reconciler has run one, which is a different answer from "nothing drifted".
+    pub drift: Arc<crate::reconciler::drift::Store>,
+    /// The space surface a resolution writes through (UI-26). `None` without a gateway address
+    /// or a realm client: the two buttons answer 503 rather than writing nowhere.
+    pub drift_watch: Option<Arc<crate::reconciler::drift::Watch>>,
     /// Where a workspace Job is written. `None` outside a cluster, exactly like
     /// `app_settings`: a run is then refused rather than scheduled nowhere (AG-33).
     pub kube: Option<Arc<crate::apps::kube::KubeClient>>,
@@ -104,6 +110,8 @@ impl AppState {
             draft_events,
             activity,
             activity_events,
+            drift: Arc::new(crate::reconciler::drift::Store::default()),
+            drift_watch: None,
             kube: None,
             revocations: Arc::new(RwLock::new(HashMap::new())),
             mcp_calls: Arc::new(RwLock::new(HashMap::new())),
@@ -320,6 +328,33 @@ impl AppState {
                 None => tracing::info!(
                     "no broker address: ContextSourceRegistration manifests are read, no hub is \
                      federated"
+                ),
+            }
+            // Drift (CC-21, UI-25, UI-26): the seed entities a space declares, against what it
+            // holds. Configuration cannot drift under T-0421's option B — every component reads
+            // it from the repository — so this is the whole of what drift means here. Without
+            // the space surface or the realm client there is nothing to compare against, and
+            // the API answers "never scanned" rather than "nothing drifted".
+            match (
+                state.config.gateway_url.clone(),
+                state.config.oidc.as_ref(),
+                state.config.keycloak_admin.clone(),
+            ) {
+                (Some(base), Some(oidc), Some((id, secret))) => {
+                    let watch = Arc::new(crate::reconciler::drift::Watch::new(
+                        base,
+                        oidc.issuer.as_str(),
+                        id,
+                        secret,
+                    ));
+                    // One watch, two readers: the reconciler scans with it and a resolution
+                    // writes through it, so the buttons cannot reach a surface the scan did not.
+                    state.drift_watch = Some(Arc::clone(&watch));
+                    syncer = syncer.with_drift(watch, Arc::clone(&state.drift));
+                }
+                _ => tracing::info!(
+                    "no gateway address or realm client: seed entities are never compared, so \
+                     the drift surface answers that no scan has run"
                 ),
             }
             // The `SyncSource` loop needs the forge and a way out to the origins. Without the

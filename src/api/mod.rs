@@ -9,6 +9,7 @@ pub mod ckan;
 pub mod datamodels;
 pub mod delete;
 pub mod drafts;
+pub mod drift;
 pub mod dry_run;
 pub mod export;
 pub mod federation;
@@ -51,6 +52,7 @@ pub fn router() -> Router<AppState> {
         .merge(datamodels::router())
         .merge(drafts::router())
         .merge(activity::router())
+        .merge(drift::router())
         .merge(export::router())
         .merge(federation::router())
         .merge(forms::router())

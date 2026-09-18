@@ -45,6 +45,11 @@ pub struct Drifted {
     pub resolutions: Vec<&'static str>,
     /// The file that declares it, so a person can read the change they are resolving.
     pub source: String,
+    /// What the file declares, whole. Not served: the list is for reading, and a page that
+    /// needed the entity would be showing the file. Revert writes exactly this and nothing
+    /// more, so the reverting caller never has to re-stage the repository to find it.
+    #[serde(skip)]
+    pub declared: Value,
 }
 
 /// One attribute the two sides disagree about.
@@ -250,6 +255,7 @@ fn drifted(entity: &SeedEntity, live: Option<&Value>) -> Option<Drifted> {
             // Adopting an entity the broker does not hold would propose an empty file.
             resolutions: vec!["revert"],
             source,
+            declared: entity.body.clone(),
         }),
         Action::Update => Some(Drifted {
             space: entity.space.clone(),
@@ -258,6 +264,7 @@ fn drifted(entity: &SeedEntity, live: Option<&Value>) -> Option<Drifted> {
             diff: differences(&entity.body, live),
             resolutions: vec!["revert", "adopt"],
             source,
+            declared: entity.body.clone(),
         }),
     }
 }
