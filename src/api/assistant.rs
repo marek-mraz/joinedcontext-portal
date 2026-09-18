@@ -419,7 +419,7 @@ fn item(
 }
 
 pub async fn get_catalog(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path(project): Path<String>,
     Query(query): Query<CatalogQuery>,
@@ -428,7 +428,10 @@ pub async fn get_catalog(
     if q.is_empty() {
         return Err(ApiError::BadRequest("q must not be empty".into()));
     }
-    if !is_dns1123(&project) {
+    // A search of a project is a read of it (PF-59, R20, T-1401).
+    if !is_dns1123(&project)
+        || !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project()
+    {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
     let scope = match query.scope.as_deref().map(str::trim) {

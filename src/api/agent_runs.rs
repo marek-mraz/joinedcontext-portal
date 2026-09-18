@@ -611,6 +611,11 @@ pub async fn list_runs(
     Path(project): Path<String>,
     Query(query): Query<ListRunsQuery>,
 ) -> Result<Json<RunList>, ApiError> {
+    // The runs of a project the caller may not read are the runs of no project (PF-59, R20,
+    // T-1368), not an empty list that says the project is there.
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project() {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
     let limit = match query.limit {
         Some(n) if n <= 0 => return Err(ApiError::BadRequest("limit must be positive".into())),
         Some(n) => n.min(MAX_LIST_LIMIT),

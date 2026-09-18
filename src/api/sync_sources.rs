@@ -120,10 +120,17 @@ pub struct PauseRequest {
     )
 )]
 pub async fn status(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, name)): Path<(String, String)>,
 ) -> Result<Json<SyncSourceStatus>, ApiError> {
+    // A read (PF-59, T-1361): a caller who may not read the project's sync sources gets the
+    // answer of a source that is not there, before anything about the loop is said.
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read(KIND) {
+        return Err(ApiError::NotFound(format!(
+            "sync source '{name}' not found in project '{project}'"
+        )));
+    }
     let driver = driver(&state)?;
     let (project, name) = named(&state, &project, &name)?;
     let stored = driver.status(&project, &name).await;

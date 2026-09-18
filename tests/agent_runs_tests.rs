@@ -2670,6 +2670,26 @@ async fn caller_without_portal_approver_sees_only_own_runs_while_approver_sees_b
     assert!(items_mine.iter().any(|item| item["id"] == approver_run_id));
     assert!(!items_mine.iter().any(|item| item["id"] == viewer_run_id));
 
+    // The viewer reads the project, as someone who has run an agent there does; a caller with
+    // no binding is answered as if the project were not there (PF-59, T-1368).
+    state.mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: "RoleBinding".to_owned(),
+        metadata: ObjectMeta::new("viewer-reads", "org"),
+        spec: json!({
+            "subjects": [{ "user": "viewer.user" }],
+            "role": "viewer",
+            "scope": { "project": PROJECT },
+        }),
+        status: None,
+    });
+    state.mirror.upsert(ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: "Role".to_owned(),
+        metadata: ObjectMeta::new("viewer", "org"),
+        spec: json!({ "rules": [{ "kinds": ["Endpoint"], "verbs": ["read"] }] }),
+        status: None,
+    });
     let (status, list_viewer) = call(
         &app,
         &viewer_cookie,

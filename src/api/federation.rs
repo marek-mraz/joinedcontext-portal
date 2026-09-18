@@ -135,9 +135,13 @@ pub enum EdgeKind {
 )]
 pub async fn get_graph(
     State(state): State<AppState>,
-    _user: CurrentUser,
+    user: CurrentUser,
     Path(project): Path<String>,
 ) -> Result<Json<FederationGraph>, ApiError> {
+    // The topology of a project is a read of it (PF-59, R20, T-1401).
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project() {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
     Ok(Json(graph_of(&state, &project)))
 }
 

@@ -115,9 +115,15 @@ pub struct DataStoreStatus {
 )]
 pub async fn get_status(
     State(state): State<AppState>,
-    _user: CurrentUser,
+    user: CurrentUser,
     Path(project): Path<String>,
 ) -> Result<Json<CkanStatus>, ApiError> {
+    // The publication status is a read of the project's catalogue instances (PF-59, T-1401),
+    // asked the way `jc_ckan_status` asks it; not readable is not there (R20).
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read("CkanInstance")
+    {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
+    }
     let opts = ListOptions::default();
     let instances: Vec<(String, CkanInstanceSpec)> = state
         .mirror
