@@ -18,6 +18,13 @@ pub struct Config {
     /// without an edge in front leaves it off and the header is ignored. Default `false`.
     pub trust_edge_token: bool,
     pub cookie_key: Key,
+    /// Keys a session cookie may still be sealed with, during a rotation (T-0973).
+    ///
+    /// A cookie key is the Portal's alone, so unlike the webhook secret it can change in one
+    /// step — but every signed-in person's cookie is sealed with the old one, and swapping the
+    /// key without a window signs everybody out. The active key seals; these only open, and a
+    /// key stays here for as long as a session sealed with it may live.
+    pub cookie_keys_previous: Vec<Key>,
     pub sync_interval: Duration,
     pub gitea_webhook_secret: Option<String>,
     /// The secret this Portal accepted before the current one, during a rotation (T-0982).
@@ -104,6 +111,10 @@ impl std::fmt::Debug for Config {
             .field("oidc", &self.oidc)
             .field("trust_edge_token", &self.trust_edge_token)
             .field("cookie_key", &"[redacted]")
+            .field(
+                "cookie_keys_previous",
+                &format_args!("[{} redacted]", self.cookie_keys_previous.len()),
+            )
             .field("sync_interval", &self.sync_interval)
             .field(
                 "gitea_webhook_secret",
@@ -609,6 +620,26 @@ impl Config {
             }
         };
 
+        // The keys a rotation is still letting in. Several, comma-separated, because a second
+        // rotation can start before the first one's sessions have all expired; each is held to
+        // the same length as the active one, since a short key here would be the way in.
+        let cookie_keys_previous = match lookup("JC_PORTAL_COOKIE_KEY_PREVIOUS") {
+            Some(material) => {
+                let mut keys = Vec::new();
+                for part in material.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                    if part.len() < Self::MIN_COOKIE_KEY_LEN {
+                        return Err(ConfigError::Invalid {
+                            var: "JC_PORTAL_COOKIE_KEY_PREVIOUS",
+                            reason: format!("at least {} bytes required", Self::MIN_COOKIE_KEY_LEN),
+                        });
+                    }
+                    keys.push(Key::from(part.as_bytes()));
+                }
+                keys
+            }
+            None => Vec::new(),
+        };
+
         let sync_interval_secs = match lookup("JC_PORTAL_SYNC_INTERVAL") {
             Some(val) => val.parse::<u64>().map_err(|e| ConfigError::Invalid {
                 var: "JC_PORTAL_SYNC_INTERVAL",
@@ -783,6 +814,7 @@ impl Config {
             oidc,
             trust_edge_token,
             cookie_key,
+            cookie_keys_previous,
             sync_interval,
             gitea_webhook_secret,
             gitea_webhook_secret_previous,
@@ -816,6 +848,7 @@ impl Config {
             artifact_store: None,
             pipeline_secrets: None,
             cookie_key: Key::generate(),
+            cookie_keys_previous: Vec::new(),
             sync_interval: Duration::ZERO,
             gitea_webhook_secret: None,
             gitea_webhook_secret_previous: None,

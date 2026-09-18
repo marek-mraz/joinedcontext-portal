@@ -173,6 +173,21 @@ pub fn store(jar: PrivateCookieJar, session: &Session) -> Result<PrivateCookieJa
     })
 }
 
+/// Reads the session from the headers, with the active key or any key a rotation still lets in
+/// (T-0973).
+///
+/// The active key is tried first, so the ordinary request costs one open. A key is only ever
+/// removed from `cookie_keys_previous` when no session sealed with it can still be valid; until
+/// then a person who signed in before the rotation stays signed in.
+pub fn load_from(
+    headers: &axum::http::HeaderMap,
+    config: &crate::config::Config,
+) -> Option<Session> {
+    std::iter::once(&config.cookie_key)
+        .chain(config.cookie_keys_previous.iter())
+        .find_map(|key| load(&PrivateCookieJar::from_headers(headers, key.clone())))
+}
+
 /// Reads the session, ignoring an expired or unparseable one. The access token may already be
 /// past its time: that is for the refresh middleware and `CurrentUser` to decide.
 pub fn load(jar: &PrivateCookieJar) -> Option<Session> {
@@ -247,11 +262,7 @@ impl FromRequestParts<AppState> for CurrentUser {
         // cookie on this request still carries the one before it.
         let session = match parts.extensions.get::<Session>() {
             Some(refreshed) => refreshed.clone(),
-            None => {
-                let jar =
-                    PrivateCookieJar::from_headers(&parts.headers, state.config.cookie_key.clone());
-                load(&jar).ok_or(ApiError::Unauthorized)?
-            }
+            None => load_from(&parts.headers, &state.config).ok_or(ApiError::Unauthorized)?,
         };
         if session.access_expired(now_unix()) || state.is_revoked(&session) {
             return Err(ApiError::Unauthorized);
@@ -301,6 +312,40 @@ mod tests {
             );
         }
         headers
+    }
+
+    /// T-0973: a cookie key can only be replaced if the keys it replaces still open what they
+    /// sealed. Otherwise a rotation signs everybody out, which is why it never happens.
+    #[test]
+    fn a_session_sealed_with_a_retiring_key_is_read_until_that_key_is_dropped() {
+        let retiring = Key::generate();
+        let headers = replay_cookies(
+            store(PrivateCookieJar::new(retiring.clone()), &sample(600)).expect("store"),
+        );
+
+        let mut rotating = crate::config::Config::for_tests();
+        rotating.cookie_key = Key::generate();
+        rotating.cookie_keys_previous = vec![retiring.clone()];
+        let restored = load_from(&headers, &rotating).expect("the retiring key still opens it");
+        assert_eq!(restored.identity.username, "demo.steward");
+
+        // The active key alone reads the sessions it sealed itself and no others.
+        let mut finished = crate::config::Config::for_tests();
+        finished.cookie_key = rotating.cookie_key.clone();
+        assert!(
+            load_from(&headers, &finished).is_none(),
+            "a key nobody accepts any more opens nothing"
+        );
+
+        // And the active key is what a new session is sealed with, so the browser moves over.
+        let fresh = replay_cookies(
+            store(
+                PrivateCookieJar::new(rotating.cookie_key.clone()),
+                &sample(600),
+            )
+            .expect("store"),
+        );
+        assert!(load_from(&fresh, &finished).is_some());
     }
 
     #[test]
