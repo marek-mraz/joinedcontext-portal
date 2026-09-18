@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 mod common;
-use common::CheckFirst;
+use common::{mirror_holding, CheckFirst};
 
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
@@ -718,7 +718,11 @@ async fn lane_classification_public_endpoint_red_and_sandbox_space_green() {
         .await;
 
     let config = Config::for_tests();
-    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    // The space this manifest names is in the project, as it has to be: a manifest naming a
+    // resource that is not there is refused by the check (MF-13, T-2233).
+    let state = AppState::new(config.clone(), None)
+        .with_gitea(Arc::new(client))
+        .with_mirror(mirror_holding("ovzdusie", &[("ContextSpace", "mobility")]));
     let app = server::app(state);
 
     // 1. Public Endpoint -> Red Lane
@@ -1343,7 +1347,14 @@ async fn a_subscription_is_proposed_into_the_space_it_watches() {
         .await;
 
     let config = Config::for_tests();
-    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    // The space this manifest names is in the project, as it has to be: a manifest naming a
+    // resource that is not there is refused by the check (MF-13, T-2233).
+    let state = AppState::new(config.clone(), None)
+        .with_gitea(Arc::new(client))
+        .with_mirror(mirror_holding(
+            "ovzdusie",
+            &[("ContextSpace", "air-quality")],
+        ));
     let app = server::app(state);
 
     let payload = json!({
@@ -1587,7 +1598,11 @@ async fn a_proposal_commits_the_files_its_manifest_names() {
         .await;
 
     let config = Config::for_tests();
-    let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
+    // The space this manifest names is in the project, as it has to be: a manifest naming a
+    // resource that is not there is refused by the check (MF-13, T-2233).
+    let state = AppState::new(config.clone(), None)
+        .with_gitea(Arc::new(client))
+        .with_mirror(mirror_holding("ovzdusie", &[("ContextSpace", "mobility")]));
     let app = server::app(state);
 
     let response = app

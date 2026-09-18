@@ -768,6 +768,12 @@ async fn propose_engine(
         )?;
     }
 
+    // Every resource this manifest names has to be there, so a person meets a missing name in the
+    // form they typed it into and not in the reconciler's log (MF-13, T-2233).
+    if operation != Operation::Delete {
+        crate::references::check(&state.mirror, project, kind_info.kind, &envelope.spec)?;
+    }
+
     // 5. Diff against current mirror state
     let current = state
         .mirror

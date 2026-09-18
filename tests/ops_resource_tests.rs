@@ -343,6 +343,11 @@ async fn an_endpoint_a_pipeline_a_policy_and_a_role_binding_are_proposed_at_thei
     ));
     let mut changed = endpoint();
     changed["spec"]["enabledRepresentations"] = json!(["ngsi-ld", "geojson", "csv"]);
+    // The space the endpoint serves is in the project, as it has to be: a manifest naming a
+    // resource that is not there is refused by the check (MF-13, T-2233).
+    state
+        .mirror
+        .upsert(envelope("ContextSpace", "ovzdusie", "ovzdusie", json!({})));
     // A binding names a role and a group the organization has (PF-52, PF-62).
     state.mirror.upsert(envelope(
         "Role",

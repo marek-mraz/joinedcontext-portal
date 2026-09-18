@@ -23,6 +23,7 @@ use joinedcontext_portal::git::GiteaClient;
 use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
+use joinedcontext_portal::store::Mirror;
 
 pub const CSRF: &str = "test-csrf-token-permissions";
 
@@ -162,6 +163,29 @@ pub async fn checked_send(
         }
     }
     send(state, identity, http, uri, body).await
+}
+
+/// A mirror holding the resources a manifest under test points at (MF-13, T-2233).
+///
+/// The dry run of every door refuses a manifest naming a resource that is not there, so a test
+/// proposing one has to say what exists — the same thing the person's project says. Each pair is
+/// `(kind, name)`, all in `namespace`.
+pub fn mirror_holding(namespace: &str, resources: &[(&str, &str)]) -> Arc<Mirror> {
+    let mirror = Mirror::new();
+    for (kind, name) in resources {
+        mirror.upsert(joinedcontext_portal::resource::ResourceEnvelope {
+            api_version: joinedcontext_portal::resource::API_VERSION.to_owned(),
+            kind: (*kind).to_owned(),
+            metadata: joinedcontext_portal::resource::ObjectMeta {
+                name: (*name).to_owned(),
+                namespace: Some(namespace.to_owned()),
+                ..Default::default()
+            },
+            spec: serde_json::json!({}),
+            status: None,
+        });
+    }
+    Arc::new(mirror)
 }
 
 /// The Portal's state against the mock forge `gitea`, with an empty mirror.
