@@ -164,6 +164,22 @@ async fn a_publisher_gets_the_manifests_the_slug_and_the_lane_and_nothing_is_wri
         body["prefill"]["hiddenAttributes"],
         json!(["maintenanceNote"])
     );
+    // T-1221: the manifest carries a language map and the form's `title` is one string. The
+    // draft used to hand the map over, and the page that reads a draft's title as text crashed
+    // the whole Portal to its error boundary — on camera, during the share take.
+    assert!(
+        body["endpoint"]["metadata"]["title"].is_object(),
+        "the manifest keeps the language map"
+    );
+    assert!(
+        body["prefill"]["title"].is_string(),
+        "the form's title is text, not a map: {}",
+        body["prefill"]["title"]
+    );
+    assert_eq!(
+        body["prefill"]["title"],
+        "City bikes for the regional transport team"
+    );
     assert!(
         body.get("mergeRequest").is_none() && body.get("status").is_none(),
         "no Change exists: {body}"

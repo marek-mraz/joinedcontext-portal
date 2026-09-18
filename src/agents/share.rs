@@ -280,7 +280,11 @@ pub fn render(
         "entityTypes": params.entity_types,
     });
     if let Some(title) = endpoint["metadata"].get("title") {
-        prefill["title"] = title.clone();
+        // Flattened, the same way `form_values` does it below (T-1221): a manifest carries the
+        // title as a language map and the form's `title` is one string. Handing the map over
+        // crashed the whole Portal to its error boundary — `s?.trim is not a function`, on
+        // camera during the share take — because the page reads the draft's title as text.
+        prefill["title"] = json!(plain_title(title));
     }
     if let Some(limits) = &params.rate_limits {
         prefill["rateLimits"] = serde_json::to_value(limits).unwrap_or(Value::Null);
