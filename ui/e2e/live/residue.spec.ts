@@ -17,15 +17,22 @@ import { APPROVER, STEWARD, approve, listedNames, signIn } from "./portal";
 const PROJECT = "helsinki";
 /** A take's suffix is the HH:MM it started at; an act with a fixed name is listed by it. */
 const TAKE = /-\d{4}$/;
+/**
+ * A live journey names what it creates after its own task, so its leftovers are recognisable:
+ * `t1585-…`, `t1588-…`, `t1589r-…`. A journey that approves a change cannot simply DELETE what it
+ * made — a removal is a Red change that needs an approval too — so anything a journey abandons is
+ * swept here (T-1592, and the six spaces this rule found on dev on 2026-09-18).
+ */
+const JOURNEY = /^t1[0-9]{3}[a-z]?-/;
 const SWEEP: { plural: string; residue: (name: string) => boolean }[] = [
-  { plural: "endpoints", residue: (name) => /^bikes-regional-[a-z0-9]+$/.test(name) },
-  { plural: "pipelines", residue: (name) => TAKE.test(name) },
-  { plural: "datasources", residue: (name) => TAKE.test(name) },
-  { plural: "dashboards", residue: (name) => TAKE.test(name) || name === "city-bikes" || name === "city-bike-stations" },
-  { plural: "apps", residue: (name) => TAKE.test(name) || name === "large-map-city" },
+  { plural: "endpoints", residue: (name) => JOURNEY.test(name) || /^bikes-regional-[a-z0-9]+$/.test(name) },
+  { plural: "pipelines", residue: (name) => JOURNEY.test(name) || TAKE.test(name) },
+  { plural: "datasources", residue: (name) => JOURNEY.test(name) || TAKE.test(name) },
+  { plural: "dashboards", residue: (name) => JOURNEY.test(name) || TAKE.test(name) || name === "city-bikes" || name === "city-bike-stations" },
+  { plural: "apps", residue: (name) => JOURNEY.test(name) || TAKE.test(name) || name === "large-map-city" },
   // A space references its model (dataModelRef), so the space goes first.
-  { plural: "spaces", residue: (name) => /^citybikes-\d{4}$/.test(name) || name === "city-bikes" || name === "city-bike-stations" },
-  { plural: "datamodels", residue: (name) => /^citybikes-\d{4}$/.test(name) },
+  { plural: "spaces", residue: (name) => /^citybikes-\d{4}$/.test(name) || JOURNEY.test(name) || name === "city-bikes" || name === "city-bike-stations" },
+  { plural: "datamodels", residue: (name) => /^citybikes-\d{4}$/.test(name) || JOURNEY.test(name) },
 ];
 
 test.setTimeout(3_600_000);
@@ -57,7 +64,8 @@ async function listedCopies(page: Page): Promise<{ name: string; expiresAt: stri
 function copyResidue(copy: { name: string; expiresAt: string }): boolean {
   return (
     TAKE.test(copy.name) ||
-    /^(e2e|t1[0-9]{3}|journey)-/.test(copy.name) ||
+    JOURNEY.test(copy.name) ||
+    /^(e2e|journey)-/.test(copy.name) ||
     Date.parse(copy.expiresAt) < Date.now()
   );
 }

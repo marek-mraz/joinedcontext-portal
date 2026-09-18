@@ -20,7 +20,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { APPROVER, STEWARD, VIEWER, ask, csrf, proposedChange, signIn } from "./portal";
+import { APPROVER, STEWARD, VIEWER, ask, csrf, proposedChange, removeCompletely, signIn } from "./portal";
 
 const PROJECT = "helsinki";
 
@@ -89,7 +89,9 @@ async function withdraw(page: Page, change: string): Promise<void> {
 test("an administrator of the kind approves their own change, and the space is created", async ({
   browser,
 }) => {
-  const { context, page } = await signIn(browser, STEWARD, `/projects/${PROJECT}/spaces?lang=en`);
+  const steward = await signIn(browser, STEWARD, `/projects/${PROJECT}/spaces?lang=en`);
+  const approver = await signIn(browser, APPROVER, `/projects/${PROJECT}/approvals?lang=en`);
+  const { context, page } = steward;
   const name = `t1585-${Date.now().toString(36)}`;
   let change = "";
   try {
@@ -123,14 +125,12 @@ test("an administrator of the kind approves their own change, and the space is c
     if (change) {
       await withdraw(page, change);
     } else {
-      // Remove what the journey created, so dev keeps only what it had.
-      const token = await csrf(context);
-      await page.request.delete(`/api/v1/projects/${PROJECT}/spaces/${name}`, {
-        headers: { "x-csrf-token": token },
-        data: { confirm: name },
-      });
+      // The space the approval created goes with it — and a removal is a Red change of its own, so
+      // it is approved too. A bare DELETE would leave the space standing and the change open.
+      await removeCompletely(steward, approver.page, PROJECT, "spaces", name);
     }
     await context.close();
+    await approver.context.close();
   }
 });
 

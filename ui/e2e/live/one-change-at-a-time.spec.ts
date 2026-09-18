@@ -16,7 +16,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { APPROVER, STEWARD, approve, csrf, proposedChange, signIn } from "./portal";
+import { APPROVER, STEWARD, approve, proposedChange, removeCompletely, signIn } from "./portal";
 
 const PROJECT = "helsinki";
 
@@ -53,7 +53,6 @@ test("a second change on the same resource is refused by the name of the first, 
 }) => {
   const steward = await signIn(browser, STEWARD, `/projects/${PROJECT}/spaces?lang=en`);
   const approver = await signIn(browser, APPROVER, `/projects/${PROJECT}/approvals?lang=en`);
-  const token = await csrf(steward.context);
   const name = `t1588-${Date.now().toString(36)}`;
   let first = "";
   let second = "";
@@ -107,13 +106,9 @@ test("a second change on the same resource is refused by the name of the first, 
       }
       await dialog.getByRole("button", { name: /^(Reject|Confirm)/ }).click();
     }
-    // The space the approved change created goes with it.
-    await steward.page.request
-      .delete(`/api/v1/projects/${PROJECT}/spaces/${name}`, {
-        headers: { "x-csrf-token": token },
-        data: { confirm: name },
-      })
-      .catch(() => undefined);
+    // The space the approved change created goes with it, removal approved as well: a bare DELETE
+    // leaves the space standing and its removal open (T-1592).
+    await removeCompletely(steward, approver.page, PROJECT, "spaces", name).catch(() => undefined);
     await steward.context.close();
     await approver.context.close();
   }

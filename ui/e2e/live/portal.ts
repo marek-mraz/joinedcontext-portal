@@ -132,3 +132,34 @@ export async function csrf(context: BrowserContext): Promise<string> {
   }
   return cookie.value;
 }
+
+/**
+ * Removes a resource a journey created, all the way: the removal is itself a Red change, so it is
+ * proposed by its owner and approved by the approver with the name typed back (CC-19). A journey
+ * that only sent the DELETE left the resource standing and the change open — which is how six
+ * spaces were found on dev on 2026-09-18 (T-1592).
+ */
+export async function removeCompletely(
+  owner: { context: BrowserContext; page: Page },
+  approver: Page,
+  project: string,
+  plural: string,
+  name: string,
+): Promise<void> {
+  const token = await csrf(owner.context);
+  const answer = await owner.page.request.delete(`/api/v1/projects/${project}/${plural}/${name}`, {
+    headers: { "x-csrf-token": token },
+    data: { confirm: name },
+  });
+  if (answer.status() === 404) {
+    return;
+  }
+  if (answer.status() !== 202) {
+    throw new Error(`removal of ${plural}/${name} was refused: ${await answer.text()}`);
+  }
+  const change = ((await answer.json()) as { metadata?: { name?: string } }).metadata?.name ?? "";
+  if (!change) {
+    throw new Error(`the removal of ${plural}/${name} named no change`);
+  }
+  await approve(approver, project, change, name);
+}
