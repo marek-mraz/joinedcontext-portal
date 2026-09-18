@@ -73,7 +73,65 @@ const OWNED_SPEC = [
   "allowFeedback",
   "secretRefs",
   "quotas",
+  "sources",
+  "steps",
+  "outputs",
 ];
+
+/** The version a Pipeline is written at whenever it has a source (PL-54, ADR-N-023). */
+const SECOND_VERSION = "joinedcontext.com/v1alpha2";
+
+type Spec = Record<string, unknown>;
+
+const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+const isComputeStep = (step: unknown): boolean =>
+  typeof step === "object" && step !== null && "kind" in step && !("processor" in step);
+
+/**
+ * The form's one source, compute and output written as `sources`, `steps` and `outputs`
+ * (PL-54). The form shows the first of each; what else the edited manifest holds (a second
+ * source, a processor step, a second output) is kept where it was.
+ */
+function secondShape(spec: Spec, base: Spec): Spec {
+  const { source, compute, targetEndpoint, output, ...others } = spec;
+  const baseSteps = listOf(base.steps);
+  const at = baseSteps.findIndex(isComputeStep);
+  const steps =
+    compute === undefined
+      ? baseSteps.filter((_, index) => index !== at)
+      : at >= 0
+        ? baseSteps.map((step, index) => (index === at ? compute : step))
+        : [compute, ...baseSteps];
+  return prune({
+    ...others,
+    sources: [source, ...listOf(base.sources).slice(1)],
+    steps: steps.length > 0 ? steps : undefined,
+    outputs: [
+      { targetEndpoint, ...((output as Spec | undefined) ?? {}) },
+      ...listOf(base.outputs).slice(1),
+    ],
+  }) as Spec;
+}
+
+/**
+ * The spec in the first shape the form edits (PL-54): `v1alpha2`'s first source, first compute
+ * step and first output, so the form reads a manifest written in either version.
+ */
+export function firstShape(spec: Spec): Spec {
+  if (!("sources" in spec || "steps" in spec || "outputs" in spec)) {
+    return spec;
+  }
+  const { sources, steps, outputs, ...others } = spec;
+  const [output] = listOf(outputs) as Spec[];
+  const { targetEndpoint, ...written } = output ?? {};
+  return prune({
+    ...others,
+    source: listOf(sources)[0],
+    compute: listOf(steps).find(isComputeStep),
+    targetEndpoint,
+    output: Object.keys(written).length > 0 ? written : undefined,
+  }) as Spec;
+}
 
 /**
  * The manifest a form produces (PL-04, PL-31, PL-33, PL-39). `base` is the manifest being
@@ -102,17 +160,19 @@ export function toEnvelope(project: string, form: PipelineForm, base?: Manifest)
     secretRefs,
     quotas,
   }) as Record<string, unknown>;
+  // A pipeline whose input lives in bento.yaml has no source and stays at v1alpha1.
+  const second = Boolean(spec.source && spec.targetEndpoint);
   const next: Manifest = {
-    apiVersion: "joinedcontext.com/v1alpha1",
+    apiVersion: second ? SECOND_VERSION : "joinedcontext.com/v1alpha1",
     kind: "Pipeline",
     metadata: {
       name: name ?? "",
       namespace: project,
       ...(title?.trim() ? { title } : {}),
     },
-    spec,
+    spec: second ? secondShape(spec, (base?.spec ?? {}) as Spec) : spec,
   };
-  return overlay(base, next, OWNED_SPEC);
+  return { ...overlay(base, next, OWNED_SPEC), apiVersion: next.apiVersion };
 }
 
 /** The form one manifest fills, so editing starts from what is in Git rather than from blank. */
@@ -124,7 +184,7 @@ export function completeOutput(form: PipelineForm | undefined): PipelineForm | u
 }
 
 export function toForm(pipeline: Manifest): PipelineForm {
-  const spec = pipeline.spec as Omit<PipelineForm, "name" | "title" | "source" | "compute"> & {
+  const spec = firstShape(pipeline.spec as Spec) as Omit<PipelineForm, "name" | "title" | "source" | "compute"> & {
     source?: Record<string, unknown>;
     compute?: Record<string, unknown>;
     enabled?: boolean;

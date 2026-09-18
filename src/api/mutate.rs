@@ -458,6 +458,10 @@ async fn propose_engine(
     // 0. The files a manifest names but cannot contain (a Mapping's golden examples, DM-39),
     // taken out of the body the way `draft` is, before anything reads it as an envelope.
     let sidecar_files = body_val.as_object_mut().and_then(|map| map.remove("files"));
+    // A Pipeline is written at v1alpha2 whoever writes it: the UI, an agent or MCP (PL-54).
+    if operation != Operation::Delete {
+        pipeline_second_shape(&mut body_val);
+    }
 
     // 1. Resolve plural catalogue entry
     let kind_info = resource::by_plural(plural).ok_or_else(|| {
@@ -470,7 +474,7 @@ async fn propose_engine(
     let mut envelope: ResourceEnvelope = serde_json::from_value(body_val.clone())
         .map_err(|e| ApiError::BadRequest(format!("invalid resource envelope: {e}")))?;
 
-    if envelope.api_version != resource::API_VERSION {
+    if !jc_core::serves(&envelope.kind, &envelope.api_version) {
         return Err(ApiError::BadRequest(format!(
             "apiVersion '{}' is not supported (expected '{}')",
             envelope.api_version,
@@ -1133,6 +1137,44 @@ pub async fn patch(
     .await
 }
 
+/// A Pipeline sent in the first shape, rewritten as the second (PL-54, ADR-N-023):
+/// `source` → `sources: [source]`, `compute` → `steps: [compute]`, `targetEndpoint` with its
+/// `output` → `outputs: [{ targetEndpoint, type, mode }]`, and `apiVersion` v1alpha2. Anything
+/// already in the second shape, mixed, or with no `source` (its input lives in `bento.yaml`,
+/// which v1alpha2 has no place for) is left as it came, for validation to judge.
+pub(crate) fn pipeline_second_shape(body: &mut Value) {
+    if body.get("kind").and_then(Value::as_str) != Some("Pipeline") {
+        return;
+    }
+    let Some(spec) = body.get_mut("spec").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let second = ["sources", "steps", "outputs"]
+        .iter()
+        .any(|key| spec.contains_key(*key));
+    if second || !spec.contains_key("source") || !spec.contains_key("targetEndpoint") {
+        return;
+    }
+    if let Some(source) = spec.remove("source") {
+        spec.insert("sources".to_owned(), Value::Array(vec![source]));
+    }
+    if let Some(compute) = spec.remove("compute") {
+        spec.insert("steps".to_owned(), Value::Array(vec![compute]));
+    }
+    let mut output = serde_json::Map::new();
+    if let Some(target) = spec.remove("targetEndpoint") {
+        output.insert("targetEndpoint".to_owned(), target);
+    }
+    if let Some(Value::Object(written)) = spec.remove("output") {
+        output.extend(written);
+    }
+    spec.insert(
+        "outputs".to_owned(),
+        Value::Array(vec![Value::Object(output)]),
+    );
+    body["apiVersion"] = Value::String(jc_core::API_VERSION_V1ALPHA2.to_owned());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1580,5 +1622,114 @@ mod tests {
         assert_eq!(result.plan.fields[0].path, "spec.isSandbox");
         assert_eq!(result.plan.fields[0].from, Some(json!(false)));
         assert_eq!(result.plan.fields[0].to, Some(json!(true)));
+    }
+}
+
+#[cfg(test)]
+mod second_shape_tests {
+    use super::pipeline_second_shape;
+    use serde_json::json;
+
+    fn first() -> serde_json::Value {
+        json!({
+            "apiVersion": "joinedcontext.com/v1alpha1",
+            "kind": "Pipeline",
+            "metadata": { "name": "p", "namespace": "helsinki" },
+            "spec": {
+                "class": "resident",
+                "source": { "dataSourceRef": { "kind": "DataSource", "name": "gbfs" } },
+                "compute": { "kind": "bloblang", "bloblang": "root = this" },
+                "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:ops",
+                "output": { "type": "BikeHireDockingStation", "mode": "upsert" },
+                "secretRefs": [{ "name": "s", "key": "k", "envVar": "V" }]
+            }
+        })
+    }
+
+    #[test]
+    fn a_first_shape_pipeline_is_written_as_the_second() {
+        let mut body = first();
+        pipeline_second_shape(&mut body);
+        assert_eq!(body["apiVersion"], "joinedcontext.com/v1alpha2");
+        let spec = &body["spec"];
+        assert_eq!(spec["sources"][0]["dataSourceRef"]["name"], "gbfs");
+        assert_eq!(spec["steps"][0]["bloblang"], "root = this");
+        assert_eq!(
+            spec["outputs"][0]["targetEndpoint"],
+            "urn:ngsi-ld:Endpoint:hel.fi:helsinki:ops"
+        );
+        assert_eq!(spec["outputs"][0]["type"], "BikeHireDockingStation");
+        assert_eq!(spec["outputs"][0]["mode"], "upsert");
+        for gone in ["source", "compute", "targetEndpoint", "output"] {
+            assert!(spec.get(gone).is_none(), "{gone} is left behind");
+        }
+        assert_eq!(
+            spec["secretRefs"][0]["envVar"], "V",
+            "what is not moved stays"
+        );
+        // The result is a Pipeline jc-core accepts at v1alpha2.
+        let text = serde_json::to_string(&body).expect("json");
+        jc_core::registry::validate_yaml("Pipeline", &text)
+            .expect("a catalogued kind")
+            .expect("valid at v1alpha2");
+    }
+
+    #[test]
+    fn a_pipeline_without_compute_or_output_gets_no_steps_and_a_bare_output() {
+        let mut body = first();
+        let spec = body["spec"].as_object_mut().expect("spec");
+        spec.remove("compute");
+        spec.remove("output");
+        pipeline_second_shape(&mut body);
+        assert!(body["spec"].get("steps").is_none());
+        assert_eq!(
+            body["spec"]["outputs"],
+            json!([{ "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:ops" }])
+        );
+    }
+
+    #[test]
+    fn what_is_not_a_first_shape_pipeline_is_left_as_it_came() {
+        // Its input lives in bento.yaml: v1alpha2 has no place for it.
+        let mut no_source = first();
+        no_source["spec"]
+            .as_object_mut()
+            .expect("spec")
+            .remove("source");
+        let before = no_source.clone();
+        pipeline_second_shape(&mut no_source);
+        assert_eq!(no_source, before);
+
+        // Already the second shape, or mixed: validation judges it, not a rewrite.
+        let mut mixed = first();
+        mixed["spec"]["outputs"] = json!([]);
+        let before = mixed.clone();
+        pipeline_second_shape(&mut mixed);
+        assert_eq!(mixed, before);
+
+        let mut other = json!({ "kind": "Endpoint", "apiVersion": "joinedcontext.com/v1alpha1", "spec": { "source": 1, "targetEndpoint": 2 } });
+        let before = other.clone();
+        pipeline_second_shape(&mut other);
+        assert_eq!(other, before);
+
+        let mut no_spec = json!({ "kind": "Pipeline" });
+        pipeline_second_shape(&mut no_spec);
+        assert_eq!(no_spec, json!({ "kind": "Pipeline" }));
+    }
+
+    #[test]
+    fn the_targets_of_either_shape_are_read() {
+        let first = first();
+        assert_eq!(
+            crate::resource::pipeline_targets(&first["spec"]),
+            vec!["urn:ngsi-ld:Endpoint:hel.fi:helsinki:ops"]
+        );
+        let second = json!({ "outputs": [
+            { "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:a" },
+            { "mode": "upsert" },
+            { "targetEndpoint": "urn:ngsi-ld:Endpoint:hel.fi:helsinki:b" }
+        ] });
+        assert_eq!(crate::resource::pipeline_targets(&second).len(), 2);
+        assert!(crate::resource::pipeline_targets(&json!({})).is_empty());
     }
 }

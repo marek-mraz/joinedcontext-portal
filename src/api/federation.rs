@@ -291,7 +291,7 @@ fn entity_types(spec: &Value) -> Vec<String> {
 
 /// The Endpoint a pipeline writes into, read out of its target URN (PL-02).
 fn endpoint_of(spec: &Value) -> Option<String> {
-    let urn = Urn::from_str(spec.get("targetEndpoint")?.as_str()?).ok()?;
+    let urn = Urn::from_str(crate::resource::pipeline_targets(spec).first()?).ok()?;
     Some(urn.local_id().to_owned())
 }
 

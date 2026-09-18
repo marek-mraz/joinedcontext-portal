@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use crate::resource::selector::{FieldSelector, LabelSelector};
-use crate::resource::{ResourceEnvelope, ResourceKey, API_VERSION};
+use crate::resource::{ResourceEnvelope, ResourceKey};
 
 #[derive(Debug, Default)]
 pub struct ListOptions {
@@ -236,7 +236,11 @@ fn visit_dir(dir: &Path, mirror: &Mirror) -> Result<(), MirrorError> {
             if api_version.is_none() || kind.is_none() {
                 continue;
             }
-            if api_version != Some(API_VERSION) {
+            // Every kind at v1alpha1, a Pipeline at v1alpha2 as well (PL-54).
+            if !api_version
+                .zip(kind)
+                .is_some_and(|(v, k)| jc_core::serves(k, v))
+            {
                 continue;
             }
 
@@ -276,7 +280,7 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         ResourceEnvelope {
-            api_version: API_VERSION.to_string(),
+            api_version: crate::resource::API_VERSION.to_string(),
             kind: kind.to_string(),
             metadata: ObjectMeta {
                 name: name.to_string(),

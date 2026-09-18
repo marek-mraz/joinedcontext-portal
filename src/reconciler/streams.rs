@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use jc_core::kinds::data_source::{check_class, DataSourceSpec, DataSourceType};
-use jc_core::kinds::pipeline::{ComputeKind, PipelineSpec};
+use jc_core::kinds::pipeline::{Compute, ComputeKind, PipelineSource, PipelineSpec, Step};
 use jc_core::Condition;
 use jcctl::bento::InputContext;
 use serde_json::Value;
@@ -158,14 +158,13 @@ impl StreamDeployer {
                     }
                 };
 
-                let ds_ref_name = spec
-                    .source
+                let first = spec.sources().into_iter().next();
+                let ds_ref_name = first
                     .as_ref()
                     .and_then(|s| s.data_source_ref.as_ref())
                     .map(|r| r.name().to_string());
 
-                let ep_ref_name = spec
-                    .source
+                let ep_ref_name = first
                     .as_ref()
                     .and_then(|s| s.endpoint_ref.as_ref())
                     .map(|r| r.name().to_string());
@@ -182,7 +181,7 @@ impl StreamDeployer {
                 if !eligible(&spec) {
                     let reason = if !spec.enabled {
                         "pipeline is disabled"
-                    } else if let Some(compute) = &spec.compute {
+                    } else if let Some(compute) = first_compute(&spec) {
                         if compute.kind != ComputeKind::Bloblang {
                             "compute is not bloblang"
                         } else {
@@ -195,40 +194,65 @@ impl StreamDeployer {
                     continue;
                 }
 
-                let target_ep_name = spec
-                    .target_endpoint
-                    .to_string()
-                    .rsplit(':')
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                let ep_env = match mirror.get(&ns, "Endpoint", &target_ep_name) {
-                    Some(e) => e,
-                    None => {
+                // Every output's Endpoint, from the mirror (PL-52, PL-55).
+                let slugs: Result<Vec<String>, String> = spec
+                    .outputs()
+                    .iter()
+                    .map(|output| {
+                        let ep_name = output.target_endpoint.local_id().to_string();
+                        let ep_env = mirror.get(&ns, "Endpoint", &ep_name).ok_or_else(|| {
+                            format!("target endpoint {ep_name} is not in the mirror")
+                        })?;
+                        ep_env
+                            .spec
+                            .get("slug")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .ok_or_else(|| format!("target endpoint {ep_name} has no slug"))
+                    })
+                    .collect();
+                let slugs = match slugs {
+                    Ok(slugs) if !slugs.is_empty() => slugs,
+                    Ok(_) => {
                         outcomes.push((
                             ns.clone(),
                             name,
-                            StreamOutcome::Error(format!(
-                                "target endpoint {target_ep_name} is not in the mirror"
-                            )),
+                            StreamOutcome::Error(
+                                "the pipeline names no target endpoint".to_owned(),
+                            ),
                         ));
+                        continue;
+                    }
+                    Err(reason) => {
+                        outcomes.push((ns.clone(), name, StreamOutcome::Error(reason)));
                         continue;
                     }
                 };
 
-                let target_slug = match ep_env.spec.get("slug").and_then(Value::as_str) {
-                    Some(s) => s.to_string(),
-                    None => {
-                        outcomes.push((
-                            ns.clone(),
-                            name,
-                            StreamOutcome::Error(format!(
-                                "target endpoint {target_ep_name} has no slug"
-                            )),
-                        ));
-                        continue;
+                if is_merged(&spec) {
+                    let resolved: Result<Vec<ResolvedSource>, String> = spec
+                        .sources()
+                        .into_iter()
+                        .map(|source| resolve_source(mirror, &ns, source))
+                        .collect();
+                    let rendered = resolved.and_then(|sources| {
+                        render_merged(&spec, &name, &ns, &sources, &slugs)
+                            .map_err(|err| err.to_string())
+                    });
+                    match rendered {
+                        Ok(stream_json) => {
+                            let outcome = self
+                                .apply(&ns, &name, stream_json, &mut running, &mut current_live)
+                                .await;
+                            outcomes.push((ns.clone(), name, outcome));
+                        }
+                        Err(reason) => {
+                            outcomes.push((ns.clone(), name, StreamOutcome::Error(reason)))
+                        }
                     }
-                };
+                    continue;
+                }
+                let target_slug = slugs[0].clone();
 
                 let stream_json = if let Some(ds_name) = ds_ref_name {
                     let ds_env = match mirror.get(&ns, "DataSource", &ds_name) {
@@ -327,35 +351,9 @@ impl StreamDeployer {
                     unreachable!();
                 };
 
-                let key = (ns.clone(), name.clone());
-                let hash = config_hash(&stream_json);
-                let mut unchanged = self
-                    .rendered
-                    .lock()
-                    .map(|rendered| rendered.get(&key) == Some(&hash))
-                    .unwrap_or(false);
-                // A runner that restarted holds no streams, so an unchanged render it no longer
-                // runs is sent again; a runner that does not answer the list keeps the hash's word.
-                if unchanged {
-                    if running.is_none() {
-                        running = Some(self.running(&ns).await);
-                    }
-                    unchanged = running
-                        .as_ref()
-                        .and_then(Option::as_ref)
-                        .is_none_or(|names| names.contains(&name));
-                }
-                let outcome = if unchanged {
-                    StreamOutcome::Live
-                } else {
-                    self.deploy_stream(&ns, &name, &stream_json).await
-                };
-                if outcome == StreamOutcome::Live {
-                    current_live.insert(key.clone());
-                    if let Ok(mut rendered) = self.rendered.lock() {
-                        rendered.insert(key, hash);
-                    }
-                }
+                let outcome = self
+                    .apply(&ns, &name, stream_json, &mut running, &mut current_live)
+                    .await;
                 outcomes.push((ns.clone(), name, outcome));
             }
         }
@@ -379,6 +377,48 @@ impl StreamDeployer {
         }
 
         outcomes
+    }
+
+    /// Sends one rendered stream to the runner unless it already runs this exact render, and
+    /// records it as live when the runner has it.
+    async fn apply(
+        &self,
+        ns: &str,
+        name: &str,
+        stream_json: Value,
+        running: &mut Option<Option<HashSet<String>>>,
+        current_live: &mut HashSet<(String, String)>,
+    ) -> StreamOutcome {
+        let key = (ns.to_owned(), name.to_owned());
+        let hash = config_hash(&stream_json);
+        let mut unchanged = self
+            .rendered
+            .lock()
+            .map(|rendered| rendered.get(&key) == Some(&hash))
+            .unwrap_or(false);
+        // A runner that restarted holds no streams, so an unchanged render it no longer
+        // runs is sent again; a runner that does not answer the list keeps the hash's word.
+        if unchanged {
+            if running.is_none() {
+                *running = Some(self.running(ns).await);
+            }
+            unchanged = running
+                .as_ref()
+                .and_then(Option::as_ref)
+                .is_none_or(|names| names.contains(name));
+        }
+        let outcome = if unchanged {
+            StreamOutcome::Live
+        } else {
+            self.deploy_stream(ns, name, &stream_json).await
+        };
+        if outcome == StreamOutcome::Live {
+            current_live.insert(key.clone());
+            if let Ok(mut rendered) = self.rendered.lock() {
+                rendered.insert(key, hash);
+            }
+        }
+        outcome
     }
 
     /// DELETE {runner}/streams/{name} for pipelines that were deployed last run and are gone or disabled now.
@@ -484,51 +524,9 @@ pub fn render_stream(
     slug: &str,
     bento: Option<&str>,
 ) -> Result<Value, RenderError> {
-    check_class(pipeline, source).map_err(|e| RenderError::Class(e.to_string()))?;
+    let (input, mut processors) = datasource_input(pipeline, name, project, source, source_name)?;
 
-    let context = InputContext {
-        source: source_name,
-        project,
-        pipeline: name,
-        pipeline_spec: Some(pipeline),
-    };
-    let input_yaml = jcctl::bento::input_of(source, &context);
-    let input_json: Value = serde_json::to_value(&input_yaml)?;
-
-    let (input, input_processors) = if matches!(source.source_type, DataSourceType::Http) {
-        let interval = pipeline.period.as_deref().unwrap_or("60s");
-        let http_client = match input_json {
-            Value::Object(mut map) => map
-                .remove("http_client")
-                .unwrap_or_else(|| serde_json::json!({})),
-            _ => serde_json::json!({}),
-        };
-        let p1 = serde_json::json!({
-            "try": [{
-                "http": http_client
-            }]
-        });
-        let p2 = serde_json::json!({
-            "mutation": "root = if errored() { deleted() }"
-        });
-        let inp = serde_json::json!({
-            "generate": {
-                "interval": interval,
-                "mapping": "root = \"\""
-            }
-        });
-        (inp, vec![p1, p2])
-    } else {
-        (input_json, Vec::new())
-    };
-
-    let mut processors = input_processors;
-
-    for p in jcctl::bento::prepended_processors(source) {
-        processors.push(serde_json::to_value(&p)?);
-    }
-
-    match (&pipeline.compute, bento) {
+    match (first_compute(pipeline).as_ref(), bento) {
         (Some(compute), _) => {
             if compute.kind != ComputeKind::Bloblang {
                 return Err(RenderError::MissingCompute);
@@ -543,27 +541,7 @@ pub fn render_stream(
         (None, None) => {}
     }
 
-    processors.push(serde_json::json!({
-        "mapping": "root = if this.type() == \"array\" { this } else { [this] }"
-    }));
-    processors.push(serde_json::json!({
-        "unarchive": {
-            "format": "json_array"
-        }
-    }));
-    // The gateway takes at most 1000 entities per batch operation; a page of 4000 stations
-    // goes out as four requests, not one 400.
-    processors.push(serde_json::json!({
-        "split": {
-            "size": 1000
-        }
-    }));
-
-    processors.push(serde_json::json!({
-        "archive": {
-            "format": "json_array"
-        }
-    }));
+    processors.extend(batching());
 
     let output = gateway_output(slug);
 
@@ -755,7 +733,123 @@ pub fn render_endpoint_stream(
     source_is_public: bool,
     target_slug: &str,
 ) -> Result<Value, RenderError> {
-    let source = pipeline.source.as_ref();
+    let source = pipeline.sources().into_iter().next();
+    let (input, mut processors) = endpoint_input(
+        pipeline,
+        source.as_ref(),
+        stream_key,
+        source_slug,
+        source_is_public,
+    )?;
+
+    let bloblang = first_compute(pipeline)
+        .and_then(|c| c.bloblang)
+        .filter(|b| !b.trim().is_empty())
+        .ok_or(RenderError::MissingCompute)?;
+
+    processors.push(serde_json::json!({
+        "mapping": bloblang
+    }));
+
+    processors.extend(batching());
+
+    let output = gateway_output(target_slug);
+
+    Ok(serde_json::json!({
+        "input": input,
+        "pipeline": {
+            "processors": processors
+        },
+        "output": output
+    }))
+}
+
+/// The first compute step of either shape (PL-54): `v1alpha1`'s `compute`.
+fn first_compute(pipeline: &PipelineSpec) -> Option<Compute> {
+    pipeline.steps().into_iter().find_map(|step| match step {
+        Step::Compute(compute) => Some(compute),
+        Step::Processor(_) => None,
+    })
+}
+
+/// What turns a page into gateway-sized batches: one entity per message, 1000 per request.
+///
+/// The gateway takes at most 1000 entities per batch operation; a page of 4000 stations goes
+/// out as four requests, not one 400.
+fn batching() -> Vec<Value> {
+    vec![
+        serde_json::json!({
+            "mapping": "root = if this.type() == \"array\" { this } else { [this] }"
+        }),
+        serde_json::json!({ "unarchive": { "format": "json_array" } }),
+        serde_json::json!({ "split": { "size": 1000 } }),
+        serde_json::json!({ "archive": { "format": "json_array" } }),
+    ]
+}
+
+/// A DataSource's input and the processors that belong to it (PL-47, PL-50): an `http`
+/// DataSource polls on a `generate` clock through the `http` processor, because Bento's
+/// `http_client` input polls without pause.
+fn datasource_input(
+    pipeline: &PipelineSpec,
+    name: &str,
+    project: &str,
+    source: &DataSourceSpec,
+    source_name: &str,
+) -> Result<(Value, Vec<Value>), RenderError> {
+    check_class(pipeline, source).map_err(|e| RenderError::Class(e.to_string()))?;
+
+    let context = InputContext {
+        source: source_name,
+        project,
+        pipeline: name,
+        pipeline_spec: Some(pipeline),
+    };
+    let input_yaml = jcctl::bento::input_of(source, &context);
+    let input_json: Value = serde_json::to_value(&input_yaml)?;
+
+    let (input, mut processors) = if matches!(source.source_type, DataSourceType::Http) {
+        let interval = pipeline.period.as_deref().unwrap_or("60s");
+        let http_client = match input_json {
+            Value::Object(mut map) => map
+                .remove("http_client")
+                .unwrap_or_else(|| serde_json::json!({})),
+            _ => serde_json::json!({}),
+        };
+        let p1 = serde_json::json!({
+            "try": [{
+                "http": http_client
+            }]
+        });
+        let p2 = serde_json::json!({
+            "mutation": "root = if errored() { deleted() }"
+        });
+        let inp = serde_json::json!({
+            "generate": {
+                "interval": interval,
+                "mapping": "root = \"\""
+            }
+        });
+        (inp, vec![p1, p2])
+    } else {
+        (input_json, Vec::new())
+    };
+
+    for p in jcctl::bento::prepended_processors(source) {
+        processors.push(serde_json::to_value(&p)?);
+    }
+    Ok((input, processors))
+}
+
+/// An Endpoint source's input and processors (PL-31, PL-51): a clock, the read, and with a
+/// subscription trigger the change gate keyed by `stream_key`.
+fn endpoint_input(
+    pipeline: &PipelineSpec,
+    source: Option<&PipelineSource>,
+    stream_key: &str,
+    source_slug: &str,
+    source_is_public: bool,
+) -> Result<(Value, Vec<Value>), RenderError> {
     let query = source
         .and_then(|s| s.query.as_ref())
         .ok_or_else(|| RenderError::Custom("endpoint pipeline missing query".to_string()))?;
@@ -835,46 +929,175 @@ pub fn render_endpoint_stream(
     if trigger.is_some() {
         processors.extend(change_gate(stream_key, &watched));
     }
+    Ok((input, processors))
+}
 
-    let bloblang = pipeline
-        .compute
+/// Looks one source up in the mirror: its DataSource, or its Endpoint's slug and audience.
+fn resolve_source(
+    mirror: &Mirror,
+    ns: &str,
+    source: PipelineSource,
+) -> Result<ResolvedSource, String> {
+    if let Some(reference) = &source.data_source_ref {
+        let ds_name = reference.name().to_owned();
+        let ds_env = mirror
+            .get(ns, "DataSource", &ds_name)
+            .ok_or_else(|| format!("data source {ds_name} is not in the mirror"))?;
+        let spec: DataSourceSpec = serde_json::from_value(ds_env.spec.clone())
+            .map_err(|err| format!("invalid data source spec: {err}"))?;
+        return Ok(ResolvedSource::Data {
+            spec: Box::new(spec),
+            name: ds_name,
+        });
+    }
+    let ep_name = source
+        .endpoint_ref
         .as_ref()
-        .and_then(|c| c.bloblang.as_ref())
-        .filter(|b| !b.trim().is_empty())
-        .ok_or(RenderError::MissingCompute)?;
+        .map(|r| r.name().to_owned())
+        .ok_or_else(|| "a source names neither a DataSource nor an Endpoint".to_owned())?;
+    let ep_env = mirror
+        .get(ns, "Endpoint", &ep_name)
+        .ok_or_else(|| format!("source endpoint {ep_name} is not in the mirror"))?;
+    let slug = ep_env
+        .spec
+        .get("slug")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("source endpoint {ep_name} has no slug"))?
+        .to_owned();
+    let public = ep_env
+        .spec
+        .get("audience")
+        .and_then(Value::as_str)
+        .is_none_or(|audience| audience == "public");
+    Ok(ResolvedSource::Endpoint {
+        source: Box::new(source),
+        slug,
+        public,
+    })
+}
 
-    processors.push(serde_json::json!({
-        "mapping": bloblang
-    }));
+/// One source of a pipeline, resolved from the mirror for [`render_merged`].
+pub enum ResolvedSource {
+    /// A DataSource of the project, by name.
+    Data {
+        /// Its spec.
+        spec: Box<DataSourceSpec>,
+        /// Its name.
+        name: String,
+    },
+    /// An Endpoint read with a query (PL-31).
+    Endpoint {
+        /// The pipeline's source entry, with its query and trigger.
+        source: Box<PipelineSource>,
+        /// The endpoint's slug.
+        slug: String,
+        /// Whether the endpoint serves the public grant (no token sent).
+        public: bool,
+    },
+}
 
-    processors.push(serde_json::json!({
-        "mapping": "root = if this.type() == \"array\" { this } else { [this] }"
-    }));
-    processors.push(serde_json::json!({
-        "unarchive": {
-            "format": "json_array"
-        }
-    }));
-    processors.push(serde_json::json!({
-        "split": {
-            "size": 1000
-        }
-    }));
-    processors.push(serde_json::json!({
-        "archive": {
-            "format": "json_array"
-        }
-    }));
+/// Whether a pipeline needs the general renderer (PL-53): more than one source or output, a
+/// processor step, or more than one step. Everything else renders through [`render_stream`]
+/// or [`render_endpoint_stream`], so a `v1alpha1` pipeline renders the bytes it always did.
+pub fn is_merged(spec: &PipelineSpec) -> bool {
+    let steps = spec.steps();
+    spec.sources().len() > 1
+        || spec.outputs().len() > 1
+        || steps.len() > 1
+        || steps.iter().any(|step| matches!(step, Step::Processor(_)))
+}
 
-    let output = gateway_output(target_slug);
+/// Renders a `v1alpha2` pipeline of several sources, steps or outputs as one stream (PL-53):
+/// a `broker` input over the sources, each with the processors its own input needs; the
+/// steps in order; the batching; one output, or a `broker` output fanning out to every one.
+pub fn render_merged(
+    pipeline: &PipelineSpec,
+    name: &str,
+    project: &str,
+    sources: &[ResolvedSource],
+    target_slugs: &[String],
+) -> Result<Value, RenderError> {
+    let mut inputs = Vec::with_capacity(sources.len());
+    for (at, source) in sources.iter().enumerate() {
+        let (input, processors) = match source {
+            ResolvedSource::Data {
+                spec,
+                name: source_name,
+            } => datasource_input(pipeline, name, project, spec, source_name)?,
+            ResolvedSource::Endpoint {
+                source,
+                slug,
+                public,
+            } => endpoint_input(
+                pipeline,
+                Some(source),
+                &format!("{project}/{name}#{at}"),
+                slug,
+                *public,
+            )?,
+        };
+        inputs.push(with_processors(input, processors));
+    }
+    let input = match inputs.len() {
+        0 => {
+            return Err(RenderError::Custom(
+                "a pipeline reads at least one source".to_owned(),
+            ))
+        }
+        1 => inputs.remove(0),
+        _ => serde_json::json!({ "broker": { "inputs": inputs } }),
+    };
+
+    let mut processors = Vec::new();
+    for step in pipeline.steps() {
+        match step {
+            Step::Processor(step) => processors.push(serde_json::to_value(&step.processor)?),
+            Step::Compute(compute) => {
+                if compute.kind != ComputeKind::Bloblang {
+                    return Err(RenderError::MissingCompute);
+                }
+                if let Some(bloblang) = compute.bloblang.filter(|b| !b.trim().is_empty()) {
+                    processors.push(serde_json::json!({ "mapping": bloblang }));
+                }
+            }
+        }
+    }
+    processors.extend(batching());
+
+    let mut outputs: Vec<Value> = target_slugs
+        .iter()
+        .map(|slug| gateway_output(slug))
+        .collect();
+    let output = match outputs.len() {
+        0 => {
+            return Err(RenderError::Custom(
+                "a pipeline writes through at least one output".to_owned(),
+            ))
+        }
+        1 => outputs.remove(0),
+        _ => serde_json::json!({ "broker": { "pattern": "fan_out", "outputs": outputs } }),
+    };
 
     Ok(serde_json::json!({
-        "input": input,
+        "input": labelled(input, "input"),
         "pipeline": {
             "processors": processors
+                .into_iter()
+                .enumerate()
+                .map(|(at, processor)| labelled(processor, &format!("processor_{at}")))
+                .collect::<Vec<_>>()
         },
-        "output": output
+        "output": labelled(output, "output")
     }))
+}
+
+/// A Bento input with the processors that belong to it alone, as every Bento input carries them.
+fn with_processors(input: Value, processors: Vec<Value>) -> Value {
+    let mut input = input;
+    if let (Some(fields), false) = (input.as_object_mut(), processors.is_empty()) {
+        fields.insert("processors".to_owned(), Value::Array(processors));
+    }
+    input
 }
 
 /// Checks whether a pipeline is eligible for deployment into the runner as a resident stream.
@@ -882,55 +1105,40 @@ pub fn eligible(spec: &PipelineSpec) -> bool {
     if !spec.enabled {
         return false;
     }
-    let has_ds = spec
-        .source
-        .as_ref()
-        .and_then(|s| s.data_source_ref.as_ref())
-        .is_some();
-    if has_ds {
-        return match &spec.compute {
-            None => true,
-            Some(c) => c.kind == ComputeKind::Bloblang,
-        };
+    let steps = spec.steps();
+    // A stream runs Bloblang and runner processors; `mapping`, `wasm` and `container` compute
+    // run elsewhere (PL-33).
+    if !steps.iter().all(|step| match step {
+        Step::Processor(_) => true,
+        Step::Compute(c) => c.kind == ComputeKind::Bloblang,
+    }) {
+        return false;
     }
-    let has_ep = spec
-        .source
-        .as_ref()
-        .and_then(|s| s.endpoint_ref.as_ref())
-        .is_some()
-        && spec
-            .source
-            .as_ref()
-            .and_then(|s| s.query.as_ref())
-            .is_some();
-    if has_ep {
-        return spec.compute.as_ref().is_some_and(|c| {
-            c.kind == ComputeKind::Bloblang
-                && c.bloblang.as_ref().is_some_and(|b| !b.trim().is_empty())
-        });
-    }
-    false
+    let maps = steps.iter().any(|step| match step {
+        Step::Processor(_) => true,
+        Step::Compute(c) => c.bloblang.as_ref().is_some_and(|b| !b.trim().is_empty()),
+    });
+    let sources = spec.sources();
+    !sources.is_empty()
+        && sources.iter().all(|source| {
+            source.data_source_ref.is_some()
+                || (source.endpoint_ref.is_some() && source.query.is_some() && maps)
+        })
 }
 
 /// Returns whether `spec` is configured to read an external DataSource.
 pub fn is_data_source_pipeline(spec: &PipelineSpec) -> bool {
-    spec.source
-        .as_ref()
-        .and_then(|s| s.data_source_ref.as_ref())
-        .is_some()
+    spec.sources()
+        .iter()
+        .any(|source| source.data_source_ref.is_some())
 }
 
 /// Returns whether `spec` is configured as a stream pipeline (DataSource or Endpoint-sourced).
 pub fn is_stream_pipeline(spec: &PipelineSpec) -> bool {
-    if let Some(source) = &spec.source {
-        if source.data_source_ref.is_some() {
-            return true;
-        }
-        if source.endpoint_ref.is_some() && source.query.is_some() {
-            return true;
-        }
-    }
-    false
+    spec.sources().iter().any(|source| {
+        source.data_source_ref.is_some()
+            || (source.endpoint_ref.is_some() && source.query.is_some())
+    })
 }
 
 /// One `StreamDeployed` condition with the runner's word on why.
@@ -1813,5 +2021,228 @@ output:
             labelled(serde_json::json!("plain"), "input"),
             serde_json::json!("plain")
         );
+    }
+    // --- v1alpha2: sources, steps, outputs (PL-52…PL-54, T-1468) ---
+
+    fn second_shape(spec: serde_json::Value) -> PipelineSpec {
+        serde_json::from_value(spec).expect("valid v1alpha2 PipelineSpec")
+    }
+
+    #[test]
+    fn a_second_version_pipeline_of_one_source_step_and_output_renders_the_first_versions_bytes() {
+        let first = helsinki_pipeline_spec();
+        let second = second_shape(serde_json::json!({
+            "class": "auto",
+            "period": "60s",
+            "sources": [{ "dataSourceRef": { "kind": "DataSource", "name": "hsl-citybikes-free" } }],
+            "steps": [{ "kind": "bloblang", "bloblang": "root = this.data.bikes" }],
+            "outputs": [{ "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki:helsinki-all" }]
+        }));
+        assert!(
+            !is_merged(&second),
+            "one of each takes the first version's renderer"
+        );
+        let ds = helsinki_datasource_spec();
+        let render = |spec: &PipelineSpec| {
+            serde_json::to_string(
+                &render_stream(
+                    spec,
+                    "citybikes-free",
+                    "helsinki",
+                    &ds,
+                    "hsl-citybikes-free",
+                    "slug1",
+                    None,
+                )
+                .expect("renders"),
+            )
+            .expect("serializes")
+        };
+        assert_eq!(render(&first), render(&second));
+    }
+
+    #[test]
+    fn two_sources_merge_through_a_broker_and_two_outputs_fan_out() {
+        let spec = second_shape(serde_json::json!({
+            "class": "resident",
+            "period": "30s",
+            "sources": [
+                { "dataSourceRef": { "kind": "DataSource", "name": "gbfs" } },
+                { "endpointRef": { "kind": "Endpoint", "name": "legacy" },
+                  "query": { "type": "BikeHireDockingStation" } }
+            ],
+            "steps": [
+                { "kind": "bloblang", "bloblang": "root = this" },
+                { "processor": { "dedupe": { "cache": "pipeline_changes", "key": "${! json(\"id\") }" } } }
+            ],
+            "outputs": [
+                { "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki:ops" },
+                { "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki-kpi:kpi" }
+            ]
+        }));
+        assert!(is_merged(&spec));
+        assert!(eligible(&spec));
+        let sources = vec![
+            ResolvedSource::Data {
+                spec: Box::new(helsinki_datasource_spec()),
+                name: "gbfs".to_owned(),
+            },
+            ResolvedSource::Endpoint {
+                source: Box::new(spec.sources()[1].clone()),
+                slug: "legacyslug".to_owned(),
+                public: false,
+            },
+        ];
+        let stream = render_merged(
+            &spec,
+            "bikes-merged",
+            "helsinki",
+            &sources,
+            &["opsslug".to_owned(), "kpislug".to_owned()],
+        )
+        .expect("renders");
+
+        let inputs = stream["input"]["broker"]["inputs"]
+            .as_array()
+            .expect("a broker input");
+        assert_eq!(inputs.len(), 2);
+        // Each input carries the processors its own input needs, the http poll among them.
+        assert!(inputs[0]["generate"].is_object());
+        assert!(inputs[0]["processors"][0]["try"][0]["http"]["url"]
+            .as_str()
+            .is_some_and(|url| url.contains("gbfs")));
+        let read = &inputs[1]["processors"][0]["try"][0]["http"];
+        assert!(read["url"]
+            .as_str()
+            .is_some_and(|url| url.contains("/api/endpoint/legacyslug/")));
+        assert_eq!(
+            read["oauth2"]["enabled"], true,
+            "a non-public source is read with the runner's token"
+        );
+
+        let processors = stream["pipeline"]["processors"]
+            .as_array()
+            .expect("processors");
+        assert_eq!(processors[0]["mapping"], "root = this");
+        assert_eq!(processors[1]["dedupe"]["cache"], "pipeline_changes");
+        assert_eq!(
+            processors[1]["label"], "processor_1",
+            "every step is labelled by its index"
+        );
+        assert!(processors[2]["mapping"]
+            .as_str()
+            .is_some_and(|m| m.contains("array")));
+
+        let output = &stream["output"]["broker"];
+        assert_eq!(output["pattern"], "fan_out");
+        let outputs = output["outputs"].as_array().expect("outputs");
+        assert_eq!(outputs.len(), 2);
+        assert!(outputs[1]["http_client"]["url"]
+            .as_str()
+            .is_some_and(|url| url.contains("/api/endpoint/kpislug/")));
+    }
+
+    #[test]
+    fn a_processor_step_alone_renders_without_a_broker() {
+        let spec = second_shape(serde_json::json!({
+            "class": "resident",
+            "period": "30s",
+            "sources": [{ "dataSourceRef": { "kind": "DataSource", "name": "gbfs" } }],
+            "steps": [{ "processor": { "log": { "message": "seen" } } }],
+            "outputs": [{ "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki:ops" }]
+        }));
+        assert!(
+            is_merged(&spec),
+            "a processor step takes the general renderer"
+        );
+        let stream = render_merged(
+            &spec,
+            "logged",
+            "helsinki",
+            &[ResolvedSource::Data {
+                spec: Box::new(helsinki_datasource_spec()),
+                name: "gbfs".to_owned(),
+            }],
+            &["opsslug".to_owned()],
+        )
+        .expect("renders");
+        assert!(stream["input"]["broker"].is_null());
+        assert!(stream["input"]["generate"].is_object());
+        assert!(stream["output"]["http_client"].is_object());
+        assert_eq!(
+            stream["pipeline"]["processors"][0]["log"]["message"],
+            "seen"
+        );
+    }
+
+    #[test]
+    fn a_merged_pipeline_with_a_compute_the_stream_cannot_run_is_refused_and_not_eligible() {
+        let spec = second_shape(serde_json::json!({
+            "class": "resident",
+            "sources": [{ "dataSourceRef": { "kind": "DataSource", "name": "gbfs" } }],
+            "steps": [
+                { "kind": "mapping", "mappingRef": { "kind": "Mapping", "name": "m" } },
+                { "processor": { "log": { "message": "x" } } }
+            ],
+            "outputs": [{ "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki:ops" }]
+        }));
+        assert!(!eligible(&spec));
+        let refused = render_merged(
+            &spec,
+            "p",
+            "helsinki",
+            &[ResolvedSource::Data {
+                spec: Box::new(helsinki_datasource_spec()),
+                name: "gbfs".to_owned(),
+            }],
+            &["opsslug".to_owned()],
+        );
+        assert!(matches!(refused, Err(RenderError::MissingCompute)));
+        let none = render_merged(&spec, "p", "helsinki", &[], &["opsslug".to_owned()]);
+        assert!(matches!(none, Err(RenderError::Custom(_))));
+    }
+
+    #[tokio::test]
+    async fn the_reconciler_resolves_every_source_and_output_from_the_mirror() {
+        let mirror = helsinki_test_mirror();
+        let pipe = serde_json::json!({
+            "class": "auto",
+            "period": "60s",
+            "sources": [
+                { "dataSourceRef": { "kind": "DataSource", "name": "hsl-citybikes-free" } },
+                { "dataSourceRef": { "kind": "DataSource", "name": "hsl-citybikes-free" } }
+            ],
+            "steps": [{ "kind": "bloblang", "bloblang": "root = this" }],
+            "outputs": [
+                { "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki:helsinki-all" },
+                { "targetEndpoint": "urn:ngsi-ld:Endpoint:example.org:helsinki:not-there" }
+            ]
+        });
+        mirror.upsert(ResourceEnvelope {
+            api_version: jc_core::API_VERSION_V1ALPHA2.to_string(),
+            kind: "Pipeline".to_string(),
+            metadata: ObjectMeta {
+                name: "merged".to_string(),
+                namespace: Some("helsinki".to_string()),
+                ..Default::default()
+            },
+            spec: pipe,
+            status: None,
+        });
+        let deployer = StreamDeployer::new("http://dummy-runner:4195");
+        let outcomes = deployer
+            .converge(&mirror, &Bentos::new(), &Default::default())
+            .await;
+        let merged = outcomes
+            .iter()
+            .find(|(_, name, _)| name == "merged")
+            .expect("the merged pipeline is reconciled");
+        match &merged.2 {
+            StreamOutcome::Error(msg) => assert!(
+                msg.contains("target endpoint not-there is not in the mirror"),
+                "{msg}"
+            ),
+            other => panic!("expected the missing output named, got {other:?}"),
+        }
     }
 }

@@ -153,9 +153,9 @@ pub async fn execute_test_pipeline(
     }
     let spec = spec_of(&request.pipeline, project)?;
     let has_source = spec
-        .source
-        .as_ref()
-        .is_some_and(|s| s.data_source_ref.is_some() || s.endpoint_ref.is_some());
+        .sources()
+        .iter()
+        .any(|s| s.data_source_ref.is_some() || s.endpoint_ref.is_some());
     if !has_source {
         return Err(ApiError::BadRequest(
             "pipeline.spec.source must declare dataSourceRef or endpointRef".into(),

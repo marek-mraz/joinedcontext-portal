@@ -195,6 +195,24 @@ pub fn repository_path(
     Ok(info.repo_path(project, space.unwrap_or_default(), name))
 }
 
+/// The target Endpoint URNs a Pipeline's spec names, in either shape (PL-54): `targetEndpoint`,
+/// or every `outputs[].targetEndpoint`.
+pub fn pipeline_targets(spec: &serde_json::Value) -> Vec<&str> {
+    match spec
+        .get("targetEndpoint")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some(target) => vec![target],
+        None => spec
+            .get("outputs")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|output| output.get("targetEndpoint")?.as_str())
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

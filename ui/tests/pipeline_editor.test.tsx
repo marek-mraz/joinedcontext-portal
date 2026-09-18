@@ -28,7 +28,7 @@ function MockEditor({ value, onChange }: { value: string; onChange?: (value: str
 vi.mock("../src/pages/models/MonacoSourceView", () => ({ default: MockEditor }));
 
 const { App } = await import("../src/App");
-const { completeOutput, endpointUrn, fromManifest, toEnvelope, toForm } = await import(
+const { completeOutput, endpointUrn, firstShape, fromManifest, toEnvelope, toForm } = await import(
   "../src/pages/pipelines/PipelineEditor"
 );
 const { aggregateBloblang, attributesOf, sourceKindOf } = await import(
@@ -293,7 +293,11 @@ describe("pipeline editor", () => {
 
     const envelope = toEnvelope("banskabystrica", form, EXISTING);
     expect(envelope.metadata).toEqual({ name: "aq-mqtt-ingest", namespace: "banskabystrica" });
-    expect(envelope.spec).toEqual(EXISTING.spec);
+    // Written at v1alpha2 (PL-54), with nothing lost: read back in the first shape it is the
+    // manifest it came from.
+    expect(envelope.apiVersion).toBe("joinedcontext.com/v1alpha2");
+    expect(envelope.spec).not.toHaveProperty("source");
+    expect(firstShape(envelope.spec)).toEqual(EXISTING.spec);
     // What the YAML view shows is what the form reads back.
     expect(fromManifest(envelope)).toEqual(form);
   });
@@ -368,10 +372,11 @@ describe("pipeline editor", () => {
     const shown = parseYaml((await editor(dialog)).value) as ReturnType<typeof toEnvelope>;
     expect(shown.kind).toBe("Pipeline");
     expect(shown.metadata.name).toBe("aq-derived");
+    expect(shown.apiVersion).toBe("joinedcontext.com/v1alpha2");
     expect(shown.spec).toEqual({
       class: "auto",
-      source: { dataSourceRef: { kind: "DataSource", name: "mqtt-mesto" } },
-      targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
+      sources: [{ dataSourceRef: { kind: "DataSource", name: "mqtt-mesto" } }],
+      outputs: [{ targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air" }],
     });
 
     // Edited as text, read back into the form.
@@ -470,13 +475,13 @@ describe("pipeline editor", () => {
     expect(request.method).toBe("POST");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects/banskabystrica/pipelines");
     await expect(request.clone().json()).resolves.toEqual({
-      apiVersion: "joinedcontext.com/v1alpha1",
+      apiVersion: "joinedcontext.com/v1alpha2",
       kind: "Pipeline",
       metadata: { name: "aq-derived", namespace: "banskabystrica" },
       spec: {
         class: "resident",
-        source: { dataSourceRef: { kind: "DataSource", name: "mqtt-mesto" } },
-        targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
+        sources: [{ dataSourceRef: { kind: "DataSource", name: "mqtt-mesto" } }],
+        outputs: [{ targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air" }],
       },
       // The form edits a Portal draft, and the proposal names the draft it was taken from,
       // so the verdict stored on that draft is the one the operation reads (AG-61, AG-62).
@@ -486,15 +491,77 @@ describe("pipeline editor", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("edits the first source, step and output of a merged pipeline and keeps the rest (PL-54)", () => {
+    const merged: Manifest = {
+      apiVersion: "joinedcontext.com/v1alpha2",
+      kind: "Pipeline",
+      metadata: { name: "bikes-merged", namespace: "banskabystrica" },
+      spec: {
+        class: "resident",
+        sources: [
+          { dataSourceRef: { kind: "DataSource", name: "mqtt-mesto" } },
+          { dataSourceRef: { kind: "DataSource", name: "second-feed" } },
+        ],
+        steps: [
+          { processor: { log: { message: "in" } } },
+          { kind: "bloblang", bloblang: "root = this" },
+          { processor: { dedupe: { cache: "c" } } },
+        ],
+        outputs: [
+          { targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air", mode: "upsert" },
+          { targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:kpi" },
+        ],
+      },
+    };
+    const form = toForm(merged);
+    expect(form.source?.dataSourceRef).toBe("mqtt-mesto");
+    expect(form.compute).toEqual({ kind: "bloblang", bloblang: "root = this" });
+    expect(form.targetEndpoint).toBe("urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air");
+    expect(form.output).toEqual({ mode: "upsert" });
+
+    const edited = toEnvelope(
+      "banskabystrica",
+      { ...form, compute: { kind: "bloblang", bloblang: "root = this.changed" } },
+      merged,
+    );
+    const spec = edited.spec as Record<string, unknown[]>;
+    expect(edited.apiVersion).toBe("joinedcontext.com/v1alpha2");
+    expect(spec.sources).toHaveLength(2);
+    expect(spec.sources[1]).toEqual({ dataSourceRef: { kind: "DataSource", name: "second-feed" } });
+    // The compute step changes in its own place, between the two processors.
+    expect(spec.steps).toEqual([
+      { processor: { log: { message: "in" } } },
+      { kind: "bloblang", bloblang: "root = this.changed" },
+      { processor: { dedupe: { cache: "c" } } },
+    ]);
+    expect(spec.outputs).toHaveLength(2);
+    expect(edited.spec).not.toHaveProperty("targetEndpoint");
+
+    // Removing the compute removes that step and no other.
+    const without = toEnvelope("banskabystrica", { ...form, compute: undefined }, merged);
+    expect((without.spec as Record<string, unknown[]>).steps).toEqual([
+      { processor: { log: { message: "in" } } },
+      { processor: { dedupe: { cache: "c" } } },
+    ]);
+  });
+
+  it("keeps a pipeline whose input lives in bento.yaml at v1alpha1, which has a place for it", () => {
+    const form = { ...toForm(EXISTING), source: undefined };
+    const envelope = toEnvelope("banskabystrica", form);
+    expect(envelope.apiVersion).toBe("joinedcontext.com/v1alpha1");
+    expect(envelope.spec).toHaveProperty("targetEndpoint");
+    expect(envelope.spec).not.toHaveProperty("outputs");
+  });
+
   it("round-trips the inline Bloblang of a bloblang step through the manifest", () => {
     const mapping = 'root = this\nroot.status = { "type": "Property", "value": "ok" }\n';
     const form = { ...toForm(EXISTING), compute: { kind: "bloblang", bloblang: mapping } };
     const envelope = toEnvelope("banskabystrica", form, EXISTING);
-    expect(envelope.spec.compute).toEqual({ kind: "bloblang", bloblang: mapping });
+    expect(envelope.spec.steps).toEqual([{ kind: "bloblang", bloblang: mapping }]);
     expect(fromManifest(envelope).compute?.bloblang).toBe(mapping);
     // An empty mapping is no mapping: the field is left out, and bento.yaml keeps it (PL-41).
     const blank = toEnvelope("banskabystrica", { ...form, compute: { kind: "bloblang", bloblang: "" } });
-    expect(blank.spec.compute).toEqual({ kind: "bloblang" });
+    expect(blank.spec.steps).toEqual([{ kind: "bloblang" }]);
   });
 
   it("shows a paused pipeline as paused, with a Resume rather than a Pause", async () => {
@@ -621,7 +688,7 @@ it("tells a feed from a space and reads the attributes of a class from an inline
 
     await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
     const body = (await writes(fetchMock)[0].clone().json()) as { spec: Record<string, unknown> };
-    expect(body.spec).toMatchObject({
+    expect(firstShape(body.spec)).toMatchObject({
       class: "auto",
       period: "1h",
       source: {
@@ -632,7 +699,7 @@ it("tells a feed from a space and reads the attributes of a class from an inline
       output: { type: "AirQualityObservedAggregate", mode: "upsert" },
       targetEndpoint: "urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
     });
-    expect((body.spec.compute as { bloblang: string }).bloblang).toContain("pm10Sum");
+    expect((firstShape(body.spec).compute as { bloblang: string }).bloblang).toContain("pm10Sum");
   });
 
   it("edits an existing pipeline at its own path, keeping what the form does not show", async () => {
@@ -664,7 +731,7 @@ it("tells a feed from a space and reads the attributes of a class from an inline
       "/api/v1/projects/banskabystrica/pipelines/aq-mqtt-ingest",
     );
     const body = (await request.clone().json()) as { spec: Record<string, unknown>; status?: unknown };
-    expect(body.spec).toEqual({ ...EXISTING.spec, period: "10s" });
+    expect(firstShape(body.spec)).toEqual({ ...EXISTING.spec, period: "10s" });
     expect(body.status).toBeUndefined();
   });
 
@@ -713,7 +780,9 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     const request = writes(fetchMock)[0];
     expect(request.method).toBe("PUT");
     expect(new URL(request.url).pathname).toBe("/api/v1/projects/banskabystrica/pipelines/aq-mqtt-ingest");
-    expect(((await request.clone().json()) as { spec: unknown }).spec).toEqual(changed.spec);
+    expect(firstShape(((await request.clone().json()) as { spec: Record<string, unknown> }).spec)).toEqual(
+      firstShape(changed.spec as Record<string, unknown>),
+    );
   });
 
   it("writes what is typed to the pipeline's own draft, and opens the draft the address names (T-0791, AG-61, UI-47)", async () => {

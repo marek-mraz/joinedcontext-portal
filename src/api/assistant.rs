@@ -265,7 +265,7 @@ fn feeders(state: &AppState, project: &str) -> BTreeMap<String, String> {
         .list(project, "Pipeline", &ListOptions::default())
         .items
     {
-        if let Some(target) = env.spec["targetEndpoint"].as_str() {
+        for target in crate::resource::pipeline_targets(&env.spec) {
             let endpoint = target.rsplit(':').next().unwrap_or(target).to_owned();
             out.entry(endpoint).or_insert(env.metadata.name.clone());
         }

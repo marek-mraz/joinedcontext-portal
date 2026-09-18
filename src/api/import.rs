@@ -338,7 +338,7 @@ fn as_incoming(document: &Value, path: Option<&str>) -> Result<Incoming, ApiErro
 fn refusals(envelope: &ResourceEnvelope, raw: &Value) -> Vec<String> {
     let name = &envelope.metadata.name;
     let mut refusals = Vec::new();
-    if envelope.api_version != resource::API_VERSION {
+    if !jc_core::serves(&envelope.kind, &envelope.api_version) {
         refusals.push(format!(
             "{name}: apiVersion '{}' is not supported (expected '{}')",
             envelope.api_version,
