@@ -25,7 +25,7 @@ const DEFAULT_PERIOD = "1h";
 
 export type SourceKind = "none" | "datasource" | "space";
 export type Aggregate = "sum" | "average" | "count";
-export const AGGREGATES: Aggregate[] = ["sum", "average", "count"];
+const AGGREGATES: Aggregate[] = ["sum", "average", "count"];
 
 /** One row of a keyValues sample: the id plus whatever attributes the entity carries. */
 export type SampleRow = Entity;
