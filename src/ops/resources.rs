@@ -375,7 +375,8 @@ async fn reject(
 /// owner decision T-1005): the client is a tool a model drives even when it carries the
 /// person's token, so leaving `Via::Mcp` open would let an agent approve by choosing another
 /// transport. Approving and rejecting stay in the Portal and on the REST route. The run and
-/// service-account operations keep [`refuse_agent`]: they are not a change's decision.
+/// service-account operations keep [`super::runs::refuse_agent`]: they are not a change's
+/// decision.
 pub fn refuse_agent_decision(caller: &Caller) -> Result<(), OpError> {
     if matches!(caller.via, Via::Agent | Via::Mcp) {
         return Err(OpError::Api(ApiError::Denied(
