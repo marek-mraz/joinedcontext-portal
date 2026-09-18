@@ -133,7 +133,9 @@ test.describe("pipeline editor", () => {
     const { writes } = await stubApi(page);
 
     await page.goto("/projects/helsinki/pipelines?lang=en");
-    await page.getByRole("button", { name: "New pipeline" }).click();
+    // An empty list offers the action twice: in the page header and in the empty state
+    // itself (UI-01). The header's is the one a person with pipelines also has.
+    await page.getByRole("button", { name: "New pipeline" }).first().click();
     const dialog = page.getByRole("dialog");
 
     await dialog.getByLabel(/^Name/).fill("aq-ingest");
