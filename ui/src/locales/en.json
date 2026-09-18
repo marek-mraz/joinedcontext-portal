@@ -291,7 +291,8 @@
       "proposeAll": "Propose all",
       "open": "Open",
       "noDrafts": "No drafts completed yet."
-    }
+    },
+    "segment": "ids: {segment}"
   },
   "endpoints": {
     "check": "Check",

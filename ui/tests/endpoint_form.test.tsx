@@ -301,6 +301,8 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     });
 
     expect(readPol.kind).toBe("Policy");
+    // The organization as the placeholder the loader renders, never its domain (CC-82, T-1447).
+    expect((readPol.spec as Record<string, unknown>).assigner).toBe("did:web:{orgDomain}");
     expect((readPol.spec as Record<string, unknown>).operations).toEqual(["retrieveOps"]);
     expect((readPol.spec as Record<string, unknown>).information).toEqual([
       { entities: [{ type: "Vehicle" }], propertyNames: ["name"] },
@@ -445,6 +447,7 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     expect(payload.manifests).toHaveLength(4); // ModelProjection, Endpoint, Read Policy, Write Policy
     const writePol = payload.manifests[3];
     expect(writePol.kind).toBe("Policy");
+    expect((writePol.spec as Record<string, unknown>).assigner).toBe("did:web:{orgDomain}");
     expect((writePol.spec as Record<string, unknown>).operations).toEqual(["updateOps"]);
     expect((writePol.spec as Record<string, unknown>).scopeQ).toBe("/helsinki/bikes");
     expect((writePol.spec as Record<string, unknown>).information).toEqual([

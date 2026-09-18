@@ -511,7 +511,7 @@ fn policy(
             },
             "spec": {
                 "contextSpaceRef": { "kind": "ContextSpace", "name": space },
-                "assigner": format!("did:web:{}", world.org_domain),
+                "assigner": "did:web:{orgDomain}",
                 "assignee": assignee,
                 "operations": operations,
                 "information": [{ "entities": [{ "type": "KeyPerformanceIndicator" }] }],
@@ -561,6 +561,8 @@ pub fn bloblang(m: &Mapping) -> String {
     };
     let mut lines = vec![
         "let domain = env(\"JC_ORG_DOMAIN\")".to_owned(),
+        // The space the indicator is written into, rendered per stream (PL-57).
+        "let space = env(\"JC_SPACE\")".to_owned(),
         "let rows = if this.type() == \"array\" { this } else { [this] }".to_owned(),
     ];
     if m.agg != Agg::Count {
@@ -569,8 +571,8 @@ pub fn bloblang(m: &Mapping) -> String {
     lines.extend([
         "let now = now().ts_format(\"2006-01-02T15:04:05Z\")".to_owned(),
         format!(
-            "root.id = \"urn:ngsi-ld:KeyPerformanceIndicator:%v:{}:{}\".format($domain)",
-            m.target_space, m.name
+            "root.id = \"urn:ngsi-ld:KeyPerformanceIndicator:%v:%v:{}\".format($domain, $space)",
+            m.name
         ),
         "root.type = \"KeyPerformanceIndicator\"".to_owned(),
         format!("root.name = {{ \"type\": \"Property\", \"value\": {} }}", quote(m.name)),
@@ -740,7 +742,13 @@ mod tests {
             json!({ "type": "KeyPerformanceIndicator", "mode": "upsert" })
         );
         let mapping = spec["compute"]["bloblang"].as_str().expect("mapping");
-        assert!(mapping.contains("KeyPerformanceIndicator:%v:helsinki-kpi:bikes-available-avg"));
+        assert!(
+            mapping.contains("let space = env(\"JC_SPACE\")"),
+            "{mapping}"
+        );
+        assert!(mapping.contains(
+            "KeyPerformanceIndicator:%v:%v:bikes-available-avg\".format($domain, $space)"
+        ));
         assert!(mapping.contains("ts_sub_iso8601(\"PT15M\")"));
         assert!(mapping.contains("urn:ngsi-ld:Endpoint:%v:helsinki:helsinki-all"));
         assert!(mapping.contains("urn:ngsi-ld:Pipeline:%v:helsinki:bikes-available-avg"));
@@ -801,7 +809,9 @@ mod tests {
             "urn:ngsi-ld:Endpoint:hel.fi:transportation-kpi:transportation-kpi"
         );
         let mapping = spec["compute"]["bloblang"].as_str().expect("mapping");
-        assert!(mapping.contains("KeyPerformanceIndicator:%v:transportation-kpi:free-bikes"));
+        assert!(
+            mapping.contains("KeyPerformanceIndicator:%v:%v:free-bikes\".format($domain, $space)")
+        );
         assert!(mapping.contains("\"start\": $now, \"end\": $now"));
         assert!(mapping.contains("$values.sum() }"));
         assert_eq!(

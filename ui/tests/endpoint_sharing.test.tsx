@@ -11,6 +11,7 @@ import {
   admits,
   dns1123,
   referenceManifest,
+  referenceTo,
   sharedSpaceReferenceSchema,
 } from "../src/components/endpoints/sharing";
 import type { Manifest } from "../src/api/manifest";
@@ -246,13 +247,14 @@ describe("endpoint sharing", () => {
     const body = (await request.clone().json()) as {
       kind: string;
       metadata: { name: string; namespace: string };
-      spec: { endpointSlug: string; alias: string };
+      spec: { endpointRef: { project: string; name: string }; alias: string };
     };
+    // By name, never by slug: the slug is this environment's, the name travels (EP-77).
     expect(body).toEqual({
       apiVersion: API,
       kind: "SharedSpaceReference",
       metadata: { name: "helsinki-bikes", namespace: "espoo" },
-      spec: { endpointSlug: BIKES_SLUG, alias: "helsinki-liikenne" },
+      spec: { endpointRef: { project: "helsinki", name: "bikes" }, alias: "helsinki-liikenne" },
     });
     // The spec is what jc-core's `SharedSpaceReferenceSpec` accepts, field for field.
     expect(validator.isValid(sharedSpaceReferenceSchema, body.spec, sharedSpaceReferenceSchema)).toBe(
@@ -286,6 +288,24 @@ describe("endpoint sharing", () => {
     expect(
       within(events).getByRole("button", { name: `${en.endpoints.shared.use}: helsinki/events` }),
     ).toBeInTheDocument();
+  });
+
+  it("finds a declared reference by name and an older one by slug (EP-77)", () => {
+    const byRef = {
+      apiVersion: API,
+      kind: "SharedSpaceReference",
+      metadata: { name: "helsinki-bikes", namespace: "espoo" },
+      spec: { endpointRef: { project: "helsinki", name: "bikes" }, alias: "a" },
+    } as Manifest;
+    const bySlug = { ...byRef, spec: { endpointSlug: BIKES_SLUG, alias: "a" } } as Manifest;
+    expect(referenceTo([byRef], "", "helsinki", "bikes")).toBe(byRef);
+    expect(referenceTo([byRef], BIKES_SLUG, "helsinki", "events")).toBeUndefined();
+    expect(referenceTo([byRef], BIKES_SLUG, "espoo", "bikes")).toBeUndefined();
+    expect(referenceTo([bySlug], BIKES_SLUG, "helsinki", "bikes")).toBe(bySlug);
+    expect(referenceTo([bySlug], "", "helsinki", "bikes")).toBeUndefined();
+    const both = { endpointRef: { project: "helsinki", name: "bikes" }, endpointSlug: BIKES_SLUG, alias: "a" };
+    expect(validator.isValid(sharedSpaceReferenceSchema, both, sharedSpaceReferenceSchema)).toBe(false);
+    expect(validator.isValid(sharedSpaceReferenceSchema, { alias: "a" }, sharedSpaceReferenceSchema)).toBe(false);
   });
 
   it("names the reference after the source so it never shadows a local space", () => {

@@ -351,9 +351,8 @@ pub async fn run(
         });
     }
 
-    // A space name is unique in the organization (PF-44), so a completion whose name another
-    // project holds is drafted as `{project}-{name}` while it is still a draft (PF-76). Both
-    // taken is the one case nobody can propose their way out of, and it is said here.
+    // A name is local to its project and its ids render `{project}-{name}` (PF-84); only a
+    // segment another space pins is taken, and that is said here while it is still a draft.
     let proposal = crate::spaces::propose_name(state, &caller.identity, project, &space_name);
     let space_name = if proposal.available {
         proposal.name
@@ -361,9 +360,10 @@ pub async fn run(
         return Err(OpError::InvalidInput {
             path: "/space".into(),
             message: format!(
-                "'{space_name}' is {}, and so is '{}'",
-                proposal.reason.unwrap_or_else(|| "taken".to_owned()),
-                proposal.name
+                "the ids of '{space_name}' would carry {}; choose another name",
+                proposal
+                    .reason
+                    .unwrap_or_else(|| "a taken segment".to_owned()),
             ),
         });
     };
@@ -784,10 +784,10 @@ pub async fn run(
                     .as_deref()
                     .map(|linkml| feed_shape::slot_names(linkml, &class_name))
                     .unwrap_or_default();
-                records.mapping(&class_name, &org, &space_name, &slots)
+                records.mapping(&class_name, &slots)
             }
             None => format!(
-                "root = this\nroot.id = \"urn:ngsi-ld:{class_name}:\" + (this.stationId | this.id | this.station_id | uuid_v4()).string()\nroot.type = \"{class_name}\"\n"
+                "root = this\nroot.id = \"urn:ngsi-ld:{class_name}:\" + env(\"JC_ORG_DOMAIN\") + \":\" + env(\"JC_SPACE\") + \":\" + (this.stationId | this.id | this.station_id | uuid_v4()).string()\nroot.type = \"{class_name}\"\n"
             ),
         });
         let endpoint_name = endpoint_manifest
@@ -831,7 +831,9 @@ pub async fn run(
                 inferred_endpoint = true;
                 name
             });
-        let target_endpoint = format!("urn:ngsi-ld:Endpoint:{org}:{space_name}:{endpoint_name}");
+        // A new space has no pin, so its segment is the rendered one (PF-84).
+        let segment = crate::spaces::segment(&state.mirror, project, &space_name);
+        let target_endpoint = format!("urn:ngsi-ld:Endpoint:{org}:{segment}:{endpoint_name}");
         map_endpoint = Some(endpoint_name);
 
         let spec = json!({
@@ -1287,7 +1289,7 @@ fn policies_for(
     let policy = |name: String, title: String, assignee: Value, operations: Value, typed: bool| {
         let mut spec = json!({
             "contextSpaceRef": { "kind": "ContextSpace", "name": space },
-            "assigner": format!("did:web:{org}"),
+            "assigner": "did:web:{orgDomain}",
             "assignee": assignee,
             "operations": operations,
         });

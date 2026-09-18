@@ -343,7 +343,9 @@ fn declared(mirror: &Mirror) -> Vec<(String, String, String, SubscriptionSpec)> 
             let name = envelope.metadata.name.clone();
             match serde_json::from_value::<SubscriptionSpec>(envelope.spec.clone()) {
                 Ok(spec) => {
-                    let space = spec.context_space_ref.name().to_owned();
+                    // The tenant and the id carry the space's rendered segment (PF-84).
+                    let space =
+                        crate::spaces::segment(mirror, &namespace, spec.context_space_ref.name());
                     found.push((namespace.clone(), name, space, spec));
                 }
                 Err(err) => tracing::warn!(

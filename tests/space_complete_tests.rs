@@ -225,7 +225,8 @@ async fn space_complete_readme_url_candidate_never_fetched() {
     let target = pl_draft["manifest"]["spec"]["targetEndpoint"]
         .as_str()
         .unwrap();
-    assert!(target.ends_with(":bikes:bikes-all"), "{target}");
+    // A new space has no pin: its segment is `{project}-{name}` (PF-84).
+    assert!(target.ends_with(":ovzdusie-bikes:bikes-all"), "{target}");
     assert_eq!(val["lane"], "yellow");
     // wiremock assertion verifies 0 requests were received by mock_server
 }
@@ -410,15 +411,22 @@ async fn complete_as_steward(payload: Value) -> (StatusCode, Value) {
 
 /// The same call against a mirror that already holds the Context Spaces `held`, as
 /// `(project, space)` pairs.
-async fn complete_against(held: &[(&str, &str)], payload: Value) -> (StatusCode, Value) {
+/// `held` is `(project, space, pin)`: the spaces the organization already has (PF-84).
+async fn complete_against(
+    held: &[(&str, &str, Option<&str>)],
+    payload: Value,
+) -> (StatusCode, Value) {
     let config = Config::for_tests();
     let mirror = std::sync::Arc::new(Mirror::new());
-    for (project, space) in held {
+    for (project, space, pin) in held {
         mirror.upsert(joinedcontext_portal::resource::ResourceEnvelope {
             api_version: API_VERSION.to_owned(),
             kind: "ContextSpace".to_owned(),
             metadata: joinedcontext_portal::resource::ObjectMeta::new(*space, *project),
-            spec: json!({ "isSandbox": false }),
+            spec: match pin {
+                Some(pin) => json!({ "isSandbox": false, "urnSegment": pin }),
+                None => json!({ "isSandbox": false }),
+            },
             status: None,
         });
     }
@@ -452,12 +460,12 @@ async fn complete_against(held: &[(&str, &str)], payload: Value) -> (StatusCode,
     )
 }
 
-/// PF-76: a completion whose name another project already holds is drafted as
-/// `{project}-{name}`, so the person approves a name that can actually be written.
+/// PF-84: a name is local to its project, so a completion named like another project's space
+/// is drafted as asked, and only a segment another space pins is refused, naming it.
 #[tokio::test]
-async fn a_completion_whose_space_name_is_held_elsewhere_is_drafted_under_the_project() {
+async fn a_completion_is_drafted_under_its_local_name_and_a_pinned_segment_is_refused() {
     let (status, body) = complete_against(
-        &[("espoo", "city-bikes")],
+        &[("espoo", "city-bikes", None)],
         json!({
             "space": "city-bikes",
             "typeName": "CityBike",
@@ -466,23 +474,23 @@ async fn a_completion_whose_space_name_is_held_elsewhere_is_drafted_under_the_pr
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["space"], "helsinki-city-bikes", "{body}");
+    assert_eq!(body["space"], "city-bikes", "{body}");
     assert_eq!(
         draft(&body, "ContextSpace")["manifest"]["metadata"]["name"],
-        "helsinki-city-bikes",
+        "city-bikes",
         "{body}"
     );
 
-    // Both names held is the one case a rename cannot answer, and it is said so.
+    // A legacy space pinned to the segment this one would render is the one clash left.
     let (status, body) = complete_against(
-        &[("espoo", "city-bikes"), ("tampere", "helsinki-city-bikes")],
+        &[("tampere", "bikes", Some("helsinki-city-bikes"))],
         json!({ "space": "city-bikes", "url": "https://example.invalid/free_bike_status.json" }),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert!(
         body.to_string().contains("helsinki-city-bikes"),
-        "the name that is taken too is named: {body}"
+        "the taken segment is named: {body}"
     );
 }
 
@@ -653,7 +661,7 @@ async fn a_feeds_records_become_the_model_the_mapping_and_a_map_dashboard_with_f
         "{mapping}"
     );
     assert!(
-        mapping.contains(":city-bikes:\" + record.station_id.string()"),
+        mapping.contains("+ env(\"JC_SPACE\") + \":\" + record.station_id.string()"),
         "{mapping}"
     );
     assert!(

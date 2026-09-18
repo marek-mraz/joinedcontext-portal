@@ -1,6 +1,7 @@
-//! A Context Space name is unique in the organization (PF-44, PF-76): the REST door proposes
-//! `{project}-{name}` when the bare name is held elsewhere, and says who holds it only to a
-//! caller who may read that project (PF-59). The dry run answers the same refusal as the write.
+//! The `{space}` segment a Context Space renders is unique in the organization (PF-44, PF-76,
+//! PF-84): the REST door refuses a space whose segment another space pins, and says who holds
+//! it only to a caller who may read that project (PF-59). The dry run answers the same refusal
+//! as the write.
 
 mod common;
 
@@ -16,7 +17,8 @@ use joinedcontext_portal::state::AppState;
 const SPACES: &str = "/api/v1/projects/doprava/spaces";
 
 /// `wide@hel.fi` proposes and reads spaces across the organization; `narrow@hel.fi` does the
-/// same in `doprava` alone. `helsinki` already holds the space `mhd`.
+/// same in `doprava` alone. `helsinki` already holds a space pinned to `doprava-mhd`, the
+/// segment `doprava`'s `mhd` would render.
 fn state_with(gitea: &MockServer) -> AppState {
     let state = common::state_on(gitea);
     state.mirror.upsert(envelope(
@@ -44,7 +46,7 @@ fn state_with(gitea: &MockServer) -> AppState {
         "ContextSpace",
         "mhd",
         "helsinki",
-        json!({ "isSandbox": false }),
+        json!({ "isSandbox": false, "urnSegment": "doprava-mhd" }),
     ));
     state
 }
@@ -82,7 +84,7 @@ async fn a_name_another_project_holds_is_refused_and_the_holder_is_named_only_to
     let said = detail(&blind.text);
     assert!(said.contains("is taken"), "{said}");
     assert!(!said.contains("helsinki"), "{said}");
-    // The proposal is still made: the name to use instead is not a secret of another project.
+    // The segment is named: it is what the caller's own name renders, no secret of another project.
     assert!(said.contains("doprava-mhd"), "{said}");
 }
 

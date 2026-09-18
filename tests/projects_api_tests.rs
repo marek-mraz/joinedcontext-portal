@@ -779,6 +779,25 @@ async fn a_share_from_another_project_refuses_the_deletion_and_names_it() {
 }
 
 #[tokio::test]
+async fn a_share_by_endpoint_ref_refuses_the_deletion_too() {
+    let gitea = forge_with_a_tree(json!([])).await;
+    let state = common::state_on(&gitea);
+    world_to_delete(&state);
+    // The in-organization form names the project, not the slug (EP-77).
+    state.mirror.upsert(envelope(
+        "SharedSpaceReference",
+        "bb-air",
+        "helsinki",
+        json!({ "endpointRef": { "project": "banskabystrica", "name": "public-air" }, "alias": "bb-air" }),
+    ));
+
+    let (status, body) = delete_project(&state, person("admin"), "banskabystrica").await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("helsinki/bb-air"), "{body}");
+    assert!(removed(&gitea).await.is_empty(), "nothing was written");
+}
+
+#[tokio::test]
 async fn a_project_nobody_bound_the_caller_to_is_not_there_and_one_they_only_read_is_refused() {
     let gitea = forge_with_a_tree(json!([])).await;
     let state = common::state_on(&gitea);

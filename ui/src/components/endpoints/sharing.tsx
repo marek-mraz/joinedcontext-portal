@@ -93,10 +93,21 @@ export function dns1123(...parts: string[]): string {
 /** `SharedSpaceReference`, field for field with jc-core's `SharedSpaceReferenceSpec` (EP-15). */
 export const sharedSpaceReferenceSchema: JsonSchema = {
   type: "object",
-  required: ["endpointSlug", "alias"],
+  required: ["alias"],
   additionalProperties: false,
+  // Exactly one of the two names the source (EP-77).
+  oneOf: [{ required: ["endpointRef"] }, { required: ["endpointSlug"] }],
   properties: {
     endpointSlug: { type: "string", pattern: SLUG_PATTERN },
+    endpointRef: {
+      type: "object",
+      required: ["project", "name"],
+      additionalProperties: false,
+      properties: {
+        project: { type: "string", pattern: DNS1123, maxLength: 63 },
+        name: { type: "string", pattern: DNS1123, maxLength: 63 },
+      },
+    },
     alias: { type: "string", pattern: DNS1123, maxLength: 63 },
   },
 };
@@ -104,10 +115,11 @@ export const sharedSpaceReferenceSchema: JsonSchema = {
 /**
  * The manifest "Use in this project" proposes: one `SharedSpaceReference` in the consumer
  * project, named after the source project and endpoint, its alias after the source project
- * and space so it never shadows a space of the consumer's own (Architecture/04 §5).
+ * and space so it never shadows a space of the consumer's own (Architecture/04 §5). It names
+ * the source by project and name, which the loader resolves to the slug of whatever
+ * environment it lands in, so a copied pair of projects keeps working (EP-77).
  */
 export function referenceManifest(project: string, source: string, endpoint: Manifest) {
-  const spec = endpoint.spec as { slug?: string };
   return {
     apiVersion: "joinedcontext.com/v1alpha1",
     kind: "SharedSpaceReference",
@@ -116,15 +128,30 @@ export function referenceManifest(project: string, source: string, endpoint: Man
       namespace: project,
     },
     spec: {
-      endpointSlug: spec.slug ?? "",
+      endpointRef: { project: source, name: endpoint.metadata.name },
       alias: dns1123(source, spaceOf(endpoint) ?? endpoint.metadata.name),
     },
   };
 }
 
-/** The reference of `project` that points at `slug`, when one is declared already. */
-export function referenceTo(references: Manifest[], slug: string): Manifest | undefined {
-  return references.find(
-    (reference) => (reference.spec as { endpointSlug?: string }).endpointSlug === slug,
-  );
+/**
+ * The reference of `project` that points at the Endpoint `name` of `source`, when one is
+ * declared already: by `endpointRef`, or by the slug of an older reference (EP-77).
+ */
+export function referenceTo(
+  references: Manifest[],
+  slug: string,
+  source: string,
+  name: string,
+): Manifest | undefined {
+  return references.find((reference) => {
+    const spec = reference.spec as {
+      endpointSlug?: string;
+      endpointRef?: { project?: string; name?: string };
+    };
+    if (spec.endpointRef) {
+      return spec.endpointRef.project === source && spec.endpointRef.name === name;
+    }
+    return slug !== "" && spec.endpointSlug === slug;
+  });
 }

@@ -43,6 +43,41 @@ pub struct DryRunResult {
     /// The verdict this check recorded for the manifest, which its proposal needs (PF-57, T-0956).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<crate::ops::verdict::Verdict>,
+    /// Values the manifest writes out where the loader renders them (CC-83): each names the
+    /// path and what to write instead. Nothing here blocks the proposal; a copy of the
+    /// manifest into another organization would carry the literal with it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub findings: Vec<String>,
+}
+
+/// Every string under `value` that writes `org_domain` out, as a finding naming its JSON
+/// path and `{orgDomain}` as the replacement (CC-74, CC-83).
+pub fn literal_domain_findings(value: &serde_json::Value, org_domain: &str) -> Vec<String> {
+    fn walk(value: &serde_json::Value, path: &str, domain: &str, found: &mut Vec<String>) {
+        match value {
+            serde_json::Value::String(text) if domain.contains('.') && text.contains(domain) => {
+                found.push(format!(
+                    "{path} writes the organization's domain out: `{text}`; write `{}` for \
+                     `{domain}`, so a copy renders the organization it lands in (CC-83)",
+                    text.replace(domain, "{orgDomain}")
+                ));
+            }
+            serde_json::Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    walk(item, &format!("{path}[{index}]"), domain, found);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for (key, item) in map {
+                    walk(item, &format!("{path}.{key}"), domain, found);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    walk(value, "spec", org_domain, &mut found);
+    found
 }
 
 /// One fetch of a DataSource on the project's runner, or why there was none (MF-39).

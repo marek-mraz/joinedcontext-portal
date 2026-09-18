@@ -8,7 +8,7 @@ import { proposeChecked } from "../api/proposal";
 import { asManifests, isChange, localized, overlay, plainTitle } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import type { Verdict } from "../api/drafts";
-import { useOrgDomain, useProjects } from "../api/projects";
+import { useProjects } from "../api/projects";
 import { takePrefill } from "../assistant/state";
 import { PermissionGuard } from "../components/ui/PermissionGuard";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
@@ -367,9 +367,6 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
 
   const [verdict, setVerdict] = useState<Verdict | null>(null);
 
-  // The policy's assigner is the organization, so the same domain the model editor mints under.
-  const orgDomain = useOrgDomain(project);
-
   const editedSpace = editing?.contextSpaceRef;
   const spaceHasModel =
     editedSpace !== undefined &&
@@ -446,7 +443,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       },
       spec: {
         contextSpaceRef: { kind: "ContextSpace", name: form.contextSpaceRef },
-        assigner: `did:web:${orgDomain}`,
+        assigner: "did:web:{orgDomain}",
         assignee:
           form.audience === "public"
             ? { kind: "role", id: "public" }
@@ -477,7 +474,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         },
         spec: {
           contextSpaceRef: { kind: "ContextSpace", name: form.contextSpaceRef },
-          assigner: `did:web:${orgDomain}`,
+          assigner: "did:web:{orgDomain}",
           assignee: { kind: "role", id: `${project}-writers` },
           operations: ["updateOps"],
           information: writeInfo,
@@ -862,7 +859,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                 const spec = endpoint.spec as { slug?: string; enabledRepresentations?: string[] };
                 const slug = spec.slug ?? "";
                 const space = spaceOf(endpoint);
-                const declared = slug ? referenceTo(references, slug) : undefined;
+                const declared = referenceTo(references, slug, source, endpoint.metadata.name);
                 const label = localized(endpoint.metadata.title, locale, endpoint.metadata.name);
                 return (
                   <TableRow key={`${source}/${endpoint.metadata.name}`}>

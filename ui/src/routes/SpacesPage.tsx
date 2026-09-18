@@ -38,6 +38,13 @@ interface SpaceForm {
   defaultLocale?: string;
   isSandbox?: boolean;
   ttlDays?: number;
+  /** Pins the `{space}` segment of a space that predates PF-84; kept as it is on edit. */
+  urnSegment?: string;
+}
+
+/** The `{space}` segment the space's entity ids carry: its pin, else `{project}-{name}` (PF-84). */
+export function spaceSegment(project: string, name: string, pin?: string): string {
+  return pin ?? `${project}-${name}`;
 }
 
 function toEnvelope(project: string, form: SpaceForm) {
@@ -206,6 +213,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
             dataModelRef?: unknown;
             isSandbox?: boolean;
             ttlDays?: number;
+            urnSegment?: string;
           };
           const model = refName(spec.dataModelRef);
           const title = localized(space.metadata.title, locale, space.metadata.name);
@@ -222,6 +230,11 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                 <div>{title}</div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-caption text-fg-subtle">
                   {space.metadata.title ? <span>{space.metadata.name}</span> : null}
+                  <span>
+                    {t("spaces.segment", {
+                      segment: spaceSegment(project, space.metadata.name, spec.urnSegment),
+                    })}
+                  </span>
                   {spec.isSandbox ? (
                     <Badge tone="warning">{t("spaces.sandbox", { days: spec.ttlDays ?? 0 })}</Badge>
                   ) : null}

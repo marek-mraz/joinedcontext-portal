@@ -256,6 +256,7 @@ pub async fn delete_with_identity(
             plan,
             probe: None,
             verdict: None,
+            findings: Vec::new(),
         }));
     }
 

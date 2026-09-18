@@ -291,7 +291,8 @@
       "proposeAll": "Propose all",
       "open": "Open",
       "noDrafts": "No drafts completed yet."
-    }
+    },
+    "segment": "identifikátory: {segment}"
   },
   "endpoints": {
     "check": "Skontrolovať",

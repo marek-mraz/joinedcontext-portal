@@ -6667,6 +6667,13 @@
           "plan"
         ],
         "properties": {
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Values the manifest writes out where the loader renders them (CC-83): each names the\npath and what to write instead. Nothing here blocks the proposal; a copy of the\nmanifest into another organization would carry the literal with it."
+          },
           "lane": {
             "$ref": "#/components/schemas/Lane"
           },

@@ -156,8 +156,13 @@ async fn a_publisher_gets_the_manifests_the_slug_and_the_lane_and_nothing_is_wri
         json!(["maintenanceNote"])
     );
     assert_eq!(
-        body["policies"][0]["spec"]["assigner"], "did:web:hel.fi",
-        "the organization's domain"
+        body["policies"][0]["spec"]["assigner"], "did:web:{orgDomain}",
+        "the organization, as the placeholder the loader renders (CC-82)"
+    );
+    assert!(
+        !body["policies"].to_string().contains("hel.fi"),
+        "no generated policy writes the domain out: {}",
+        body["policies"]
     );
     assert_eq!(body["prefill"]["name"], "bikes-regional-transport");
     assert_eq!(

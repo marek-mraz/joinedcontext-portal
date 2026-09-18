@@ -9,7 +9,7 @@
 //! holds, every data model's LinkML source and JSON Schema, and a README that ties them together,
 //! so a person or another tool can read the bundle without this platform's documentation.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 
 use axum::extract::{Path, Query, State};
@@ -155,10 +155,46 @@ struct Exported {
 /// A file the forge cannot hand back as text (a binary blob committed next to the manifests) is
 /// counted and left out rather than corrupted; the count is what the bundle index reports as
 /// omitted, so a caller always learns that something was not included (MF-18).
+/// The Endpoints of this organization by slug, as `(project, name)`: what an exported
+/// SharedSpaceReference names instead of the slug (EP-77, MF-43).
+fn endpoints_by_slug(state: &AppState) -> HashMap<String, (String, String)> {
+    state
+        .mirror
+        .matching(|env| env.kind == "Endpoint")
+        .into_iter()
+        .filter_map(|env| {
+            let slug = env.spec.get("slug")?.as_str()?.to_owned();
+            Some((slug, (env.metadata.namespace?, env.metadata.name)))
+        })
+        .collect()
+}
+
+/// A reference to an Endpoint of this organization is written by name, which the loader
+/// resolves wherever the bundle lands; one to another instance keeps its slug (EP-77, MF-43).
+fn reference_by_name(spec: &mut Value, endpoints: &HashMap<String, (String, String)>) {
+    let Some(object) = spec.as_object_mut() else {
+        return;
+    };
+    let Some((project, name)) = object
+        .get("endpointSlug")
+        .and_then(Value::as_str)
+        .and_then(|slug| endpoints.get(slug))
+        .cloned()
+    else {
+        return;
+    };
+    object.remove("endpointSlug");
+    object.insert(
+        "endpointRef".to_owned(),
+        serde_json::json!({ "project": project, "name": name }),
+    );
+}
+
 async fn read_project(
     gitea: &GiteaClient,
     project: &str,
     revision: &str,
+    endpoints: &HashMap<String, (String, String)>,
 ) -> Result<(Vec<Exported>, usize), ApiError> {
     let prefix = format!("projects/{project}/");
     let paths: Vec<String> = gitea
@@ -202,6 +238,9 @@ async fn read_project(
                     envelope.metadata.annotations.remove(key);
                 }
                 strip_secret_values(&mut envelope.spec);
+                if envelope.kind == "SharedSpaceReference" {
+                    reference_by_name(&mut envelope.spec, endpoints);
+                }
                 let content = serde_yaml_ng::to_string(&envelope).map_err(|e| {
                     ApiError::Internal(format!("manifest '{path}' did not serialise: {e}"))
                 })?;
@@ -758,7 +797,8 @@ pub async fn export(
         gitea.branch_head(&revision).await?
     };
 
-    let (files, unreadable) = read_project(gitea, &project, &revision).await?;
+    let (files, unreadable) =
+        read_project(gitea, &project, &revision, &endpoints_by_slug(&state)).await?;
     // A manifest the caller may not read is counted, never named (MF-18, R20). The question is
     // the manifest's, not the kind's: a grant bound to one context space reads that space's
     // manifests and no other, which is what the resource lists already ask (PF-60, T-0986).
@@ -1048,6 +1088,33 @@ pub fn router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reference_to_this_organization_is_exported_by_name_and_another_instance_keeps_its_slug() {
+        let endpoints = HashMap::from([(
+            "scsd2eehkx42n53z2zyd6vshfh7s7irf".to_owned(),
+            ("helsinki".to_owned(), "helsinki-bikes".to_owned()),
+        )]);
+        let mut ours = serde_json::json!({ "endpointSlug": "scsd2eehkx42n53z2zyd6vshfh7s7irf", "alias": "city-bikes" });
+        super::reference_by_name(&mut ours, &endpoints);
+        assert_eq!(
+            ours,
+            serde_json::json!({ "endpointRef": { "project": "helsinki", "name": "helsinki-bikes" }, "alias": "city-bikes" })
+        );
+        let mut theirs =
+            serde_json::json!({ "endpointSlug": "zt4qm7ge2xdv6ksb3ncf5arw2y", "alias": "x" });
+        let before = theirs.clone();
+        super::reference_by_name(&mut theirs, &endpoints);
+        assert_eq!(
+            theirs, before,
+            "a slug of another instance is all there is to name it by"
+        );
+        let mut already =
+            serde_json::json!({ "endpointRef": { "project": "a", "name": "b" }, "alias": "x" });
+        let before = already.clone();
+        super::reference_by_name(&mut already, &endpoints);
+        assert_eq!(already, before);
+    }
+
     use super::*;
 
     #[test]

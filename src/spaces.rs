@@ -1,33 +1,65 @@
-//! What a new Context Space is called (PF-76, PF-44).
+//! What a new Context Space is called, and which `{space}` segment its ids carry (PF-76,
+//! PF-84, PF-44).
 //!
-//! A space name is the `{space}` segment of every URN it holds, so it is unique across the
-//! organization and not merely inside one project. One function answers what to call a new
-//! space, one gate refuses a name another project already holds, and both name that project
-//! only to a caller who may read it (PF-59): to everyone else the name is simply "taken".
+//! A space is named locally, in its project; the `{space}` segment of every URN it holds is
+//! rendered as `{project}-{name}` unless `spec.urnSegment` pins it (PF-84), and that segment is
+//! what is unique across the organization. One function renders it, one gate refuses a segment
+//! another space already renders, and both name the other project only to a caller who may
+//! read it (PF-59): to everyone else the segment is simply "taken".
 
 use crate::auth::Identity;
 use crate::error::ApiError;
+use crate::resource::ResourceEnvelope;
 use crate::state::AppState;
+use crate::store::Mirror;
+use serde_json::Value;
 
 /// What to call a new Context Space, and why (PF-76).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proposal {
-    /// The name to use: `wanted` when it is free across the organization, `{project}-{wanted}`
-    /// otherwise.
+    /// The local name to use: `wanted`, because a name is only unique in its project.
     pub name: String,
-    /// Whether [`Proposal::name`] is free. `false` means the prefixed name is taken too, and
-    /// the caller has to choose another.
+    /// Whether the segment [`Proposal::name`] renders is free in the organization. `false`
+    /// means another space pins that segment, and the caller has to choose another name.
     pub available: bool,
-    /// Why the bare name was not proposed, in the caller's own terms. `None` when `wanted` was
-    /// free and is the proposal.
+    /// Why the name is not available, in the caller's own terms. `None` when it is.
     pub reason: Option<String>,
 }
 
-/// The project holding the Context Space called `name`, if any project does.
-fn owner(state: &AppState, name: &str) -> Option<String> {
+/// The pin a space manifest carries, if any (PF-84).
+fn pin_of(spec: &Value) -> Option<&str> {
+    spec.get("urnSegment").and_then(Value::as_str)
+}
+
+/// The `{space}` segment of the Context Space `name` of `project` (PF-84).
+///
+/// The one function every Portal path that mints an id, names a tenant or writes a URN calls,
+/// through `jc_core::kinds::urn_segment`, which the gateway and the reconciler call too. A space
+/// the mirror does not hold renders without a pin.
+pub fn segment(mirror: &Mirror, project: &str, name: &str) -> String {
+    let space = mirror.get(project, "ContextSpace", name);
+    jc_core::kinds::urn_segment(
+        project,
+        name,
+        space.as_ref().and_then(|env| pin_of(&env.spec)),
+    )
+}
+
+fn segment_of(env: &ResourceEnvelope) -> String {
+    let project = env.metadata.namespace.as_deref().unwrap_or_default();
+    jc_core::kinds::urn_segment(project, &env.metadata.name, pin_of(&env.spec))
+}
+
+/// The project of another Context Space that renders `wanted`, if any does.
+fn holder(state: &AppState, wanted: &str, project: &str, name: &str) -> Option<String> {
     state
         .mirror
-        .find(|env| env.kind == "ContextSpace" && env.metadata.name == name)
+        .find(|env| {
+            env.kind == "ContextSpace"
+                && !(env.metadata.namespace.as_deref() == Some(project)
+                    && env.metadata.name == name)
+                && segment_of(env) == wanted
+        })
         .and_then(|env| env.metadata.namespace)
 }
 
@@ -41,65 +73,53 @@ fn taken_by(state: &AppState, identity: &Identity, owner: &str) -> String {
     }
 }
 
-/// The name a new Context Space should carry in `project` (PF-76).
+/// The name a new Context Space should carry in `project` (PF-76, PF-84).
 ///
-/// `{project}-{wanted}` by default, the bare `wanted` when no project in the organization holds
-/// it. Every door proposes through this function, so the Portal's form, the assistant's drafts
-/// and `jc_space_complete` cannot disagree about a name.
+/// The local name as asked: two projects may each hold a space called `air`, because their
+/// ids render `{project}-air`. Every door proposes through this function, so the Portal's form,
+/// the assistant's drafts and `jc_space_complete` cannot disagree about a name.
 pub fn propose_name(
     state: &AppState,
     identity: &Identity,
     project: &str,
     wanted: &str,
 ) -> Proposal {
-    let Some(holder) = owner(state, wanted) else {
-        return Proposal {
-            name: wanted.to_owned(),
-            available: true,
-            reason: None,
-        };
-    };
-    let reason = taken_by(state, identity, &holder);
-    let prefixed = format!("{project}-{wanted}");
-    let available = owner(state, &prefixed).is_none();
+    let rendered = jc_core::kinds::urn_segment(project, wanted, None);
+    let reason = holder(state, &rendered, project, wanted)
+        .map(|owner| format!("'{rendered}' is {}", taken_by(state, identity, &owner)));
     Proposal {
-        name: prefixed,
-        available,
-        reason: Some(reason),
+        name: wanted.to_owned(),
+        available: reason.is_none(),
+        reason,
     }
 }
 
-/// Refuses a Context Space whose name another project already holds (PF-44, PF-76).
+/// Refuses a Context Space whose `{space}` segment another space already renders (PF-44,
+/// PF-76, PF-84).
 ///
 /// Called on every write before a Change exists, so the route, an operation, the assistant, an
-/// import and a dry run all answer the same refusal — and it carries the name to use instead.
-/// A space of this name in this project is this project's own space: an update, not a clash.
+/// import and a dry run all answer the same refusal. The same space written again is an
+/// update, not a clash.
 pub fn check(
     state: &AppState,
     identity: &Identity,
     project: &str,
     kind: &str,
     name: &str,
+    spec: &Value,
 ) -> Result<(), ApiError> {
     if kind != "ContextSpace" {
         return Ok(());
     }
-    let Some(holder) = owner(state, name) else {
+    let rendered = jc_core::kinds::urn_segment(project, name, pin_of(spec));
+    let Some(owner) = holder(state, &rendered, project, name) else {
         return Ok(());
     };
-    if holder == project {
-        return Ok(());
-    }
-    let reason = taken_by(state, identity, &holder);
-    let proposal = propose_name(state, identity, project, name);
-    let instead = if proposal.available {
-        format!("; propose '{}' instead", proposal.name)
-    } else {
-        String::new()
-    };
+    let reason = taken_by(state, identity, &owner);
     Err(ApiError::Denied(format!(
-        "context space name '{name}' is {reason}: a space name is unique in the organization \
-         (PF-44){instead}"
+        "the entity ids of context space '{name}' would carry '{rendered}', which is {reason}: \
+         an id segment is unique in the organization (PF-84); choose another name or \
+         spec.urnSegment"
     )))
 }
 
@@ -170,62 +190,99 @@ mod tests {
     }
 
     #[test]
-    fn a_free_name_is_proposed_bare() {
+    fn a_name_is_proposed_as_asked_and_renders_under_its_project() {
         let state = world(Vec::new());
-        let proposal = propose_name(&state, &who("jana@hel.fi"), "doprava", "parkovanie");
-        assert_eq!(proposal.name, "parkovanie");
+        let proposal = propose_name(&state, &who("jana@hel.fi"), "doprava", "mhd");
+        assert_eq!(
+            proposal.name, "mhd",
+            "ovzdusie/mhd renders ovzdusie-mhd, so mhd is free here"
+        );
         assert!(proposal.available);
         assert_eq!(proposal.reason, None);
-    }
-
-    #[test]
-    fn a_taken_name_is_proposed_with_the_project_in_front_and_names_the_holder_to_a_reader() {
-        let state = world(reader_in("ovzdusie"));
-        let proposal = propose_name(&state, &who("jana@hel.fi"), "doprava", "mhd");
-        assert_eq!(proposal.name, "doprava-mhd");
-        assert!(proposal.available);
+        assert_eq!(segment(&state.mirror, "ovzdusie", "mhd"), "ovzdusie-mhd");
         assert_eq!(
-            proposal.reason.as_deref(),
-            Some("taken by project ovzdusie")
+            segment(&state.mirror, "doprava", "nothing-yet"),
+            "doprava-nothing-yet"
         );
     }
 
     #[test]
-    fn a_taken_name_says_only_taken_to_someone_who_may_not_read_the_project_that_holds_it() {
-        // Bound in a project of their own, so they are not a stranger to the Portal — only to
-        // the project that holds the name (PF-59, R20).
-        let state = world(reader_in("doprava"));
-        let proposal = propose_name(&state, &who("jana@hel.fi"), "doprava", "mhd");
-        assert_eq!(proposal.name, "doprava-mhd");
-        assert_eq!(proposal.reason.as_deref(), Some("taken"));
-    }
-
-    #[test]
-    fn both_names_taken_is_answered_and_not_proposed() {
+    fn a_pin_wins_and_takes_its_segment_from_everyone_else() {
         let state = world(vec![manifest(
             "ContextSpace",
-            "doprava-mhd",
+            "hub",
             "helsinki",
-            json!({ "isSandbox": false }),
+            json!({ "urnSegment": "doprava-mhd" }),
         )]);
+        assert_eq!(segment(&state.mirror, "helsinki", "hub"), "doprava-mhd");
         let proposal = propose_name(&state, &who("jana@hel.fi"), "doprava", "mhd");
-        assert_eq!(proposal.name, "doprava-mhd");
         assert!(!proposal.available);
+        assert_eq!(proposal.reason.as_deref(), Some("'doprava-mhd' is taken"));
     }
 
     #[test]
-    fn the_gate_refuses_another_projects_name_and_lets_the_projects_own_space_through() {
-        let state = world(reader_in("ovzdusie"));
-        let jana = who("jana@hel.fi");
-        let refused = check(&state, &jana, "doprava", "ContextSpace", "mhd")
-            .expect_err("another project holds it");
-        let said = format!("{refused:?}");
+    fn a_taken_segment_names_the_holder_only_to_a_reader() {
+        let pinned = manifest(
+            "ContextSpace",
+            "old",
+            "ovzdusie",
+            json!({ "urnSegment": "doprava-mhd" }),
+        );
+        let mut extra = reader_in("ovzdusie");
+        extra.push(pinned.clone());
+        let reader = world(extra);
+        let said = format!(
+            "{:?}",
+            check(
+                &reader,
+                &who("jana@hel.fi"),
+                "doprava",
+                "ContextSpace",
+                "mhd",
+                &json!({})
+            )
+            .expect_err("the segment is pinned elsewhere")
+        );
         assert!(said.contains("taken by project ovzdusie"), "{said}");
         assert!(said.contains("doprava-mhd"), "{said}");
 
-        // The same name in the project that holds it is an update of that space.
-        check(&state, &jana, "ovzdusie", "ContextSpace", "mhd").expect("its own space");
+        let stranger = world(vec![pinned]);
+        let said = format!(
+            "{:?}",
+            check(
+                &stranger,
+                &who("jana@hel.fi"),
+                "doprava",
+                "ContextSpace",
+                "mhd",
+                &json!({})
+            )
+            .expect_err("taken")
+        );
+        assert!(said.contains("which is taken"), "{said}");
+        assert!(!said.contains("ovzdusie"), "{said}");
+    }
+
+    #[test]
+    fn the_gate_lets_the_same_space_and_other_kinds_through_and_checks_a_pin() {
+        let state = world(reader_in("ovzdusie"));
+        let jana = who("jana@hel.fi");
+        // The same local name in two projects renders two segments.
+        check(&state, &jana, "doprava", "ContextSpace", "mhd", &json!({}))
+            .expect("doprava-mhd is free");
+        // The same space written again is an update of that space.
+        check(&state, &jana, "ovzdusie", "ContextSpace", "mhd", &json!({})).expect("its own space");
+        // A pin onto another space's rendered segment is refused.
+        check(
+            &state,
+            &jana,
+            "doprava",
+            "ContextSpace",
+            "x",
+            &json!({ "urnSegment": "ovzdusie-mhd" }),
+        )
+        .expect_err("ovzdusie-mhd is ovzdusie/mhd's");
         // Every other kind is named inside its project and is none of this gate's business.
-        check(&state, &jana, "doprava", "Pipeline", "mhd").expect("not a space");
+        check(&state, &jana, "doprava", "Pipeline", "mhd", &json!({})).expect("not a space");
     }
 }

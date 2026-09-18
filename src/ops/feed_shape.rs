@@ -260,24 +260,23 @@ impl Records {
     }
 
     /// The mapping of the drafted Pipeline: one entity per record, its id
-    /// `urn:ngsi-ld:{class}:{org}:{space}:{localId}`, its `location` a GeoProperty, every other
+    /// `urn:ngsi-ld:{class}:{org}:{space}:{localId}` built from `env("JC_ORG_DOMAIN")` and
+    /// `env("JC_SPACE")`, so the pipeline mints ids of wherever it runs (PL-57, CC-82), its
+    /// `location` a GeoProperty, every other
     /// field a Property (a JsonProperty for an object or a list) under the slot name `slots`
     /// gives it, a null value left out.
-    pub fn mapping(
-        &self,
-        class: &str,
-        org: &str,
-        space: &str,
-        slots: &BTreeMap<String, String>,
-    ) -> String {
+    pub fn mapping(&self, class: &str, slots: &BTreeMap<String, String>) -> String {
         let array = std::iter::once("this".to_owned())
             .chain(self.path.iter().map(|key| segment(key)))
             .collect::<Vec<_>>()
             .join(".");
-        let prefix = format!("urn:ngsi-ld:{class}:{org}:{space}:");
+        let prefix = format!(
+            "{} + env(\"JC_ORG_DOMAIN\") + \":\" + env(\"JC_SPACE\") + \":\"",
+            Value::String(format!("urn:ngsi-ld:{class}:"))
+        );
         let id = match self.identifier() {
-            Some(field) => format!("{} + {field}.string()", Value::String(prefix)),
-            None => format!("{} + uuid_v4()", Value::String(prefix)),
+            Some(field) => format!("{prefix} + {field}.string()"),
+            None => format!("{prefix} + uuid_v4()"),
         };
         let mut entries = vec![
             format!("  \"id\": {id}"),
@@ -494,7 +493,7 @@ mod tests {
         assert_eq!(found.position(), Some(Position::Geometry));
         assert_eq!(found.identifier().as_deref(), Some("record.id"));
         assert_eq!(found.inference_sample()[0]["location"]["type"], "Point");
-        let mapping = found.mapping("Place", "hel.fi", "places", &BTreeMap::new());
+        let mapping = found.mapping("Place", &BTreeMap::new());
         assert!(mapping.starts_with("root = this.features.map_each(record -> {"));
         assert!(mapping.contains("\"name\": record.properties.name"));
         assert!(mapping.contains("\"value\": record.geometry"));
@@ -535,14 +534,19 @@ mod tests {
             ("capacity".to_owned(), "capacity".to_owned()),
             ("rental_uris".to_owned(), "rentalUris".to_owned()),
         ]);
-        let mapping = found.mapping("BikeHireDockingStation", "hel.fi", "city-bikes", &slots);
+        let mapping = found.mapping("BikeHireDockingStation", &slots);
         assert!(
             mapping.starts_with("root = this.data.stations.map_each(record -> {\n"),
             "{mapping}"
         );
         assert!(mapping.contains(
-            "\"id\": \"urn:ngsi-ld:BikeHireDockingStation:hel.fi:city-bikes:\" + record.station_id.string()"
-        ));
+            "\"id\": \"urn:ngsi-ld:BikeHireDockingStation:\" + env(\"JC_ORG_DOMAIN\") + \":\" + env(\"JC_SPACE\") + \":\" + record.station_id.string()"
+        ), "{mapping}");
+        // Neither the domain nor the space is typed in (CC-82, PL-57).
+        assert!(
+            !mapping.contains("hel.fi") && !mapping.contains("city-bikes"),
+            "{mapping}"
+        );
         assert!(mapping.contains("\"type\": \"BikeHireDockingStation\""));
         assert!(mapping.contains("\"coordinates\": [ record.lon.number(), record.lat.number() ]"));
         assert!(
@@ -564,10 +568,9 @@ mod tests {
         assert!(mapping.contains("\"JsonProperty\""));
 
         let odd = json!({ "rows": [{ "Station name (fi)": "A", "2nd": 1, "we\"ird": 2 }] });
-        let mapping =
-            records(&odd)
-                .expect("records")
-                .mapping("Row", "hel.fi", "rows", &BTreeMap::new());
+        let mapping = records(&odd)
+            .expect("records")
+            .mapping("Row", &BTreeMap::new());
         assert!(
             mapping.contains("\"Station_name\": record.\"Station name (fi)\""),
             "{mapping}"

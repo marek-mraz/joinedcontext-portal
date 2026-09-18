@@ -1589,6 +1589,12 @@ export interface components {
         };
         /** @description Reviewer-facing validation and diff result returned on `?dryRun=All` (MF-13, R17). */
         DryRunResult: {
+            /**
+             * @description Values the manifest writes out where the loader renders them (CC-83): each names the
+             *     path and what to write instead. Nothing here blocks the proposal; a copy of the
+             *     manifest into another organization would carry the literal with it.
+             */
+            findings?: string[];
             lane: components["schemas"]["Lane"];
             plan: components["schemas"]["PlanDiff"];
             probe?: null | components["schemas"]["Probe"];

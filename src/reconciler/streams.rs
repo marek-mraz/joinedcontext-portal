@@ -194,6 +194,26 @@ impl StreamDeployer {
                     continue;
                 }
 
+                // What each output's Endpoint writes into: the space segment a mapping reads as
+                // `env("JC_SPACE")`, `JC_SPACE_2`, … (PL-57, PF-84).
+                let segments: Vec<String> = spec
+                    .outputs()
+                    .iter()
+                    .map(|output| {
+                        let ep_name = output.target_endpoint.local_id();
+                        let space = mirror
+                            .get(&ns, "Endpoint", ep_name)
+                            .and_then(|ep| {
+                                ep.spec.get("contextSpaceRef").and_then(|r| {
+                                    r.as_str()
+                                        .or_else(|| r.get("name").and_then(Value::as_str))
+                                        .map(str::to_owned)
+                                })
+                            })
+                            .unwrap_or_default();
+                        crate::spaces::segment(mirror, &ns, &space)
+                    })
+                    .collect();
                 // Every output's Endpoint, from the mirror (PL-52, PL-55).
                 let slugs: Result<Vec<String>, String> = spec
                     .outputs()
@@ -240,7 +260,8 @@ impl StreamDeployer {
                             .map_err(|err| err.to_string())
                     });
                     match rendered {
-                        Ok(stream_json) => {
+                        Ok(mut stream_json) => {
+                            jcctl::bento::inject_space(&mut stream_json, &segments);
                             let outcome = self
                                 .apply(&ns, &name, stream_json, &mut running, &mut current_live)
                                 .await;
@@ -351,6 +372,8 @@ impl StreamDeployer {
                     unreachable!();
                 };
 
+                let mut stream_json = stream_json;
+                jcctl::bento::inject_space(&mut stream_json, &segments);
                 let outcome = self
                     .apply(&ns, &name, stream_json, &mut running, &mut current_live)
                     .await;
@@ -1777,6 +1800,57 @@ output:
             }
             other => panic!("expected Error, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn the_runner_receives_the_space_segment_where_the_mapping_reads_jc_space() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("PUT"))
+            .and(wiremock::matchers::path("/streams/citybikes-free"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+        let deployer = StreamDeployer::new(server.uri());
+        let mirror = helsinki_test_mirror();
+        let mut pipeline = mirror
+            .get("helsinki", "Pipeline", "citybikes-free")
+            .expect("the pipeline");
+        pipeline.spec["compute"]["bloblang"] = serde_json::json!(
+            "root.id = \"urn:ngsi-ld:X:\" + env(\"JC_ORG_DOMAIN\") + \":\" + env(\"JC_SPACE\") + \":\" + this.id"
+        );
+        mirror.upsert(pipeline);
+        let bentos = Bentos::new();
+        let outcomes = deployer
+            .converge(&mirror, &bentos, &Default::default())
+            .await;
+        assert_eq!(outcomes[0].2, StreamOutcome::Live, "{outcomes:?}");
+        let sent = server.received_requests().await.expect("recorded");
+        let body = String::from_utf8_lossy(&sent[0].body).to_string();
+        // The space `helsinki` has no manifest here, so it renders `helsinki-helsinki` (PF-84);
+        // the domain stays the runner's own variable.
+        assert!(body.contains(r#"+ \"helsinki-helsinki\" +"#), "{body}");
+        assert!(!body.contains("JC_SPACE"), "{body}");
+        assert!(body.contains("JC_ORG_DOMAIN"), "{body}");
+
+        // A pin on the space is what the runner gets instead.
+        mirror.upsert(ResourceEnvelope {
+            api_version: API_VERSION.to_owned(),
+            kind: "ContextSpace".to_owned(),
+            metadata: ObjectMeta {
+                name: "helsinki".to_owned(),
+                namespace: Some("helsinki".to_owned()),
+                ..Default::default()
+            },
+            spec: serde_json::json!({ "urnSegment": "helsinki" }),
+            status: None,
+        });
+        let deployer = StreamDeployer::new(server.uri());
+        deployer
+            .converge(&mirror, &bentos, &Default::default())
+            .await;
+        let sent = server.received_requests().await.expect("recorded");
+        let body = String::from_utf8_lossy(&sent.last().expect("a second PUT").body).to_string();
+        assert!(body.contains(r#"+ \"helsinki\" +"#), "{body}");
     }
 
     #[tokio::test]

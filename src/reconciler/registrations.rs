@@ -135,7 +135,10 @@ impl RegistrationSync {
                     .spec
                     .get("contextSpaceRef")
                     .and_then(reference_name)?;
-                Some((envelope.metadata.name, space))
+                Some((
+                    envelope.metadata.name,
+                    crate::spaces::segment(mirror, project, &space),
+                ))
             })
             .collect();
         move |name: &str| {
@@ -281,7 +284,8 @@ fn declared(mirror: &Mirror) -> Vec<(String, String, String, RawManifest)> {
                     continue;
                 }
             };
-            let space = spec.context_space_ref.name().to_owned();
+            // The broker tenant is the space's rendered segment (PF-84).
+            let space = crate::spaces::segment(mirror, &namespace, spec.context_space_ref.name());
             found.push((
                 namespace.clone(),
                 name,
@@ -356,6 +360,8 @@ mod tests {
                 "transport-read",
                 json!({ "contextSpaceRef": "transport" }),
             ),
+            // The hub predates PF-84 and pins its segment; `transport` renders its own.
+            envelope("ContextSpace", "hub", json!({ "urnSegment": "hub" })),
         ]);
 
         let declared = declared(&mirror);
@@ -371,7 +377,7 @@ mod tests {
             body["endpoint"],
             json!("http://context-broker.brokers.svc.cluster.local:8080/ngsi-ld/v1")
         );
-        assert_eq!(body["tenant"], json!("transport"));
+        assert_eq!(body["tenant"], json!("helsinki-transport"));
         assert_eq!(
             body["id"],
             json!("urn:ngsi-ld:ContextSourceRegistration:transport")

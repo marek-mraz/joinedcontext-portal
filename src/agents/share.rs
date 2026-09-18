@@ -235,7 +235,8 @@ pub fn render(
                 "metadata": { "name": format!("{name}-{suffix}"), "namespace": project },
                 "spec": {
                     "contextSpaceRef": { "kind": "ContextSpace", "name": space },
-                    "assigner": format!("did:web:{org_domain}"),
+                    // Rendered by the loader, so a copied organization is its own assigner (CC-82).
+                    "assigner": "did:web:{orgDomain}",
                     "assignee": assignee,
                     "operations": ["retrieveOps"],
                     "information": [{ "entities": entities }],
@@ -674,7 +675,7 @@ mod tests {
             policy["assignee"],
             json!({ "kind": "group", "id": "regional-transport" })
         );
-        assert_eq!(policy["assigner"], "did:web:hel.fi");
+        assert_eq!(policy["assigner"], "did:web:{orgDomain}");
         assert_eq!(policy["operations"], json!(["retrieveOps"]));
         assert_eq!(
             policy["information"][0]["entities"][0]["type"],

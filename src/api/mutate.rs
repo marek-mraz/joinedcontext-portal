@@ -665,6 +665,7 @@ async fn propose_engine(
             project,
             kind_info.kind,
             &envelope.metadata.name,
+            &envelope.spec,
         )?;
     }
 
@@ -705,6 +706,16 @@ async fn propose_engine(
             plan,
             probe,
             verdict: None,
+            findings: if kind_info.kind == "Environment" {
+                // An overlay is where the domain is written out (CC-73).
+                Vec::new()
+            } else {
+                crate::api::dry_run::literal_domain_findings(
+                    &envelope.spec,
+                    // No fallback: an instance that does not know its domain finds nothing.
+                    &crate::api::assistant::org_domain(state, ""),
+                )
+            },
         }));
     }
 

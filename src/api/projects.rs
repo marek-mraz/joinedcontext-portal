@@ -595,19 +595,22 @@ fn live_references(state: &AppState, project: &str) -> Vec<String> {
                 .map(str::to_owned)
         })
         .collect();
-    if slugs.is_empty() {
-        return Vec::new();
-    }
     let mut naming: Vec<String> = state
         .mirror
         .matching(|env| {
             env.kind == "SharedSpaceReference"
                 && env.metadata.namespace.as_deref() != Some(project)
-                && env
+                && (env
                     .spec
                     .get("endpointSlug")
                     .and_then(Value::as_str)
                     .is_some_and(|slug| slugs.contains(slug))
+                    // By name inside the organization (EP-77).
+                    || env
+                        .spec
+                        .pointer("/endpointRef/project")
+                        .and_then(Value::as_str)
+                        == Some(project))
         })
         .into_iter()
         .map(|env| {

@@ -489,6 +489,15 @@ fn remap(
     envelope.metadata.namespace =
         Some(namespace_of(&envelope.kind, declared.as_deref(), to).to_owned());
     remap_value(&mut envelope.spec, from, to, domain, spaces);
+    // A reference by name to an Endpoint of the project the bundle left follows it here; one
+    // to another project of the organization keeps naming that project (EP-77, MF-43).
+    if envelope.kind == "SharedSpaceReference" {
+        if let Some(Value::String(project)) = envelope.spec.pointer_mut("/endpointRef/project") {
+            if project.as_str() == from {
+                *project = to.to_owned();
+            }
+        }
+    }
 }
 
 /// The namespace a kind is stored in: `org` for an organization-scoped kind, the project
@@ -1448,6 +1457,39 @@ mod verification_tests {
             path: path.to_owned(),
             equal,
         }
+    }
+
+    /// EP-77: a reference by name to the project the bundle left follows it; one to another
+    /// project of the organization keeps naming that project.
+    #[test]
+    fn an_endpoint_ref_follows_the_project_it_named_and_no_other() {
+        let reference = |project: &str| crate::resource::ResourceEnvelope {
+            api_version: crate::resource::API_VERSION.to_owned(),
+            kind: "SharedSpaceReference".to_owned(),
+            metadata: crate::resource::ObjectMeta::new("city-bikes", "helsinki-mobility"),
+            spec: serde_json::json!({ "endpointRef": { "project": project, "name": "bikes" }, "alias": "a" }),
+            status: None,
+        };
+        let spaces = std::collections::BTreeSet::new();
+        let mut own = reference("helsinki-mobility");
+        super::remap(
+            &mut own,
+            "helsinki-mobility",
+            "espoo-mobility",
+            "espoo.fi",
+            &spaces,
+        );
+        assert_eq!(own.spec["endpointRef"]["project"], "espoo-mobility");
+        assert_eq!(own.metadata.namespace.as_deref(), Some("espoo-mobility"));
+        let mut other = reference("helsinki");
+        super::remap(
+            &mut other,
+            "helsinki-mobility",
+            "espoo-mobility",
+            "espoo.fi",
+            &spaces,
+        );
+        assert_eq!(other.spec["endpointRef"]["project"], "helsinki");
     }
 
     /// MF-42: the line the change body leads with counts what matched out of what was checked.
