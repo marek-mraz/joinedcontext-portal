@@ -1487,7 +1487,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: open_schema,
             output: workspace_schema,
             annotations: annotations(false, false, false),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<OpenRequest>(val.clone()).map(|_| ()),
@@ -1505,7 +1507,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: empty_schema,
             output: list_schema,
             annotations: annotations(true, false, true),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |_| Ok(()),
@@ -1522,7 +1526,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: name_schema,
             output: workspace_schema,
             annotations: annotations(true, false, true),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
@@ -1540,7 +1546,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: name_schema,
             output: comparison_schema,
             annotations: annotations(true, false, true),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
@@ -1558,7 +1566,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: update_schema,
             output: update_output_schema,
             annotations: annotations(false, false, false),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<UpdateInput>(val.clone()).map(|_| ()),
@@ -1586,7 +1596,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: name_schema,
             output: change_schema,
             annotations: annotations(false, false, false),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Yellow,
             validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
@@ -1605,7 +1617,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: name_schema,
             output: discarded_schema,
             annotations: annotations(false, true, true),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
@@ -1624,7 +1638,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: name_schema,
             output: preview_schema,
             annotations: annotations(false, false, false),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
@@ -1642,7 +1658,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: name_schema,
             output: preview_schema,
             annotations: annotations(true, false, true),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
@@ -1660,7 +1678,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             input: name_schema,
             output: stopped_schema,
             annotations: annotations(false, true, true),
-            kind: "Workspace",
+            // Not a manifest kind, so no profile could grant it: like a draft, it is a thing of
+            // the project, and the function itself checks who may see or own it.
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),

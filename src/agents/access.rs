@@ -159,6 +159,35 @@ mod tests {
         assert!(!access.names(op("jc_change_approve")));
     }
 
+    /// A workspace is no manifest kind, so a profile names its operations and nothing more
+    /// (T-1475). Bringing one back stays refused for an agent wherever it is named (AG-82).
+    #[test]
+    fn a_profile_that_names_the_workspace_operations_is_offered_them() {
+        let access = Access::from_spec(&json!({ "access": {
+            "operations": ["jc_workspace_open", "jc_workspace_compare", "jc_workspace_propose"],
+            "kinds": [{ "kind": "Pipeline", "verbs": ["read", "propose"] }]
+        }}));
+        assert!(access.names(op("jc_workspace_open")));
+        assert!(access.names(op("jc_workspace_compare")));
+        assert!(
+            !access.names(op("jc_workspace_discard")),
+            "not named, not offered"
+        );
+        let agent = ops::Caller {
+            identity: crate::auth::session::Identity {
+                subject: "s".into(),
+                username: "jana".into(),
+                email: None,
+                name: None,
+                roles: vec![],
+                groups: vec![],
+            },
+            via: ops::Via::Agent,
+            access: None,
+        };
+        assert!(agent.may_run(op("jc_workspace_propose")).is_err());
+    }
+
     #[test]
     fn a_kind_named_at_the_call_needs_the_operation_and_propose_on_that_kind() {
         let access = Access::from_spec(&json!({ "access": {
