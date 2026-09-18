@@ -4,6 +4,11 @@
  * Portal's own delete, a Red change the approver approves with the name typed back, so the
  * reconciler drops what it had deployed. Dependents first, then the spaces, then the models the spaces referenced.
  * Only these names, only this project; nothing to sweep is a pass.
+ *
+ * A copy is swept too, and by its own door (T-1592): a workspace is not a resource under
+ * `/projects/{project}/{plural}`, it is discarded, and an expired one is invisible to the list it
+ * is no longer in. Until this, a copy a take or a journey left behind was residue nobody looked
+ * at — the sweep knew seven plurals and not this one.
  */
 import { expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
@@ -35,6 +40,54 @@ async function proposeDelete(page: Page, context: BrowserContext, plural: string
   expect(answer.status(), `delete ${plural}/${name}: ${await answer.text()}`).toBe(202);
   return ((await answer.json()) as { metadata: { name: string } }).metadata.name;
 }
+
+/** The copies of this project, as their own route answers them (T-1592). */
+async function listedCopies(page: Page): Promise<{ name: string; expiresAt: string }[]> {
+  const answer = await page.request.get(`/api/v1/projects/${PROJECT}/workspaces`);
+  expect(answer.ok(), `list workspaces: ${await answer.text()}`).toBe(true);
+  const body = (await answer.json()) as { items?: { name: string; expiresAt: string }[] };
+  return body.items ?? [];
+}
+
+/**
+ * A copy a take or a journey left behind: its name carries a take's suffix or a journey's prefix,
+ * or it is already past its own `expiresAt` and still listed — which is residue whichever name it
+ * carries, because a copy nobody discarded holds a branch and may hold a preview slot.
+ */
+function copyResidue(copy: { name: string; expiresAt: string }): boolean {
+  return (
+    TAKE.test(copy.name) ||
+    /^(e2e|t1[0-9]{3}|journey)-/.test(copy.name) ||
+    Date.parse(copy.expiresAt) < Date.now()
+  );
+}
+
+test("no copy of a take or a journey is left in helsinki", async ({ browser }) => {
+  const { context, page } = await signIn(browser, STEWARD, `/projects/${PROJECT}/workspaces?lang=en`);
+  try {
+    const found = (await listedCopies(page)).filter(copyResidue).map((copy) => copy.name);
+    test.info().annotations.push({ type: "copies", description: found.join(", ") || "none" });
+    const token = (await context.cookies()).find((each) => each.name === "jc_csrf")?.value ?? "";
+    expect(token, "no jc_csrf cookie: the session did not complete").not.toBe("");
+    for (const name of found) {
+      // A copy is discarded, not proposed away: no Change, no approval, and its branch goes with
+      // it (`discarding_removes_the_branch_and_the_record`).
+      const answer = await page.request.delete(`/api/v1/projects/${PROJECT}/workspaces/${name}`, {
+        headers: { "x-csrf-token": token },
+      });
+      expect([204, 404], `discard ${name}: ${await answer.text()}`).toContain(answer.status());
+    }
+    await expect
+      .poll(async () => (await listedCopies(page)).filter(copyResidue).map((copy) => copy.name), {
+        message: "copies still listed after their discard",
+        timeout: 120_000,
+        intervals: [5_000],
+      })
+      .toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
 
 test("no residue of takes or e2e is left in helsinki", async ({ browser }) => {
   const steward = await signIn(browser, STEWARD, `/projects/${PROJECT}/endpoints?lang=en`);
