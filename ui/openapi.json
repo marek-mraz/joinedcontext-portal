@@ -4699,6 +4699,175 @@
         }
       }
     },
+    "/api/v1/projects/{project}/workspaces/{name}/preview": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "get_workspace_preview",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workspace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "start_workspace_preview",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workspace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The preview, running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the workspace's owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Running already, two run on the node, or the render is refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "stop_workspace_preview",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workspace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The preview stopped, or was not running"
+          },
+          "403": {
+            "description": "Not the workspace's owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/workspaces/{name}/propose": {
       "post": {
         "tags": [
@@ -8486,6 +8655,67 @@
           }
         },
         "additionalProperties": false
+      },
+      "Preview": {
+        "type": "object",
+        "description": "A workspace's preview as a person, an agent or an MCP client reads it.",
+        "required": [
+          "state",
+          "prefix",
+          "endpoints",
+          "pausedPipelines"
+        ],
+        "properties": {
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PreviewEndpoint"
+            },
+            "description": "The Endpoints of the workspace's project in the preview; empty unless it runs."
+          },
+          "pausedPipelines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every pipeline of the project, paused until a person starts it (PL-40)."
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the loader refused the render, when it did (CC-78)."
+          },
+          "state": {
+            "$ref": "#/components/schemas/PreviewState"
+          }
+        }
+      },
+      "PreviewEndpoint": {
+        "type": "object",
+        "description": "One Endpoint of a preview and where it answers.",
+        "required": [
+          "name",
+          "slug",
+          "url"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The Endpoint's name, as in the workspace."
+          },
+          "slug": {
+            "type": "string",
+            "description": "The slug minted for the preview; never the origin's."
+          },
+          "url": {
+            "type": "string"
+          }
+        }
       },
       "PreviewErrorRequest": {
         "type": "object",

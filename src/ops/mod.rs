@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 pub mod admin;
 pub mod drafts;
 pub mod feed_shape;
+pub mod previews;
 pub mod resources;
 pub mod runs;
 pub mod space_complete;
@@ -2149,7 +2150,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 60);
+        assert_eq!(ops.len(), 63);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -2236,6 +2237,7 @@ mod tests {
     ("GET", "/internal/agent-runs/{id}/inbox", "the runner's own callback, authenticated as a workload"),
     ("POST", "/internal/agent-runs/{id}/mcp", "the whole registry for one run, narrowed by its AgentProfile (AG-70) and refused an approval (AG-11)"),
     ("POST", "/internal/pipeline-tests/{id}", "the runner's own callback, authenticated as a workload"),
+    ("GET", "/internal/previews", "the gateway's read of the running previews, admitted by NetworkPolicy alone"),
     ("GET", "/mcp", "the MCP door itself, which dispatches this registry"),
     ("POST", "/mcp", "the MCP door itself, which dispatches this registry"),
     ("GET", "/metrics", "the Prometheus scrape"),
@@ -2310,6 +2312,9 @@ mod tests {
     ("GET", "/projects/{project}/workspaces/{name}/compare", "jc_workspace_compare"),
     ("POST", "/projects/{project}/workspaces/{name}/update", "jc_workspace_update_from_main"),
     ("POST", "/projects/{project}/workspaces/{name}/propose", "jc_workspace_propose"),
+    ("POST", "/projects/{project}/workspaces/{name}/preview", "jc_workspace_preview_start"),
+    ("GET", "/projects/{project}/workspaces/{name}/preview", "jc_workspace_preview_get"),
+    ("DELETE", "/projects/{project}/workspaces/{name}/preview", "jc_workspace_preview_stop"),
     ("GET", "/projects/{project}/{plural}", "jc_resource_list"),
     ("POST", "/projects/{project}/{plural}", "jc_resource_propose"),
     ("GET", "/projects/{project}/{plural}/{name}", "jc_resource_get"),

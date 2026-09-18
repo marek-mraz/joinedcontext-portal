@@ -111,6 +111,7 @@ pub fn internal_app(state: AppState) -> Router {
     Router::new()
         .merge(api::agent_runs::internal_router())
         .merge(api::pipeline_test::internal_router())
+        .merge(api::workspaces::internal_router())
         .with_state(state)
 }
 

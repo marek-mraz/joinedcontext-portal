@@ -995,6 +995,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/workspaces/{name}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_workspace_preview"];
+        put?: never;
+        post: operations["start_workspace_preview"];
+        delete: operations["stop_workspace_preview"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/workspaces/{name}/propose": {
         parameters: {
             query?: never;
@@ -2200,6 +2216,25 @@ export interface components {
             locale?: string | null;
             /** @description `light`, `dark` or `system`. */
             theme?: string | null;
+        };
+        /** @description A workspace's preview as a person, an agent or an MCP client reads it. */
+        Preview: {
+            /** @description The Endpoints of the workspace's project in the preview; empty unless it runs. */
+            endpoints: components["schemas"]["PreviewEndpoint"][];
+            /** @description Every pipeline of the project, paused until a person starts it (PL-40). */
+            pausedPipelines: string[];
+            prefix: string;
+            /** @description Why the loader refused the render, when it did (CC-78). */
+            reason?: string | null;
+            state: components["schemas"]["PreviewState"];
+        };
+        /** @description One Endpoint of a preview and where it answers. */
+        PreviewEndpoint: {
+            /** @description The Endpoint's name, as in the workspace. */
+            name: string;
+            /** @description The slug minted for the preview; never the origin's. */
+            slug: string;
+            url: string;
         };
         /** @description A runtime error the preview frame posted as `jc-error`, relayed by the page that frames it. */
         PreviewErrorRequest: {
@@ -6091,6 +6126,133 @@ export interface operations {
                 };
             };
             /** @description No such project or workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_workspace_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Workspace name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preview"];
+                };
+            };
+            /** @description No such workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    start_workspace_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Workspace name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preview, running */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preview"];
+                };
+            };
+            /** @description Not the workspace's owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Running already, two run on the node, or the render is refused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    stop_workspace_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Workspace name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preview stopped, or was not running */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not the workspace's owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such workspace */
             404: {
                 headers: {
                     [name: string]: unknown;

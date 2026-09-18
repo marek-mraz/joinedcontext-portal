@@ -52,6 +52,8 @@ pub struct AppState {
     pub draft_events: DraftHub,
     /// The workspace registry (CC-76): durable with a database, in memory without one.
     pub workspaces: crate::ops::workspaces::WorkspaceStore,
+    /// The renders of running workspace previews, by branch head (CC-78).
+    pub previews: Arc<crate::ops::previews::Renders>,
     /// What is happening in a project (UI-31, OPS-48). Always present, durable only when there
     /// is a database: without one, the Portal shows what happened since it started.
     pub activity: crate::activity::ActivityStore,
@@ -111,6 +113,7 @@ impl AppState {
             drafts,
             draft_events,
             workspaces: crate::ops::workspaces::WorkspaceStore::new(None),
+            previews: Arc::default(),
             activity,
             activity_events,
             drift: Arc::new(crate::reconciler::drift::Store::default()),

@@ -401,6 +401,26 @@ impl WorkspaceStore {
         }
     }
 
+    /// Every workspace whose preview starts or runs, in any project (ADR-N-024 §10).
+    pub async fn previewing(&self) -> Result<Vec<Workspace>, WorkspaceError> {
+        match &*self.inner {
+            Inner::Memory(map) => Ok(map
+                .read()
+                .await
+                .values()
+                .filter(|w| matches!(w.preview_state, PreviewState::Starting | PreviewState::Running))
+                .cloned()
+                .collect()),
+            Inner::Db(pool) => sqlx::query("SELECT name, title, project, owner, base_revision, scope, preview_state, created_at, expires_at FROM workspaces WHERE preview_state IN ('starting', 'running') ORDER BY name")
+            .fetch_all(pool)
+            .await
+            .map_err(db)?
+            .into_iter()
+            .map(row_to_workspace)
+            .collect(),
+        }
+    }
+
     /// The workspaces whose TTL has passed at `now`, for the reaper (CC-81).
     pub async fn expired(&self, now: DateTime<Utc>) -> Result<Vec<Workspace>, WorkspaceError> {
         match &*self.inner {
@@ -671,7 +691,7 @@ pub fn may_see(
 }
 
 /// The live workspace `name` of `project`, readable by the caller.
-async fn visible(
+pub(crate) async fn visible(
     state: &AppState,
     identity: &Identity,
     project: &str,
@@ -689,7 +709,7 @@ async fn visible(
 }
 
 /// [`visible`], and the caller's own: only the owner changes a workspace (API/01 §22).
-async fn owned(
+pub(crate) async fn owned(
     state: &AppState,
     identity: &Identity,
     project: &str,
@@ -1286,6 +1306,7 @@ pub async fn discard(
     let workspace = owned(state, identity, project, name, "discard").await?;
     forge(state)?.delete_branch(&workspace.branch()).await?;
     state.workspaces.delete(name).await?;
+    state.previews.forget(name);
     Ok(())
 }
 
@@ -1422,6 +1443,25 @@ fn change_schema() -> Value {
         },
         "required": ["changeId", "lane", "change"]
     })
+}
+
+fn preview_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["state", "prefix", "endpoints", "pausedPipelines"],
+        "properties": {
+            "state": { "type": "string", "enum": ["none", "starting", "running", "stopped", "error"] },
+            "prefix": { "type": "string" },
+            "endpoints": { "type": "array", "items": { "type": "object", "properties": {
+                "name": { "type": "string" }, "slug": { "type": "string" }, "url": { "type": "string" } } } },
+            "pausedPipelines": { "type": "array", "items": { "type": "string" } },
+            "reason": { "type": "string" }
+        }
+    })
+}
+
+fn stopped_schema() -> Value {
+    json!({ "type": "object", "properties": { "stopped": { "type": "string" } }, "required": ["stopped"] })
 }
 
 fn discarded_schema() -> Value {
@@ -1574,6 +1614,61 @@ pub fn operations() -> Vec<crate::ops::Operation> {
                     let input: NameInput = parse_input(val)?;
                     discard(&caller.identity, state, project, &input.name).await?;
                     Ok(json!({ "discarded": input.name }))
+                })
+            },
+        },
+        Operation {
+            name: "jc_workspace_preview_start",
+            title: "Start A Workspace Preview",
+            description: "Renders the workspace with its prefix and serves its Endpoints on slugs of their own; every pipeline stays paused (CC-78, PF-83)",
+            input: name_schema,
+            output: preview_schema,
+            annotations: annotations(false, false, false),
+            kind: "Workspace",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: NameInput = parse_input(val)?;
+                    Ok(serde_json::to_value(crate::ops::previews::start(&caller.identity, state, project, &input.name).await?)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_workspace_preview_get",
+            title: "Read A Workspace Preview",
+            description: "Whether the preview runs, the addresses of its Endpoints, its paused pipelines, and why it failed when it did",
+            input: name_schema,
+            output: preview_schema,
+            annotations: annotations(true, false, true),
+            kind: "Workspace",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: NameInput = parse_input(val)?;
+                    Ok(serde_json::to_value(crate::ops::previews::get(&caller.identity, state, project, &input.name).await?)?)
+                })
+            },
+        },
+        Operation {
+            name: "jc_workspace_preview_stop",
+            title: "Stop A Workspace Preview",
+            description: "Stops the preview; its Endpoints stop answering. Stopping one that does not run changes nothing",
+            input: name_schema,
+            output: stopped_schema,
+            annotations: annotations(false, true, true),
+            kind: "Workspace",
+            verb: None,
+            lane: Lane::Green,
+            validate: |val| parse_input::<NameInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
+                Box::pin(async move {
+                    let input: NameInput = parse_input(val)?;
+                    crate::ops::previews::stop(&caller.identity, state, project, &input.name).await?;
+                    Ok(json!({ "stopped": input.name }))
                 })
             },
         },

@@ -11,6 +11,7 @@ use crate::auth::session::Front;
 use crate::auth::CurrentUser;
 use crate::change::Change;
 use crate::error::{ApiError, ProblemDetails};
+use crate::ops::previews::{self, Preview, ServedList};
 use crate::ops::workspaces::{
     self, Comparison, OpenRequest, UpdateReport, UpdateRequest, WorkspaceList, WorkspaceView,
 };
@@ -190,6 +191,87 @@ pub async fn discard_workspace(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/projects/{project}/workspaces/{name}/preview",
+    tag = "workspaces",
+    params(
+        ("project" = String, Path, description = "Project name"),
+        ("name" = String, Path, description = "Workspace name"),
+    ),
+    responses(
+        (status = 202, description = "The preview, running", body = Preview),
+        (status = 403, description = "Not the workspace's owner", body = ProblemDetails),
+        (status = 404, description = "No such workspace", body = ProblemDetails),
+        (status = 409, description = "Running already, two run on the node, or the render is refused", body = ProblemDetails),
+    )
+)]
+pub async fn start_workspace_preview(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path((project, name)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    let preview = previews::start(&user.0.identity, &state, &project, &name).await?;
+    Ok((StatusCode::ACCEPTED, Json(preview)).into_response())
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/projects/{project}/workspaces/{name}/preview",
+    tag = "workspaces",
+    params(
+        ("project" = String, Path, description = "Project name"),
+        ("name" = String, Path, description = "Workspace name"),
+    ),
+    responses(
+        (status = 200, description = "The preview", body = Preview),
+        (status = 404, description = "No such workspace", body = ProblemDetails),
+    )
+)]
+pub async fn get_workspace_preview(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path((project, name)): Path<(String, String)>,
+) -> Result<Json<Preview>, ApiError> {
+    Ok(Json(
+        previews::get(&user.0.identity, &state, &project, &name).await?,
+    ))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/projects/{project}/workspaces/{name}/preview",
+    tag = "workspaces",
+    params(
+        ("project" = String, Path, description = "Project name"),
+        ("name" = String, Path, description = "Workspace name"),
+    ),
+    responses(
+        (status = 204, description = "The preview stopped, or was not running"),
+        (status = 403, description = "Not the workspace's owner", body = ProblemDetails),
+        (status = 404, description = "No such workspace", body = ProblemDetails),
+    )
+)]
+pub async fn stop_workspace_preview(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path((project, name)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    previews::stop(&user.0.identity, &state, &project, &name).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Every running preview for the gateway, on the internal listener only (Architecture/06
+/// §7.2). Manifests hold `secretRef`s and no secret, and the NetworkPolicy admits the gateway
+/// alone to this port.
+pub async fn served_previews(State(state): State<AppState>) -> Result<Json<ServedList>, ApiError> {
+    Ok(Json(previews::served(&state).await?))
+}
+
+pub fn internal_router() -> Router<AppState> {
+    Router::new().route("/internal/previews", get(served_previews))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
@@ -207,6 +289,12 @@ pub fn router() -> Router<AppState> {
         .route(
             "/projects/{project}/workspaces/{name}/update",
             post(update_workspace),
+        )
+        .route(
+            "/projects/{project}/workspaces/{name}/preview",
+            get(get_workspace_preview)
+                .post(start_workspace_preview)
+                .delete(stop_workspace_preview),
         )
         .route(
             "/projects/{project}/workspaces/{name}/propose",
