@@ -1,5 +1,7 @@
 //! Tests for shared drafts, the draft store, and the draft REST API (AG-61, UI-47).
 
+mod common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -413,4 +415,111 @@ async fn sweep_removes_idle_drafts() {
         .await
         .unwrap()
         .is_none());
+}
+
+/// A person bound on `ovzdusie` to a role that reads Pipeline only.
+fn reader_on_ovzdusie(state: &AppState) {
+    use joinedcontext_portal::permissions::ORG_NAMESPACE;
+    state.mirror.upsert(common::envelope(
+        "Role",
+        "pipeline-reader",
+        ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": ["Pipeline"], "verbs": ["read"] }] }),
+    ));
+    state.mirror.upsert(common::envelope(
+        "RoleBinding",
+        "pipeline-reader-ovzdusie",
+        ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": "reader@hel.fi" }],
+            "role": "pipeline-reader",
+            "scope": { "project": "ovzdusie" },
+        }),
+    ));
+}
+
+/// PF-59, R20 (T-1407): the draft stream and the draft list are reads, so a project the caller
+/// holds no binding in answers `404`, the answer of a project that does not exist; a draft write
+/// there keeps its `403`, which names what is missing (PF-50).
+#[tokio::test]
+async fn drafts_of_a_project_the_caller_may_not_read_are_not_found() {
+    let state = AppState::new(Config::for_tests(), None).with_mirror(Arc::new(Mirror::new()));
+    reader_on_ovzdusie(&state);
+    let stranger = || common::person("stranger");
+
+    for uri in [
+        "/api/v1/projects/ovzdusie/drafts/events",
+        "/api/v1/projects/ovzdusie/drafts",
+    ] {
+        let answer = common::send(&state, stranger(), "GET", uri, None).await;
+        assert_eq!(
+            answer.status,
+            StatusCode::NOT_FOUND,
+            "{uri}: {}",
+            answer.text
+        );
+        let absent = common::send(
+            &state,
+            stranger(),
+            "GET",
+            &uri.replace("ovzdusie", "no-such-project"),
+            None,
+        )
+        .await;
+        assert_eq!(
+            answer.text.replace("ovzdusie", "no-such-project"),
+            absent.text,
+            "{uri}: a project the caller may not read reads like one that is not there"
+        );
+    }
+
+    let write = common::send(
+        &state,
+        stranger(),
+        "PUT",
+        "/api/v1/projects/ovzdusie/drafts/Pipeline/p1",
+        Some(json!({ "manifest": {
+            "apiVersion": API_VERSION, "kind": "Pipeline", "metadata": { "name": "p1" }, "spec": {}
+        } })),
+    )
+    .await;
+    assert_eq!(write.status, StatusCode::FORBIDDEN, "{}", write.text);
+}
+
+/// The refusal's other half: a person bound on the project reads its drafts and opens the stream.
+#[tokio::test]
+async fn a_person_bound_on_the_project_reads_its_drafts_and_its_stream() {
+    let state = AppState::new(Config::for_tests(), None).with_mirror(Arc::new(Mirror::new()));
+    reader_on_ovzdusie(&state);
+
+    let list = common::send(
+        &state,
+        common::person("reader"),
+        "GET",
+        "/api/v1/projects/ovzdusie/drafts",
+        None,
+    )
+    .await;
+    assert_eq!(list.status, StatusCode::OK, "{}", list.text);
+
+    // The stream never ends, so only its head is read.
+    let config = state.config.clone();
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/ovzdusie/drafts/events")
+                .header(
+                    header::COOKIE,
+                    common::cookie(&config, common::person("reader")),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "text/event-stream"
+    );
 }

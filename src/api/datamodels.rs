@@ -482,10 +482,18 @@ pub(crate) async fn check_source(
     )
 )]
 pub async fn get_source(
-    _user: CurrentUser,
+    user: CurrentUser,
     State(state): State<AppState>,
     Path((project, name)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
+    // PF-59, R20 (T-1367): the source is a read of the model, so a caller who may not read the
+    // project's models gets the answer of a model that is not there, and the forge is not asked.
+    // The operations registry and the MCP resource ask the same question before `read_source`.
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read("DataModel") {
+        return Err(ApiError::NotFound(format!(
+            "DataModel '{name}' not found in project '{project}'"
+        )));
+    }
     let content = read_source(&state, &project, &name).await?;
     Ok((
         StatusCode::OK,

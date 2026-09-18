@@ -151,6 +151,27 @@ mod keys {
         .expect("a signed token")
     }
 
+    /// A client-credentials token as Keycloak mints it for the service account of `client`:
+    /// `azp` is the client, the user name is Keycloak's `service-account-{client}`, and — with
+    /// `azp` left out — what an older or foreign issuer might send.
+    pub fn service_token(issuer: &str, client: Option<&str>) -> String {
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some("realm-es256".into());
+        let name = client.unwrap_or("anonymous-client");
+        let mut claims = json!({
+            "iss": issuer,
+            "aud": "joinedcontext-portal",
+            "sub": format!("sa:{name}"),
+            "preferred_username": format!("service-account-{name}"),
+            "exp": now() + 300,
+            "iat": now(),
+        });
+        if let Some(client) = client {
+            claims["azp"] = json!(client);
+        }
+        encode(&header, &claims, &realm().es256).expect("a signed token")
+    }
+
     /// A back-channel logout token as the realm signs one. `event` and `nonce` are what
     /// separates it from the ID token that travels in the open as `id_token_hint`: the realm
     /// signs both with the same key, so only the claims tell them apart (AP-29).
@@ -943,4 +964,65 @@ async fn only_a_token_saying_it_ends_a_session_is_taken_for_one() {
 
     let (status, me) = me_with(app, &[("cookie", session_cookies(300))]).await;
     assert_eq!(status, StatusCode::OK, "no refusal revoked anything: {me}");
+}
+
+/// OPS-48, T-1402: the activity feed is the audit trail, so only the collector's own Keycloak
+/// client appends to it. Every workload's token carries the Portal's audience; the client that
+/// obtained it (`azp`) is what tells the collector from a department's ServiceAccount, and a
+/// user name shaped like the collector's is not that.
+#[tokio::test]
+async fn only_the_collector_s_client_appends_to_the_activity_feed() {
+    let realm = realm().await;
+    let app = app_with_realm(&realm).await;
+    let issuer = issuer_of(&realm);
+    let post = |token: String| {
+        let app = app.clone();
+        async move {
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/activity")
+                        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(json!({ "resourceLogs": [] }).to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            (status, String::from_utf8_lossy(&body).into_owned())
+        }
+    };
+
+    let (status, body) = post(keys::service_token(&issuer, Some("activity-ingest"))).await;
+    assert_eq!(status, StatusCode::OK, "the collector is let in: {body}");
+
+    for (who, token) in [
+        (
+            "a department's service account",
+            keys::service_token(&issuer, Some("helsinki-sensors")),
+        ),
+        (
+            "a token that names no client",
+            keys::service_token(&issuer, None),
+        ),
+        (
+            "a person's token",
+            keys::token(
+                jsonwebtoken::Algorithm::ES256,
+                &issuer,
+                "service-account-activity-ingest",
+                300,
+            ),
+        ),
+    ] {
+        let (status, body) = post(token).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{who}: {body}");
+        assert!(
+            body.contains("activity-ingest"),
+            "{who}: the refusal names whose route it is: {body}"
+        );
+    }
 }

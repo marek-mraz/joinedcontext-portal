@@ -4,7 +4,7 @@
 //! 1. Every registered operation answers on `POST /api/v1/projects/{project}/ops/{name}`.
 //! 2. `GET /api/v1/projects/{project}/ops` lists only operations permitted for the caller.
 //! 3. An unknown field in input yields 422 Unprocessable Entity with error details.
-//! 4. A principal without permissions is refused with 403 Forbidden.
+//! 4. A principal without a binding reads a project that is not there (404, PF-59, R20).
 //! 5. `jc_catalog_search` produces identical search results to the assistant catalog route.
 
 use axum::body::Body;
@@ -280,8 +280,10 @@ async fn unknown_field_in_input_returns_422() {
     );
 }
 
+/// A read in a project the caller holds no binding in is the answer of a project that is not
+/// there (PF-59, R20); the 403 of PF-50 is for a write, which says what is missing.
 #[tokio::test]
-async fn principal_without_binding_returns_403() {
+async fn principal_without_binding_reads_a_project_that_is_not_there() {
     let config = Config::for_tests();
     let state = AppState::new(config.clone(), None);
     let app = server::app(state);
@@ -308,7 +310,7 @@ async fn principal_without_binding_returns_403() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

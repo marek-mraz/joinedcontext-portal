@@ -2713,18 +2713,8 @@
               }
             }
           },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
           "404": {
-            "description": "Project not found",
+            "description": "Project not found, or not readable by the caller",
             "content": {
               "application/json": {
                 "schema": {

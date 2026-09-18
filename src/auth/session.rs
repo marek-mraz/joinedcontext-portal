@@ -252,9 +252,14 @@ impl FromRequestParts<AppState> for CurrentUser {
             .filter(|t| !t.is_empty())
             .ok_or(ApiError::Unauthorized)?;
             let verifier = state.bearer.as_ref().ok_or(ApiError::Unauthorized)?;
-            let session = verifier.verify(token).await?;
+            let (session, client) = verifier.verify_with_client(token).await?;
             if state.is_revoked(&session) {
                 return Err(ApiError::Unauthorized);
+            }
+            if let (Front::Bearer, Some(client)) = (front, client) {
+                parts
+                    .extensions
+                    .insert(crate::auth::bearer::TokenClient(client));
             }
             return Ok(CurrentUser(session));
         }

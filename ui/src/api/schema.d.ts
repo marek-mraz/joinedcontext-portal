@@ -4410,16 +4410,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Project not found */
+            /** @description Project not found, or not readable by the caller */
             404: {
                 headers: {
                     [name: string]: unknown;

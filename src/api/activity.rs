@@ -25,6 +25,7 @@ use tokio_stream::StreamExt;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::activity::{ActivityEvent, ActivityFilter, Cursor, DEFAULT_LIMIT, MAX_LIMIT};
+use crate::auth::bearer::TokenClient;
 use crate::auth::session::{CurrentUser, Front};
 use crate::error::{ApiError, ProblemDetails};
 use crate::resource::is_dns1123;
@@ -328,6 +329,10 @@ fn event_of(record: &Value) -> Result<ActivityEvent, String> {
     Ok(event)
 }
 
+/// The OpenTelemetry Collector's Keycloak client
+/// (`joinedcontext-deployment/components/observability/keycloak-clients.yaml`).
+pub const COLLECTOR_CLIENT: &str = "activity-ingest";
+
 #[utoipa::path(
     post,
     path = "/api/v1/activity",
@@ -343,6 +348,7 @@ fn event_of(record: &Value) -> Result<ActivityEvent, String> {
 /// four hundred.
 pub async fn ingest_activity(
     _user: CurrentUser,
+    client: Option<axum::Extension<TokenClient>>,
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
@@ -353,6 +359,19 @@ pub async fn ingest_activity(
         return Err(ApiError::Denied(
             "the activity ingest route is the collector's, and a human session is not it".into(),
         ));
+    }
+    // And not any service account either (T-1402): every workload's token carries the Portal's
+    // audience, so the audience says nothing about who writes the audit trail. The client that
+    // obtained the token does, and only the collector's own may append here.
+    if client
+        .as_ref()
+        .map(|axum::Extension(TokenClient(id))| id.as_str())
+        != Some(COLLECTOR_CLIENT)
+    {
+        return Err(ApiError::Denied(format!(
+            "the activity ingest route is the collector's (Keycloak client '{COLLECTOR_CLIENT}'), \
+             and this token was obtained by another client"
+        )));
     }
     let known: Vec<String> = state.mirror.namespaces();
 

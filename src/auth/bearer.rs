@@ -152,6 +152,17 @@ impl BearerVerifier {
     /// Verifies signature (ES256 or RS256, known `kid`), `iss`, `aud`, `exp` and `nbf`; anything
     /// else is `401`. The returned session carries no id token: bearer callers never log out.
     pub async fn verify(&self, token: &str) -> Result<Session, ApiError> {
+        self.verify_with_client(token)
+            .await
+            .map(|(session, _)| session)
+    }
+
+    /// [`Self::verify`], and the Keycloak client that obtained the token (`azp`): a route that
+    /// belongs to one workload asks which client it is, because a user name is not that.
+    pub async fn verify_with_client(
+        &self,
+        token: &str,
+    ) -> Result<(Session, Option<String>), ApiError> {
         let header = decode_header(token).map_err(|_| ApiError::Unauthorized)?;
         if !ALGORITHMS.contains(&header.alg) {
             return Err(ApiError::Unauthorized);
@@ -179,11 +190,12 @@ impl BearerVerifier {
         let data =
             decode::<Claims>(token, &key, &validation).map_err(|_| ApiError::Unauthorized)?;
         let c = data.claims;
+        let client = c.azp.clone();
         let username = c
             .preferred_username
             .or(c.azp)
             .unwrap_or_else(|| c.sub.clone());
-        Ok(Session {
+        let session = Session {
             identity: Identity {
                 subject: c.sub,
                 username,
@@ -201,9 +213,16 @@ impl BearerVerifier {
             id_token: String::new(),
             access_expires_at: c.exp,
             refresh_token: None,
-        })
+        };
+        Ok((session, client))
     }
 }
+
+/// The Keycloak client (`azp`) of a verified bearer token, parked in the request's extensions
+/// by [`crate::auth::session::CurrentUser`]. Absent for a cookie session and for the edge's
+/// token, which is a person's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenClient(pub String);
 
 #[cfg(test)]
 mod tests {

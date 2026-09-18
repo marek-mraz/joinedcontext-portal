@@ -247,8 +247,7 @@ pub async fn drop_draft(
     responses(
         (status = 200, description = "Server-Sent Events stream of draft events", content_type = "text/event-stream"),
         (status = 401, description = "Unauthorized", body = ProblemDetails),
-        (status = 403, description = "Forbidden", body = ProblemDetails),
-        (status = 404, description = "Project not found", body = ProblemDetails),
+        (status = 404, description = "Project not found, or not readable by the caller", body = ProblemDetails),
     )
 )]
 pub async fn stream_draft_events(
@@ -259,11 +258,9 @@ pub async fn stream_draft_events(
     if !is_dns1123(&project) {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
-    let effective = crate::permissions::for_request(&state, &user.0.identity, &project);
-    if !effective.bootstrap && effective.grants.is_empty() {
-        return Err(ApiError::Denied(format!(
-            "no role grants access in project {project} (PF-50)"
-        )));
+    // The stream is a read, answered like the list it mirrors (PF-59, R20, T-1407).
+    if !crate::permissions::for_request(&state, &user.0.identity, &project).may_read_project() {
+        return Err(ApiError::NotFound(format!("project '{project}' not found")));
     }
 
     let live = state.draft_events.subscribe(&project).await;

@@ -293,7 +293,14 @@ pub fn permitted(
         ("Change", Some(_)) => crate::api::changes::may_approve_anything(state, identity, project)?,
         (kind, Some(verb)) => effective.check(kind, verb, None)?,
         (_, None) if resources::CHECKED_BY_THE_ROUTE.contains(&op.name) => {}
-        (_, None) if !effective.bootstrap && effective.grants.is_empty() => {
+        // A read of a project the caller may not read is the answer of a project that is not
+        // there (PF-59, R20); a write keeps its 403, which names what is missing (PF-50).
+        (_, None) if !effective.may_read_project() && op.annotations.read_only_hint => {
+            return Err(OpError::Api(ApiError::NotFound(format!(
+                "project '{project}' not found"
+            ))));
+        }
+        (_, None) if !effective.may_read_project() => {
             return Err(OpError::Api(ApiError::Denied(format!(
                 "no role grants access in project {project} (PF-50)"
             ))));

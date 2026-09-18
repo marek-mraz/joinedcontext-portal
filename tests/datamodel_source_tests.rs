@@ -1,5 +1,7 @@
 //! Tests for reading and saving DataModel LinkML source and compiled schema artifacts (DM-01, DM-02, DM-22, DM-24, DM-56).
 
+mod common;
+
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -921,4 +923,120 @@ async fn put_naming_a_space_the_project_does_not_hold_is_404() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// A Role in the organization that reads `kinds`, bound to `who@hel.fi` on the project `ovzdusie`.
+fn grant_read(state: &AppState, who: &str, kinds: serde_json::Value) {
+    use joinedcontext_portal::permissions::ORG_NAMESPACE;
+    state.mirror.upsert(common::envelope(
+        "Role",
+        "reader",
+        ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": kinds, "verbs": ["read"] }] }),
+    ));
+    state.mirror.upsert(common::envelope(
+        "RoleBinding",
+        "reader-ovzdusie",
+        ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": format!("{who}@hel.fi") }],
+            "role": "reader",
+            "scope": { "project": "ovzdusie" },
+        }),
+    ));
+}
+
+/// PF-59, R20 (T-1367): the source is a read of the DataModel, so a person who may not read the
+/// project's models is answered as if the model were not there, and the forge is never asked.
+#[tokio::test]
+async fn get_source_without_read_on_datamodel_is_404_and_the_forge_is_not_asked() {
+    let forge = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "default_branch": "main",
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(PUBLISHED_LINKML)
+        })))
+        .expect(0)
+        .mount(&forge)
+        .await;
+    let state = common::state_on(&forge);
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+    grant_read(&state, "pipelines-only", json!(["Pipeline"]));
+    let uri = "/api/v1/projects/ovzdusie/datamodels/air-quality/source";
+
+    for who in ["stranger", "pipelines-only"] {
+        let answer = common::send(&state, common::person(who), "GET", uri, None).await;
+        assert_eq!(
+            answer.status,
+            StatusCode::NOT_FOUND,
+            "{who}: {}",
+            answer.text
+        );
+        assert!(
+            !answer.text.contains("AirQualityObserved"),
+            "{who} read the source"
+        );
+        // The same answer as a model that does not exist, so the name discloses nothing.
+        let absent = common::send(
+            &state,
+            common::person(who),
+            "GET",
+            "/api/v1/projects/ovzdusie/datamodels/no-such-model/source",
+            None,
+        )
+        .await;
+        assert_eq!(
+            answer.text.replace("air-quality", "no-such-model"),
+            absent.text,
+            "{who}: the refusal differs from an absent model"
+        );
+    }
+}
+
+/// The refusal's other half: a person whose role reads DataModel gets the source.
+#[tokio::test]
+async fn get_source_with_read_on_datamodel_answers_the_source() {
+    let forge = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&forge)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/contents/projects/ovzdusie/spaces/mobility/datamodels/air-quality.linkml.yaml",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "sha-linkml-1",
+            "content": STANDARD.encode(PUBLISHED_LINKML)
+        })))
+        .mount(&forge)
+        .await;
+    let state = common::state_on(&forge);
+    seed_datamodel(
+        &state,
+        "ovzdusie",
+        "air-quality",
+        "./air-quality.linkml.yaml",
+        "1.0.0",
+    );
+    grant_read(&state, "modeller", json!(["DataModel"]));
+
+    let answer = common::send(
+        &state,
+        common::person("modeller"),
+        "GET",
+        "/api/v1/projects/ovzdusie/datamodels/air-quality/source",
+        None,
+    )
+    .await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.text);
+    assert_eq!(answer.text, PUBLISHED_LINKML);
 }
