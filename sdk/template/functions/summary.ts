@@ -42,9 +42,14 @@ const summary: FnHandler = async (request, ctx) => {
   if (!Array.isArray(given) || given.length === 0 || given.length > MAX_TYPES || !given.every((t) => typeof t === "string" && TYPE.test(t))) {
     return { status: 400, body: { title: `types must be 1 to ${MAX_TYPES} entity type names` } };
   }
+  // A type two endpoints serve is read from the one the page names (SDK-02).
+  const endpoint: unknown = request.method === "POST" ? request.body?.endpoint : request.query.endpoint;
+  if (endpoint !== undefined && (typeof endpoint !== "string" || endpoint === "")) {
+    return { status: 400, body: { title: "endpoint must be the name of one endpoint" } };
+  }
   const types: TypeSummary[] = [];
   for (const type of given as string[]) {
-    const rows = await ctx.jc.entities.all(type, { limit: 5000 });
+    const rows = await ctx.jc.entities.all(type, { limit: 5000, ...(endpoint ? { endpoint } : {}) });
     types.push({ type, count: rows.length, averages: averagesOf(rows) });
   }
   ctx.log("summary", types.length, "types");
