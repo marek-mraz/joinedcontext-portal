@@ -34,6 +34,8 @@ const PATHS: Record<string, string> = {
   search: "M10 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM20 20l-5.5-5.5",
   refresh: "M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5",
   inbox: "M3 13h5l2 3h4l2-3h5M3 13V6h18v7M3 13v5h18v-5",
+  // An arrow into a tray: a bundle read into the project (T-0217).
+  import: "M12 3v10M8 9l4 4 4-4M4 15v4h16v-4",
   globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18",
   share: "M18 5a2.5 2.5 0 1 1 0 .01M6 12a2.5 2.5 0 1 1 0 .01M18 19a2.5 2.5 0 1 1 0 .01M8.2 10.8l7.6-4.6M8.2 13.2l7.6 4.6",
   sun: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5",

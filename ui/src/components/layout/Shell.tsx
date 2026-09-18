@@ -163,6 +163,7 @@ export function Shell({
   const modelsActive = Boolean(matchRoute({ to: "/projects/$project/models", params: { project } }));
   const exploreActive = Boolean(matchRoute({ to: "/projects/$project/explore", params: { project } }));
   const ckanActive = Boolean(matchRoute({ to: "/projects/$project/ckan", params: { project } }));
+  const importActive = Boolean(matchRoute({ to: "/projects/$project/import", params: { project } }));
 
   const activeSection = NAV_SECTIONS.find((section) =>
     section.plural === "approvals"
@@ -335,6 +336,17 @@ export function Shell({
                 className={navLinkClass(ckanActive)}
               >
                 <NavLabel icon="ckan" label={t("nav.ckan")} />
+              </Link>
+            </li>
+            <li>
+              <Link
+                to="/projects/$project/import"
+                params={{ project }}
+                onClick={closeNav}
+                aria-current={importActive ? "page" : undefined}
+                className={navLinkClass(importActive)}
+              >
+                <NavLabel icon="import" label={t("nav.import")} />
               </Link>
             </li>
           </ul>

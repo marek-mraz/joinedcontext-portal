@@ -28,7 +28,8 @@
     "explore": "Daten erkunden",
     "assistant": "Assistent",
     "sync": "Sync",
-    "activity": "Activity"
+    "activity": "Activity",
+    "import": "Import"
   },
   "auth": {
     "lead": "Melden Sie sich mit dem Konto Ihrer Organisation an, um diese Plattform zu verwalten.",
@@ -1716,6 +1717,50 @@
       "requests": "Requests served",
       "forwards": "Forwards",
       "denials": "Refusals"
+    }
+  },
+  "import": {
+    "title": "Konfiguration importieren",
+    "lead": "Ein Bündel, das eine andere Instanz exportiert hat, als eine Änderung in dieses Projekt gelesen.",
+    "bundle": "Das Bündel",
+    "file": "Archiv oder Manifeste",
+    "fileHelp": "Ein ZIP aus einem Export, oder ein YAML-Strom bzw. ein JSON-Manifest.",
+    "fileMissing": "Wählen Sie zuerst eine Datei.",
+    "noFile": "Wählen Sie zuerst eine Datei.",
+    "noUrl": "Ein Bündel wird hochgeladen, nicht geholt: ein Import per URL hieße, dass dieses Portal eine Verbindung zu einem von Ihnen genannten Host öffnet, und die Regel, welche Hosts erlaubt sind, ist noch nicht geschrieben (MF-20).",
+    "pastedSecret": "Dieses Bündel schreibt ein Geheimnis im Klartext ({keys}). Ersetzen Sie es durch einen secretRef und wählen Sie die Datei erneut; der Import lehnt es ohnehin ab (MF-24).",
+    "namespace": "Projekt, in das importiert wird",
+    "namespaceHelp": "Jedes importierte Manifest wird darauf umgeschrieben.",
+    "orgDomain": "Domäne der Organisation",
+    "orgDomainHelp": "Jede importierte id wird darauf umgeschrieben.",
+    "orgDomainOwn": "die eigene dieser Instanz",
+    "policy": "Eine Ressource, die dieses Projekt schon hat",
+    "policyOption": {
+      "fail": "Import abbrechen",
+      "skip": "Unsere behalten",
+      "replace": "Unsere ersetzen",
+      "rename": "Unter neuem Namen importieren"
+    },
+    "policyHelp": {
+      "fail": "Ist ein Name vergeben, wird nichts importiert, damit nichts versehentlich entschieden wird.",
+      "skip": "Was das Projekt hat, bleibt; der Rest wird importiert.",
+      "replace": "Bei jedem gemeinsamen Namen gewinnt die Fassung aus dem Bündel.",
+      "rename": "Beide bleiben, die importierte bekommt einen freien Namen."
+    },
+    "check": "Bündel prüfen",
+    "checkFirst": "Prüfen Sie das Bündel, um zu sehen, was es täte.",
+    "propose": "Import vorschlagen",
+    "report": {
+      "title": "Was dieser Import täte",
+      "created": "{count} angelegt",
+      "replaced": "{count} ersetzt",
+      "skipped": "{count} unberührt",
+      "renamed": "{count} umbenannt",
+      "files": "{count} Dateien neben den Manifesten",
+      "lane": "Das ganze Bündel landet in der Spur {lane}, nach dem riskantesten, was es trägt.",
+      "source": "Exportiert aus {source}.",
+      "verified": "{equal} von {total} Dateien entsprechen der Prüfsumme des Bündels.",
+      "unverifiable": "Das Bündel trägt keine Prüfsummen, also sagt hier nichts, dass die Dateien unverändert sind."
     }
   }
 }

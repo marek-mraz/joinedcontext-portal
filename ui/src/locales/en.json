@@ -28,7 +28,8 @@
     "explore": "Explore data",
     "assistant": "Assistant",
     "sync": "Sync",
-    "activity": "Activity"
+    "activity": "Activity",
+    "import": "Import"
   },
   "auth": {
     "lead": "Sign in with your organisation account to manage this platform.",
@@ -1716,6 +1717,50 @@
       "requests": "Requests served",
       "forwards": "Forwards",
       "denials": "Refusals"
+    }
+  },
+  "import": {
+    "title": "Import configuration",
+    "lead": "A bundle another instance exported, read into this project as one change everybody can review.",
+    "bundle": "The bundle",
+    "file": "Archive or manifests",
+    "fileHelp": "A ZIP an export produced, or a YAML stream or JSON manifest.",
+    "fileMissing": "Choose a file first.",
+    "noFile": "Choose a file first.",
+    "noUrl": "A bundle is uploaded, not fetched: importing from a URL would have this Portal open a connection to a host you name, and the policy that decides which hosts is not written yet (MF-20).",
+    "pastedSecret": "This bundle writes a credential in the open ({keys}). Replace it with a secretRef and choose the file again; the import refuses it either way (MF-24).",
+    "namespace": "Project to import into",
+    "namespaceHelp": "Every imported manifest is rewritten into it.",
+    "orgDomain": "Organisation domain",
+    "orgDomainHelp": "Every imported id is rewritten to it.",
+    "orgDomainOwn": "this instance's own",
+    "policy": "A resource this project already has",
+    "policyOption": {
+      "fail": "Stop the import",
+      "skip": "Leave ours alone",
+      "replace": "Replace ours",
+      "rename": "Import under a new name"
+    },
+    "policyHelp": {
+      "fail": "Nothing is imported if one name is taken, so nothing is decided by accident.",
+      "skip": "What this project has stays; the rest is imported.",
+      "replace": "The bundle's version wins for every name both hold.",
+      "rename": "Both are kept and the imported one gets a free name."
+    },
+    "check": "Check the bundle",
+    "checkFirst": "Check the bundle to see what it would do.",
+    "propose": "Propose the import",
+    "report": {
+      "title": "What this import would do",
+      "created": "{count} created",
+      "replaced": "{count} replaced",
+      "skipped": "{count} left alone",
+      "renamed": "{count} renamed",
+      "files": "{count} files beside the manifests",
+      "lane": "The whole bundle lands in the {lane} lane, the riskiest thing it carries.",
+      "source": "Exported from {source}.",
+      "verified": "{equal} of {total} files equal the checksum the bundle carries.",
+      "unverifiable": "The bundle carries no checksums, so nothing here says the files are unchanged."
     }
   }
 }

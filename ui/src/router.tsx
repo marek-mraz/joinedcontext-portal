@@ -19,6 +19,7 @@ import { ApprovalDetailPage } from "./routes/ApprovalDetailPage";
 import { ModelsPage } from "./pages/models/ModelsPage";
 import { ExplorePage } from "./pages/explore/ExplorePage";
 import { CkanPage } from "./pages/ckan/CkanPage";
+import { ImportPage } from "./pages/import/ImportPage";
 import { SpaceInside } from "./pages/spaces/SpaceInside";
 import { AppPage } from "./pages/apps/AppPage";
 import { AssistantPage } from "./pages/assistant/AssistantPage";
@@ -228,6 +229,20 @@ const ckanRoute = createRoute({
   },
 });
 
+/** Reading a bundle another instance exported into this project (MF-20…MF-24, T-0217). */
+const importRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/import",
+  component: function ImportRoute() {
+    const { project } = importRoute.useParams();
+    return (
+      <Shell project={project}>
+        <ImportPage project={project} />
+      </Shell>
+    );
+  },
+});
+
 /** The Federation page is gone (UI-28): an old link lands on the project's context spaces. */
 const federationRoute = createRoute({
   getParentRoute: () => protectedRoute,
@@ -346,6 +361,7 @@ export const routeTree = rootRoute.addChildren([
     modelsRoute,
     exploreRoute,
     ckanRoute,
+    importRoute,
     federationRoute,
     spaceCompleteRoute,
     spaceInsideRoute,

@@ -28,7 +28,8 @@
     "explore": "Procházet data",
     "assistant": "Asistent",
     "sync": "Synchronizace",
-    "activity": "Activity"
+    "activity": "Activity",
+    "import": "Import"
   },
   "auth": {
     "lead": "Přihlaste se účtem své organizace a spravujte tuto platformu.",
@@ -1716,6 +1717,50 @@
       "requests": "Requests served",
       "forwards": "Forwards",
       "denials": "Refusals"
+    }
+  },
+  "import": {
+    "title": "Import konfigurace",
+    "lead": "Balík, který exportovala jiná instance, načtený do tohoto projektu jako jedna změna k posouzení.",
+    "bundle": "Balík",
+    "file": "Archiv nebo manifesty",
+    "fileHelp": "ZIP z exportu, nebo YAML proud či JSON manifest.",
+    "fileMissing": "Nejprve vyberte soubor.",
+    "noFile": "Nejprve vyberte soubor.",
+    "noUrl": "Balík se nahrává, nestahuje: import z URL by znamenal, že tento Portál otevře spojení na hostitele, kterého jste zadali, a pravidlo, které rozhoduje o povolených hostitelích, ještě není napsané (MF-20).",
+    "pastedSecret": "Tento balík má přihlašovací údaj napsaný přímo ({keys}). Nahraďte jej odkazem secretRef a vyberte soubor znovu; import jej stejně odmítne (MF-24).",
+    "namespace": "Projekt, do kterého se importuje",
+    "namespaceHelp": "Každý importovaný manifest se do něj přepíše.",
+    "orgDomain": "Doména organizace",
+    "orgDomainHelp": "Každé importované id se přepíše na ni.",
+    "orgDomainOwn": "vlastní této instance",
+    "policy": "Zdroj, který tento projekt už má",
+    "policyOption": {
+      "fail": "Zastavit import",
+      "skip": "Ponechat náš",
+      "replace": "Nahradit náš",
+      "rename": "Importovat pod novým jménem"
+    },
+    "policyHelp": {
+      "fail": "Je-li jedno jméno obsazené, neimportuje se nic, takže se nic nerozhodne omylem.",
+      "skip": "Co projekt má, zůstává; ostatní se importuje.",
+      "replace": "U každého společného jména vyhrává verze z balíku.",
+      "rename": "Zachovají se obě a importovaná dostane volné jméno."
+    },
+    "check": "Zkontrolovat balík",
+    "checkFirst": "Zkontrolujte balík, abyste viděli, co by udělal.",
+    "propose": "Navrhnout import",
+    "report": {
+      "title": "Co by tento import udělal",
+      "created": "{count} vytvořených",
+      "replaced": "{count} nahrazených",
+      "skipped": "{count} ponechaných",
+      "renamed": "{count} přejmenovaných",
+      "files": "{count} souborů vedle manifestů",
+      "lane": "Celý balík jde do dráhy {lane}, podle nejrizikovější věci v něm.",
+      "source": "Exportováno z {source}.",
+      "verified": "{equal} z {total} souborů odpovídá kontrolnímu součtu v balíku.",
+      "unverifiable": "Balík neobsahuje kontrolní součty, takže nic zde neříká, že jsou soubory nezměněné."
     }
   }
 }
