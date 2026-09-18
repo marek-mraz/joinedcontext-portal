@@ -5,7 +5,7 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { Dialog } from "../src/components/ui";
 
-function Page({ removeOpener = false }: { removeOpener?: boolean }) {
+function Page({ removeOpener = false, body }: { removeOpener?: boolean; body?: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [gone, setGone] = useState(false);
   return (
@@ -21,7 +21,7 @@ function Page({ removeOpener = false }: { removeOpener?: boolean }) {
         </button>
       )}
       <Dialog open={open} onOpenChange={setOpen} title="New thing" closeLabel="Close">
-        <input aria-label="Name" />
+        {body ?? <input aria-label="Name" />}
       </Dialog>
     </main>
   );
@@ -49,5 +49,31 @@ describe("the shared dialog", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "New thing" })).toBeNull());
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("opens in its first enabled field, and on Close when it has none (T-1501)", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <Page
+        body={
+          <>
+            <input aria-label="Locked" disabled />
+            <select aria-label="Kind">
+              <option>a</option>
+            </select>
+            <input aria-label="Name" />
+          </>
+        }
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "New thing" }));
+    await screen.findByRole("dialog");
+    expect(screen.getByLabelText("Kind")).toHaveFocus();
+    unmount();
+
+    render(<Page body={<p>Nothing to type here.</p>} />);
+    await user.click(screen.getByRole("button", { name: "New thing" }));
+    await screen.findByRole("dialog");
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
   });
 });

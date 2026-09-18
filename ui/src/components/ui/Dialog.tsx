@@ -50,8 +50,17 @@ export function Dialog({
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 z-40 bg-overlay backdrop-blur-[2px]" />
         <RadixDialog.Content
-          onOpenAutoFocus={() => {
+          onOpenAutoFocus={(event) => {
             opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            // Radix would take the first tabbable element, which is the Close button in the
+            // header. A form starts in its first field; a dialog without one keeps Radix's choice.
+            const field = (event.currentTarget as HTMLElement).querySelector<HTMLElement>(
+              "input:not([type=hidden]):not(:disabled), select:not(:disabled), textarea:not(:disabled)",
+            );
+            if (field) {
+              event.preventDefault();
+              field.focus();
+            }
           }}
           onCloseAutoFocus={(event) => {
             if (opener.current?.isConnected) {
