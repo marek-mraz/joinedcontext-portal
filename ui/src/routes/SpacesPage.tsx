@@ -199,7 +199,6 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
         }
       />
 
-      <ProjectQuota project={project} />
 
       {quotaExceeded ? (
         <Alert role="status" tone="warning">
@@ -279,6 +278,10 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
           )}
         </TableBody>
       </Table>
+
+      {/* What the project holds against its quota comes after what it holds: for a first
+          steward the list, empty or not, is the page, and the bar is secondary (T-1396). */}
+      <ProjectQuota project={project} />
 
       <ResourceFormDialog<SpaceForm>
         kind="ContextSpace"

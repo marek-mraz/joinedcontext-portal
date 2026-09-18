@@ -188,6 +188,15 @@ describe("context spaces view", () => {
     expect(screen.getByText("0, no limit")).toBeInTheDocument();
   });
 
+  it("puts the quota after the list, empty or not (T-1396)", async () => {
+    renderSpaces({ quota: 3 });
+
+    const bar = await screen.findByRole("progressbar", { name: en.quota.dimension.contextSpaces });
+    const table = screen.getByRole("table");
+    // DOCUMENT_POSITION_FOLLOWING: the bar comes after the table in reading order.
+    expect(table.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("reads the numbers from the project route, which knows the quota in force", async () => {
     const fetchMock = renderSpaces({ quota: 3 });
     await screen.findByRole("progressbar", { name: en.quota.dimension.contextSpaces });
