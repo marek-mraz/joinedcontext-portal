@@ -8,9 +8,16 @@ import { ApiError } from "../src/api/client";
 import { ResourceList } from "../src/components/ResourceList";
 import { EmptyState, TableCell, TableHead, TableHeaderCell, TableRow } from "../src/components/ui";
 
-const idle = { isPending: false, isError: false, error: null, refetch: vi.fn() };
+interface ListQuery {
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+  refetch: () => unknown;
+}
 
-function show(query: Partial<typeof idle> & { error?: unknown }, count = 0) {
+const idle: ListQuery = { isPending: false, isError: false, error: null, refetch: vi.fn() };
+
+function show(query: Partial<ListQuery>, count = 0) {
   return render(
     <I18nextProvider i18n={i18n}>
       <ResourceList
@@ -51,7 +58,7 @@ describe("ResourceList (T-1382)", () => {
     show({
       isError: true,
       refetch,
-      error: new ApiError(503, "Service Unavailable", { status: 503, title: "Service Unavailable", detail: "The forge is down." }),
+      error: new ApiError(503, "Service Unavailable", { type: "about:blank", status: 503, title: "Service Unavailable", detail: "The forge is down." }),
     });
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getByRole("alert")).toHaveTextContent("The forge is down.");
