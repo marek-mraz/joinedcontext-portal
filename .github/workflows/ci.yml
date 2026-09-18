@@ -22,6 +22,10 @@ jobs:
       # The UI's types are generated from the committed spec, so a stale one is a compile the
       # fast lane can catch in two seconds instead of leaving to the hourly full run (T-1210).
       - run: cargo test --test openapi_tests
+      # A doc link to a private item passed every fast check and broke the hourly lane (T-1453);
+      # rustdoc reuses clippy's metadata, so it costs seconds here.
+      - run: cargo doc --workspace --no-deps
+        env: { RUSTDOCFLAGS: "-D warnings" }
   gitleaks:
     runs-on: ubuntu-latest
     timeout-minutes: 3
