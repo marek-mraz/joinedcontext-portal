@@ -181,7 +181,9 @@ describe("the sample a test fetches (PL-48)", () => {
 
   it("refuses a URL that is not http, whatever the manifest says", () => {
     const sneaky = {
-      ...http,
+      apiVersion: "joinedcontext.com/v1alpha1",
+      kind: "DataSource",
+      metadata: { name: "hsl-feed", namespace: "helsinki" },
       spec: { type: "http", http: { url: "file:///etc/passwd" } },
     } as never;
     expect(sampleUrlOf({ source: { dataSourceRef: "hsl-feed" } } as never, [sneaky])).toBeUndefined();

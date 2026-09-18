@@ -225,7 +225,7 @@ export function ImportPage({ project }: { project: string }): JSX.Element {
           <Button
             onClick={() => check.mutate()}
             disabled={!file || pasted.length > 0}
-            submitting={check.isPending}
+            loading={check.isPending}
           >
             {t("import.check")}
           </Button>
@@ -234,7 +234,7 @@ export function ImportPage({ project }: { project: string }): JSX.Element {
               variant="primary"
               onClick={() => propose.mutate()}
               disabled={!report || pasted.length > 0}
-              submitting={propose.isPending}
+              loading={propose.isPending}
             >
               {t("import.propose")}
             </Button>
