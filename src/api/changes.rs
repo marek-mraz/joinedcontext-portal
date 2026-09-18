@@ -470,20 +470,54 @@ async fn human_author(gitea: &GiteaClient, pr: &crate::git::gitea::PullRequest) 
     }
 }
 
+/// The lane every file of a merge request carries, from its path alone (CC-63, T-1224).
+///
+/// The approval walks the files and reads each one's spec; this is the same walk without the
+/// reads, so the list and the detail can say the lane the approval will apply without a fetch
+/// per file. It is a lower bound and never a looser one: a kind that is Red whatever it holds
+/// (a `Policy`, a `Role`, a registration) is Red here too, and the kinds whose lane depends on
+/// their spec — a public `Endpoint`, a sandbox `ContextSpace` — are what the headline manifest
+/// already classifies with its spec in hand.
+fn lane_of_paths(files: &[crate::git::gitea::ChangedFile]) -> Lane {
+    files.iter().fold(Lane::Green, |lane, file| {
+        let operation = if file.deleted {
+            Operation::Delete
+        } else {
+            Operation::Create
+        };
+        let Some(kind) = crate::api::import::native_kind(&file.path) else {
+            // A native file beside a manifest carries no kind of its own; the manifest it
+            // belongs to is in the same merge request and is classified above.
+            return lane;
+        };
+        crate::api::import::riskiest(
+            lane,
+            change::classify(kind, operation, &serde_json::Value::Null),
+        )
+    })
+}
+
 fn build_proposal(
     pr: &PullRequest,
     project: &str,
     data: &ManifestData,
     plan: PlanDiff,
     plan_fields: Option<Vec<FieldChange>>,
+    carried: Lane,
 ) -> ChangeProposal {
-    let lane = if data.operation == Operation::Delete {
+    let headline = if data.operation == Operation::Delete {
         Lane::Red
     } else if let Some(ref env) = data.head_envelope {
         change::classify(&env.kind, data.operation, &env.spec)
     } else {
         Lane::Yellow
     };
+    // The lane a person is shown is the lane the approval enforces (CC-63, UI-23). It used to
+    // be the headline manifest's alone, while `approve_change_for` took the riskiest of every
+    // file: a bundle whose endpoint is Yellow and whose policy is Red was listed Yellow, so the
+    // page never drew the "type the name back" field CC-19 requires and the API then refused
+    // the approval for want of it. The change could not be approved at all (T-1224).
+    let lane = crate::api::import::riskiest(headline, carried);
 
     let summary_key = match data.operation {
         Operation::Create => "change.summary.create",
@@ -636,11 +670,15 @@ pub async fn list_changes_for(state: &AppState, project: &str) -> Result<ChangeL
         };
 
         let plan = plan::diff(data.base_envelope.as_ref(), data.head_envelope.as_ref());
-        let mut proposal = build_proposal(&pr, project, &data, plan, None);
+        // The file list is fetched here anyway for the count, and its paths carry the lane the
+        // approval will apply (T-1224): no extra call, and the list stops promising a lane the
+        // detail page contradicts.
+        let carried = gitea.pull_request_files(pr.number).await?;
+        let mut proposal = build_proposal(&pr, project, &data, plan, None, lane_of_paths(&carried));
         proposal.author = human_author(gitea, &pr).await;
         // The count only: a listing that read every file of every open change to render
         // "+3 files" would pay for the detail page on the way past it (T-0861).
-        proposal.file_count = Some(gitea.pull_request_files(pr.number).await?.len());
+        proposal.file_count = Some(carried.len());
         proposals.push(proposal);
     }
 
@@ -706,11 +744,16 @@ pub async fn change_for(
     let redacted_fields = redact(plan.fields.clone());
     let author = human_author(gitea, &pr).await;
     let files = changed_files(gitea, &pr).await?;
+    // Here every file's spec was read, so the lane each one carries is the exact one the
+    // approval computes rather than the path's lower bound (T-1224).
+    let carried = files.iter().fold(Lane::Green, |lane, file| {
+        crate::api::import::riskiest(lane, file.lane)
+    });
     Ok(ChangeProposal {
         author,
         file_count: Some(files.len()),
         files: Some(files),
-        ..build_proposal(&pr, project, &data, plan, Some(redacted_fields))
+        ..build_proposal(&pr, project, &data, plan, Some(redacted_fields), carried)
     })
 }
 

@@ -2249,3 +2249,66 @@ async fn the_detail_of_a_bundle_lists_every_file_with_its_kind_and_lane() {
         "a binding is the lane the confirmation is asked for"
     );
 }
+
+/// T-1224, CC-19, CC-63, UI-23: the lane a reviewer is shown is the lane the approval enforces.
+///
+/// A bundle headed by an `Endpoint` (Yellow) that also carries a `Policy` (Red) used to be
+/// served Yellow: `build_proposal` classified the headline manifest alone while
+/// `approve_change_for` took the riskiest of every file. The page draws the "type the name back"
+/// field on the served lane, so it never appeared, and the approval was then refused for want of
+/// the `confirm` the page had never asked for. The change could not be approved at all — three
+/// recording units stopped there.
+#[tokio::test]
+async fn a_bundle_is_shown_the_lane_its_approval_will_apply() {
+    let policy = "apiVersion: joinedcontext.com/v1alpha1\nkind: Policy\nmetadata:\n  name: open\n  namespace: ovzdusie\nspec:\n  contextSpaceRef: mobility\n";
+    let (_server, state) = bundle_of(
+        json!([{ "kinds": ["Pipeline", "Policy"], "verbs": ["read", "approve"] }]),
+        &[(
+            "projects/ovzdusie/spaces/mobility/policies/open.yaml",
+            policy,
+        )],
+    )
+    .await;
+
+    let config = state.config.clone();
+    let cookies = session_and_csrf_cookies(
+        &config,
+        "jana.approver",
+        Some("jana.approver@banskabystrica.sk"),
+        Some("Jana Approver"),
+        vec![],
+    );
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/ovzdusie/changes/chg-00000007")
+                .header(header::COOKIE, cookies)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes(),
+    )
+    .expect("json");
+
+    assert_eq!(
+        body["status"]["lane"], "red",
+        "the bundle carries a Policy, which the approval reads as Red: {body}"
+    );
+    // And the reason is visible: the file that made it Red is in the list the page renders.
+    let files = body["files"].as_array().expect("files");
+    assert!(
+        files
+            .iter()
+            .any(|f| f["kind"] == "Policy" && f["lane"] == "red"),
+        "{files:?}"
+    );
+}
