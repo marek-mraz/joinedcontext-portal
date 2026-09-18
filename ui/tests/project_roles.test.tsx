@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -125,7 +125,17 @@ describe("the roles of a project on the Access page", () => {
     const source = within(dialog).getByRole("textbox") as HTMLTextAreaElement;
     expect(source.value).toContain("namespace: banskabystrica");
 
-    await user.click(within(dialog).getByRole("button", { name: "Propose the role" }));
+    // The example has no name, so an untouched form can never become a Change (T-1492).
+    const proposeButton = within(dialog).getByRole("button", { name: "Propose the role" });
+    expect(proposeButton).toBeDisabled();
+    expect(within(dialog).getByText(/This is an example/).id).toBe(proposeButton.getAttribute("aria-describedby"));
+    await user.click(proposeButton);
+    expect(posted).toHaveLength(0);
+
+    fireEvent.change(source, { target: { value: source.value.replace('name: ""', "name: air-reader") } });
+    expect(proposeButton).toBeEnabled();
+    expect(within(dialog).queryByText(/This is an example/)).toBeNull();
+    await user.click(proposeButton);
     await screen.findByText(/chg-0000002a/);
     expect(posted).toHaveLength(1);
     expect(posted[0].path).toBe("/api/v1/projects/banskabystrica/roles");

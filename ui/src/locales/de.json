@@ -857,7 +857,8 @@
         "MemberUnknown": "Wartet auf erste Anmeldung",
         "RealmRefused": "Nicht geschrieben"
       }
-    }
+    },
+    "nameFirst": "Dies ist ein Beispiel. Geben Sie ihm einen Namen (Kleinbuchstaben, Ziffern und Bindestriche) und passen Sie den Rest an; dann kann es vorgeschlagen werden."
   },
   "flows": {
     "title": "Abläufe",

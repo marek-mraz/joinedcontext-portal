@@ -857,7 +857,8 @@
         "MemberUnknown": "Čeká na první přihlášení",
         "RealmRefused": "Nezapsáno"
       }
-    }
+    },
+    "nameFirst": "Toto je příklad. Dejte mu název (malá písmena, číslice a spojovníky) a upravte zbytek; potom jej lze navrhnout."
   },
   "flows": {
     "title": "Toky",

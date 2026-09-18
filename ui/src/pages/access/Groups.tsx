@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { parse as parseYaml } from "yaml";
+import { manifestName } from "./manifestName";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { proposeChecked } from "../../api/proposal";
 import { asManifests, isChange, ORG_NAMESPACE } from "../../api/manifest";
@@ -46,7 +47,7 @@ interface Row {
 const SKELETON = [
   "apiVersion: joinedcontext.com/v1alpha1",
   "kind: Group",
-  `metadata: { name: city-leads, namespace: ${ORG_NAMESPACE} }`,
+  `metadata: { name: "", namespace: ${ORG_NAMESPACE} }`,
   "spec:",
   "  description: The people who lead the city's projects",
   "  members:",
@@ -96,6 +97,8 @@ export function NewGroupDialog({
     },
   });
 
+  const named = manifestName(source) !== "";
+
   const submit = () => {
     let manifest: unknown;
     try {
@@ -142,7 +145,12 @@ export function NewGroupDialog({
             <Button variant="secondary" onClick={() => close(false)}>
               {t("form.cancel")}
             </Button>
-            <Button variant="primary" disabled={propose.isPending} onClick={submit}>
+            <Button
+              variant="primary"
+              disabled={propose.isPending || !named}
+              aria-describedby={named ? undefined : `${ids}-name-first`}
+              onClick={submit}
+            >
               {t("access.groups.propose")}
             </Button>
           </>
@@ -170,6 +178,11 @@ export function NewGroupDialog({
               }}
             />
           </Field>
+          {named ? null : (
+            <p id={`${ids}-name-first`} className="text-sm text-fg-muted">
+              {t("access.nameFirst")}
+            </p>
+          )}
         </div>
       )}
     </Dialog>

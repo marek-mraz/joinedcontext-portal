@@ -3,7 +3,7 @@
  * each one, what the last reconcile had to correct in Keycloak, and a new group proposed as a
  * change — with the control disabled and the reason readable when the caller may not propose.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -133,7 +133,11 @@ describe("the groups of the organization on the Access page", () => {
     expect(source.value).toContain("kind: Group");
     expect(source.value).toContain("namespace: org");
 
-    await user.click(within(dialog).getByRole("button", { name: "Propose the group" }));
+    // The example has no name, so an untouched form can never become a Change (T-1492).
+    const proposeButton = within(dialog).getByRole("button", { name: "Propose the group" });
+    expect(proposeButton).toBeDisabled();
+    fireEvent.change(source, { target: { value: source.value.replace('name: ""', "name: park-wardens") } });
+    await user.click(proposeButton);
     await screen.findByText(/chg-0000003b/);
     expect(posted).toEqual([{ path: "/api/v1/projects/org/groups" }]);
     // Checked before it was proposed (PF-57, T-0956).

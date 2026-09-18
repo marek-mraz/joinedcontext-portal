@@ -857,7 +857,8 @@
         "MemberUnknown": "Waiting for a first login",
         "RealmRefused": "Not written"
       }
-    }
+    },
+    "nameFirst": "This is an example. Give it a name (lowercase letters, digits and hyphens) and make the rest yours; then it can be proposed."
   },
   "flows": {
     "title": "Flows",

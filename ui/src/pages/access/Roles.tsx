@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { parse as parseYaml } from "yaml";
+import { manifestName } from "./manifestName";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { proposeChecked } from "../../api/proposal";
 import { asManifests, isChange, ORG_NAMESPACE } from "../../api/manifest";
@@ -46,7 +47,7 @@ function skeleton(project: string): string {
   return [
     "apiVersion: joinedcontext.com/v1alpha1",
     "kind: Role",
-    `metadata: { name: my-role, namespace: ${project} }`,
+    `metadata: { name: "", namespace: ${project} }`,
     "spec:",
     "  rules:",
     "    - kinds: [Pipeline, DataSource]",
@@ -100,6 +101,8 @@ export function NewRoleDialog({
     },
   });
 
+  const named = manifestName(source) !== "";
+
   const submit = () => {
     let manifest: unknown;
     try {
@@ -146,7 +149,12 @@ export function NewRoleDialog({
             <Button variant="secondary" onClick={() => close(false)}>
               {t("form.cancel")}
             </Button>
-            <Button variant="primary" disabled={propose.isPending} onClick={submit}>
+            <Button
+              variant="primary"
+              disabled={propose.isPending || !named}
+              aria-describedby={named ? undefined : `${ids}-name-first`}
+              onClick={submit}
+            >
               {t("access.projectRoles.propose")}
             </Button>
           </>
@@ -174,6 +182,11 @@ export function NewRoleDialog({
               }}
             />
           </Field>
+          {named ? null : (
+            <p id={`${ids}-name-first`} className="text-sm text-fg-muted">
+              {t("access.nameFirst")}
+            </p>
+          )}
         </div>
       )}
     </Dialog>
