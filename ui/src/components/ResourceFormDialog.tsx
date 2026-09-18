@@ -839,23 +839,6 @@ export function ResourceFormDialog<T>({
         ) : (
           <div role="tabpanel" className="flex flex-col gap-3">
             <p className="text-caption text-fg-muted">{t("form.yamlHint")}</p>
-            {yamlError ? (
-              <Alert role="alert" tone="danger">
-                {yamlError}
-              </Alert>
-            ) : null}
-            {issues.length > 0 ? (
-              <Alert role="alert" tone="danger">
-                <p>{t("form.schemaErrors")}</p>
-                <ul className="mt-1 list-disc pl-5">
-                  {issues.map((issue) => (
-                    <li key={issue} className="font-mono text-caption">
-                      {issue}
-                    </li>
-                  ))}
-                </ul>
-              </Alert>
-            ) : null}
             <div className="overflow-hidden rounded-md border border-border">
               <Suspense
                 fallback={
@@ -873,6 +856,24 @@ export function ResourceFormDialog<T>({
                 />
               </Suspense>
             </div>
+            {/* What the YAML answered, right above the button that asked it (T-1395). */}
+            {yamlError ? (
+              <Alert role="alert" tone="danger">
+                {yamlError}
+              </Alert>
+            ) : null}
+            {issues.length > 0 ? (
+              <Alert role="alert" tone="danger">
+                <p>{t("form.schemaErrors")}</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {issues.map((issue) => (
+                    <li key={issue} className="font-mono text-caption">
+                      {issue}
+                    </li>
+                  ))}
+                </ul>
+              </Alert>
+            ) : null}
             <div className="flex flex-wrap items-center justify-end gap-2">
               <DialogClose asChild>
                 <Button variant="ghost">{t("form.cancel")}</Button>

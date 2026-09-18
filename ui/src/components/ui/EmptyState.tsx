@@ -24,8 +24,10 @@ export function EmptyState({
   bare,
   className,
 }: EmptyStateProps): React.JSX.Element {
+  // A status, so a screen reader hears that the list is empty when it loads (T-1393).
   return (
     <div
+      role="status"
       className={clsx(
         "flex flex-col items-center justify-center gap-2 px-6 py-12 text-center",
         !bare && "rounded-lg border border-dashed border-border-strong bg-surface",

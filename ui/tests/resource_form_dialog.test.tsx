@@ -273,6 +273,19 @@ describe("the dialog's check", () => {
     expect(screen.getByText(/does not parse/)).toBeInTheDocument();
   });
 
+  it("puts what the YAML answered after the editor and just before the buttons (T-1395)", async () => {
+    renderWithCheck(vi.fn());
+    await userEvent.click(screen.getByRole("tab", { name: "YAML" }));
+    const editor = await screen.findByLabelText("YAML");
+    fireEvent.change(editor, { target: { value: "metadata: [" } });
+    await userEvent.click(screen.getByRole("button", { name: "Check" }));
+    const alert = screen.getByText(/does not parse/).closest('[role="alert"]') as HTMLElement;
+    const check = screen.getByRole("button", { name: "Check" });
+    // DOCUMENT_POSITION_FOLLOWING: the alert comes after the editor, the button after the alert.
+    expect(editor.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(alert.compareDocumentPosition(check) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("is absent when the kind has no check", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

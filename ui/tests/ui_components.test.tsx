@@ -118,7 +118,9 @@ describe("ui components", () => {
       </Table>,
     );
     expect(screen.getByText("No endpoints yet")).toBeInTheDocument();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    // Loading is over; what is announced now is that the list is empty (T-1393).
+    expect(screen.getByRole("status")).toHaveTextContent("No endpoints yet");
+    expect(screen.getByRole("status")).not.toHaveTextContent("Loading endpoints");
 
     rerender(
       <Table caption="Endpoints">
@@ -162,5 +164,14 @@ describe("ui components", () => {
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("EmptyState as a status (T-1393)", () => {
+  it("is announced: a status with its title and description", () => {
+    render(<EmptyState title="No spaces yet" description="Add the first one." />);
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("No spaces yet");
+    expect(status).toHaveTextContent("Add the first one.");
   });
 });

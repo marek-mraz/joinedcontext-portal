@@ -342,6 +342,8 @@ export function ApprovalDetailPage({
               aria-label={t("approvals.confirmLabel")}
               placeholder={expectedName}
               disabled={!canAct}
+              // The one thing a red-lane approver has to do next (T-1394), as in the delete dialog.
+              autoFocus
               className="max-w-sm"
             />
           </div>

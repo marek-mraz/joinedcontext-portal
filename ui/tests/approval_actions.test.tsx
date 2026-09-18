@@ -288,6 +288,12 @@ describe("approval actions", () => {
     expect(posts(fetchMock)).toHaveLength(0);
   });
 
+  it("puts the focus in the name to type back on a red-lane approval (T-1394)", async () => {
+    renderDetail({ change: proposal({ status: { lane: "red", phase: "PendingApproval", plan: { update: 1 } } }) });
+    const input = await screen.findByRole("textbox", { name: en.approvals.confirmLabel });
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
   it("holds a red-lane approval until the resource name is typed back", async () => {
     const fetchMock = renderDetail({
       change: proposal({
