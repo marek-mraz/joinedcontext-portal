@@ -968,22 +968,6 @@ async fn changed_files(gitea: &GiteaClient, pr: &PullRequest) -> Result<Vec<Chan
     Ok(listed)
 }
 
-/// The context space a repository path lies in: `projects/{project}/spaces/{space}/…`.
-fn space_in_path(path: &str) -> Option<&str> {
-    let mut segments = path.split('/');
-    match (
-        segments.next(),
-        segments.next(),
-        segments.next(),
-        segments.next(),
-    ) {
-        (Some("projects"), Some(_), Some("spaces"), Some(space)) if !space.is_empty() => {
-            segments.next().map(|_| space)
-        }
-        _ => None,
-    }
-}
-
 /// The approval checks of every file the merge request changes, and the strictest lane among
 /// them (T-0832). The headline manifest is among them and passes the same checks twice, which
 /// costs nothing and keeps this loop free of a special case.
@@ -1024,7 +1008,7 @@ async fn approve_every_file(
             // No manifest to read the space from, but the path names it; a target that holds
             // only the space leaves every constraint as it was and lets a grant scoped to that
             // space reach the file (PF-35, T-1404).
-            let target = space_in_path(&file.path)
+            let target = crate::api::import::space_in_path(&file.path)
                 .map(|space| serde_json::json!({ "spec": { "contextSpaceRef": space } }));
             effective.check(kind, jc_core::kinds::Verb::Approve, target.as_ref())?;
             if file.deleted {
@@ -1399,15 +1383,21 @@ mod tests {
         assert!(parse_branch_name("portal/invalid").is_none());
         assert!(parse_branch_name("portal/foo-bar-baz-123").is_none());
         assert_eq!(
-            space_in_path("projects/ovzdusie/spaces/air/mappings/aq.jsonata"),
+            crate::api::import::space_in_path("projects/ovzdusie/spaces/air/mappings/aq.jsonata"),
             Some("air")
         );
-        assert_eq!(space_in_path("projects/ovzdusie/spaces/air"), None);
         assert_eq!(
-            space_in_path("projects/ovzdusie/pipelines/aq/pipeline.yaml"),
+            crate::api::import::space_in_path("projects/ovzdusie/spaces/air"),
             None
         );
-        assert_eq!(space_in_path("users/bindings/x.yaml"), None);
+        assert_eq!(
+            crate::api::import::space_in_path("projects/ovzdusie/pipelines/aq/pipeline.yaml"),
+            None
+        );
+        assert_eq!(
+            crate::api::import::space_in_path("users/bindings/x.yaml"),
+            None
+        );
         // Bundles name no one resource and are headed by their files (T-1400); a hyphenated
         // project's deletion no longer reads as the Project of its first word.
         for bundle in [

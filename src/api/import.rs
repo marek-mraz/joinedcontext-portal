@@ -1299,6 +1299,22 @@ fn authorize(
 
 /// The kind a native file belongs to: the plural directory after `projects/{project}/`, or
 /// after `spaces/{space}/` for the kinds that live under a space.
+/// The context space a repository path lies in: `projects/{project}/spaces/{space}/…`.
+pub(crate) fn space_in_path(path: &str) -> Option<&str> {
+    let mut segments = path.split('/');
+    match (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) {
+        (Some("projects"), Some(_), Some("spaces"), Some(space)) if !space.is_empty() => {
+            segments.next().map(|_| space)
+        }
+        _ => None,
+    }
+}
+
 pub(crate) fn native_kind(path: &str) -> Option<&'static str> {
     let mut segments = path.split('/').skip(2);
     let first = segments.next()?;

@@ -232,6 +232,42 @@ fn matches_filters(
         && names.is_none_or(|wanted| wanted.contains(&envelope.metadata.name))
 }
 
+/// The manifest a native file belongs to: in the same directory, and either the resource that
+/// directory is (`pipelines/aq/pipeline.yaml` for `pipelines/aq/bento.yaml`) or the one the file
+/// is named after (`datamodels/air.yaml` for `datamodels/air.linkml.yaml`).
+fn owner<'a>(native: &str, files: &'a [Exported]) -> Option<&'a ResourceEnvelope> {
+    let (dir, file) = native.rsplit_once('/')?;
+    let dir_name = dir.rsplit('/').next().unwrap_or_default();
+    files.iter().find_map(|candidate| {
+        let envelope = candidate.manifest.as_ref()?;
+        let (candidate_dir, _) = candidate.path.rsplit_once('/')?;
+        let name = envelope.metadata.name.as_str();
+        (candidate_dir == dir && (dir_name == name || file.starts_with(&format!("{name}."))))
+            .then_some(envelope)
+    })
+}
+
+/// The filters of an export asked of a native file: its kind is the one its directory names, and
+/// it belongs to a named resource when a directory of its path is that name (`pipelines/aq/…`,
+/// `apps/bikes/…`) or its file is named after it (`datamodels/air.linkml.yaml`).
+fn native_matches_filters(
+    path: &str,
+    kinds: Option<&Vec<String>>,
+    names: Option<&Vec<String>>,
+) -> bool {
+    let kind = crate::api::import::native_kind(path);
+    let file = path.rsplit('/').next().unwrap_or_default();
+    kinds.is_none_or(|wanted| kind.is_some_and(|kind| wanted.iter().any(|k| k == kind)))
+        && names.is_none_or(|wanted| {
+            wanted.iter().any(|name| {
+                // The directories below `projects/{project}/`, never the project's own name.
+                let dirs: Vec<&str> = path.split('/').skip(2).collect();
+                dirs[..dirs.len().saturating_sub(1)].contains(&name.as_str())
+                    || file.starts_with(&format!("{name}."))
+            })
+        })
+}
+
 fn pretty(value: &Value) -> Result<String, ApiError> {
     serde_json::to_string_pretty(value)
         .map_err(|e| ApiError::Internal(format!("schema did not serialise: {e}")))
@@ -726,14 +762,43 @@ pub async fn export(
     // A manifest the caller may not read is counted, never named (MF-18, R20). The question is
     // the manifest's, not the kind's: a grant bound to one context space reads that space's
     // manifests and no other, which is what the resource lists already ask (PF-60, T-0986).
-    let (files, refused): (Vec<Exported>, Vec<Exported>) = files.into_iter().partition(|file| {
-        file.manifest.as_ref().is_none_or(|envelope| {
-            effective.may_read_manifest(
-                &envelope.kind,
-                &serde_json::to_value(envelope).unwrap_or(Value::Null),
-            )
+    // A native file (a Bento stream, a LinkML source, a mapping) belongs to the manifest beside
+    // it and is read exactly when that manifest is; one with no such manifest is read under the
+    // kind its directory names and the space its path names, the rule its approval is held to
+    // (T-1404), and a file of no kind is nobody's but the bootstrap group's (T-1405).
+    let readable_manifest = |envelope: &ResourceEnvelope| {
+        effective.may_read_manifest(
+            &envelope.kind,
+            &serde_json::to_value(envelope).unwrap_or(Value::Null),
+        )
+    };
+    let readable: Vec<bool> = files
+        .iter()
+        .map(|file| match &file.manifest {
+            Some(envelope) => readable_manifest(envelope),
+            None => match owner(&file.path, &files) {
+                Some(envelope) => readable_manifest(envelope),
+                None => match crate::api::import::native_kind(&file.path) {
+                    Some(kind) => {
+                        effective.may_read_in(kind, crate::api::import::space_in_path(&file.path))
+                    }
+                    None => effective.bootstrap,
+                },
+            },
         })
-    });
+        .collect();
+    let (files, refused): (Vec<Exported>, Vec<Exported>) = {
+        let mut keep = Vec::new();
+        let mut drop = Vec::new();
+        for (file, readable) in files.into_iter().zip(readable) {
+            if readable {
+                keep.push(file)
+            } else {
+                drop.push(file)
+            }
+        }
+        (keep, drop)
+    };
     let omitted = unreadable + refused.len();
     let kinds = kind_filter(query.kinds.as_deref());
     let names = selected(query.names.as_deref());
@@ -765,12 +830,10 @@ pub async fn export(
             .compression_method(zip::CompressionMethod::Deflated);
         let mut items = Vec::new();
         let mut native_files = Vec::new();
-        // What the archive actually carries, which is not `included`: a native file has no kind
-        // to filter on and travels whatever the filters say. The checksums are of these (MF-42).
+        // What the archive actually carries, which is not `included`: the native files of the
+        // resources it holds come too. The checksums are of these (MF-42).
         let mut archived: Vec<&Exported> = Vec::new();
         for file in &files {
-            // A native file has no kind to filter on and belongs to whatever manifest sits
-            // beside it, so the archive keeps it whatever the filters say.
             match &file.manifest {
                 Some(envelope) => {
                     if !matches_filters(envelope, kinds.as_ref(), names.as_ref()) {
@@ -778,7 +841,18 @@ pub async fn export(
                     }
                     items.push(bundle_item(envelope, &file.path));
                 }
-                None => native_files.push(file.path.clone()),
+                // A native file travels with the resource it belongs to, under the same filters
+                // (T-1405).
+                None => {
+                    let travels = match owner(&file.path, &files) {
+                        Some(envelope) => matches_filters(envelope, kinds.as_ref(), names.as_ref()),
+                        None => native_matches_filters(&file.path, kinds.as_ref(), names.as_ref()),
+                    };
+                    if !travels {
+                        continue;
+                    }
+                    native_files.push(file.path.clone());
+                }
             }
             archived.push(file);
             let zipped = |err: zip::result::ZipError| {

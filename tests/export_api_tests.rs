@@ -832,3 +832,83 @@ async fn the_digest_this_instance_built_never_leaves_in_a_bundle() {
         "provenance still travels: {yaml}"
     );
 }
+
+fn archived(answer: &Answer) -> Vec<String> {
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.text());
+    zip::ZipArchive::new(std::io::Cursor::new(answer.body.clone()))
+        .expect("a readable zip")
+        .file_names()
+        .map(str::to_string)
+        .collect()
+}
+
+/// T-1405: a native file is read exactly when the manifest it belongs to is. A caller bound to
+/// `ovzdusie` gets that space's LinkML source and schema, and not the `hluk` model's source it
+/// could not read as a manifest either; before, every native file of the project travelled.
+#[tokio::test]
+async fn an_archive_carries_only_the_native_files_of_what_the_caller_may_read() {
+    let answer = get_as(
+        "/api/v1/projects/banskabystrica/export?format=zip",
+        true,
+        Some("ovzdusie"),
+    )
+    .await;
+    let names = archived(&answer);
+    let base = "projects/banskabystrica/spaces";
+    assert!(
+        names.contains(&format!(
+            "{base}/ovzdusie/datamodels/air-quality.linkml.yaml"
+        )),
+        "{names:?}"
+    );
+    assert!(
+        names.contains(&format!(
+            "{base}/ovzdusie/datamodels/json-schema/air-quality.v1.json"
+        )),
+        "{names:?}"
+    );
+    assert!(
+        !names.iter().any(|name| name.contains("/hluk/")),
+        "another space's files travelled: {names:?}"
+    );
+}
+
+/// T-1405: an archive that names a resource or a kind carries that resource's native files and no
+/// other's; a whole-project archive still carries them all.
+#[tokio::test]
+async fn the_filters_of_an_archive_hold_for_its_native_files() {
+    let pipeline = "projects/banskabystrica/pipelines/aq-mqtt-ingest/bento.yaml";
+    let air = "projects/banskabystrica/spaces/ovzdusie/datamodels/air-quality.linkml.yaml";
+    let noise = "projects/banskabystrica/spaces/hluk/datamodels/noise.linkml.yaml";
+
+    let named = archived(
+        &get(
+            "/api/v1/projects/banskabystrica/export?format=zip&names=aq-mqtt-ingest",
+            true,
+        )
+        .await,
+    );
+    assert!(named.contains(&pipeline.to_string()), "{named:?}");
+    assert!(
+        !named.contains(&air.to_string()) && !named.contains(&noise.to_string()),
+        "{named:?}"
+    );
+
+    let models = archived(
+        &get(
+            "/api/v1/projects/banskabystrica/export?format=zip&kinds=datamodels",
+            true,
+        )
+        .await,
+    );
+    assert!(
+        models.contains(&air.to_string()) && models.contains(&noise.to_string()),
+        "{models:?}"
+    );
+    assert!(!models.contains(&pipeline.to_string()), "{models:?}");
+
+    let whole = archived(&get("/api/v1/projects/banskabystrica/export?format=zip", true).await);
+    for file in [pipeline, air, noise] {
+        assert!(whole.contains(&file.to_string()), "{file}: {whole:?}");
+    }
+}
