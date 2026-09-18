@@ -52,9 +52,16 @@ function json(body: unknown, status = 200): Response {
 }
 
 function renderDetail(
-  options: { identity?: unknown; change?: Record<string, unknown>; permissions?: unknown } = {},
+  options: {
+    identity?: unknown;
+    change?: Record<string, unknown>;
+    permissions?: unknown;
+    // The change the API serves once it was approved, for a page that polls through Deploying.
+    afterApproval?: Record<string, unknown>;
+  } = {},
 ) {
   const change = options.change ?? proposal();
+  let approved = false;
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     if (request.url.includes("/auth/me")) {
@@ -72,9 +79,10 @@ function renderDetail(
       );
     }
     if (request.method === "POST") {
+      approved = true;
       return Promise.resolve(json(DEPLOYING, 202));
     }
-    return Promise.resolve(json(change));
+    return Promise.resolve(json(approved && options.afterApproval ? options.afterApproval : change));
   });
   vi.stubGlobal("fetch", fetchMock);
 
@@ -116,6 +124,41 @@ describe("approval actions", () => {
       "/api/v1/projects/banskabystrica/changes/chg-1a2b3c4d/approve",
     );
     expect(request.headers.get("x-csrf-token")).toBe("csrf-token-value");
+  });
+
+  it("says the change is being deployed, then that it is applied, with a link to its list", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const files = [
+        { path: "projects/banskabystrica/endpoints/air-quality.yaml", kind: "Endpoint", operation: "Update", lane: "yellow" },
+      ];
+      renderDetail({
+        change: proposal({ files }),
+        afterApproval: proposal({ files, status: { lane: "yellow", phase: "Applied", plan: { update: 1 } } }),
+      });
+      // Nothing to say before anyone acted.
+      await screen.findByRole("button", { name: en.approvals.approve });
+      expect(screen.queryByText(/Change approved/)).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: en.approvals.approve }));
+      expect(await screen.findByText("Change approved. The Endpoint is being deployed.")).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await screen.findByText(en.approvals.approvedLive)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Open the Endpoint list" })).toHaveAttribute(
+        "href",
+        "/projects/banskabystrica/endpoints",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing when the change was applied before the page opened", async () => {
+    renderDetail({ change: proposal({ status: { lane: "yellow", phase: "Applied", plan: { update: 1 } } }) });
+    await screen.findByText(en.phase.applied);
+    expect(screen.queryByRole("status", { name: /Change approved/ })).toBeNull();
+    expect(screen.queryByText(en.approvals.approvedLive)).toBeNull();
   });
 
   it("moves the status chip to Deploying once the merge is accepted", async () => {

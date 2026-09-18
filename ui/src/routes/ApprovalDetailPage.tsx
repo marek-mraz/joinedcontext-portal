@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Link } from "@tanstack/react-router";
 import { approvalStanding, changedKind } from "../api/approval";
 import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
@@ -13,6 +14,14 @@ import { Alert, Button, Dialog, Input, PageHeader, Textarea } from "../component
 
 type ChangeProposal = components["schemas"]["ChangeProposal"];
 type ChangeFile = components["schemas"]["ChangeFile"];
+
+/** The list page of the changed resource: the folder of its file, `projects/{project}/{plural}/…`. */
+function pluralOf(change: ChangeProposal): string | undefined {
+  const kind = changedKind(change);
+  const file = (change.files ?? []).find((f) => f.kind === kind) ?? change.files?.[0];
+  const parts = file?.path.split("/") ?? [];
+  return parts[0] === "projects" && parts.length > 3 ? parts[2] : undefined;
+}
 
 /** The order the files are read in: what the strictest lane decides comes first. */
 const LANE_ORDER: Record<ChangeFile["lane"], number> = { red: 2, yellow: 1, green: 0 };
@@ -68,6 +77,17 @@ export function ApprovalDetailPage({
   });
 
   const proposal = detailQuery.data;
+
+  // What the approval did, said once the phase moves while the page is open (T-1386): the page
+  // polls through Deploying, so the move to Applied is seen here too.
+  const [banner, setBanner] = useState<"deploying" | "live" | null>(null);
+  const phase = proposal?.status.phase;
+  const [seenPhase, setSeenPhase] = useState(phase);
+  if (phase !== seenPhase) {
+    setSeenPhase(phase);
+    if (seenPhase !== undefined && phase === "Deploying") setBanner("deploying");
+    else if (seenPhase !== undefined && phase === "Applied") setBanner("live");
+  }
 
   const isRedLane = proposal?.status.lane === "red";
   const expectedName = proposal ? computeExpectedName(proposal) : "";
@@ -278,6 +298,25 @@ export function ApprovalDetailPage({
         </h2>
         <PlanDiffViewer fields={selected ? selected.fields : proposal.planFields} />
       </section>
+
+      {banner && proposal ? (
+        <Alert role="status" tone={banner === "live" ? "success" : "info"}>
+          <span>
+            {t(banner === "live" ? "approvals.approvedLive" : "approvals.approvedDeploying", {
+              kind: changedKind(proposal),
+            })}
+          </span>
+          {banner === "live" && pluralOf(proposal) ? (
+            <Link
+              to="/projects/$project/$plural"
+              params={{ project, plural: pluralOf(proposal) as string }}
+              className="ml-2 font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+            >
+              {t("approvals.openResource", { kind: changedKind(proposal) })}
+            </Link>
+          ) : null}
+        </Alert>
+      ) : null}
 
       {actionError ? (
         <Alert role="alert" tone="danger">
