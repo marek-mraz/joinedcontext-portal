@@ -1390,7 +1390,8 @@
       "lag": "{missed} lines were skipped; reconnecting fills them in.",
       "endpoints": "Data: {names}",
       "noEndpoints": "Data: none",
-      "previewLink": "Open the preview"
+      "previewLink": "Open the preview",
+      "chose": "You chose: {choice}"
     },
     "preview": {
       "title": "Preview",
@@ -1551,6 +1552,15 @@
       "title": "Publication",
       "source": "Source in Git",
       "approve": "Approve and publish"
+    },
+    "question": {
+      "suggested": "suggested",
+      "useThese": "Use these ({count})",
+      "between": "Choose {min} to {max}.",
+      "atLeast": "Choose at least {min}.",
+      "atMost": "Choose at most {max}.",
+      "search": "Search the options",
+      "noMatch": "No option matches."
     }
   },
   "assistant": {

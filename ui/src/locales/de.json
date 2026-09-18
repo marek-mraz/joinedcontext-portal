@@ -1390,7 +1390,8 @@
       "lag": "{missed} Zeilen wurden übersprungen; das erneute Verbinden holt sie nach.",
       "endpoints": "Daten: {names}",
       "noEndpoints": "Daten: keine",
-      "previewLink": "Vorschau öffnen"
+      "previewLink": "Vorschau öffnen",
+      "chose": "Ihre Wahl: {choice}"
     },
     "preview": {
       "title": "Vorschau",
@@ -1551,6 +1552,15 @@
       "title": "Veröffentlichung",
       "source": "Quellcode in Git",
       "approve": "Genehmigen und veröffentlichen"
+    },
+    "question": {
+      "suggested": "vorgeschlagen",
+      "useThese": "Diese verwenden ({count})",
+      "between": "Wählen Sie {min} bis {max}.",
+      "atLeast": "Wählen Sie mindestens {min}.",
+      "atMost": "Wählen Sie höchstens {max}.",
+      "search": "Optionen durchsuchen",
+      "noMatch": "Keine Option passt."
     }
   },
   "assistant": {

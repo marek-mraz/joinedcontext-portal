@@ -1390,7 +1390,8 @@
       "lag": "{missed} řádků bylo přeskočeno; opětovné připojení je doplní.",
       "endpoints": "Data: {names}",
       "noEndpoints": "Data: žádná",
-      "previewLink": "Otevřít náhled"
+      "previewLink": "Otevřít náhled",
+      "chose": "Vybrali jste: {choice}"
     },
     "preview": {
       "title": "Náhled",
@@ -1551,6 +1552,15 @@
       "title": "Zveřejnění",
       "source": "Zdrojový kód v Gitu",
       "approve": "Schválit a zveřejnit"
+    },
+    "question": {
+      "suggested": "navrhováno",
+      "useThese": "Použít tyto ({count})",
+      "between": "Vyberte {min} až {max}.",
+      "atLeast": "Vyberte alespoň {min}.",
+      "atMost": "Vyberte nejvýše {max}.",
+      "search": "Hledat v možnostech",
+      "noMatch": "Žádná možnost neodpovídá."
     }
   },
   "assistant": {

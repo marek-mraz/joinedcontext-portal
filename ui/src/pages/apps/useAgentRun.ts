@@ -80,6 +80,8 @@ export interface RunQuestion {
   questionId: string;
   schema: Record<string, unknown>;
   required?: boolean;
+  /** The platform filled the options (AG-83): only they are an answer. */
+  pick?: boolean;
 }
 
 export function questionOf(event: RunEvent): RunQuestion | null {
@@ -88,7 +90,8 @@ export function questionOf(event: RunEvent): RunQuestion | null {
   if (typeof id !== "string" || typeof schema !== "object" || schema === null) {
     return null;
   }
-  return { questionId: id, schema: schema as Record<string, unknown>, required: true };
+  const pick = typeof event.payload.pick === "string" && event.payload.pick !== "";
+  return { questionId: id, schema: schema as Record<string, unknown>, required: true, pick };
 }
 
 /** The questions nobody has answered yet, oldest first. */

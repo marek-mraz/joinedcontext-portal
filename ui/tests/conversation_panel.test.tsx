@@ -319,6 +319,32 @@ describe("openQuestions", () => {
     expect(openQuestions(events).map((q) => q.questionId)).toEqual(["b"]);
   });
 
+  it("marks a question the platform filled, whose answer it checks", () => {
+    const picked = { ...question(1, "a"), payload: { questionId: "a", schema: { type: "object" }, pick: "endpoints" } };
+    expect(openQuestions([picked])[0].pick).toBe(true);
+    expect(openQuestions([question(2, "b")])[0].pick).toBe(false);
+  });
+
+  it("keeps an answered question in the conversation by the titles chosen, and no longer answerable", () => {
+    const schema = {
+      type: "object",
+      title: "Which endpoints?",
+      properties: {
+        answer: {
+          type: "array",
+          items: { oneOf: [{ const: "bikes", title: "City bikes" }, { const: "air", title: "Air quality" }] },
+        },
+      },
+    };
+    panel([
+      { seq: 1, kind: "question", payload: { questionId: "q1", schema, pick: "endpoints", multiple: true } },
+      { seq: 2, kind: "answer", payload: { questionId: "q1", answers: { answer: ["bikes", "air"] } } },
+    ]);
+
+    expect(screen.getByText("You chose: City bikes, Air quality")).toBeInTheDocument();
+    expect(screen.queryByTestId("question-options")).toBeNull();
+  });
+
   it("ignores a question with no schema to render", () => {
     expect(
       openQuestions([{ seq: 1, kind: "question", payload: { questionId: "a" } }]),

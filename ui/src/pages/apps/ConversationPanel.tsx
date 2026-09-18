@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { JSX, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { QuestionOptions } from "./QuestionOptions";
+import { choicesOf, QuestionOptions } from "./QuestionOptions";
 import type { JsonSchema } from "../../components/forms/types";
 import { Button, Textarea } from "../../components/ui";
 import { openQuestions, TERMINAL_STATES } from "./useAgentRun";
@@ -142,6 +142,7 @@ export function foldRepeats(events: RunEvent[]): { event: RunEvent; count: numbe
 export function line(
   event: RunEvent,
   t: (key: string, options?: Record<string, unknown>) => string,
+  titles: Map<string, string> = new Map(),
 ): string {
   const payload = event.payload;
   const text = (key: string): string => {
@@ -170,8 +171,16 @@ export function line(
       return t("agentRun.line.preview", { url: text("previewUrl") });
     case "usage":
       return t("agentRun.line.usage", { tokens: String(payload.tokensThisStep ?? "") });
-    case "answer":
-      return t("agentRun.line.answer", { question: text("questionId") });
+    case "answer": {
+      // What was chosen stays in the conversation, by the titles the person read (UI-74).
+      const answer = (payload.answers as { answer?: unknown } | undefined)?.answer;
+      const chosen = (Array.isArray(answer) ? answer : [answer]).filter(
+        (one): one is string => typeof one === "string",
+      );
+      return chosen.length > 0
+        ? t("agentRun.line.chose", { choice: chosen.map((one) => titles.get(one) ?? one).join(", ") })
+        : t("agentRun.line.answer", { question: text("questionId") });
+    }
     case "question":
       return t("agentRun.line.question", { question: text("questionId") });
     case "lag":
@@ -260,6 +269,12 @@ export function ConversationPanel({
   const progress = progressOf(events);
   const answered = answeredSearches(events);
   const questions = openQuestions(events);
+  const titles = new Map(
+    events
+      .filter((event) => event.kind === "question")
+      .flatMap((event) => choicesOf(event.payload.schema as JsonSchema)?.choices ?? [])
+      .map((choice) => [choice.value, choice.title] as const),
+  );
   const foot = useRef<HTMLDivElement>(null);
 
   // A chat that does not follow its own newest line is a log. `block: "nearest"` keeps the
@@ -407,7 +422,7 @@ export function ConversationPanel({
                         : "mt-0.5 whitespace-pre-wrap break-words rounded-lg rounded-bl-sm bg-surface-subtle px-3 py-2"
                     }
                   >
-                    {line(event, t)}
+                    {line(event, t, titles)}
                   </p>
                 </div>
               </li>
@@ -429,6 +444,7 @@ export function ConversationPanel({
             <QuestionOptions
               schema={question.schema as JsonSchema}
               disabled={answering}
+              free={!question.pick}
               onAnswer={(data) => {
                 onAnswer(question.questionId, data);
               }}

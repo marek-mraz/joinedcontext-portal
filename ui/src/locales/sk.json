@@ -1390,7 +1390,8 @@
       "lag": "{missed} riadkov bolo preskočených; opätovné pripojenie ich doplní.",
       "endpoints": "Dáta: {names}",
       "noEndpoints": "Dáta: žiadne",
-      "previewLink": "Otvoriť náhľad"
+      "previewLink": "Otvoriť náhľad",
+      "chose": "Vybrali ste: {choice}"
     },
     "preview": {
       "title": "Náhľad",
@@ -1551,6 +1552,15 @@
       "title": "Zverejnenie",
       "source": "Zdrojový kód v Gite",
       "approve": "Schváliť a zverejniť"
+    },
+    "question": {
+      "suggested": "navrhované",
+      "useThese": "Použiť tieto ({count})",
+      "between": "Vyberte {min} až {max}.",
+      "atLeast": "Vyberte aspoň {min}.",
+      "atMost": "Vyberte najviac {max}.",
+      "search": "Hľadať v možnostiach",
+      "noMatch": "Žiadna možnosť nezodpovedá."
     }
   },
   "assistant": {
