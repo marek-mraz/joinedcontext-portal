@@ -75,6 +75,11 @@ fn org(kind: &str, name: &str, spec: Value) -> ResourceEnvelope {
 }
 
 /// A role that proposes pipelines in `project`, bound to the developer.
+///
+/// Every test that reaches the runner takes a project of its own: one pipeline test runs per
+/// project at a time, process-wide (`pipeline_test::RUNNING`), and the tests of this file run in
+/// parallel in one process, so two sharing a project refuse each other whenever they overlap —
+/// which a slower CI runner makes them do (T-1458).
 fn mirror(project: &str) -> Arc<Mirror> {
     let mirror = Arc::new(Mirror::new());
     mirror.upsert(org(
@@ -506,7 +511,7 @@ async fn anonymous_is_401_and_a_capture_for_no_test_is_404() {
 #[tokio::test]
 async fn a_data_source_check_with_no_runner_still_names_a_probe() {
     // No runner configured at all, the state the recording hits while the pod restarts.
-    let state = AppState::new(config(None), None).with_mirror(mirror("porvoo"));
+    let state = AppState::new(config(None), None).with_mirror(mirror("loviisa"));
     let source = json!({
         "apiVersion": "joinedcontext.com/v1alpha1",
         "kind": "DataSource",
@@ -516,7 +521,7 @@ async fn a_data_source_check_with_no_runner_still_names_a_probe() {
     let (status, body) = send(
         &state,
         "dev@hel.fi",
-        "/api/v1/projects/porvoo/datasources?dryRun=All",
+        "/api/v1/projects/loviisa/datasources?dryRun=All",
         &source,
     )
     .await;
@@ -544,11 +549,11 @@ async fn a_data_source_check_with_no_runner_still_names_a_probe() {
         .respond_with(ResponseTemplate::new(503))
         .mount(&refusing)
         .await;
-    let state = AppState::new(config(Some(&refusing)), None).with_mirror(mirror("porvoo"));
+    let state = AppState::new(config(Some(&refusing)), None).with_mirror(mirror("hamina"));
     let (status, body) = send(
         &state,
         "dev@hel.fi",
-        "/api/v1/projects/porvoo/datasources?dryRun=All",
+        "/api/v1/projects/hamina/datasources?dryRun=All",
         &source,
     )
     .await;
