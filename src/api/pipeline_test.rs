@@ -17,8 +17,8 @@ use axum::routing::post;
 use axum::{Json, Router};
 use jc_core::kinds::{PipelineSpec, Verb};
 use jcctl::pipeline_test::{
-    harness, lint_errors, trace, Captured, Sample, SampleFormat, TestError, TestTrace,
-    MAX_MESSAGES, MAX_SAMPLE_BYTES, STREAM_PREFIX,
+    harness, lint_errors, trace, Captured, Sample, SampleFormat, TestError, TestTrace, EMPTY_BODY,
+    FETCH_FAILED, MAX_MESSAGES, MAX_SAMPLE_BYTES, STREAM_PREFIX,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -38,10 +38,6 @@ const DEADLINE: Duration = Duration::from_secs(3);
 const QUIET: Duration = Duration::from_millis(300);
 /// The request body: the sample's five mebibytes plus the manifest and the JSON around them.
 const BODY_LIMIT: usize = MAX_SAMPLE_BYTES + 1024 * 1024;
-/// Marks an error the fetch of a URL sample raised, ahead of what Bento wrote.
-const FETCH_FAILED: &str = "fetch: ";
-/// What a fetch that answered no bytes is called; a mapping of nothing would say less.
-const EMPTY_BODY: &str = "the feed answered an empty body";
 
 /// The request of API/01 §7a.
 #[derive(Debug, Deserialize)]
@@ -215,8 +211,6 @@ pub(crate) async fn run_harness(
         sample,
         &format!("{capture}/internal/pipeline-tests/{id}"),
     )
-    .map(single_fetch)
-    .map(failed_envelope)
     .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     let (sender, mut receiver) = mpsc::unbounded_channel();
     let _slot = Slot::take(project, &id, sender)?;
@@ -353,65 +347,6 @@ fn outcome_of(error: &str) -> String {
     }
 }
 
-/// One fetch of a URL sample. The harness reads a URL with Bento's `http_client` input, which
-/// polls without pause: a 1.2 MB feed reached the capture route many times a second until the
-/// Portal was OOM-killed. One `generate` message fetched by an `http` processor is one fetch.
-// ponytail: belongs in jcctl's harness; patched here until the next jcctl tag bump.
-fn single_fetch(mut config: Value) -> Value {
-    let Some(http) = config["input"].get_mut("http_client").map(Value::take) else {
-        return config;
-    };
-    config["input"] = serde_json::json!({
-        "generate": { "count": 1, "interval": "", "mapping": "root = \"\"" }
-    });
-    // A failed fetch leaves an empty message that every later processor fails on again, so
-    // its own error is kept in metadata, where the envelope reads it first.
-    let fetch = [
-        serde_json::json!({ "http": {
-            "url": http["url"], "verb": "GET", "timeout": http["timeout"], "retries": 0
-        }}),
-        serde_json::json!({ "mapping": format!(
-            "root = if !errored() && content().length() == 0 {{ throw(\"{EMPTY_BODY}\") }} else {{ content() }}"
-        )}),
-        serde_json::json!({ "catch": [{ "mapping": format!(
-            "meta jc_fetch_error = \"{FETCH_FAILED}\" + error()\nroot = \"\""
-        )}]}),
-    ];
-    if let Some(processors) = config["pipeline"]["processors"].as_array_mut() {
-        processors.splice(0..0, fetch);
-    }
-    config
-}
-
-/// The harness's envelope reads the message as JSON even when the message failed, which fails
-/// again on a body that is not JSON: the runner then posts the raw body to the capture route,
-/// is refused, and retries until the stream is deleted. Read only when it did not fail, the
-/// failure arrives as an envelope, a failed fetch's own error first (Bento 1.21).
-// ponytail: belongs in jcctl's harness; patched here until the next jcctl tag bump.
-fn failed_envelope(mut config: Value) -> Value {
-    let Some(processors) = config["pipeline"]["processors"].as_array_mut() else {
-        return config;
-    };
-    for processor in processors {
-        if let Some(mapping) = processor["mapping"]
-            .as_str()
-            .filter(|m| m.starts_with("let failed = errored()"))
-        {
-            processor["mapping"] = mapping
-                .replace(
-                    "let out = this\n",
-                    "let out = if $failed { null } else { this }\n",
-                )
-                .replace(
-                    "if $failed { error() }",
-                    "if $failed { meta(\"jc_fetch_error\").or(error()) }",
-                )
-                .into();
-        }
-    }
-    config
-}
-
 /// `POST /internal/pipeline-tests/{id}`: what the harness produced, one message per call.
 ///
 /// The id is 130 random bits minted for this test and known to the harness alone; a message
@@ -456,9 +391,7 @@ mod tests {
             "targetEndpoint": "urn:ngsi-ld:Endpoint:probe.local:probe:probe"
         }))
         .expect("spec");
-        failed_envelope(single_fetch(
-            harness(&spec, &sample, "http://portal-internal:9090/x").expect("harness"),
-        ))
+        harness(&spec, &sample, "http://portal-internal:9090/x").expect("harness")
     }
 
     #[test]
