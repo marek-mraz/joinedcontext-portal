@@ -30,7 +30,8 @@
     "assistant": "Assistant",
     "sync": "Sync",
     "activity": "Activity",
-    "import": "Import"
+    "import": "Import",
+    "workspaces": "Copies"
   },
   "auth": {
     "lead": "Sign in with your organisation account to manage this platform.",
@@ -1872,5 +1873,84 @@
     "propose": "Propose",
     "checked": "Checked: the copy can be proposed.",
     "mayNotPropose": "You may not propose this kind in {project}."
+  },
+  "workspaces": {
+    "title": "Copies",
+    "lead": "A copy is the project on the side: change several resources, try them, and bring them back as one change a person approves.",
+    "tableCaption": "Copies of this project",
+    "new": "Work on a copy",
+    "mine": "My copies",
+    "othersTitle": "Other people's copies",
+    "readOnly": "Read only",
+    "name": "Name",
+    "owner": "Owner",
+    "scope": "Covers",
+    "scopeProject": "The whole project",
+    "scopeSpace": "Space {name}",
+    "expiresColumn": "Expires",
+    "expires": "Expires {date}",
+    "previewColumn": "Preview",
+    "previewStates": {
+      "none": "Not started",
+      "starting": "Starting",
+      "running": "Running",
+      "stopped": "Stopped",
+      "error": "Failed"
+    },
+    "actions": "Actions",
+    "openAction": "Open",
+    "compareAction": "Compare",
+    "discard": "Discard",
+    "discardConfirm": "Discard the copy {name}? What it holds goes with it; the project is not touched.",
+    "empty": "No copies. Start one to change several resources and bring them back together.",
+    "open": {
+      "action": "Work on a copy",
+      "title": "Work on a copy",
+      "description": "The copy starts as the project is now. Nothing in it is live until it is brought back and approved.",
+      "name": "Name",
+      "nameHint": "Lowercase letters, digits and hyphens, at most 20 characters.",
+      "nameInvalid": "Use lowercase letters, digits and hyphens, at most 20 characters.",
+      "scope": "Covers",
+      "scopeProject": "The whole project",
+      "scopeSpace": "Space {name}",
+      "ttl": "Keep it for",
+      "ttlDays": "{days, plural, one {# day} other {# days}}",
+      "submit": "Start the copy"
+    },
+    "bar": {
+      "label": "Copy",
+      "message": "You are working on the copy {title}, started {date}. Nothing here is live.",
+      "changes": "{count, plural, =0 {No changes yet} one {# change} other {# changes}}",
+      "gone": "This copy has expired or was discarded.",
+      "leave": "Leave",
+      "compare": "Compare",
+      "bringBack": "Bring back"
+    },
+    "compare": {
+      "title": "What the copy changes",
+      "summary": "{added} added, {changed} changed, {removed} removed",
+      "conflicts": "{count, plural, one {# file also changed in the project} other {# files also changed in the project}}. Resolve them before bringing the copy back.",
+      "resolveConflicts": "Resolve on the bring back page",
+      "showDiff": "Fields",
+      "empty": "The copy changes nothing yet."
+    },
+    "bringBack": {
+      "title": "Bring the copy back",
+      "from": "From the copy {name} by {owner}, started {date}.",
+      "lane": {
+        "green": "Green lane: a person with approve on the kind approves.",
+        "yellow": "Yellow lane: an approver of the kind approves.",
+        "red": "Red lane: the approver types the name back to confirm."
+      },
+      "conflicts": "Changed in the project too",
+      "wholeFile": "The whole file",
+      "mergeable": "The project changed other fields of this file. Updating from the project takes them in.",
+      "keepOurs": "Keep the copy's",
+      "takeTheirs": "Take the project's",
+      "update": "Update from the project",
+      "propose": "Propose as one change",
+      "proposed": "Proposed as",
+      "notOwner": "Only the person who started this copy brings it back."
+    }
   }
 }

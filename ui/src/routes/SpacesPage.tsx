@@ -16,6 +16,7 @@ import { ProjectQuota, useProjectUsage } from "../components/ProjectQuota";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { EditResourceAction } from "../components/EditResourceDialog";
 import { SaveAsResourceAction } from "../components/SaveAsDialog";
+import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
 import { contextSpaceSchema } from "../schemas/kinds";
 import {
   Alert,
@@ -262,6 +263,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                   </Link>
                   <EditResourceAction target={target} />
                   <SaveAsResourceAction target={target} />
+                  <WorkOnCopyAction project={project} scope={{ kind: "space", name: space.metadata.name }} />
                   <DeleteResourceAction target={target} />
                 </div>
               </TableCell>

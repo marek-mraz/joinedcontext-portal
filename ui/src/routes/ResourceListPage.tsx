@@ -7,6 +7,7 @@ import { asManifests, localized } from "../api/manifest";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { EditResourceAction } from "../components/EditResourceDialog";
 import { SaveAsResourceAction } from "../components/SaveAsDialog";
+import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import {
   EmptyState,
@@ -114,6 +115,10 @@ function GenericListPage({
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                   <EditResourceAction target={target} />
                   <SaveAsResourceAction target={target} />
+                  <WorkOnCopyAction
+                    project={project}
+                    scope={{ kind: "resources", items: [{ kind: target.kind, name: target.name }] }}
+                  />
                   <DeleteResourceAction target={target} />
                 </div>
               </TableCell>

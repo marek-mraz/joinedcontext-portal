@@ -17,6 +17,7 @@ import { ChangeNotice } from "../components/ChangeNotice";
 import { ResourceList } from "../components/ResourceList";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { SaveAsResourceAction } from "../components/SaveAsDialog";
+import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
 import { ExportButton } from "../components/export/ExportButton";
 import { SchemaProjectionPanel } from "../pages/endpoints/SchemaProjectionPanel";
 import {
@@ -825,6 +826,10 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                   </PermissionGuard>
                   <SaveAsResourceAction
                     target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
+                  />
+                  <WorkOnCopyAction
+                    project={project}
+                    scope={{ kind: "resources", items: [{ kind: "Endpoint", name: endpoint.metadata.name }] }}
                   />
                   <DeleteResourceAction
                     target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}

@@ -30,7 +30,8 @@
     "assistant": "Assistent",
     "sync": "Sync",
     "activity": "Activity",
-    "import": "Import"
+    "import": "Import",
+    "workspaces": "Kopien"
   },
   "auth": {
     "lead": "Melden Sie sich mit dem Konto Ihrer Organisation an, um diese Plattform zu verwalten.",
@@ -1872,5 +1873,84 @@
     "propose": "Vorschlagen",
     "checked": "Geprüft: die Kopie kann vorgeschlagen werden.",
     "mayNotPropose": "Sie dürfen diese Art in {project} nicht vorschlagen."
+  },
+  "workspaces": {
+    "title": "Kopien",
+    "lead": "Eine Kopie ist das Projekt nebenan: mehrere Ressourcen ändern, ausprobieren und als eine Änderung zurückbringen, die ein Mensch freigibt.",
+    "tableCaption": "Kopien dieses Projekts",
+    "new": "An einer Kopie arbeiten",
+    "mine": "Meine Kopien",
+    "othersTitle": "Kopien anderer",
+    "readOnly": "Nur lesen",
+    "name": "Name",
+    "owner": "Eigentümer",
+    "scope": "Umfasst",
+    "scopeProject": "Das ganze Projekt",
+    "scopeSpace": "Bereich {name}",
+    "expiresColumn": "Läuft ab",
+    "expires": "Läuft ab am {date}",
+    "previewColumn": "Vorschau",
+    "previewStates": {
+      "none": "Nicht gestartet",
+      "starting": "Startet",
+      "running": "Läuft",
+      "stopped": "Gestoppt",
+      "error": "Fehlgeschlagen"
+    },
+    "actions": "Aktionen",
+    "openAction": "Öffnen",
+    "compareAction": "Vergleichen",
+    "discard": "Verwerfen",
+    "discardConfirm": "Die Kopie {name} verwerfen? Ihr Inhalt geht mit; das Projekt bleibt unberührt.",
+    "empty": "Keine Kopien. Starten Sie eine, um mehrere Ressourcen gemeinsam zu ändern.",
+    "open": {
+      "action": "An einer Kopie arbeiten",
+      "title": "An einer Kopie arbeiten",
+      "description": "Die Kopie beginnt mit dem Projekt, wie es jetzt ist. Nichts darin ist live, bis sie zurückgebracht und freigegeben wird.",
+      "name": "Name",
+      "nameHint": "Kleinbuchstaben, Ziffern und Bindestriche, höchstens 20 Zeichen.",
+      "nameInvalid": "Kleinbuchstaben, Ziffern und Bindestriche verwenden, höchstens 20 Zeichen.",
+      "scope": "Umfasst",
+      "scopeProject": "Das ganze Projekt",
+      "scopeSpace": "Bereich {name}",
+      "ttl": "Behalten für",
+      "ttlDays": "{days, plural, one {# Tag} other {# Tage}}",
+      "submit": "Kopie starten"
+    },
+    "bar": {
+      "label": "Kopie",
+      "message": "Sie arbeiten an der Kopie {title}, gestartet am {date}. Nichts hier ist live.",
+      "changes": "{count, plural, =0 {Noch keine Änderungen} one {# Änderung} other {# Änderungen}}",
+      "gone": "Diese Kopie ist abgelaufen oder wurde verworfen.",
+      "leave": "Verlassen",
+      "compare": "Vergleichen",
+      "bringBack": "Zurückbringen"
+    },
+    "compare": {
+      "title": "Was die Kopie ändert",
+      "summary": "{added} hinzugefügt, {changed} geändert, {removed} entfernt",
+      "conflicts": "{count, plural, one {# Datei wurde auch im Projekt geändert} other {# Dateien wurden auch im Projekt geändert}}. Lösen Sie das, bevor Sie die Kopie zurückbringen.",
+      "resolveConflicts": "Auf der Seite zum Zurückbringen lösen",
+      "showDiff": "Felder",
+      "empty": "Die Kopie ändert noch nichts."
+    },
+    "bringBack": {
+      "title": "Die Kopie zurückbringen",
+      "from": "Aus der Kopie {name} von {owner}, gestartet am {date}.",
+      "lane": {
+        "green": "Grüne Spur: ein Mensch mit Freigaberecht für die Art gibt frei.",
+        "yellow": "Gelbe Spur: ein Freigebender der Art gibt frei.",
+        "red": "Rote Spur: der Freigebende tippt den Namen zur Bestätigung ab."
+      },
+      "conflicts": "Auch im Projekt geändert",
+      "wholeFile": "Die ganze Datei",
+      "mergeable": "Das Projekt hat andere Felder dieser Datei geändert. Aktualisieren aus dem Projekt übernimmt sie.",
+      "keepOurs": "Aus der Kopie behalten",
+      "takeTheirs": "Aus dem Projekt übernehmen",
+      "update": "Aus dem Projekt aktualisieren",
+      "propose": "Als eine Änderung vorschlagen",
+      "proposed": "Vorgeschlagen als",
+      "notOwner": "Nur wer die Kopie gestartet hat, bringt sie zurück."
+    }
   }
 }

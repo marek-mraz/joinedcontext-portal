@@ -18,6 +18,8 @@ export const NAV_SECTIONS = [
   // only way into it, so it needs an entry of its own (MF-27, T-0790).
   { plural: "syncsources", labelKey: "nav.sync", icon: "refresh" },
   { plural: "assistant", labelKey: "nav.assistant", icon: "chat" },
+  // Copies of the project a person changes on the side and brings back as one Change (UI-61).
+  { plural: "workspaces", labelKey: "nav.workspaces", icon: "git" },
   { plural: "approvals", labelKey: "nav.approvals", icon: "approvals" },
   // What the reconciler, the pipelines, the gateway, the broker and the catalogue did, in one
   // place, so "is it working" has an answer that is not a Grafana login (UI-31).

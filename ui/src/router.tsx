@@ -24,6 +24,10 @@ import { SpaceInside } from "./pages/spaces/SpaceInside";
 import { AppPage } from "./pages/apps/AppPage";
 import { AssistantPage } from "./pages/assistant/AssistantPage";
 import { HandOff } from "./assistant/HandOff";
+import { WorkspaceProvider } from "./components/layout/WorkspaceContext";
+import { WorkspacesPage } from "./routes/WorkspacesPage";
+import { ComparePage } from "./pages/workspaces/ComparePage";
+import { BringBackPage } from "./pages/workspaces/BringBackPage";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -96,6 +100,53 @@ const protectedRoute = createRoute({
     if (context.auth.status === "anonymous") {
       throw redirect({ to: "/login", search: { redirect_to: location.href } });
     }
+  },
+  // `?workspace=` on any page reads and writes that copy (UI-61, CC-76).
+  component: function ProtectedRoute() {
+    return (
+      <WorkspaceProvider>
+        <Outlet />
+      </WorkspaceProvider>
+    );
+  },
+});
+
+const workspacesRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/workspaces",
+  component: function WorkspacesRoute() {
+    const { project } = workspacesRoute.useParams();
+    return (
+      <Shell project={project}>
+        <WorkspacesPage project={project} />
+      </Shell>
+    );
+  },
+});
+
+const workspaceCompareRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/workspaces/$name/compare",
+  component: function WorkspaceCompareRoute() {
+    const { project, name } = workspaceCompareRoute.useParams();
+    return (
+      <Shell project={project}>
+        <ComparePage project={project} name={name} />
+      </Shell>
+    );
+  },
+});
+
+const workspaceBringBackRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/workspaces/$name/bring-back",
+  component: function WorkspaceBringBackRoute() {
+    const { project, name } = workspaceBringBackRoute.useParams();
+    return (
+      <Shell project={project}>
+        <BringBackPage project={project} name={name} />
+      </Shell>
+    );
   },
 });
 
@@ -368,6 +419,9 @@ export const routeTree = rootRoute.addChildren([
     appRoute,
     assistantRoute,
     sharedRedirectRoute,
+    workspacesRoute,
+    workspaceCompareRoute,
+    workspaceBringBackRoute,
     resourceListRoute,
   ]),
 ]);

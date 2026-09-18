@@ -17,6 +17,7 @@ import { Button, Icon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, Me
 import type { IconName } from "../ui";
 import { NAV_SECTIONS } from "./navigation";
 import { NewProjectButton } from "./NewProject";
+import { WorkspaceBar } from "./WorkspaceBar";
 
 const NAV_LINK =
   "focus-ring-inset flex items-center gap-2.5 rounded-md px-2.5 py-2 text-body text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg";
@@ -431,6 +432,7 @@ export function Shell({
                 ) : null}
               </ol>
             </nav>
+            <WorkspaceBar project={project} />
             {children}
           </div>
         </main>

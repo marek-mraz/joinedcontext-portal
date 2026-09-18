@@ -30,7 +30,8 @@
     "assistant": "Asistent",
     "sync": "Synchronizace",
     "activity": "Activity",
-    "import": "Import"
+    "import": "Import",
+    "workspaces": "Kopie"
   },
   "auth": {
     "lead": "Přihlaste se účtem své organizace a spravujte tuto platformu.",
@@ -1872,5 +1873,84 @@
     "propose": "Navrhnout",
     "checked": "Zkontrolováno: kopii lze navrhnout.",
     "mayNotPropose": "V projektu {project} nemůžete navrhovat tento druh."
+  },
+  "workspaces": {
+    "title": "Kopie",
+    "lead": "Kopie je projekt stranou: změňte více zdrojů, vyzkoušejte je a vraťte je jako jednu změnu, kterou schválí člověk.",
+    "tableCaption": "Kopie tohoto projektu",
+    "new": "Pracovat na kopii",
+    "mine": "Moje kopie",
+    "othersTitle": "Kopie ostatních",
+    "readOnly": "Jen ke čtení",
+    "name": "Název",
+    "owner": "Vlastník",
+    "scope": "Zahrnuje",
+    "scopeProject": "Celý projekt",
+    "scopeSpace": "Prostor {name}",
+    "expiresColumn": "Platnost",
+    "expires": "Platí do {date}",
+    "previewColumn": "Náhled",
+    "previewStates": {
+      "none": "Nespuštěn",
+      "starting": "Spouští se",
+      "running": "Běží",
+      "stopped": "Zastaven",
+      "error": "Selhal"
+    },
+    "actions": "Akce",
+    "openAction": "Otevřít",
+    "compareAction": "Porovnat",
+    "discard": "Zahodit",
+    "discardConfirm": "Zahodit kopii {name}? Její obsah zanikne; projekt zůstane nedotčen.",
+    "empty": "Žádné kopie. Začněte jednu, chcete-li změnit více zdrojů najednou.",
+    "open": {
+      "action": "Pracovat na kopii",
+      "title": "Pracovat na kopii",
+      "description": "Kopie začíná v aktuálním stavu projektu. Nic v ní není živé, dokud ji někdo nevrátí a neschválí.",
+      "name": "Název",
+      "nameHint": "Malá písmena, číslice a pomlčky, nejvýše 20 znaků.",
+      "nameInvalid": "Použijte malá písmena, číslice a pomlčky, nejvýše 20 znaků.",
+      "scope": "Zahrnuje",
+      "scopeProject": "Celý projekt",
+      "scopeSpace": "Prostor {name}",
+      "ttl": "Ponechat",
+      "ttlDays": "{days, plural, one {# den} few {# dny} many {# dne} other {# dní}}",
+      "submit": "Začít kopii"
+    },
+    "bar": {
+      "label": "Kopie",
+      "message": "Pracujete na kopii {title}, začaté {date}. Nic tady není živé.",
+      "changes": "{count, plural, =0 {Zatím beze změn} one {# změna} few {# změny} many {# změny} other {# změn}}",
+      "gone": "Tato kopie vypršela nebo byla zahozena.",
+      "leave": "Odejít",
+      "compare": "Porovnat",
+      "bringBack": "Vrátit"
+    },
+    "compare": {
+      "title": "Co kopie mění",
+      "summary": "přidáno {added}, změněno {changed}, odebráno {removed}",
+      "conflicts": "{count, plural, one {# soubor se změnil i v projektu} few {# soubory se změnily i v projektu} many {# souboru se změnilo i v projektu} other {# souborů se změnilo i v projektu}}. Vyřešte je před vrácením kopie.",
+      "resolveConflicts": "Vyřešit na stránce vrácení",
+      "showDiff": "Pole",
+      "empty": "Kopie zatím nic nemění."
+    },
+    "bringBack": {
+      "title": "Vrátit kopii",
+      "from": "Z kopie {name}, kterou začal(a) {owner} {date}.",
+      "lane": {
+        "green": "Zelený pruh: schválí člověk s právem schvalovat daný druh.",
+        "yellow": "Žlutý pruh: schválí schvalovatel daného druhu.",
+        "red": "Červený pruh: schvalovatel pro potvrzení přepíše název."
+      },
+      "conflicts": "Změněno i v projektu",
+      "wholeFile": "Celý soubor",
+      "mergeable": "Projekt změnil jiná pole tohoto souboru. Aktualizace z projektu je převezme.",
+      "keepOurs": "Ponechat z kopie",
+      "takeTheirs": "Převzít z projektu",
+      "update": "Aktualizovat z projektu",
+      "propose": "Navrhnout jako jednu změnu",
+      "proposed": "Navrženo jako",
+      "notOwner": "Kopii vrací jen ten, kdo ji začal."
+    }
   }
 }

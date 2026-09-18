@@ -1,4 +1,5 @@
 import createClient from "openapi-fetch";
+import { workspaceMiddleware } from "../components/layout/WorkspaceContext";
 import type { Middleware } from "openapi-fetch";
 import type { components, paths } from "./schema";
 
@@ -99,6 +100,8 @@ export const sessionMiddleware = createSessionMiddleware((url) => {
 });
 
 api.use(sessionMiddleware);
+// Inside a workspace, resource reads and writes go to its branch (API/01 §22).
+api.use(workspaceMiddleware);
 
 export async function unwrap<T>(result: {
   data?: T;
