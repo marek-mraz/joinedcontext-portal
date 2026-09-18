@@ -177,10 +177,14 @@ describe("pending approvals view", () => {
     expect(link).toHaveAttribute("href", "/projects/banskabystrica/approvals/chg-1a2b3c4d");
   });
 
-  it("says the queue is empty rather than showing a bare table", async () => {
+  it("says the queue is empty in the table, with the way to a first change (T-1381)", async () => {
     renderApprovals({ apiVersion: "joinedcontext.com/v1alpha1", kind: "ChangeList", items: [] });
-    expect(await screen.findByText(en.approvals.empty)).toBeInTheDocument();
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    const empty = await screen.findByText(en.approvals.empty);
+    expect(screen.getByRole("table", { name: en.approvals.title })).toContainElement(empty);
+    expect(screen.getByRole("link", { name: en.approvals.emptyAction })).toHaveAttribute(
+      "href",
+      "/projects/banskabystrica/assistant",
+    );
   });
 });
 

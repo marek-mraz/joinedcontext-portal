@@ -104,6 +104,7 @@
     "summary": "Zusammenfassung",
     "field": "Feld",
     "diffType": "Änderungstyp",
+    "emptyAction": "Eine Änderung mit dem Assistenten vorschlagen",
     "approvedDeploying": "Änderung genehmigt. {kind} wird bereitgestellt.",
     "approvedLive": "Änderung genehmigt und angewendet.",
     "openResource": "Liste {kind} öffnen",

@@ -437,7 +437,12 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
           aside={<div className="flex flex-wrap gap-2">{newButtons}</div>}
         />
         {change ? <ChangeNotice change={change} project={project} /> : null}
-        <EmptyState icon="dashboards" title={t("dashboards.empty")} />
+        {/* The same controls as the header, where an empty page puts the eye (T-1381). */}
+        <EmptyState
+          icon="dashboards"
+          title={t("dashboards.empty")}
+          action={<div className="flex flex-wrap justify-center gap-2">{newButtons}</div>}
+        />
         {editors}
       </div>
     );

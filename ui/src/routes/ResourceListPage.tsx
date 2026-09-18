@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { ResourceList } from "../components/ResourceList";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap, whilePending } from "../api/client";
@@ -7,17 +8,11 @@ import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { EditResourceAction } from "../components/EditResourceDialog";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import {
-  Alert,
-  Button,
   EmptyState,
-  Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeaderCell,
   TableRow,
-  TableSkeleton,
 } from "../components/ui";
 import { SpacesPage } from "./SpacesPage";
 import { EndpointsPage } from "./EndpointsPage";
@@ -84,63 +79,45 @@ function GenericListPage({
       ),
   });
 
-  if (list.isError) {
-    return (
-      <Alert
-        role="alert"
-        tone="danger"
-        actions={
-          <Button size="sm" onClick={() => void list.refetch()}>
-            {t("app.error.retry")}
-          </Button>
-        }
-      >
-        {t("app.error.generic")}
-      </Alert>
-    );
-  }
-
   const items = asManifests(list.data?.items ?? []);
   return (
-    <Table caption={plural} status={list.isPending ? t("app.loading") : undefined}>
-      <TableHead>
-        <TableHeaderCell>{t("resourceList.name")}</TableHeaderCell>
-        <TableHeaderCell>{t("resourceList.phase")}</TableHeaderCell>
-        <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
-      </TableHead>
-      <TableBody>
-        {list.isPending ? (
-          <TableSkeleton columns={3} />
-        ) : items.length === 0 ? (
-          <TableEmpty columns={3}>
-            <EmptyState bare title={t("resourceList.empty")} />
-          </TableEmpty>
-        ) : (
-          items.map((item) => {
-            const title = localized(item.metadata.title, locale, item.metadata.name);
-            const target = { project, kind: item.kind, plural, name: item.metadata.name, label: title };
-            return (
-              <TableRow key={item.metadata.name}>
-                <TableCell primary>
-                  <div>{title}</div>
-                  {item.metadata.title ? (
-                    <div className="mt-0.5 font-mono text-caption text-fg-subtle">{item.metadata.name}</div>
-                  ) : null}
-                </TableCell>
-                <TableCell>
-                  <LifecycleBadge kind="phase" value={item.status?.phase} />
-                </TableCell>
-                <TableCell align="right">
-                  <div className="flex flex-wrap items-center justify-end gap-1.5">
-                    <EditResourceAction target={target} />
-                    <DeleteResourceAction target={target} />
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })
-        )}
-      </TableBody>
-    </Table>
+    <ResourceList
+      query={list}
+      caption={plural}
+      head={
+        <TableHead>
+          <TableHeaderCell>{t("resourceList.name")}</TableHeaderCell>
+          <TableHeaderCell>{t("resourceList.phase")}</TableHeaderCell>
+          <TableHeaderCell align="right">{t("approvals.actions")}</TableHeaderCell>
+        </TableHead>
+      }
+      columns={3}
+      count={items.length}
+      empty={<EmptyState bare title={t("resourceList.empty")} />}
+    >
+      {items.map((item) => {
+          const title = localized(item.metadata.title, locale, item.metadata.name);
+          const target = { project, kind: item.kind, plural, name: item.metadata.name, label: title };
+          return (
+            <TableRow key={item.metadata.name}>
+              <TableCell primary>
+                <div>{title}</div>
+                {item.metadata.title ? (
+                  <div className="mt-0.5 font-mono text-caption text-fg-subtle">{item.metadata.name}</div>
+                ) : null}
+              </TableCell>
+              <TableCell>
+                <LifecycleBadge kind="phase" value={item.status?.phase} />
+              </TableCell>
+              <TableCell align="right">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <EditResourceAction target={target} />
+                  <DeleteResourceAction target={target} />
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        })}
+    </ResourceList>
   );
 }

@@ -104,6 +104,7 @@
     "summary": "Súhrn",
     "field": "Pole",
     "diffType": "Typ zmeny",
+    "emptyAction": "Navrhnúť zmenu s asistentom",
     "approvedDeploying": "Zmena schválená. {kind} sa nasadzuje.",
     "approvedLive": "Zmena schválená a nasadená.",
     "openResource": "Otvoriť zoznam {kind}",

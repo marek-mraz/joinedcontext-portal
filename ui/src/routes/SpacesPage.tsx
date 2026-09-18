@@ -10,6 +10,7 @@ import { asManifests, isChange, localized, refName } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
+import { ResourceList } from "../components/ResourceList";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { ProjectQuota, useProjectUsage } from "../components/ProjectQuota";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
@@ -22,14 +23,10 @@ import {
   EmptyState,
   Icon,
   PageHeader,
-  Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeaderCell,
   TableRow,
-  TableSkeleton,
   buttonClass,
   SourceLink,
 } from "../components/ui";
@@ -133,53 +130,30 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
     </TableHead>
   );
 
-  if (list.isPending) {
-    return (
-      <div className="flex flex-col gap-section">
-        <PageHeader title={t("spaces.title")} description={t("spaces.lead")} />
-        <Table caption={t("spaces.title")} status={t("app.loading")}>
-          {head}
-          <TableSkeleton columns={COLUMNS} />
-        </Table>
-      </div>
-    );
-  }
-
-  if (list.isError) {
-    const message =
-      list.error instanceof ApiError
-        ? (list.error.problem?.detail ?? list.error.message)
-        : t("app.error.generic");
-    return (
-      <div className="flex flex-col gap-section">
-        <PageHeader title={t("spaces.title")} description={t("spaces.lead")} />
-        <Alert
-          role="alert"
-          tone="danger"
-          actions={
-            <Button
-              size="sm"
-              icon={<Icon name="refresh" className="size-4" />}
-              onClick={() => {
-                void list.refetch();
-              }}
-            >
-              {t("app.error.retry")}
-            </Button>
-          }
-        >
-          {message}
-        </Alert>
-      </div>
-    );
-  }
-
-  const spaces = asManifests(list.data.items ?? []);
+  const spaces = asManifests(list.data?.items ?? []);
   // The API counts what the project holds and knows which quota is in force, the project's own
   // or the organization's default (PF-73, PF-75); the page only reads the numbers.
   const contextSpaces = usage.data?.contextSpaces;
   const limit = contextSpaces?.limit;
   const quotaExceeded = limit !== undefined && (contextSpaces?.used ?? spaces.length) >= limit;
+
+  // The same control in the header and in the empty list, disabled with the reason for a viewer.
+  const addButton = (
+    <PermissionGuard project={project} kind="ContextSpace" verb="propose">
+      <Button
+        variant="primary"
+        disabled={quotaExceeded}
+        icon={<Icon name="plus" className="size-4" />}
+        onClick={() => {
+          setFormError(null);
+          setForm(undefined);
+          setDialogOpen(true);
+        }}
+      >
+        {t("spaces.add")}
+      </Button>
+    </PermissionGuard>
+  );
 
   return (
     <div className="flex flex-col gap-section">
@@ -197,20 +171,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                 {t("spaces.complete.title")}
               </Link>
             </PermissionGuard>
-            <PermissionGuard project={project} kind="ContextSpace" verb="propose">
-              <Button
-                variant="primary"
-                disabled={quotaExceeded}
-                icon={<Icon name="plus" className="size-4" />}
-                onClick={() => {
-                  setFormError(null);
-                  setForm(undefined);
-                  setDialogOpen(true);
-                }}
-              >
-                {t("spaces.add")}
-              </Button>
-            </PermissionGuard>
+            {addButton}
           </div>
         }
       />
@@ -224,76 +185,82 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
 
-      <Table caption={t("spaces.title")}>
-        {head}
-        <TableBody>
-          {spaces.length === 0 ? (
-            <TableEmpty columns={COLUMNS}>
-              <EmptyState bare icon="spaces" title={t("spaces.empty")} description={t("spaces.addHint")} />
-            </TableEmpty>
-          ) : (
-            spaces.map((space: Manifest) => {
-              const spec = space.spec as {
-                dataModelRef?: unknown;
-                isSandbox?: boolean;
-                ttlDays?: number;
-              };
-              const model = refName(spec.dataModelRef);
-              const title = localized(space.metadata.title, locale, space.metadata.name);
-              const target = {
-                project,
-                kind: "ContextSpace",
-                plural: "spaces",
-                name: space.metadata.name,
-                label: title,
-              };
-              return (
-                <TableRow key={space.metadata.name}>
-                  <TableCell primary>
-                    <div>{title}</div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-caption text-fg-subtle">
-                      {space.metadata.title ? <span>{space.metadata.name}</span> : null}
-                      {spec.isSandbox ? (
-                        <Badge tone="warning">{t("spaces.sandbox", { days: spec.ttlDays ?? 0 })}</Badge>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell secondary>
-                    {model ? (
-                      <span className="font-mono text-caption">{model}</span>
-                    ) : (
-                      <span className="text-fg-subtle">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <LifecycleBadge kind="phase" value={space.status?.phase} />
-                  </TableCell>
-                  <TableCell align="right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Link
-                        to="/projects/$project/spaces/$name"
-                        params={{ project, name: space.metadata.name }}
-                        className={buttonClass("secondary", "sm")}
-                      >
-                        {t("spaces.inside.open")}
-                      </Link>
-                      <EditResourceAction target={target} />
-                      <DeleteResourceAction target={target} />
-                    </div>
-                  </TableCell>
-                  <TableCell align="right" secondary>
-                    {space.status?.sourceUrl ? (
-                      <SourceLink href={space.status.sourceUrl} label={t("spaces.field.source")} />
-                    ) : (
-                      <span className="text-fg-subtle">—</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
+      <ResourceList
+        query={list}
+        caption={t("spaces.title")}
+        head={head}
+        columns={COLUMNS}
+        count={spaces.length}
+        empty={
+          <EmptyState
+            bare
+            icon="spaces"
+            title={t("spaces.empty")}
+            description={t("spaces.addHint")}
+            action={addButton}
+          />
+        }
+      >
+        {spaces.map((space: Manifest) => {
+          const spec = space.spec as {
+            dataModelRef?: unknown;
+            isSandbox?: boolean;
+            ttlDays?: number;
+          };
+          const model = refName(spec.dataModelRef);
+          const title = localized(space.metadata.title, locale, space.metadata.name);
+          const target = {
+            project,
+            kind: "ContextSpace",
+            plural: "spaces",
+            name: space.metadata.name,
+            label: title,
+          };
+          return (
+            <TableRow key={space.metadata.name}>
+              <TableCell primary>
+                <div>{title}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-caption text-fg-subtle">
+                  {space.metadata.title ? <span>{space.metadata.name}</span> : null}
+                  {spec.isSandbox ? (
+                    <Badge tone="warning">{t("spaces.sandbox", { days: spec.ttlDays ?? 0 })}</Badge>
+                  ) : null}
+                </div>
+              </TableCell>
+              <TableCell secondary>
+                {model ? (
+                  <span className="font-mono text-caption">{model}</span>
+                ) : (
+                  <span className="text-fg-subtle">—</span>
+                )}
+              </TableCell>
+              <TableCell>
+                <LifecycleBadge kind="phase" value={space.status?.phase} />
+              </TableCell>
+              <TableCell align="right">
+                <div className="flex items-center justify-end gap-1.5">
+                  <Link
+                    to="/projects/$project/spaces/$name"
+                    params={{ project, name: space.metadata.name }}
+                    className={buttonClass("secondary", "sm")}
+                  >
+                    {t("spaces.inside.open")}
+                  </Link>
+                  <EditResourceAction target={target} />
+                  <DeleteResourceAction target={target} />
+                </div>
+              </TableCell>
+              <TableCell align="right" secondary>
+                {space.status?.sourceUrl ? (
+                  <SourceLink href={space.status.sourceUrl} label={t("spaces.field.source")} />
+                ) : (
+                  <span className="text-fg-subtle">—</span>
+                )}
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </ResourceList>
 
       {/* What the project holds against its quota comes after what it holds: for a first
           steward the list, empty or not, is the page, and the bar is secondary (T-1396). */}

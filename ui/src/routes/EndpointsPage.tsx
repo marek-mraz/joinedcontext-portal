@@ -14,6 +14,7 @@ import { PermissionGuard } from "../components/ui/PermissionGuard";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
+import { ResourceList } from "../components/ResourceList";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { ExportButton } from "../components/export/ExportButton";
 import { SchemaProjectionPanel } from "../pages/endpoints/SchemaProjectionPanel";
@@ -49,7 +50,6 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
-  TableSkeleton,
   SourceLink,
 } from "../components/ui";
 
@@ -645,48 +645,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     </TableHead>
   );
 
-  if (list.isPending) {
-    return (
-      <div className="flex flex-col gap-section">
-        <PageHeader title={t("endpoints.title")} description={t("endpoints.lead")} />
-        <Table caption={t("endpoints.title")} status={t("app.loading")}>
-          {head}
-          <TableSkeleton columns={COLUMNS} />
-        </Table>
-      </div>
-    );
-  }
-
-  if (list.isError) {
-    const message =
-      list.error instanceof ApiError
-        ? (list.error.problem?.detail ?? list.error.message)
-        : t("app.error.generic");
-    return (
-      <div className="flex flex-col gap-section">
-        <PageHeader title={t("endpoints.title")} description={t("endpoints.lead")} />
-        <Alert
-          role="alert"
-          tone="danger"
-          actions={
-            <Button
-              size="sm"
-              icon={<Icon name="refresh" className="size-4" />}
-              onClick={() => {
-                void list.refetch();
-              }}
-            >
-              {t("app.error.retry")}
-            </Button>
-          }
-        >
-          {message}
-        </Alert>
-      </div>
-    );
-  }
-
-  const endpoints = asManifests(list.data.items ?? []);
+  const endpoints = asManifests(list.data?.items ?? []);
   const spaceNames = asManifests(spacesQuery.data?.items ?? []).map((s) => s.metadata.name);
   const references = asManifests(referencesQuery.data?.items ?? []);
   const shared = others.flatMap((source, index) =>
@@ -723,150 +682,154 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   // Rebuilt on every render: a handful of small objects, and no hook after the early returns.
   const previewManifests = editing ? buildManifests(editing) : null;
 
+  // The same control in the header and in the empty list (T-1381).
+  const addButton = (
+    <PermissionGuard project={project} kind="Endpoint" verb="propose">
+      <Button
+        variant="primary"
+        icon={<Icon name="plus" className="size-4" />}
+        onClick={() => {
+          setFormError(null);
+          setIsNew(true);
+          setBase(null);
+          setUrlDraftName(undefined);
+          setHidden([]);
+          const newSlug = generateSlug();
+          setActiveSlug(newSlug);
+          setPickerState({ projectionName: "", classes: {} });
+          setEditing({
+            name: "",
+            contextSpaceRef: spaceNames[0] ?? "",
+            audience: "project-list",
+            enabledRepresentations: ["ngsi-ld"],
+            allowedProjects: [],
+          });
+        }}
+      >
+        {t("endpoints.add")}
+      </Button>
+    </PermissionGuard>
+  );
+
   return (
     <div className="flex flex-col gap-section">
       <PageHeader
         title={t("endpoints.title")}
         description={t("endpoints.lead")}
-        actions={
-          <PermissionGuard project={project} kind="Endpoint" verb="propose">
-            <Button
-              variant="primary"
-              icon={<Icon name="plus" className="size-4" />}
-              onClick={() => {
-                setFormError(null);
-                setIsNew(true);
-                setBase(null);
-                setUrlDraftName(undefined);
-                setHidden([]);
-                const newSlug = generateSlug();
-                setActiveSlug(newSlug);
-                setPickerState({ projectionName: "", classes: {} });
-                setEditing({
-                  name: "",
-                  contextSpaceRef: spaceNames[0] ?? "",
-                  audience: "project-list",
-                  enabledRepresentations: ["ngsi-ld"],
-                  allowedProjects: [],
-                });
-              }}
-            >
-              {t("endpoints.add")}
-            </Button>
-          </PermissionGuard>
-        }
+        actions={addButton}
       />
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
 
-      <Table caption={t("endpoints.title")}>
-        {head}
-        <TableBody>
-          {endpoints.length === 0 ? (
-            <TableEmpty columns={COLUMNS}>
-              <EmptyState
-                bare
-                icon="endpoints"
-                title={t("endpoints.empty")}
-                description={t("endpoints.addHint")}
-              />
-            </TableEmpty>
-          ) : (
-            endpoints.map((endpoint) => {
-              const spec = endpoint.spec as {
-                slug?: string;
-                enabledRepresentations?: string[];
-              };
-              const slug = spec.slug ?? "";
-              return (
-                <TableRow key={endpoint.metadata.name}>
-                  <TableCell primary>
-                    <div>{localized(endpoint.metadata.title, locale, endpoint.metadata.name)}</div>
-                    {endpoint.metadata.title ? (
-                      <div className="mt-0.5 font-mono text-caption text-fg-subtle">
-                        {endpoint.metadata.name}
-                      </div>
-                    ) : null}
-                  </TableCell>
-                  <TableCell secondary>
-                    <SharedWithBadge endpoint={endpoint} />
-                  </TableCell>
-                  <TableCell secondary>
-                    <ul className="flex flex-wrap gap-1">
-                      {(spec.enabledRepresentations ?? []).map((rep) => (
-                        <li key={rep}>
-                          {slug && REPRESENTATION_PATHS[rep] ? (
-                            <EndpointLink href={endpointUrl(slug, REPRESENTATION_PATHS[rep])}>
-                              {rep}
-                            </EndpointLink>
-                          ) : (
-                            <Badge mono>{rep}</Badge>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                    {slug ? (
-                      <ul className="mt-1.5 flex flex-wrap gap-1">
-                        {ENDPOINT_LINKS.map((link) => (
-                          <li key={link.key}>
-                            <EndpointLink muted href={endpointUrl(slug, link.path)}>
-                              {t(`endpoints.link.${link.key}`)}
-                            </EndpointLink>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    <LifecycleBadge kind="phase" value={endpoint.status?.phase} />
-                  </TableCell>
-                  <TableCell align="right">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      {spec.slug ? <CopyUrlButton slug={spec.slug} /> : null}
-                      <ExportButton
-                        project={project}
-                        target={{ plural: "endpoints", name: endpoint.metadata.name }}
-                        label={t("export.action")}
-                        size="sm"
-                      />
-                      <PermissionGuard project={project} kind="Endpoint" verb="propose">
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            setFormError(null);
-                            setIsNew(false);
-                            setBase(endpoint);
-                            setUrlDraftName(endpoint.metadata.name);
-                            setHidden(hiddenOf(endpoint));
-                            const parsedForm = toForm(endpoint);
-                            setActiveSlug(parsedForm.slug || generateSlug());
-                            const pRefName = (endpoint.spec as { projectionRef?: { name?: string } })
-                              ?.projectionRef?.name;
-                            setPickerState({
-                              projectionName: pRefName || endpoint.metadata.name,
-                              selectedProjectionRef: pRefName,
-                              classes: {},
-                            });
-                            setEditing(parsedForm);
-                          }}
-                        >
-                          {t("endpoints.edit")}
-                        </Button>
-                      </PermissionGuard>
-                      <DeleteResourceAction
-                        target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
-                      />
-                      {endpoint.status?.sourceUrl ? (
-                        <SourceLink href={endpoint.status.sourceUrl} label={t("spaces.field.source")} />
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
+      <ResourceList
+        query={list}
+        caption={t("endpoints.title")}
+        head={head}
+        columns={COLUMNS}
+        count={endpoints.length}
+        empty={
+          <EmptyState
+            bare
+            icon="endpoints"
+            title={t("endpoints.empty")}
+            description={t("endpoints.addHint")}
+            action={addButton}
+          />
+        }
+      >
+        {endpoints.map((endpoint) => {
+          const spec = endpoint.spec as {
+            slug?: string;
+            enabledRepresentations?: string[];
+          };
+          const slug = spec.slug ?? "";
+          return (
+            <TableRow key={endpoint.metadata.name}>
+              <TableCell primary>
+                <div>{localized(endpoint.metadata.title, locale, endpoint.metadata.name)}</div>
+                {endpoint.metadata.title ? (
+                  <div className="mt-0.5 font-mono text-caption text-fg-subtle">
+                    {endpoint.metadata.name}
+                  </div>
+                ) : null}
+              </TableCell>
+              <TableCell secondary>
+                <SharedWithBadge endpoint={endpoint} />
+              </TableCell>
+              <TableCell secondary>
+                <ul className="flex flex-wrap gap-1">
+                  {(spec.enabledRepresentations ?? []).map((rep) => (
+                    <li key={rep}>
+                      {slug && REPRESENTATION_PATHS[rep] ? (
+                        <EndpointLink href={endpointUrl(slug, REPRESENTATION_PATHS[rep])}>
+                          {rep}
+                        </EndpointLink>
+                      ) : (
+                        <Badge mono>{rep}</Badge>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {slug ? (
+                  <ul className="mt-1.5 flex flex-wrap gap-1">
+                    {ENDPOINT_LINKS.map((link) => (
+                      <li key={link.key}>
+                        <EndpointLink muted href={endpointUrl(slug, link.path)}>
+                          {t(`endpoints.link.${link.key}`)}
+                        </EndpointLink>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </TableCell>
+              <TableCell>
+                <LifecycleBadge kind="phase" value={endpoint.status?.phase} />
+              </TableCell>
+              <TableCell align="right">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {spec.slug ? <CopyUrlButton slug={spec.slug} /> : null}
+                  <ExportButton
+                    project={project}
+                    target={{ plural: "endpoints", name: endpoint.metadata.name }}
+                    label={t("export.action")}
+                    size="sm"
+                  />
+                  <PermissionGuard project={project} kind="Endpoint" verb="propose">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setFormError(null);
+                        setIsNew(false);
+                        setBase(endpoint);
+                        setUrlDraftName(endpoint.metadata.name);
+                        setHidden(hiddenOf(endpoint));
+                        const parsedForm = toForm(endpoint);
+                        setActiveSlug(parsedForm.slug || generateSlug());
+                        const pRefName = (endpoint.spec as { projectionRef?: { name?: string } })
+                          ?.projectionRef?.name;
+                        setPickerState({
+                          projectionName: pRefName || endpoint.metadata.name,
+                          selectedProjectionRef: pRefName,
+                          classes: {},
+                        });
+                        setEditing(parsedForm);
+                      }}
+                    >
+                      {t("endpoints.edit")}
+                    </Button>
+                  </PermissionGuard>
+                  <DeleteResourceAction
+                    target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
+                  />
+                  {endpoint.status?.sourceUrl ? (
+                    <SourceLink href={endpoint.status.sourceUrl} label={t("spaces.field.source")} />
+                  ) : null}
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </ResourceList>
 
       <section aria-labelledby="shared-with-project" className="flex flex-col gap-3">
         <div>

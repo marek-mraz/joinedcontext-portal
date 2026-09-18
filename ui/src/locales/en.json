@@ -104,6 +104,7 @@
     "summary": "Summary",
     "field": "Field",
     "diffType": "Change type",
+    "emptyAction": "Propose a change with the assistant",
     "approvedDeploying": "Change approved. The {kind} is being deployed.",
     "approvedLive": "Change approved and applied.",
     "openResource": "Open the {kind} list",

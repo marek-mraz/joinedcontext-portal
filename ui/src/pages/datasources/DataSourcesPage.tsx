@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ResourceList } from "../../components/ResourceList";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -11,13 +12,10 @@ import type { Verdict } from "../../api/drafts";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import {
-  Alert,
   Button,
   EmptyState,
   PageHeader,
   Select,
-  Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeaderCell,
@@ -442,29 +440,14 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
     setDialogOpen(true);
   }
 
-  if (list.isPending) {
-    return <p role="status">{t("app.loading")}</p>;
-  }
-
-  if (list.isError) {
-    const message =
-      list.error instanceof ApiError
-        ? (list.error.problem?.detail ?? list.error.message)
-        : t("app.error.generic");
-    return (
-      <Alert
-        role="alert"
-        tone="danger"
-        actions={
-          <Button size="sm" onClick={() => void list.refetch()}>
-            {t("app.error.retry")}
-          </Button>
-        }
-      >
-        {message}
-      </Alert>
-    );
-  }
+  // The same control in the header and in the empty list (T-1381).
+  const addButton = (
+    <PermissionGuard project={project} kind="DataSource" verb="propose">
+      <Button variant="primary" onClick={openCreate}>
+        {t("datasources.add")}
+      </Button>
+    </PermissionGuard>
+  );
 
   return (
     <div className="space-y-4">
@@ -517,20 +500,16 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
               {selectedSummary}
             </p>
           ) : null}
-          <PermissionGuard project={project} kind="DataSource" verb="propose">
-            <Button variant="primary" onClick={openCreate}>
-              {t("datasources.add")}
-            </Button>
-          </PermissionGuard>
+          {addButton}
         </div>
       </div>
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
 
-      {sources.length === 0 ? (
-        <EmptyState title={t("datasources.empty")} />
-      ) : (
-        <Table caption={t("datasources.title")}>
+      <ResourceList
+        query={list}
+        caption={t("datasources.title")}
+        head={
           <TableHead>
             <TableHeaderCell>{t("datasources.field.name")}</TableHeaderCell>
             <TableHeaderCell>{t("datasources.field.type")}</TableHeaderCell>
@@ -540,50 +519,52 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
               <span className="sr-only">{t("datasources.edit")}</span>
             </TableHeaderCell>
           </TableHead>
-          <TableBody>
-            {sources.map((source) => {
-              const used = knownSecretNames([source]);
-              return (
-                <TableRow key={source.metadata.name}>
-                  <TableCell>
-                    <span className="font-mono">{source.metadata.name}</span>
-                    {/* A source without a title is its name; printing it twice says nothing. */}
-                    {source.metadata.title ? (
-                      <span className="block text-caption text-fg-muted">
-                        {localized(source.metadata.title, locale, source.metadata.name)}
-                      </span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>
-                    {isTypedDataSource(typeOf(source.spec))
-                      ? t(`datasources.type.${typeOf(source.spec)}`, { defaultValue: typeOf(source.spec) })
-                      : typeOf(source.spec)}
-                  </TableCell>
-                  <TableCell className="break-all font-mono text-caption">
-                    {endpointOf(source.spec)}
-                  </TableCell>
-                  <TableCell className="text-caption">
-                    {/* The names of the references, never a value: the store holds the rest. */}
-                    {used.length > 0 ? used.join(", ") : t("datasources.noSecret")}
-                  </TableCell>
-                  <TableCell align="right">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      <PermissionGuard project={project} kind="DataSource" verb="propose">
-                        <Button size="sm" onClick={() => openEdit(source)}>
-                          {t("datasources.edit")}
-                        </Button>
-                      </PermissionGuard>
-                      <DeleteResourceAction
-                        target={{ project, kind: "DataSource", plural: "datasources", name: source.metadata.name }}
-                      />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      )}
+        }
+        columns={5}
+        count={sources.length}
+        empty={<EmptyState bare title={t("datasources.empty")} action={addButton} />}
+      >
+        {sources.map((source) => {
+          const used = knownSecretNames([source]);
+          return (
+            <TableRow key={source.metadata.name}>
+              <TableCell>
+                <span className="font-mono">{source.metadata.name}</span>
+                {/* A source without a title is its name; printing it twice says nothing. */}
+                {source.metadata.title ? (
+                  <span className="block text-caption text-fg-muted">
+                    {localized(source.metadata.title, locale, source.metadata.name)}
+                  </span>
+                ) : null}
+              </TableCell>
+              <TableCell>
+                {isTypedDataSource(typeOf(source.spec))
+                  ? t(`datasources.type.${typeOf(source.spec)}`, { defaultValue: typeOf(source.spec) })
+                  : typeOf(source.spec)}
+              </TableCell>
+              <TableCell className="break-all font-mono text-caption">
+                {endpointOf(source.spec)}
+              </TableCell>
+              <TableCell className="text-caption">
+                {/* The names of the references, never a value: the store holds the rest. */}
+                {used.length > 0 ? used.join(", ") : t("datasources.noSecret")}
+              </TableCell>
+              <TableCell align="right">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <PermissionGuard project={project} kind="DataSource" verb="propose">
+                    <Button size="sm" onClick={() => openEdit(source)}>
+                      {t("datasources.edit")}
+                    </Button>
+                  </PermissionGuard>
+                  <DeleteResourceAction
+                    target={{ project, kind: "DataSource", plural: "datasources", name: source.metadata.name }}
+                  />
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </ResourceList>
 
       <SecretRefContext.Provider
         value={{

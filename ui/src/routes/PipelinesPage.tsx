@@ -7,6 +7,7 @@ import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ChangeNotice } from "../components/ChangeNotice";
+import { ResourceList } from "../components/ResourceList";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { PipelineEditorDialog } from "../pages/pipelines/PipelineEditor";
 import type { PipelineForm, toEnvelope } from "../pages/pipelines/PipelineEditor";
@@ -19,14 +20,10 @@ import {
   EmptyState,
   Icon,
   PageHeader,
-  Table,
-  TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeaderCell,
   TableRow,
-  TableSkeleton,
   SourceLink,
 } from "../components/ui";
 
@@ -309,48 +306,7 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
     </TableHead>
   );
 
-  if (list.isPending) {
-    return (
-      <div className="flex flex-col gap-section">
-        <PageHeader title={t("pipelines.title")} description={t("pipelines.lead")} />
-        <Table caption={t("pipelines.title")} status={t("app.loading")}>
-          {head}
-          <TableSkeleton columns={COLUMNS} />
-        </Table>
-      </div>
-    );
-  }
-
-  if (list.isError) {
-    const message =
-      list.error instanceof ApiError
-        ? (list.error.problem?.detail ?? list.error.message)
-        : t("app.error.generic");
-    return (
-      <div className="flex flex-col gap-section">
-        <PageHeader title={t("pipelines.title")} description={t("pipelines.lead")} />
-        <Alert
-          role="alert"
-          tone="danger"
-          actions={
-            <Button
-              size="sm"
-              icon={<Icon name="refresh" className="size-4" />}
-              onClick={() => {
-                void list.refetch();
-              }}
-            >
-              {t("app.error.retry")}
-            </Button>
-          }
-        >
-          {message}
-        </Alert>
-      </div>
-    );
-  }
-
-  const pipelines = asManifests(list.data.items ?? []);
+  const pipelines = asManifests(list.data?.items ?? []);
 
   return (
     <div className="flex flex-col gap-section">
@@ -377,101 +333,101 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
         </Alert>
       ) : null}
 
-      <Table caption={t("pipelines.title")}>
-        {head}
-        <TableBody>
-          {pipelines.length === 0 ? (
-            <TableEmpty columns={COLUMNS}>
-              {/* An empty list is where a person decides what to do next, so it says what the
-                  two ways in are rather than only that there is nothing here (UI-01). */}
-              <EmptyState
-                bare
-                icon="pipelines"
-                title={t("pipelines.empty")}
-                description={t("pipelines.emptyHint")}
-                action={
+      {/* An empty list is where a person decides what to do next, so it says what the
+          two ways in are rather than only that there is nothing here (UI-01). */}
+      <ResourceList
+        query={list}
+        caption={t("pipelines.title")}
+        head={head}
+        columns={COLUMNS}
+        count={pipelines.length}
+        empty={
+          <EmptyState
+            bare
+            icon="pipelines"
+            title={t("pipelines.empty")}
+            description={t("pipelines.emptyHint")}
+            action={
+              <PermissionGuard project={project} kind="Pipeline" verb="propose">
+                <Button variant="primary" onClick={() => openEditor(null)}>
+                  {t("pipelines.add")}
+                </Button>
+              </PermissionGuard>
+            }
+          />
+        }
+      >
+        {pipelines.map((pipeline) => {
+          const spec = pipeline.spec as PipelineSpec;
+          const klass = executionClass(spec);
+          // Absent means running: a pipeline is only paused by an explicit `false`.
+          const running = spec.enabled !== false;
+          return (
+            <TableRow key={pipeline.metadata.name}>
+              <TableCell primary>
+                <div>{localized(pipeline.metadata.title, locale, pipeline.metadata.name)}</div>
+                {pipeline.metadata.title ? (
+                  <div className="mt-0.5 font-mono text-caption text-fg-subtle">
+                    {pipeline.metadata.name}
+                  </div>
+                ) : null}
+              </TableCell>
+              <TableCell secondary>
+                <Badge tone={klass === "resident" ? "info" : "neutral"} title={t(`pipelines.class.${klass}Help`)}>
+                  {t(`pipelines.class.${klass}`)}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <LifecycleBadge kind="phase" value={pipeline.status?.phase} />
+              </TableCell>
+              <TableCell secondary>
+                <StreamMetrics
+                  project={project}
+                  name={pipeline.metadata.name}
+                  running={running && klass === "resident"}
+                />
+              </TableCell>
+              <TableCell secondary>
+                {/* Names only: a secret's value is resolved by the reconciler and never
+                    leaves the cluster, so there is nothing here to mask (PL-17). */}
+                <ul className="flex flex-col gap-1">
+                  {(spec.secretRefs ?? []).map((ref) => (
+                    <li key={`${ref.name}/${ref.key}`}>
+                      <Badge mono>
+                        {ref.name}/{ref.key}
+                        {ref.envVar ? ` → $${ref.envVar}` : ""}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </TableCell>
+              <TableCell align="right">
+                <div className="flex items-center justify-end gap-1.5">
                   <PermissionGuard project={project} kind="Pipeline" verb="propose">
-                    <Button variant="primary" onClick={() => openEditor(null)}>
-                      {t("pipelines.add")}
+                    <Button size="sm" onClick={() => openEditor(pipeline)}>
+                      {t("pipelines.edit")}
                     </Button>
                   </PermissionGuard>
-                }
-              />
-            </TableEmpty>
-          ) : (
-            pipelines.map((pipeline) => {
-              const spec = pipeline.spec as PipelineSpec;
-              const klass = executionClass(spec);
-              // Absent means running: a pipeline is only paused by an explicit `false`.
-              const running = spec.enabled !== false;
-              return (
-                <TableRow key={pipeline.metadata.name}>
-                  <TableCell primary>
-                    <div>{localized(pipeline.metadata.title, locale, pipeline.metadata.name)}</div>
-                    {pipeline.metadata.title ? (
-                      <div className="mt-0.5 font-mono text-caption text-fg-subtle">
-                        {pipeline.metadata.name}
-                      </div>
-                    ) : null}
-                  </TableCell>
-                  <TableCell secondary>
-                    <Badge tone={klass === "resident" ? "info" : "neutral"} title={t(`pipelines.class.${klass}Help`)}>
-                      {t(`pipelines.class.${klass}`)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <LifecycleBadge kind="phase" value={pipeline.status?.phase} />
-                  </TableCell>
-                  <TableCell secondary>
-                    <StreamMetrics
-                      project={project}
-                      name={pipeline.metadata.name}
-                      running={running && klass === "resident"}
-                    />
-                  </TableCell>
-                  <TableCell secondary>
-                    {/* Names only: a secret's value is resolved by the reconciler and never
-                        leaves the cluster, so there is nothing here to mask (PL-17). */}
-                    <ul className="flex flex-col gap-1">
-                      {(spec.secretRefs ?? []).map((ref) => (
-                        <li key={`${ref.name}/${ref.key}`}>
-                          <Badge mono>
-                            {ref.name}/{ref.key}
-                            {ref.envVar ? ` → $${ref.envVar}` : ""}
-                          </Badge>
-                        </li>
-                      ))}
-                    </ul>
-                  </TableCell>
-                  <TableCell align="right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <PermissionGuard project={project} kind="Pipeline" verb="propose">
-                        <Button size="sm" onClick={() => openEditor(pipeline)}>
-                          {t("pipelines.edit")}
-                        </Button>
-                      </PermissionGuard>
-                      <DeleteResourceAction
-                        target={{ project, kind: "Pipeline", plural: "pipelines", name: pipeline.metadata.name }}
-                      />
-                      <Button
-                        size="sm"
-                        disabled={toggle.isPending}
-                        onClick={() => toggle.mutate({ pipeline, run: !running })}
-                        title={t(running ? "pipelines.pauseHint" : "pipelines.resumeHint")}
-                      >
-                        {t(running ? "pipelines.pause" : "pipelines.resume")}
-                      </Button>
-                      {pipeline.status?.sourceUrl ? (
-                        <SourceLink href={pipeline.status.sourceUrl} label={t("spaces.field.source")} />
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
+                  <DeleteResourceAction
+                    target={{ project, kind: "Pipeline", plural: "pipelines", name: pipeline.metadata.name }}
+                  />
+                  <Button
+                    size="sm"
+                    disabled={toggle.isPending}
+                    onClick={() => toggle.mutate({ pipeline, run: !running })}
+                    title={t(running ? "pipelines.pauseHint" : "pipelines.resumeHint")}
+                  >
+                    {t(running ? "pipelines.pause" : "pipelines.resume")}
+                  </Button>
+                  {pipeline.status?.sourceUrl ? (
+                    <SourceLink href={pipeline.status.sourceUrl} label={t("spaces.field.source")} />
+                  ) : null}
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </ResourceList>
 
       {dialogOpen ? (
         <PipelineEditorDialog
