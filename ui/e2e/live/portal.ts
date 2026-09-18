@@ -39,6 +39,19 @@ export async function signIn(browser: Browser, who: { user: string; password: st
   return { context, page };
 }
 
+/** Asks in the docked assistant: its first composer, or the conversation's once one is running. */
+export async function ask(page: Page, text: string): Promise<void> {
+  const bubble = page.getByRole("button", { name: "Open the assistant" });
+  if (await bubble.count()) {
+    await bubble.first().click();
+  }
+  const composer = page
+    .getByLabel(/^(Ask the assistant|Tell the assistant what to build or change…)$/)
+    .first();
+  await composer.fill(text);
+  await composer.press("Enter");
+}
+
 /** The change a proposal answered with, read off the notice the page shows (UI-23). */
 export async function proposedChange(page: Page): Promise<string> {
   const review = page.getByRole("link", { name: "Review it in Approvals" });
@@ -105,4 +118,17 @@ export async function listedNames(page: Page, project: string, plural: string): 
   expect(answer.ok(), `list ${plural}`).toBe(true);
   const body = (await answer.json()) as { items?: { metadata: { name: string } }[] };
   return (body.items ?? []).map((item) => item.metadata.name);
+}
+
+/**
+ * The CSRF token of a signed-in context, so a spec's own API call goes through the same door the
+ * page's calls go through. A request without it is refused by the middleware, and a spec that
+ * reads that refusal as the rule it meant to test proves nothing (T-1585).
+ */
+export async function csrf(context: BrowserContext): Promise<string> {
+  const cookie = (await context.cookies()).find((each) => each.name === "jc_csrf");
+  if (!cookie) {
+    throw new Error("no jc_csrf cookie in this context: the session did not complete");
+  }
+  return cookie.value;
 }

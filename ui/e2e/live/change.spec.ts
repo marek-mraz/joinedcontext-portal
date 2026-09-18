@@ -6,24 +6,13 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { APPROVER, STEWARD, proposedChange, reject, signIn } from "./portal";
+import { APPROVER, STEWARD, ask, proposedChange, reject, signIn } from "./portal";
 
 const PROJECT = "helsinki";
 /** A context space to open the removal of; the removal is rejected, never merged. */
 const SPACE = process.env.E2E_SPACE ?? "citybikes-2046";
 
 test.setTimeout(600_000);
-
-/** Asks in the dock: its first composer, or the conversation's once one is running. */
-async function ask(page: Page, text: string): Promise<void> {
-  const bubble = page.getByRole("button", { name: "Open the assistant" });
-  if (await bubble.count()) {
-    await bubble.first().click();
-  }
-  const composer = page.getByLabel(/^(Ask the assistant|Tell the assistant what to build or change…)$/).first();
-  await composer.fill(text);
-  await composer.press("Enter");
-}
 
 /** Proposes from a form, running its check first when the form asks for a fresh one. */
 async function proposeFrom(form: Locator): Promise<void> {
