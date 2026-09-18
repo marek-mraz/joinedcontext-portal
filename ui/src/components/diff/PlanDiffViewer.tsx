@@ -10,10 +10,21 @@ export interface PlanDiffViewerProps {
   className?: string;
 }
 
+/** `spec.enabledRepresentations` → "Enabled representations": the last segment, in words. */
+function humanize(path: string): string {
+  const last = path.replace(/\[\d+\]/g, "").split(".").filter((part) => !/^\d+$/.test(part)).pop() ?? path;
+  const words = last.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[-_]/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * A value as a person reads it (T-1385, UI-24): text as text, a list of plain values joined,
+ * and anything nested as its JSON folded away, for whoever wants the detail.
+ */
 function DiffValue({ value }: { value: unknown }): JSX.Element {
   const { t } = useTranslation();
 
-  if (value === undefined) {
+  if (value === undefined || value === null || value === "") {
     return <span className="text-surface-fg/40">—</span>;
   }
 
@@ -25,13 +36,22 @@ function DiffValue({ value }: { value: unknown }): JSX.Element {
     );
   }
 
-  const formatted =
-    typeof value === "string" ? JSON.stringify(value) : JSON.stringify(value, null, 2);
+  const plain = (item: unknown) => ["string", "number", "boolean"].includes(typeof item);
+  if (plain(value)) {
+    return <span className="text-sm break-words text-surface-fg">{String(value)}</span>;
+  }
+  if (Array.isArray(value) && value.every(plain)) {
+    return <span className="text-sm break-words text-surface-fg">{value.map(String).join(", ")}</span>;
+  }
 
+  const count = Array.isArray(value) ? value.length : Object.keys(value as object).length;
   return (
-    <pre className="font-mono text-xs whitespace-pre text-surface-fg">
-      {formatted}
-    </pre>
+    <details className="text-sm text-surface-fg">
+      <summary className="cursor-pointer">
+        {t(Array.isArray(value) ? "diff.items" : "diff.fields", { count })}
+      </summary>
+      <pre className="mt-1 font-mono text-xs whitespace-pre">{JSON.stringify(value, null, 2)}</pre>
+    </details>
   );
 }
 
@@ -86,7 +106,11 @@ export function PlanDiffViewer({ fields, className }: PlanDiffViewerProps): JSX.
                 <span className="sr-only">{diffLabel}</span>
               </TableCell>
               <TableCell className="px-3 py-2 font-mono text-xs font-medium text-surface-fg align-top">
-                {field.path}
+                {/* A name a person reads, and the path underneath for whoever edits the YAML. */}
+                <span className="block font-sans text-sm">
+                  {t(`diff.path.${field.path}`, { defaultValue: humanize(field.path) })}
+                </span>
+                <span className="block text-caption text-fg-subtle">{field.path}</span>
               </TableCell>
               <TableCell className="px-3 py-2 align-top">
                 <div className="max-w-xs overflow-x-auto md:max-w-sm lg:max-w-md">

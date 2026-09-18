@@ -1823,5 +1823,21 @@
       "modified": "Geändert",
       "missing": "Fehlt"
     }
+  },
+  "diff": {
+    "path": {
+      "metadata": {
+        "name": "Name",
+        "title": "Titel"
+      },
+      "spec": {
+        "audience": "Zielgruppe",
+        "title": "Titel",
+        "role": "Rolle",
+        "subjects": "Wer"
+      }
+    },
+    "fields": "{count, plural, one {# Feld} other {# Felder}}",
+    "items": "{count, plural, one {# Eintrag} other {# Einträge}}"
   }
 }

@@ -35,7 +35,7 @@ describe("plan diff viewer", () => {
     renderDiff(FIELDS);
     const row = rowFor("spec.audience");
     expect(within(row).getByText(en.approvals.diffAdded)).toBeInTheDocument();
-    expect(within(row).getByText('"context-gateway"')).toBeInTheDocument();
+    expect(within(row).getByText("context-gateway")).toBeInTheDocument();
     expect(row.className).toContain("emerald");
   });
 
@@ -52,7 +52,7 @@ describe("plan diff viewer", () => {
     renderDiff(FIELDS);
     const row = rowFor("spec.representations[1]");
     expect(within(row).getByText(en.approvals.diffRemoved)).toBeInTheDocument();
-    expect(within(row).getByText('"geojson"')).toBeInTheDocument();
+    expect(within(row).getByText("geojson")).toBeInTheDocument();
     expect(row.className).toContain("danger");
   });
 
@@ -61,6 +61,35 @@ describe("plan diff viewer", () => {
     const row = rowFor("spec.credentials.token");
     expect(within(row).getAllByText(en.form.redacted)).toHaveLength(2);
     expect(row.textContent).not.toContain("[REDACTED]");
+  });
+
+  it("names each field in words, with its path underneath (T-1385)", () => {
+    renderDiff([
+      { path: "metadata.name", from: "old-name", to: "new-name" },
+      { path: "spec.enabledRepresentations", from: ["ngsi-ld"], to: ["ngsi-ld", "geojson"] },
+      { path: "spec.representations[1]", from: "geojson" },
+    ] as unknown as FieldChange[]);
+    const name = rowFor("metadata.name");
+    expect(within(name).getByText("Name")).toBeInTheDocument();
+    expect(within(name).getByText("old-name")).toBeInTheDocument();
+    expect(within(name).getByText("new-name")).toBeInTheDocument();
+    const list = rowFor("spec.enabledRepresentations");
+    expect(within(list).getByText("Enabled representations")).toBeInTheDocument();
+    expect(within(list).getByText("ngsi-ld, geojson")).toBeInTheDocument();
+    expect(within(rowFor("spec.representations[1]")).getByText("Representations")).toBeInTheDocument();
+  });
+
+  it("folds a nested value away as its JSON, and shows an empty or null one as a dash", () => {
+    renderDiff([
+      { path: "spec.rateLimit", from: null, to: { perMinute: 600, burst: 20 } },
+      { path: "spec.note", from: "", to: "x" },
+    ] as unknown as FieldChange[]);
+    const row = rowFor("spec.rateLimit");
+    const folded = within(row).getByText("2 fields").closest("details") as HTMLElement;
+    expect(folded).not.toHaveAttribute("open");
+    expect(folded.querySelector("pre")?.textContent).toContain('"perMinute": 600');
+    expect(within(row).getByText("—")).toBeInTheDocument();
+    expect(within(rowFor("spec.note")).getByText("—")).toBeInTheDocument();
   });
 
   it("says so plainly when the plan changes no fields", () => {

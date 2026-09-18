@@ -1823,5 +1823,21 @@
       "modified": "Změněno",
       "missing": "Chybí"
     }
+  },
+  "diff": {
+    "path": {
+      "metadata": {
+        "name": "Název",
+        "title": "Titulek"
+      },
+      "spec": {
+        "audience": "Publikum",
+        "title": "Titulek",
+        "role": "Role",
+        "subjects": "Kdo"
+      }
+    },
+    "fields": "{count, plural, one {# pole} few {# pole} other {# polí}}",
+    "items": "{count, plural, one {# položka} few {# položky} other {# položek}}"
   }
 }

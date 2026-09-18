@@ -1823,5 +1823,21 @@
       "modified": "Zmenené",
       "missing": "Chýba"
     }
+  },
+  "diff": {
+    "path": {
+      "metadata": {
+        "name": "Názov",
+        "title": "Titulok"
+      },
+      "spec": {
+        "audience": "Publikum",
+        "title": "Titulok",
+        "role": "Rola",
+        "subjects": "Kto"
+      }
+    },
+    "fields": "{count, plural, one {# pole} few {# polia} other {# polí}}",
+    "items": "{count, plural, one {# položka} few {# položky} other {# položiek}}"
   }
 }
