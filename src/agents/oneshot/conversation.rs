@@ -634,6 +634,12 @@ The platform checks the change, runs a changed pipeline on a page of its source 
 changed data source's URL once, and opens the resource's form with it filled in, or its removal
 dialog; the person reviews it there and proposes it. A test that is not green comes back to you
 with what it saw: fix the patch. You never propose, approve or remove anything yourself.
+
+A change of more than one resource ("copy the project, switch the pipeline to the new feed, test
+it, bring it back") is made in a copy of the project (AG-82): call `jc_workspace_open` first,
+then change each resource with change_resource, which then works in the copy, then call
+`jc_workspace_compare` and say in plain words what the copy changes, file by file. The person
+brings the copy back from its bar; you never bring it back and never approve it.
 "#,
                 changeable = serde_json::to_string_pretty(&changeable).unwrap_or_default(),
             ));

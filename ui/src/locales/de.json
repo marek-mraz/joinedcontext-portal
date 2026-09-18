@@ -1924,7 +1924,10 @@
       "gone": "Diese Kopie ist abgelaufen oder wurde verworfen.",
       "leave": "Verlassen",
       "compare": "Vergleichen",
-      "bringBack": "Zurückbringen"
+      "bringBack": "Zurückbringen",
+      "expired": "Diese Kopie ist am {date} abgelaufen. Ihre Änderungen wurden nie zurückgebracht.",
+      "refused": "Sie dürfen diese Kopie nicht öffnen: {reason}",
+      "foreign": "Nur lesen: die Kopie von {owner}"
     },
     "compare": {
       "title": "Was die Kopie ändert",

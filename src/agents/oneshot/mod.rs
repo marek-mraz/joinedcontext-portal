@@ -288,6 +288,49 @@ pub fn spawn(
     });
 }
 
+#[cfg(test)]
+impl Driver {
+    /// A driver for the unit tests of the conversation's tools: the person `test-user`.
+    pub(super) fn for_tests(state: AppState, project: &str) -> Self {
+        Driver {
+            state,
+            http: reqwest::Client::new(),
+            run_id: "test-run".into(),
+            project: project.into(),
+            prompt: String::new(),
+            data_needs: json!([]),
+            endpoint_slug: "test-slug".into(),
+            endpoints: Vec::new(),
+            allows_write: false,
+            bearer: String::new(),
+            proxy_base: "http://localhost:8080".into(),
+            model: "test-model".into(),
+            provider: "anthropic".into(),
+            ttl: Duration::from_secs(60),
+            passes: AtomicU32::new(0),
+            schema_index: OnceLock::new(),
+            joined: OnceLock::new(),
+            branch: "agent/test".into(),
+            path_prefix: "apps/test/".into(),
+            created_by: "test-user@hel.fi".into(),
+            identity: Identity {
+                subject: "sub-test-user".into(),
+                username: "test-user".into(),
+                email: Some("test-user@hel.fi".into()),
+                name: None,
+                roles: vec![],
+                groups: vec![],
+            },
+            access: Access::default(),
+            kind: "conversation".into(),
+            unattended: false,
+            continues: None,
+            steps_per_run: 30,
+            transcript_budget: transcript_budget(400_000),
+        }
+    }
+}
+
 impl Driver {
     async fn drive(&self) -> Result<(), String> {
         // The stream is subscribed before anything moves, so a message sent while the first

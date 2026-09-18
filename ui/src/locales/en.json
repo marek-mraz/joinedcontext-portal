@@ -1924,7 +1924,10 @@
       "gone": "This copy has expired or was discarded.",
       "leave": "Leave",
       "compare": "Compare",
-      "bringBack": "Bring back"
+      "bringBack": "Bring back",
+      "expired": "This copy expired on {date}. Its changes were never brought back.",
+      "refused": "You may not open this copy: {reason}",
+      "foreign": "Read only: the copy of {owner}"
     },
     "compare": {
       "title": "What the copy changes",

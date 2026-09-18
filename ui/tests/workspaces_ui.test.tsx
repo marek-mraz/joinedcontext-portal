@@ -172,6 +172,52 @@ describe("the copy's bar and query parameter", () => {
   });
 });
 
+describe("the copy bar's states (T-1253, UI-61)", () => {
+  async function barFor(response: Response) {
+    search = { workspace: "air-v2" };
+    handler = (_req, url) => (url.pathname.endsWith("/workspaces/air-v2") ? response : undefined);
+    const { WorkspaceProvider } = await import("../src/components/layout/WorkspaceContext");
+    show(
+      <WorkspaceProvider>
+        <WorkspaceBar project="helsinki" />
+      </WorkspaceProvider>,
+    );
+    return screen.findByRole("region", { name: "Copy" });
+  }
+
+  it("says nothing changed yet and offers no bring back on an empty copy", async () => {
+    const bar = await barFor(json({ ...WORKSPACE, changes: 0 }));
+    expect(bar.textContent).toContain("No changes yet");
+    expect(within(bar).queryByText("Bring back")).toBeNull();
+    expect(within(bar).getByText("Compare")).toBeInTheDocument();
+  });
+
+  it("names the day an expired copy ended and never what it held", async () => {
+    const bar = await barFor(json({ ...WORKSPACE, expiresAt: "2026-01-02T09:00:00Z" }));
+    expect(bar.textContent).toContain("This copy expired on");
+    expect(bar.textContent).toContain("never brought back");
+    expect(bar.textContent).not.toContain("Air cleanup");
+    expect(within(bar).getByRole("button", { name: "Leave" })).toBeInTheDocument();
+  });
+
+  it("gives the reason when the copy is not the caller's to see", async () => {
+    const bar = await barFor(json({ title: "Forbidden", status: 403, detail: "no grant in helsinki" }, 403));
+    expect(bar.textContent).toContain("You may not open this copy: no grant in helsinki");
+  });
+
+  it("says a gone copy is gone", async () => {
+    const bar = await barFor(json({ title: "Not Found", status: 404 }, 404));
+    expect(bar.textContent).toContain("expired or was discarded");
+  });
+
+  it("marks someone else's copy read only and leaves bring back to its owner", async () => {
+    me = { email: "petra@hel.fi", username: "petra" };
+    const bar = await barFor(json(WORKSPACE));
+    expect(within(bar).getByTestId("workspace-foreign").textContent).toBe("Read only: the copy of jana@hel.fi");
+    expect(within(bar).queryByText("Bring back")).toBeNull();
+  });
+});
+
 describe("compare", () => {
   it("groups by kind, lists added before changed before removed, and folds the fields", async () => {
     handler = (_req, url) =>

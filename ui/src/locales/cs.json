@@ -1924,7 +1924,10 @@
       "gone": "Tato kopie vypršela nebo byla zahozena.",
       "leave": "Odejít",
       "compare": "Porovnat",
-      "bringBack": "Vrátit"
+      "bringBack": "Vrátit",
+      "expired": "Tato kopie vypršela {date}. Její změny se nikdy nevrátily do projektu.",
+      "refused": "Tuto kopii nemůžete otevřít: {reason}",
+      "foreign": "Jen pro čtení: kopie uživatele {owner}"
     },
     "compare": {
       "title": "Co kopie mění",

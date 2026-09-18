@@ -62,6 +62,40 @@ impl Driver {
         names
     }
 
+    /// The copy the person is working in: their newest live workspace of this project (CC-76).
+    /// Its drafts and pages are the copy's; without one, drafts are the project's own.
+    pub(super) async fn active_workspace(&self) -> Option<String> {
+        let now = chrono::Utc::now();
+        self.state
+            .workspaces
+            .list(&self.project)
+            .await
+            .ok()?
+            .into_iter()
+            .filter(|w| !w.expired(now) && crate::ops::workspaces::owns(w, &self.identity))
+            .max_by(|a, b| a.created_at.cmp(&b.created_at))
+            .map(|w| w.name)
+    }
+
+    /// Why a second resource may not be changed outside a copy (AG-82): the assistant already
+    /// holds an open draft of another resource of this person in the project. A change of more
+    /// than one resource is made in a workspace and brought back as one Change.
+    pub(super) async fn second_resource(&self, kind: &str, name: &str) -> Option<String> {
+        let drafts = self.state.drafts.list(&self.project).await.ok()?;
+        let other = drafts.into_iter().find(|draft| {
+            draft.workspace.is_none()
+                && draft.touched_kind == "assistant"
+                && draft.touched_by == self.created_by
+                && !(draft.kind == kind && draft.name == name)
+        })?;
+        Some(format!(
+            "this conversation already changes {} '{}'; a change of more than one resource is \
+             made in a copy of the project: call jc_workspace_open first, then change each \
+             resource, then jc_workspace_compare and show the person what changes (AG-82)",
+            other.kind, other.name
+        ))
+    }
+
     /// A change or a removal of a resource the conversation names (AG-77, AG-73). What the model
     /// got wrong goes back to it while drafts are left: an unknown kind or name with the real
     /// ones, a patch the check refuses with the reason and the manifest as it is. Nothing is
@@ -152,7 +186,23 @@ impl Driver {
                 )
                 .await;
         };
-        let route = change::route(&self.project, info.kind, info.plural, name, params.delete);
+        let workspace = self.active_workspace().await;
+        if workspace.is_none() {
+            if let Some(reason) = self.second_resource(info.kind, name).await {
+                self.event("tool", failed(&input, &reason)).await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}"),
+                        format!("That needs a copy of the project first: {reason}"),
+                    )
+                    .await;
+            }
+        }
+        let route = within(
+            change::route(&self.project, info.kind, info.plural, name, params.delete),
+            workspace.as_deref(),
+        );
         // A model's classes and attributes live in its LinkML source, not in the manifest.
         if info.kind == "DataModel" && !params.delete {
             let operations = params.operations.as_deref().unwrap_or_default();
@@ -747,10 +797,12 @@ impl Driver {
                     .await;
             }
         };
+        let workspace = self.active_workspace().await;
         if let Err(err) = self
             .state
             .drafts
-            .put(
+            .put_in(
+                workspace.as_deref(),
                 home,
                 info.kind,
                 name,
@@ -771,7 +823,7 @@ impl Driver {
         if let Err(err) = self
             .state
             .drafts
-            .set_verdict(home, info.kind, name, verdict)
+            .set_verdict_in(workspace.as_deref(), home, info.kind, name, verdict)
             .await
         {
             tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change verdict not kept");
@@ -1131,6 +1183,15 @@ impl Driver {
 ///
 /// The answer is an `EntityTypeList`; anything else (an error page, an empty list) yields
 /// `None`, and the caller says so rather than sending a query the gateway must refuse.
+/// `route` inside the copy `workspace`, so the page opens on the copy's resource (CC-76).
+fn within(route: String, workspace: Option<&str>) -> String {
+    match workspace {
+        Some(name) if route.contains('?') => format!("{route}&workspace={name}"),
+        Some(name) => format!("{route}?workspace={name}"),
+        None => route,
+    }
+}
+
 fn first_served_type(page: &str) -> Option<String> {
     let parsed: Value = serde_json::from_str(page).ok()?;
     parsed["typeList"]
@@ -1174,5 +1235,124 @@ mod type_list_tests {
     fn a_malformed_entry_does_not_become_a_type() {
         let page = r#"{"typeList":[{"id":"nope"},"Device"]}"#;
         assert_eq!(first_served_type(page).as_deref(), Some("Device"));
+    }
+}
+
+#[cfg(test)]
+mod workspace_guard_tests {
+    use super::*;
+
+    #[test]
+    fn a_route_opens_inside_the_copy() {
+        assert_eq!(
+            within("/p/x/pipelines?edit=a".into(), Some("air")),
+            "/p/x/pipelines?edit=a&workspace=air"
+        );
+        assert_eq!(
+            within("/p/x/endpoints".into(), Some("air")),
+            "/p/x/endpoints?workspace=air"
+        );
+        assert_eq!(within("/p/x/endpoints".into(), None), "/p/x/endpoints");
+    }
+
+    async fn opened(state: &AppState, name: &str, owner: &str, ttl_hours: i64) {
+        state
+            .workspaces
+            .create(crate::ops::workspaces::Opening {
+                name,
+                title: None,
+                project: "helsinki",
+                owner,
+                base_revision: "b",
+                scope: crate::ops::workspaces::Scope::Project {},
+                ttl_hours,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_copy_in_use_is_the_persons_newest_live_one() {
+        let state = AppState::new(crate::config::Config::for_tests(), None);
+        let driver = Driver::for_tests(state.clone(), "helsinki");
+        assert_eq!(driver.active_workspace().await, None);
+        opened(&state, "someone-elses", "petra@hel.fi", 24).await;
+        assert_eq!(
+            driver.active_workspace().await,
+            None,
+            "another person's copy is not theirs"
+        );
+        opened(&state, "first", "test-user@hel.fi", 24).await;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        opened(&state, "second", "test-user", 24).await;
+        assert_eq!(driver.active_workspace().await.as_deref(), Some("second"));
+    }
+
+    #[tokio::test]
+    async fn a_second_resource_outside_a_copy_is_refused_with_the_way_forward() {
+        let state = AppState::new(crate::config::Config::for_tests(), None);
+        let driver = Driver::for_tests(state.clone(), "helsinki");
+        assert_eq!(
+            driver.second_resource("Pipeline", "bikes").await,
+            None,
+            "the first change"
+        );
+        state
+            .drafts
+            .put(
+                "helsinki",
+                "Pipeline",
+                "bikes",
+                json!({}),
+                None,
+                "test-user@hel.fi",
+                "assistant",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            driver.second_resource("Pipeline", "bikes").await,
+            None,
+            "the same resource again"
+        );
+        let reason = driver
+            .second_resource("DataSource", "feed")
+            .await
+            .expect("refused");
+        assert!(
+            reason.contains("jc_workspace_open") && reason.contains("Pipeline 'bikes'"),
+            "{reason}"
+        );
+        // A draft the person typed, or one inside a copy, is not this conversation's change.
+        let state = AppState::new(crate::config::Config::for_tests(), None);
+        let driver = Driver::for_tests(state.clone(), "helsinki");
+        state
+            .drafts
+            .put(
+                "helsinki",
+                "Pipeline",
+                "bikes",
+                json!({}),
+                None,
+                "test-user@hel.fi",
+                "form",
+            )
+            .await
+            .unwrap();
+        state
+            .drafts
+            .put_in(
+                Some("air"),
+                "helsinki",
+                "Pipeline",
+                "air",
+                json!({}),
+                None,
+                "test-user@hel.fi",
+                "assistant",
+            )
+            .await
+            .unwrap();
+        assert_eq!(driver.second_resource("DataSource", "feed").await, None);
     }
 }

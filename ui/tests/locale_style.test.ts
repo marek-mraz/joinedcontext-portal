@@ -52,4 +52,16 @@ describe("locale style", () => {
     const bad = { a: { b: "I have stored it" }, c: "Let's continue where we left off.", d: "Saved successfully" };
     expect(strings(bad).filter(([, text]) => BANNED.some((pattern) => pattern.test(text)))).toHaveLength(3);
   });
+
+  it.each([
+    ["en", en],
+    ["sk", sk],
+    ["cs", cs],
+    ["de", de],
+  ])("keeps Git words off the %s copy strings (T-1252, UI-61)", (_, bundle) => {
+    const git = /\b(git|branch|merge|commit|pull request|rebase)\b|vetv|větev|zweig/i;
+    const copy = strings((bundle as Record<string, Record<string, unknown>>).workspaces, "workspaces");
+    expect(copy.length).toBeGreaterThan(40);
+    expect(copy.filter(([, text]) => git.test(text))).toEqual([]);
+  });
 });

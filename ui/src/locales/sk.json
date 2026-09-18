@@ -1924,7 +1924,10 @@
       "gone": "Táto kópia vypršala alebo bola zahodená.",
       "leave": "Odísť",
       "compare": "Porovnať",
-      "bringBack": "Vrátiť"
+      "bringBack": "Vrátiť",
+      "expired": "Táto kópia vypršala {date}. Jej zmeny sa nikdy nevrátili do projektu.",
+      "refused": "Túto kópiu nemôžete otvoriť: {reason}",
+      "foreign": "Len na čítanie: kópia používateľa {owner}"
     },
     "compare": {
       "title": "Čo kópia mení",
