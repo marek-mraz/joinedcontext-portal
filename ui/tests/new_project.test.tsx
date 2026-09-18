@@ -88,7 +88,8 @@ describe("the New project control in the sidebar", () => {
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button.parentElement).toHaveAttribute("title", REFUSED);
     // Disabled, never hidden: the reason is readable by keyboard too (UI-44).
-    expect(screen.getByRole("tooltip")).toHaveTextContent(REFUSED);
+    // The page behind has disabled controls with their own reasons, so this one is read in place.
+    expect(within(button.parentElement as HTMLElement).getByRole("tooltip")).toHaveTextContent(REFUSED);
   });
 
   it("checks the name while it is typed and proposes the project as one change", async () => {
