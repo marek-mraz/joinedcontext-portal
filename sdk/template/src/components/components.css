@@ -249,6 +249,14 @@
   color: var(--jc-color-danger, #dc2626);
 }
 
+/* The form's buttons sit on one line, Save last. Without this the row was two stacked
+   full-width buttons, which read as two unrelated actions (T-1060). */
+.jc-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--jc-space-2, 0.5rem);
+}
+
 .jc-export {
   display: inline-flex;
   gap: var(--jc-space-2, 0.5rem);
