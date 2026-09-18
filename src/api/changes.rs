@@ -968,6 +968,22 @@ async fn changed_files(gitea: &GiteaClient, pr: &PullRequest) -> Result<Vec<Chan
     Ok(listed)
 }
 
+/// The context space a repository path lies in: `projects/{project}/spaces/{space}/…`.
+fn space_in_path(path: &str) -> Option<&str> {
+    let mut segments = path.split('/');
+    match (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) {
+        (Some("projects"), Some(_), Some("spaces"), Some(space)) if !space.is_empty() => {
+            segments.next().map(|_| space)
+        }
+        _ => None,
+    }
+}
+
 /// The approval checks of every file the merge request changes, and the strictest lane among
 /// them (T-0832). The headline manifest is among them and passes the same checks twice, which
 /// costs nothing and keeps this loop free of a special case.
@@ -1005,9 +1021,14 @@ async fn approve_every_file(
                     file.path
                 ))
             })?;
-            effective.check(kind, jc_core::kinds::Verb::Approve, None)?;
+            // No manifest to read the space from, but the path names it; a target that holds
+            // only the space leaves every constraint as it was and lets a grant scoped to that
+            // space reach the file (PF-35, T-1404).
+            let target = space_in_path(&file.path)
+                .map(|space| serde_json::json!({ "spec": { "contextSpaceRef": space } }));
+            effective.check(kind, jc_core::kinds::Verb::Approve, target.as_ref())?;
             if file.deleted {
-                effective.check(kind, jc_core::kinds::Verb::Delete, None)?;
+                effective.check(kind, jc_core::kinds::Verb::Delete, target.as_ref())?;
             }
             continue;
         };
@@ -1026,7 +1047,13 @@ async fn approve_every_file(
             // `delete` is its own verb on every kind, not only the access ones: a cascade that
             // removes a whole project is held to `approve` and `delete` on each kind it takes
             // with it, so nobody approves away what their role never let them delete (PF-77).
-            effective.check(&envelope.kind, jc_core::kinds::Verb::Delete, None)?;
+            // Against the manifest being deleted, so a steward scoped to its space may delete
+            // what that space holds and nothing else (PF-35, T-1404).
+            effective.check(
+                &envelope.kind,
+                jc_core::kinds::Verb::Delete,
+                Some(&manifest),
+            )?;
             lane = Lane::Red;
             continue;
         }
@@ -1072,8 +1099,19 @@ pub async fn approve_change_for(
         "Role" | "RoleBinding" | "ServiceAccount"
     ) {
         match (data.operation, &data.head_envelope) {
-            (Operation::Delete, _) => crate::permissions::for_request(state, identity, project)
-                .check(&data.kind, jc_core::kinds::Verb::Delete, None)?,
+            (Operation::Delete, _) => {
+                let base = data
+                    .base_envelope
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|e| ApiError::Internal(e.to_string()))?;
+                crate::permissions::for_request(state, identity, project).check(
+                    &data.kind,
+                    jc_core::kinds::Verb::Delete,
+                    base.as_ref(),
+                )?
+            }
             (_, Some(head)) => {
                 let manifest =
                     serde_json::to_value(head).map_err(|e| ApiError::Internal(e.to_string()))?;
@@ -1360,6 +1398,16 @@ mod tests {
         assert!(parse_branch_name("main").is_none());
         assert!(parse_branch_name("portal/invalid").is_none());
         assert!(parse_branch_name("portal/foo-bar-baz-123").is_none());
+        assert_eq!(
+            space_in_path("projects/ovzdusie/spaces/air/mappings/aq.jsonata"),
+            Some("air")
+        );
+        assert_eq!(space_in_path("projects/ovzdusie/spaces/air"), None);
+        assert_eq!(
+            space_in_path("projects/ovzdusie/pipelines/aq/pipeline.yaml"),
+            None
+        );
+        assert_eq!(space_in_path("users/bindings/x.yaml"), None);
         // Bundles name no one resource and are headed by their files (T-1400); a hyphenated
         // project's deletion no longer reads as the Project of its first word.
         for bundle in [

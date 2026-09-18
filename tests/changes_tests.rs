@@ -2382,3 +2382,68 @@ async fn a_flow_cannot_smuggle_a_rolebinding_past_a_pipeline_approver() {
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert!(!merged(&server).await);
 }
+
+/// T-1404: a steward scoped to one context space deletes what that space holds. The deletion is
+/// checked against the manifest being deleted, so the grant sees its space; before, the check had
+/// no target, a space-scoped grant never matched, and only organization- or project-wide roles
+/// could approve any removal. The same steward still cannot delete in a space it is not bound to.
+#[tokio::test]
+async fn a_space_steward_approves_a_deletion_in_its_own_space_and_no_other() {
+    use joinedcontext_portal::permissions::ORG_NAMESPACE;
+    use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+    let endpoint = |space: &str| {
+        format!(
+            "apiVersion: joinedcontext.com/v1alpha1\nkind: Endpoint\nmetadata:\n  name: {space}-public\n  namespace: ovzdusie\nspec:\n  contextSpaceRef: {space}\n"
+        )
+    };
+    for (space, expected) in [
+        ("air", StatusCode::ACCEPTED),
+        ("water", StatusCode::FORBIDDEN),
+    ] {
+        let path = format!("projects/ovzdusie/spaces/{space}/endpoints/{space}-public.yaml");
+        let content = endpoint(space);
+        let (server, state) = bundle_of_with_status(
+            json!([{ "kinds": ["Pipeline"], "verbs": ["approve"] }]),
+            &[(path.as_str(), content.as_str())],
+            "deleted",
+        )
+        .await;
+        let org = |kind: &str, name: &str, spec: Value| ResourceEnvelope {
+            api_version: API_VERSION.to_owned(),
+            kind: kind.to_owned(),
+            metadata: ObjectMeta::new(name, ORG_NAMESPACE),
+            spec,
+            status: None,
+        };
+        state.mirror.upsert(org(
+            "Role",
+            "air-steward",
+            json!({ "rules": [{ "kinds": ["Endpoint"], "verbs": ["approve", "delete"] }] }),
+        ));
+        state.mirror.upsert(org(
+            "RoleBinding",
+            "air-steward-binding",
+            json!({
+                "subjects": [{ "user": "jana.approver@banskabystrica.sk" }],
+                "role": "air-steward",
+                "scope": { "contextSpace": "air" }
+            }),
+        ));
+        for name in ["air", "water"] {
+            state.mirror.upsert(ResourceEnvelope {
+                api_version: API_VERSION.to_owned(),
+                kind: "ContextSpace".to_owned(),
+                metadata: ObjectMeta::new(name, "ovzdusie"),
+                spec: json!({}),
+                status: None,
+            });
+        }
+        let (status, body) = approve_bundle(state, Some("aq")).await;
+        assert_eq!(status, expected, "{space}: {body}");
+        assert_eq!(
+            merged(&server).await,
+            expected == StatusCode::ACCEPTED,
+            "{space}: {body}"
+        );
+    }
+}
