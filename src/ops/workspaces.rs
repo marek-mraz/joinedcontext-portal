@@ -640,6 +640,36 @@ fn readable(state: &AppState, identity: &Identity, project: &str) -> Result<(), 
     }
 }
 
+/// Whether `identity` may see `workspace` (PF-59, CC-79): its owner always; anyone else needs
+/// `read` on what it covers — the project, the space, or every listed resource's kind. What the
+/// caller may not see is not there: a 404, and absent from a list, never a 403.
+pub fn may_see(
+    state: &AppState,
+    effective: &crate::permissions::Effective,
+    workspace: &Workspace,
+    identity: &Identity,
+) -> bool {
+    if owns(workspace, identity) {
+        return true;
+    }
+    match &workspace.scope {
+        // A binding to one space reads that space, not a workspace over the whole project.
+        Scope::Project {} => {
+            effective.bootstrap || effective.grants.iter().any(|grant| grant.space.is_none())
+        }
+        Scope::Space { name } => effective.may_read_in("ContextSpace", Some(name)),
+        // Each resource as the caller could read it on main: in its own space; one the workspace
+        // adds is not on main yet and needs a grant on its kind across the project.
+        Scope::Resources { items } => items.iter().all(|item| {
+            match state.mirror.get(&workspace.project, &item.kind, &item.name) {
+                Some(envelope) => serde_json::to_value(&envelope)
+                    .is_ok_and(|manifest| effective.may_read_manifest(&item.kind, &manifest)),
+                None => effective.may_read_in(&item.kind, None),
+            }
+        }),
+    }
+}
+
 /// The live workspace `name` of `project`, readable by the caller.
 async fn visible(
     state: &AppState,
@@ -649,7 +679,8 @@ async fn visible(
 ) -> Result<Workspace, ApiError> {
     readable(state, identity, project)?;
     let workspace = state.workspaces.live(name).await?;
-    if workspace.project != project {
+    let effective = crate::permissions::for_request(state, identity, project);
+    if workspace.project != project || !may_see(state, &effective, &workspace, identity) {
         return Err(ApiError::NotFound(format!(
             "no workspace named '{name}' in project '{project}'"
         )));
@@ -750,12 +781,13 @@ pub async fn list(
 ) -> Result<WorkspaceList, ApiError> {
     readable(state, identity, project)?;
     let now = Utc::now();
+    let effective = crate::permissions::for_request(state, identity, project);
     let items = state
         .workspaces
         .list(project)
         .await?
         .into_iter()
-        .filter(|w| !w.expired(now))
+        .filter(|w| !w.expired(now) && may_see(state, &effective, w, identity))
         .map(WorkspaceView::from)
         .collect();
     Ok(WorkspaceList { items })
