@@ -232,7 +232,16 @@ fn state_as(
     groups: &[&str],
     org: Vec<Value>,
 ) -> (AppState, String) {
-    let config = Config::for_tests();
+    state_with(Config::for_tests(), server, existing, groups, org)
+}
+
+fn state_with(
+    config: Config,
+    server: &MockServer,
+    existing: Vec<&str>,
+    groups: &[&str],
+    org: Vec<Value>,
+) -> (AppState, String) {
     let cookie = cookies(&config, groups);
     let gitea = Arc::new(
         GiteaClient::new(
@@ -269,18 +278,39 @@ fn state_as(
     (state, cookie)
 }
 
+/// An import the way the pages send it: the dry run first, which is the bundle's check (PF-57,
+/// T-1460), then the same request.
 async fn post(
     state: AppState,
     cookie: &str,
     content_type: &str,
     body: Vec<u8>,
 ) -> (StatusCode, Value) {
+    let uri = format!("/api/v1/projects/{PROJECT}/import");
+    send(
+        state.clone(),
+        cookie,
+        content_type,
+        body.clone(),
+        &format!("{uri}?dryRun=All"),
+    )
+    .await;
+    send(state, cookie, content_type, body, &uri).await
+}
+
+async fn send(
+    state: AppState,
+    cookie: &str,
+    content_type: &str,
+    body: Vec<u8>,
+    uri: &str,
+) -> (StatusCode, Value) {
     let app = server::app(state);
     let response = app
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/v1/projects/{PROJECT}/import"))
+                .uri(uri)
                 .header(header::COOKIE, cookie)
                 .header(header::CONTENT_TYPE, content_type)
                 .header(CSRF_HEADER, CSRF)
@@ -1307,4 +1337,110 @@ async fn a_renamed_endpoint_is_minted_its_own_slug() {
             && !endpoint.contains("slug: mluyob4nz52lok3ssk7pgn5vwt"),
         "a renamed endpoint answers at neither address: {endpoint}"
     );
+}
+
+// --- the import door's check (PF-57, T-1460) --------------------------------------------
+
+fn import_uri() -> String {
+    format!("/api/v1/projects/{PROJECT}/import")
+}
+
+async fn import_unchecked(
+    state: AppState,
+    cookie: &str,
+    fields: &[(&str, &str)],
+) -> (StatusCode, Value) {
+    let (content_type, body) = multipart(&bundle_archive(), fields);
+    send(state, cookie, &content_type, body, &import_uri()).await
+}
+
+async fn check(state: AppState, cookie: &str, archive: &[u8], fields: &[(&str, &str)]) {
+    let (content_type, body) = multipart(archive, fields);
+    let (status, report) = send(
+        state,
+        cookie,
+        &content_type,
+        body,
+        &format!("{}?dryRun=All", import_uri()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{report}");
+}
+
+fn refusal(status: StatusCode, body: &Value, reason: &str) {
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"], "verdict_required", "{body}");
+    assert_eq!(body["check"], "jc_project_import", "{body}");
+    assert_eq!(body["reason"], reason, "{body}");
+}
+
+#[tokio::test]
+async fn an_unchecked_bundle_is_refused_and_nothing_reaches_the_forge() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let (status, body) = import_unchecked(state, &cookie, &[]).await;
+
+    refusal(status, &body, "verdict_absent");
+    assert!(
+        forge_calls(&server).await.is_empty(),
+        "{:?}",
+        forge_calls(&server).await
+    );
+}
+
+#[tokio::test]
+async fn a_bundle_changed_after_its_check_is_stale() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let other = archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        ("bundle.yaml", BUNDLE),
+    ]);
+    check(state.clone(), &cookie, &other, &[]).await;
+    let (status, body) = import_unchecked(state, &cookie, &[]).await;
+
+    refusal(status, &body, "stale");
+    assert!(written(&server).await.is_empty());
+}
+
+#[tokio::test]
+async fn another_conflict_policy_than_the_checked_one_is_stale() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![ENDPOINT]);
+    check(
+        state.clone(),
+        &cookie,
+        &bundle_archive(),
+        &[("conflictPolicy", "skip")],
+    )
+    .await;
+    let (status, body) = import_unchecked(state, &cookie, &[("conflictPolicy", "replace")]).await;
+
+    refusal(status, &body, "stale");
+    assert!(written(&server).await.is_empty());
+}
+
+#[tokio::test]
+async fn an_import_uses_its_check_once() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    check(state.clone(), &cookie, &bundle_archive(), &[]).await;
+    let (status, body) = import_unchecked(state.clone(), &cookie, &[]).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+
+    let (status, body) = import_unchecked(state, &cookie, &[]).await;
+    refusal(status, &body, "verdict_absent");
+}
+
+#[tokio::test]
+async fn a_lax_installation_imports_an_unchecked_bundle() {
+    let server = forge().await;
+    let branding = std::env::temp_dir().join(format!("jc-import-lax-{}.yaml", std::process::id()));
+    std::fs::write(&branding, "validation: lax\n").expect("branding file");
+    let mut config = Config::for_tests();
+    config.branding_file = Some(branding.to_string_lossy().to_string());
+    let (state, cookie) = state_with(config, &server, vec![], &["portal-approver"], vec![]);
+    let (status, body) = import_unchecked(state, &cookie, &[]).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
 }

@@ -755,7 +755,7 @@ async fn read_request(
         (status = 200, description = "Dry run: what the import would do", body = ImportReport),
         (status = 400, description = "The bundle was refused", body = ProblemDetails),
         (status = 401, description = "Unauthorized", body = ProblemDetails),
-        (status = 409, description = "A resource already exists and the policy is 'fail'", body = ProblemDetails),
+        (status = 409, description = "A resource already exists and the policy is 'fail', or the bundle has no fresh check of its own (`verdict_required`, PF-57)", body = ProblemDetails),
         (status = 501, description = "Importing from a URL is not implemented", body = ProblemDetails),
         (status = 503, description = "No repository configured", body = ProblemDetails),
     )
@@ -841,7 +841,13 @@ pub async fn import_bundle(
         &domain,
         options.conflict_policy,
     )?;
+    // PF-57 on the import door (T-1460): the dry run is the bundle's check, over the bundle as
+    // sent and the options it is imported with, so another manifest, policy or domain is stale;
+    // the import itself needs that check before anything reaches the forge. Not over the planned
+    // files: a plan mints a fresh endpoint slug each time, so no two plans are equal.
+    let subject = import_subject(bytes, options.conflict_policy, &domain, &target);
     if options.dry_run {
+        crate::ops::record_import_check(state, identity, &project, &subject).await;
         return Ok((
             StatusCode::OK,
             serde_json::to_value(report).map_err(|e| ApiError::Internal(e.to_string()))?,
@@ -852,6 +858,7 @@ pub async fn import_bundle(
             "the bundle holds nothing to import".into(),
         ));
     }
+    crate::ops::verdict_for_import(state, identity, &project, &subject).await?;
     let headline = incoming.iter().find_map(|item| {
         item.envelope
             .as_ref()
@@ -866,10 +873,27 @@ pub async fn import_bundle(
         headline.as_ref().map(|(k, n)| (k.as_str(), n.as_str())),
     )
     .await?;
+    crate::ops::forget_import_check(state, identity, &project).await;
     Ok((
         StatusCode::ACCEPTED,
         serde_json::to_value(change).map_err(|e| ApiError::Internal(e.to_string()))?,
     ))
+}
+
+/// What an import's check is fresh for: the SHA-256 of the bundle as sent, and the options that
+/// decide what it writes.
+fn import_subject(bytes: &[u8], policy: ConflictPolicy, domain: &str, target: &str) -> Value {
+    use sha2::{Digest, Sha256};
+    let bundle: String = Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    serde_json::json!({
+        "bundle": bundle,
+        "conflictPolicy": policy,
+        "orgDomain": domain,
+        "targetNamespace": target,
+    })
 }
 
 /// Commits a bundle of files and manifests as one merge request (MF-21, CC-63). `headline`

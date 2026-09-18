@@ -68,10 +68,18 @@ export function useProposal(project: string, plural: string, onChange: (change: 
     }) => {
       setError(null);
       if (bundle.length > 0) {
+        // The dry run is the bundle's check, and the import needs it first (PF-57, T-1460).
+        const manifests = { manifests: [...bundle, body] } as never;
+        unwrap<unknown>(
+          await api.POST("/api/v1/projects/{project}/import", {
+            params: { path: { project }, query: { dryRun: "All" } },
+            body: manifests,
+          }),
+        );
         return unwrap<unknown>(
           await api.POST("/api/v1/projects/{project}/import", {
             params: { path: { project } },
-            body: { manifests: [...bundle, body] } as never,
+            body: manifests,
           }),
         );
       }

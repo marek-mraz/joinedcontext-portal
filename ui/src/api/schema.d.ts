@@ -4907,7 +4907,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
-            /** @description A resource already exists and the policy is 'fail' */
+            /** @description A resource already exists and the policy is 'fail', or the bundle has no fresh check of its own (`verdict_required`, PF-57) */
             409: {
                 headers: {
                     [name: string]: unknown;

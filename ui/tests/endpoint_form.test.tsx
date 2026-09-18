@@ -259,6 +259,17 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
       expect(importCalls.length).toBe(1);
     });
 
+    // The write itself is checked first with the same bundle: the import door needs the
+    // check of exactly what it imports (PF-57, T-1460).
+    const urls = fetchMock.mock.calls.map((c) =>
+      typeof c[0] === "string" ? c[0] : (c[0] as Request).url,
+    );
+    const write = urls.findIndex((u) => u.includes("/import") && !u.includes("dryRun"));
+    const checked = urls.slice(0, write).findLastIndex((u) => u.includes("/import?dryRun=All"));
+    expect(checked).toBeGreaterThanOrEqual(0);
+    const bodyOf = (i: number) => (fetchMock.mock.calls[i][0] as Request).clone().text();
+    expect(await bodyOf(checked)).toBe(await bodyOf(write));
+
     const importCall = fetchMock.mock.calls.find((c) => {
       const req = c[0] as Request;
       const u = typeof c[0] === "string" ? c[0] : req.url;

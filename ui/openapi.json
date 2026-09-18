@@ -3407,7 +3407,7 @@
             }
           },
           "409": {
-            "description": "A resource already exists and the policy is 'fail'",
+            "description": "A resource already exists and the policy is 'fail', or the bundle has no fresh check of its own (`verdict_required`, PF-57)",
             "content": {
               "application/json": {
                 "schema": {

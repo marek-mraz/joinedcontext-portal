@@ -1148,6 +1148,73 @@ pub async fn record_check(
     }
 }
 
+/// A bundle has no kind and name of its own, so its check is held under this kind and the
+/// caller's name: one checked import per person and project (T-1460).
+const IMPORT_CHECK_KIND: &str = "ImportBundle";
+
+/// Records the dry run of a bundle as its check (PF-57 on the import door, T-1460). A plan the
+/// import could draw is green; one it could not draw was refused before this with its reason.
+pub async fn record_import_check(
+    state: &AppState,
+    identity: &Identity,
+    project: &str,
+    subject: &Value,
+) {
+    let store = draft_store(state);
+    let who = &identity.username;
+    if store
+        .put(
+            project,
+            IMPORT_CHECK_KIND,
+            who,
+            subject.clone(),
+            None,
+            who,
+            "import",
+        )
+        .await
+        .is_ok()
+    {
+        let _ = store
+            .set_verdict(
+                project,
+                IMPORT_CHECK_KIND,
+                who,
+                Verdict::green(subject, None),
+            )
+            .await;
+    }
+}
+
+/// PF-57 for an import: the caller's recorded check of this bundle, green and fresh for the
+/// files about to be written. `Ok(true)` is a lax installation letting an unchecked one through.
+pub async fn verdict_for_import(
+    state: &AppState,
+    identity: &Identity,
+    project: &str,
+    subject: &Value,
+) -> Result<bool, OpError> {
+    let recorded = draft_store(state)
+        .get(project, IMPORT_CHECK_KIND, &identity.username)
+        .await
+        .map_err(|e| OpError::Api(ApiError::Internal(e.to_string())))?
+        .and_then(|draft| draft.verdict);
+    verdict_gate(
+        state,
+        recorded.as_ref(),
+        subject,
+        "jc_project_import",
+        "bundle",
+    )
+}
+
+/// After an import became a Change, its check goes, so the next import is checked again.
+pub async fn forget_import_check(state: &AppState, identity: &Identity, project: &str) {
+    let _ = draft_store(state)
+        .drop(project, IMPORT_CHECK_KIND, &identity.username)
+        .await;
+}
+
 /// The refusal an operation's verdict gate already holds for these arguments, or `None` when
 /// it lets them through (PF-57, AG-62).
 ///
