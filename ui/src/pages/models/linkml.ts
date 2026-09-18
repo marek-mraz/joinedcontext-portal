@@ -49,29 +49,41 @@ export const UPSTREAM_ANNOTATION = "upstream_source";
  *
  * The full CEFACT recommendation 20 is thousands of codes; this is the working set the unit
  * picker offers, and any other code can still be typed. `ucum` is what LinkML's `unit.ucum_code`
- * takes, `code` is the CEFACT common code that travels in `exact_mappings`.
+ * takes, `code` is the CEFACT common code that travels in `exact_mappings`, and `qudt` and
+ * `quantityKind` are the anchor beside it (DM-59): the IRI a federated reader dereferences, and
+ * the dimension that lets two organisations' measurements be aligned rather than two opaque
+ * codes compared.
+ *
+ * This is the crosswalk, and it is here because here is where a person picks a unit; the model
+ * records the choice and every generator reads the model. Model Tools keeps the same table for
+ * the one path with no person in it — inferring a model from a sample —
+ * (`tools/model-tools/src/infer_schema.py`, `UNIT_UCUM` and `UNIT_QUDT`, in the other
+ * repository). Nothing can compare the two from inside one checkout, so a code added here
+ * belongs there in the same change. Both were read out of QUDT's own vocabulary by
+ * `qudt:ucumCode`, never written from memory: `ug/m3` is `MassDensity` to QUDT, not the
+ * `MassConcentration` a person would guess.
  */
 export const UNIT_CODES = [
-  { code: "GQ", ucum: "ug/m3", label: "microgram per cubic metre" },
-  { code: "M1", ucum: "mg/L", label: "milligram per litre" },
-  { code: "CEL", ucum: "Cel", label: "degree Celsius" },
-  { code: "P1", ucum: "%", label: "percent" },
-  { code: "MTR", ucum: "m", label: "metre" },
-  { code: "KMT", ucum: "km", label: "kilometre" },
-  { code: "MTS", ucum: "m/s", label: "metre per second" },
-  { code: "KMH", ucum: "km/h", label: "kilometre per hour" },
-  { code: "SEC", ucum: "s", label: "second" },
-  { code: "HUR", ucum: "h", label: "hour" },
-  { code: "KGM", ucum: "kg", label: "kilogram" },
-  { code: "TNE", ucum: "t", label: "tonne" },
-  { code: "LTR", ucum: "L", label: "litre" },
-  { code: "MTQ", ucum: "m3", label: "cubic metre" },
-  { code: "KWH", ucum: "kW.h", label: "kilowatt hour" },
-  { code: "WTT", ucum: "W", label: "watt" },
-  { code: "A24", ucum: "cd/m2", label: "candela per square metre" },
-  { code: "2N", ucum: "dB", label: "decibel" },
-  { code: "HPA", ucum: "hPa", label: "hectopascal" },
-  { code: "C62", ucum: "1", label: "one (dimensionless)" },
+  { code: "GQ", ucum: "ug/m3", label: "microgram per cubic metre", qudt: "MicroGM-PER-M3", quantityKind: "MassDensity" },
+  { code: "M1", ucum: "mg/L", label: "milligram per litre", qudt: "MilliGM-PER-L", quantityKind: "MassConcentration" },
+  { code: "CEL", ucum: "Cel", label: "degree Celsius", qudt: "DEG_C", quantityKind: "Temperature" },
+  { code: "P1", ucum: "%", label: "percent", qudt: "PERCENT", quantityKind: "DimensionlessRatio" },
+  { code: "MTR", ucum: "m", label: "metre", qudt: "M", quantityKind: "Length" },
+  { code: "KMT", ucum: "km", label: "kilometre", qudt: "KiloM", quantityKind: "Length" },
+  { code: "MTS", ucum: "m/s", label: "metre per second", qudt: "M-PER-SEC", quantityKind: "Speed" },
+  { code: "KMH", ucum: "km/h", label: "kilometre per hour", qudt: "KiloM-PER-HR", quantityKind: "LinearVelocity" },
+  { code: "SEC", ucum: "s", label: "second", qudt: "SEC", quantityKind: "Time" },
+  { code: "HUR", ucum: "h", label: "hour", qudt: "HR", quantityKind: "Time" },
+  { code: "KGM", ucum: "kg", label: "kilogram", qudt: "KiloGM", quantityKind: "Mass" },
+  { code: "TNE", ucum: "t", label: "tonne", qudt: "TONNE", quantityKind: "Mass" },
+  { code: "LTR", ucum: "L", label: "litre", qudt: "L", quantityKind: "Volume" },
+  { code: "MTQ", ucum: "m3", label: "cubic metre", qudt: "M3", quantityKind: "Volume" },
+  { code: "KWH", ucum: "kW.h", label: "kilowatt hour", qudt: "KiloW-HR", quantityKind: "Energy" },
+  { code: "WTT", ucum: "W", label: "watt", qudt: "W", quantityKind: "Power" },
+  { code: "A24", ucum: "cd/m2", label: "candela per square metre", qudt: "CD-PER-M2", quantityKind: "Luminance" },
+  { code: "2N", ucum: "dB", label: "decibel", qudt: "DeciB", quantityKind: "SoundPressureLevel" },
+  { code: "HPA", ucum: "hPa", label: "hectopascal", qudt: "HectoPA", quantityKind: "ForcePerArea" },
+  { code: "C62", ucum: "1", label: "one (dimensionless)", qudt: "NUM", quantityKind: "Dimensionless" },
 ] as const;
 
 /** The LinkML ranges the editor offers, and how a dashboard may use each of them (DM-20). */
@@ -91,7 +103,10 @@ export const RANGES = [
 export interface LinkmlUnit {
   ucum_code?: string;
   symbol?: string;
+  /** The UN/CEFACT code NGSI-LD puts on the wire, and the QUDT unit beside it (DM-06, DM-59). */
   exact_mappings?: string[];
+  /** The dimension, `qudt:hasQuantityKind`: what makes two units comparable at all (DM-59). */
+  has_quantity_kind?: string;
 }
 
 export interface LinkmlSlot {
@@ -233,6 +248,7 @@ function slotOf(name: string, raw: Record<string, unknown>): LinkmlSlot {
             ucum_code: text(unit.ucum_code),
             symbol: text(unit.symbol),
             ...(mappings && mappings.length > 0 ? { exact_mappings: mappings } : {}),
+            has_quantity_kind: text(unit.has_quantity_kind),
           }
         : undefined,
     kind: (NGSI_LD_KINDS as readonly string[]).includes(kind ?? "")

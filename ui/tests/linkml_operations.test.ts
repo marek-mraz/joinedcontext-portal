@@ -58,7 +58,13 @@ describe("LinkML operations", () => {
       required: true,
       multivalued: true,
       description: "particulate matter",
-      unit: { ucum_code: "ug/m3", exact_mappings: ["ucefact:GQ"] },
+      // The wire value and the anchor together (DM-59): the UN/CEFACT code NGSI-LD carries and
+      // the QUDT unit a federated reader dereferences, with the dimension beside it.
+      unit: {
+        ucum_code: "ug/m3",
+        exact_mappings: ["ucefact:GQ", "qudt-unit:MicroGM-PER-M3"],
+        has_quantity_kind: "qudt-quantkind:MassDensity",
+      },
       kind: "Property",
       minimum_value: 0,
       title: { sk: "PM10" },

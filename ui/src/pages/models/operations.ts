@@ -204,14 +204,39 @@ function setSlotField(
       if (!unit) {
         refuse(`unit '${trimmed}' of slot '${name}' is not a known UN/CEFACT common code`);
       }
+      // The wire value and the anchor together (DM-06, DM-59): NGSI-LD puts the UN/CEFACT code
+      // on the wire as `unitCode`, and the QUDT unit is what a federated reader dereferences
+      // to align this measurement with somebody else's. The quantity kind says what dimension
+      // is being measured, which is what makes two units comparable at all.
       document.setIn([...path, "unit"], {
         ucum_code: unit.ucum,
-        exact_mappings: [`ucefact:${unit.code}`],
+        exact_mappings: [`ucefact:${unit.code}`, `qudt-unit:${unit.qudt}`],
+        has_quantity_kind: `qudt-quantkind:${unit.quantityKind}`,
       });
+      declarePrefixes(document);
       return;
     }
     default:
       refuse(`'${field}' is not a slot field the editor sets`);
+  }
+}
+
+/**
+ * The prefixes a unit mapping cites, declared on the document that carries one (DM-59).
+ *
+ * A CURIE under an undeclared prefix is a dangling string in every artifact that carries it,
+ * and Model Tools refuses to render the model at all — so the editor writes the declaration
+ * with the mapping rather than leaving the author to find out at generation time.
+ */
+function declarePrefixes(document: Document): void {
+  for (const [prefix, namespace] of [
+    ["ucefact", "https://vocabulary.uncefact.org/UnitMeasureCode#"],
+    ["qudt-unit", "http://qudt.org/vocab/unit/"],
+    ["qudt-quantkind", "http://qudt.org/vocab/quantitykind/"],
+  ]) {
+    if (document.getIn(["prefixes", prefix]) === undefined) {
+      document.setIn(["prefixes", prefix], namespace);
+    }
   }
 }
 

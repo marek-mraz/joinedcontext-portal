@@ -101,7 +101,7 @@ describe("LinkML visual editor", () => {
     expect(slot?.required).toBe(true);
     expect(slot?.unit?.ucum_code).toBe("ug/m3");
     // DM-06: the CEFACT common code travels with the unit, not only the UCUM symbol.
-    expect(slot?.unit?.exact_mappings).toEqual(["ucefact:GQ"]);
+    expect(slot?.unit?.exact_mappings).toEqual(["ucefact:GQ", "qudt-unit:MicroGM-PER-M3"]);
     // DM-05: the kind is the annotation Model Tools reads, not a field of our own.
     expect(source()).toContain("ngsi_ld_kind: GeoProperty");
   });

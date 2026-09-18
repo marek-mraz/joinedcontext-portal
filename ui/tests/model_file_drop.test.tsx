@@ -137,7 +137,7 @@ describe("a model from a dropped file", () => {
     const temperature = model.slots.find((slot) => slot.name === "b_Temp_b");
     expect(temperature?.range).toBe("float");
     expect(temperature?.minimum_value).toBe(19);
-    expect(temperature?.unit?.exact_mappings).toEqual(["ucefact:CEL"]);
+    expect(temperature?.unit?.exact_mappings).toEqual(["ucefact:CEL", "qudt-unit:DEG_C"]);
     expect(temperature?.title).toEqual({ en: "<b>Temp</b> (°C)" });
     expect(model.slots.find((slot) => slot.name === "plate")?.pattern).toBe("^[A-Z]{2}[0-9]{3}[A-Z]{2}$");
     expect(model.slots.find((slot) => slot.name === "parent")?.kind).toBe("Relationship");
