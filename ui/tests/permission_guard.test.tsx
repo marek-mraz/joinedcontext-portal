@@ -18,7 +18,7 @@ const EDITOR = {
   grants: [{ role: "endpoint-editor", binding: "editors", rule: { kinds: ["Endpoint"], verbs: ["propose"] } }],
 };
 
-function renderGuard(permissions: unknown, kind = "Endpoint") {
+function renderGuard(permissions: unknown, kind = "Endpoint", verb: "propose" | "delete" = "propose") {
   const fetchMock = vi.fn(() =>
     Promise.resolve(
       new Response(JSON.stringify(permissions), { status: 200, headers: { "Content-Type": "application/json" } }),
@@ -30,7 +30,7 @@ function renderGuard(permissions: unknown, kind = "Endpoint") {
   render(
     <QueryClientProvider client={client}>
       <I18nextProvider i18n={i18n}>
-        <PermissionGuard project="helsinki" kind={kind} verb="propose">
+        <PermissionGuard project="helsinki" kind={kind} verb={verb}>
           <button type="button" onClick={onClick}>
             New endpoint
           </button>
@@ -87,6 +87,23 @@ describe("the permission guard", () => {
       expect(screen.getByRole("button", { name: "New endpoint" })).toBeDisabled();
     });
     expect(screen.getByRole("tooltip")).toHaveTextContent("'propose' on 'Pipeline'");
+  });
+
+  /// T-1142, PF-50: the guard reflects the document and decides nothing. A verb the role does
+  /// not hold is closed even when a neighbouring verb on the same kind is open.
+  it("closes the verb the role lacks and leaves the one it holds open", async () => {
+    renderGuard(EDITOR, "Endpoint", "delete");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "New endpoint" })).toBeDisabled();
+    });
+    expect(screen.getByRole("tooltip")).toHaveTextContent("'delete' on 'Endpoint'");
+
+    // The same role, the verb it does hold.
+    vi.unstubAllGlobals();
+    renderGuard(EDITOR, "Endpoint", "propose");
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "New endpoint" }).at(-1)).toBeEnabled();
+    });
   });
 
   it("stays enabled for a bootstrap administrator", async () => {

@@ -128,6 +128,77 @@ describe("your access in the explorer", () => {
     await waitFor(() => expect(screen.getByRole("checkbox", { name: "availableBikeNumber" })).toBeEnabled());
   });
 
+  /// T-1142, EP-55: a document covers several types at once, and a prohibition takes back what
+  /// a permission gave. What the panel greys out is per type, never the union of everything.
+  it("reads one type's denials without the other type's grant leaking into them", () => {
+    const t = (key: string) => key;
+    const slots = [
+      { name: "speed", kind: "Property" as const },
+      { name: "plate", kind: "Property" as const },
+    ];
+    const document = {
+      permissions: [
+        { resource: { type: "Vehicle" }, attributes: ["speed"] },
+        { resource: { type: "AirQualityObserved" }, attributes: ["pm10", "pm25"] },
+      ],
+    };
+
+    expect(deniedAttributes(document, "Vehicle", slots, t)).toEqual({
+      plate: "access.panel.attrDenied",
+    });
+    // The other type's grant names neither slot, so both are outside it.
+    expect(deniedAttributes(document, "AirQualityObserved", slots, t)).toEqual({
+      speed: "access.panel.attrDenied",
+      plate: "access.panel.attrDenied",
+    });
+  });
+
+  it("names a prohibited attribute as prohibited, even where a permission granted it", () => {
+    const t = (key: string) => key;
+    const slots = [
+      { name: "pm10", kind: "Property" as const },
+      { name: "pm25", kind: "Property" as const },
+    ];
+    const document = {
+      permissions: [{ resource: { type: "AirQualityObserved" }, attributes: ["pm10", "pm25"] }],
+      prohibitions: [{ resource: { type: "AirQualityObserved" }, attributes: ["pm25"] }],
+    };
+
+    expect(deniedAttributes(document, "AirQualityObserved", slots, t)).toEqual({
+      pm25: "access.panel.attrProhibited",
+    });
+  });
+
+  it("takes a grant over every type as covering this one, and a prohibition over every type too", () => {
+    const t = (key: string) => key;
+    const slots = [{ name: "speed", kind: "Property" as const }];
+    expect(
+      deniedAttributes({ permissions: [{ resource: { type: "*" }, attributes: ["speed"] }] }, "Vehicle", slots, t),
+    ).toEqual({});
+    expect(
+      deniedAttributes(
+        {
+          permissions: [{ resource: { type: "*" }, attributes: "*" }],
+          prohibitions: [{ resource: { type: "*" }, attributes: ["speed"] }],
+        },
+        "Vehicle",
+        slots,
+        t,
+      ),
+    ).toEqual({ speed: "access.panel.attrProhibited" });
+  });
+
+  /// A document that grants nothing for this type greys nothing out, because the panel says
+  /// which attribute a grant leaves out and there is no grant to be outside of: the read
+  /// itself answers empty, and the access document above the table is what says why (EP-55).
+  it("greys nothing out when no permission covers the type at all", () => {
+    const t = (key: string) => key;
+    const slots = [{ name: "speed", kind: "Property" as const }];
+    expect(deniedAttributes({ permissions: [] }, "Vehicle", slots, t)).toEqual({});
+    expect(deniedAttributes({}, "Vehicle", slots, t)).toEqual({});
+    expect(deniedAttributes({ permissions: [{ resource: { type: "Other" } }] }, "Vehicle", slots, t)).toEqual({});
+  });
+
   it("denies what is outside the grant's attribute list and nothing under a wildcard grant", () => {
     const t = (key: string) => key;
     const slots = [

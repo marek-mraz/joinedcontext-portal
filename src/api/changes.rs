@@ -1289,6 +1289,45 @@ mod tests {
         assert_eq!(redacted[4].to, Some(json!("[REDACTED]")));
     }
 
+    /// T-1142, CC-06: the rule is the path's last segment, which is what makes it predictable.
+    /// A field whose last segment is not a credential name is shown, even where an earlier
+    /// segment is — `spec.auth.headerRef.name` names a Secret, and a reference is what a
+    /// manifest is supposed to carry, so hiding it would hide the review.
+    #[test]
+    fn what_is_redacted_is_decided_by_the_last_segment_of_the_path() {
+        let field = |path: &str| FieldChange {
+            path: path.to_string(),
+            from: Some(json!("before")),
+            to: Some(json!("after")),
+        };
+        let shown = |path: &str| redact(vec![field(path)])[0].to.clone() == Some(json!("after"));
+
+        // A reference, a name and a URL are the review; the credentials are not.
+        assert!(
+            shown("spec.auth.headerRef.name"),
+            "a secretRef's name is shown"
+        );
+        assert!(shown("spec.http.url"), "an address is shown");
+        assert!(shown("metadata.name"));
+        assert!(!shown("spec.password"));
+        assert!(!shown("spec.auth.token"));
+        assert!(!shown("spec.deeply.nested.api_key"));
+
+        // An indexed path keeps the rule: the index is not part of the name.
+        assert!(!shown("spec.receiverInfo[0].token"));
+        assert!(shown("spec.receiverInfo[0].key"));
+
+        // A field with no value on a side keeps that side empty rather than redacting nothing
+        // into something: an absent value is not a hidden one.
+        let removed = redact(vec![FieldChange {
+            path: "spec.password".into(),
+            from: Some(json!("old")),
+            to: None,
+        }]);
+        assert_eq!(removed[0].from, Some(json!("[REDACTED]")));
+        assert_eq!(removed[0].to, None);
+    }
+
     #[tokio::test]
     async fn test_list_changes_without_forge_answers_503() {
         let config = Config::for_tests();
