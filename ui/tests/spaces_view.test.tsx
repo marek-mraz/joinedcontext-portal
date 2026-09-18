@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
+import { digestOf } from "../src/api/drafts";
 import { answeringChecks, checksSoFar } from "./checks";
 
 const IDENTITY = {
@@ -222,6 +223,8 @@ describe("context spaces view", () => {
     await userEvent.click(await screen.findByRole("button", { name: en.spaces.add }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText(/Name/), "mobilita");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: en.spaces.propose })).toBeEnabled());
     await userEvent.click(within(dialog).getByRole("button", { name: en.spaces.propose }));
 
     await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
@@ -240,6 +243,55 @@ describe("context spaces view", () => {
     expect(checksSoFar().some((check) => check.includes("POST /api/v1/projects/banskabystrica/spaces"))).toBe(true);
   });
 
+  it("checks a new space like every other form: a YAML view, a Check, and Propose only after it (T-1380)", async () => {
+    const checks: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const request = input as Request;
+        const url = new URL(request.url);
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+        if (url.pathname.endsWith("/auth/me")) return json(IDENTITY);
+        if (url.pathname.endsWith("/branding")) return json({ validation: "strict" });
+        if (request.method === "POST" && url.searchParams.get("dryRun") === "All") {
+          const body = (await request.clone().json()) as Record<string, unknown>;
+          checks.push(body);
+          const manifest = { ...body };
+          delete manifest.draft;
+          return json({
+            valid: true,
+            verdict: { ok: true, findings: [], checkedAt: new Date().toISOString(), inputDigest: digestOf(manifest) },
+          });
+        }
+        if (url.pathname === "/api/v1/projects/banskabystrica") return json(project(3));
+        if (url.pathname.endsWith("/spaces")) return json(SPACES);
+        return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
+      }),
+    );
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <I18nextProvider i18n={i18n}>
+          <App />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: en.spaces.add }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("tab", { name: en.form.view.yaml })).toBeInTheDocument();
+    await userEvent.type(within(dialog).getByLabelText(/Name/), "mobilita");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: en.spaces.propose })).toBeDisabled());
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: en.spaces.propose })).toBeEnabled());
+    expect(checks[0]).toMatchObject({
+      kind: "ContextSpace",
+      metadata: { name: "mobilita" },
+      draft: { kind: "ContextSpace", name: "mobilita" },
+    });
+  });
+
   it("shows the name to use when another project already holds the one typed (PF-76)", async () => {
     renderSpaces({
       quota: 3,
@@ -251,6 +303,8 @@ describe("context spaces view", () => {
     await userEvent.click(await screen.findByRole("button", { name: en.spaces.add }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText(/Name/), "mhd");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: en.spaces.propose })).toBeEnabled());
     await userEvent.click(within(dialog).getByRole("button", { name: en.spaces.propose }));
 
     const alert = await within(dialog).findByRole("alert");

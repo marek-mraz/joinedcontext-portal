@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { digestOf } from "../src/api/drafts";
 
 type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -15,7 +16,18 @@ export function answeringChecks(inner: Fetch): Fetch & { checks: string[] } {
     const url = new URL(request ? request.url : String(input), window.location.origin);
     if (url.searchParams.get("dryRun") === "All") {
       checks.push(`${request?.method ?? init?.method ?? "GET"} ${url.pathname}`);
-      return new Response(JSON.stringify({ valid: true, verdict: { ok: true, findings: [] } }), {
+      // A verdict fresh for what was checked, so a form that holds a draft reads it green.
+      let inputDigest: string | undefined;
+      try {
+        const body = (await (request ? request.clone().text() : Promise.resolve(String(init?.body ?? "")))) || "{}";
+        const manifest = JSON.parse(body) as Record<string, unknown>;
+        delete manifest.draft;
+        inputDigest = digestOf(manifest);
+      } catch {
+        inputDigest = undefined;
+      }
+      const verdict = { ok: true, findings: [], checkedAt: new Date().toISOString(), inputDigest };
+      return new Response(JSON.stringify({ valid: true, verdict }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });

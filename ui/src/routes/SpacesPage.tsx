@@ -57,6 +57,17 @@ function toEnvelope(project: string, form: SpaceForm) {
   };
 }
 
+/** A draft or the YAML view read back into the form: the envelope's name, title and spec. */
+function fromEnvelope(manifest: unknown): SpaceForm {
+  const envelope = (manifest ?? {}) as { metadata?: { name?: string; title?: unknown }; spec?: object };
+  const title = envelope.metadata?.title;
+  return {
+    ...(envelope.spec ?? {}),
+    name: envelope.metadata?.name ?? "",
+    ...(typeof title === "string" ? { title } : {}),
+  } as SpaceForm;
+}
+
 const COLUMNS = 5;
 
 /** Context Spaces of one project: what exists, what it costs against the quota, where it lives. */
@@ -67,6 +78,8 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
 
   const usage = useProjectUsage(project);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // The dialog is controlled: its draft, its YAML view and its check all read what it holds.
+  const [form, setForm] = useState<SpaceForm | undefined>(undefined);
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -189,6 +202,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                 icon={<Icon name="plus" className="size-4" />}
                 onClick={() => {
                   setFormError(null);
+                  setForm(undefined);
                   setDialogOpen(true);
                 }}
               >
@@ -290,6 +304,17 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
         title={t("spaces.add")}
         description={t("spaces.addHint")}
         schema={contextSpaceSchema(t)}
+        // The same YAML view, draft, Check and verdict every other form has (T-1380, PF-57):
+        // strict validation refuses a space nobody checked, so the form checks it first.
+        formData={form}
+        onChange={setForm}
+        project={project}
+        draftKind="ContextSpace"
+        plural="spaces"
+        source={{
+          toManifest: (form) => toEnvelope(project, form),
+          fromManifest: fromEnvelope,
+        }}
         submitLabel={t("spaces.propose")}
         submitting={create.isPending}
         error={formError}
