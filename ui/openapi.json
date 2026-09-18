@@ -4498,6 +4498,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "description": "Read inside this workspace (CC-76)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4681,6 +4690,15 @@
             "in": "path",
             "description": "Resource name",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "description": "Read inside this workspace (CC-76)",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -6587,6 +6605,13 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          },
+          "workspace": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The workspace the draft belongs to, or none (CC-76): a draft of one workspace is not\na draft of another, nor of the main project."
           }
         }
       },

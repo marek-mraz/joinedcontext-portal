@@ -41,6 +41,17 @@ pub struct ListQuery {
     pub continue_token: Option<String>,
     #[serde(default)]
     pub revision: Option<String>,
+    /// Read inside this workspace: its branch over `main` (CC-76).
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
+/// The query of a single read.
+#[derive(Debug, Default, Deserialize)]
+pub struct GetQuery {
+    /// Read inside this workspace: its branch over `main` (CC-76).
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[utoipa::path(
@@ -55,6 +66,7 @@ pub struct ListQuery {
         ("limit" = Option<usize>, Query, description = "Page limit"),
         ("continue" = Option<String>, Query, description = "Pagination continue token"),
         ("revision" = Option<String>, Query, description = "Historical revision"),
+        ("workspace" = Option<String>, Query, description = "Read inside this workspace (CC-76)"),
     ),
     responses(
         (status = 200, description = "List of resources", body = ResourceList),
@@ -114,7 +126,12 @@ pub async fn list(
         continue_token: query.continue_token,
     };
 
-    let page = state.mirror.list(&project, kind_info.kind, &opts);
+    let page = match query.workspace.as_deref() {
+        Some(name) => crate::ops::workspaces::mirror_of(&state, name, &project)
+            .await?
+            .list(&project, kind_info.kind, &opts),
+        None => state.mirror.list(&project, kind_info.kind, &opts),
+    };
 
     let remaining_item_count = if page.continue_token.is_some() {
         Some(page.remaining)
@@ -141,6 +158,7 @@ pub async fn list(
         ("project" = String, Path, description = "Project name"),
         ("plural" = String, Path, description = "Resource kind plural"),
         ("name" = String, Path, description = "Resource name"),
+        ("workspace" = Option<String>, Query, description = "Read inside this workspace (CC-76)"),
     ),
     responses(
         (status = 200, description = "Resource envelope", body = ResourceEnvelope),
@@ -152,6 +170,7 @@ pub async fn get_resource(
     user: CurrentUser,
     State(state): State<AppState>,
     Path((project, plural, name)): Path<(String, String, String)>,
+    Query(query): Query<GetQuery>,
 ) -> Result<Json<ResourceEnvelope>, ApiError> {
     // The same 404 body for an unknown plural and for a resource that exists but is not
     // visible: existence is never disclosed (R20).
@@ -165,10 +184,13 @@ pub async fn get_resource(
     {
         return Err(not_found());
     }
-    let envelope = state
-        .mirror
-        .get(&project, kind_info.kind, &name)
-        .ok_or_else(not_found)?;
+    let envelope = match query.workspace.as_deref() {
+        Some(workspace) => crate::ops::workspaces::mirror_of(&state, workspace, &project)
+            .await?
+            .get(&project, kind_info.kind, &name),
+        None => state.mirror.get(&project, kind_info.kind, &name),
+    }
+    .ok_or_else(not_found)?;
 
     Ok(Json(envelope))
 }

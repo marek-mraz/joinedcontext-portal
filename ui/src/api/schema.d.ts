@@ -1566,6 +1566,11 @@ export interface components {
             verdict?: null | components["schemas"]["Verdict"];
             /** Format: int64 */
             version: number;
+            /**
+             * @description The workspace the draft belongs to, or none (CC-76): a draft of one workspace is not
+             *     a draft of another, nor of the main project.
+             */
+            workspace?: string | null;
         };
         DraftEvent: {
             event: string;
@@ -5714,6 +5719,8 @@ export interface operations {
                 continue?: string;
                 /** @description Historical revision */
                 revision?: string;
+                /** @description Read inside this workspace (CC-76) */
+                workspace?: string;
             };
             header?: never;
             path: {
@@ -5843,7 +5850,10 @@ export interface operations {
     };
     get_resource: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Read inside this workspace (CC-76) */
+                workspace?: string;
+            };
             header?: never;
             path: {
                 /** @description Project name */

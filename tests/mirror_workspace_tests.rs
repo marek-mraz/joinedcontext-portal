@@ -1,0 +1,187 @@
+//! Inside a workspace the Portal reads its branch laid over `main` (CC-76, CC-77; T-1234).
+
+use std::sync::Arc;
+
+use base64::{engine::general_purpose::STANDARD, Engine};
+use joinedcontext_portal::config::Config;
+use joinedcontext_portal::git::GiteaClient;
+use joinedcontext_portal::ops::workspaces::{mirror_of, Opening, Scope};
+use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
+use joinedcontext_portal::state::AppState;
+use serde_json::json;
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+const REPO: &str = "/api/v1/repos/test-owner/test-repo";
+
+fn pipeline(name: &str, period: &str) -> String {
+    format!(
+        "apiVersion: joinedcontext.com/v1alpha1\nkind: Pipeline\nmetadata:\n  name: {name}\n  namespace: helsinki\nspec:\n  period: {period}\n"
+    )
+}
+
+fn envelope(name: &str, period: &str) -> ResourceEnvelope {
+    ResourceEnvelope {
+        api_version: API_VERSION.into(),
+        kind: "Pipeline".into(),
+        metadata: ObjectMeta::new(name, "helsinki"),
+        spec: json!({ "period": period }),
+        status: None,
+    }
+}
+
+async fn tree(server: &MockServer, git_ref: &str, entries: &[(&str, &str)]) {
+    let tree: Vec<_> = entries
+        .iter()
+        .map(|(p, sha)| json!({ "path": p, "type": "blob", "sha": sha }))
+        .collect();
+    Mock::given(method("GET"))
+        .and(path(format!("{REPO}/git/trees/{git_ref}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "tree": tree, "truncated": false })),
+        )
+        .mount(server)
+        .await;
+}
+
+async fn file(server: &MockServer, git_ref: &str, file_path: &str, content: &str) {
+    Mock::given(method("GET"))
+        .and(path(format!("{REPO}/contents/{file_path}")))
+        .and(query_param("ref", git_ref))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "path": file_path, "sha": "x", "encoding": "base64", "content": STANDARD.encode(content)
+        })))
+        .mount(server)
+        .await;
+}
+
+/// `main` holds `a` (60s), `b` and `gone`; the workspace changed `a` to 30s, added `c`, and
+/// removed `gone`.
+async fn world(open: bool, branch_exists: bool) -> (MockServer, AppState) {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(REPO))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "default_branch": "main" })))
+        .mount(&server)
+        .await;
+    let a = "projects/helsinki/pipelines/a/pipeline.yaml";
+    let b = "projects/helsinki/pipelines/b/pipeline.yaml";
+    let c = "projects/helsinki/pipelines/c/pipeline.yaml";
+    let gone = "projects/helsinki/pipelines/gone/pipeline.yaml";
+    tree(
+        &server,
+        "main",
+        &[(a, "a1"), (b, "b1"), (gone, "g1"), ("README.md", "r1")],
+    )
+    .await;
+    if branch_exists {
+        tree(
+            &server,
+            "workspace/bikes-v2",
+            &[(a, "a2"), (b, "b1"), (c, "c1"), ("README.md", "r2")],
+        )
+        .await;
+    } else {
+        Mock::given(method("GET"))
+            .and(path(format!("{REPO}/git/trees/workspace/bikes-v2")))
+            .respond_with(
+                ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })),
+            )
+            .mount(&server)
+            .await;
+    }
+    file(&server, "workspace/bikes-v2", a, &pipeline("a", "30s")).await;
+    file(&server, "workspace/bikes-v2", c, &pipeline("c", "5m")).await;
+    file(&server, "main", gone, &pipeline("gone", "1h")).await;
+
+    let client = GiteaClient::new(
+        server.uri().parse().unwrap(),
+        "test-owner",
+        "test-repo",
+        "t",
+    )
+    .unwrap();
+    let state = AppState::new(Config::for_tests(), None).with_gitea(Arc::new(client));
+    for (name, period) in [("a", "60s"), ("b", "60s"), ("gone", "1h")] {
+        state.mirror.upsert(envelope(name, period));
+    }
+    if open {
+        state
+            .workspaces
+            .create(Opening {
+                name: "bikes-v2",
+                title: None,
+                project: "helsinki",
+                owner: "jana@hel.fi",
+                base_revision: "abc",
+                scope: Scope::Project {},
+                ttl_hours: 2,
+            })
+            .await
+            .unwrap();
+    }
+    (server, state)
+}
+
+fn period(view: &joinedcontext_portal::store::Mirror, name: &str) -> Option<String> {
+    view.get("helsinki", "Pipeline", name)
+        .map(|e| e.spec["period"].as_str().unwrap().to_owned())
+}
+
+#[tokio::test]
+async fn workspace_mirror_shows_workspace_manifest_and_wins_on_conflict() {
+    let (_server, state) = world(true, true).await;
+    let view = mirror_of(&state, "bikes-v2", "helsinki")
+        .await
+        .expect("the view");
+    assert_eq!(
+        period(&view, "a").as_deref(),
+        Some("30s"),
+        "the workspace wins"
+    );
+    assert_eq!(
+        period(&view, "c").as_deref(),
+        Some("5m"),
+        "what the workspace added"
+    );
+    assert_eq!(
+        period(&state.mirror, "a").as_deref(),
+        Some("60s"),
+        "main is untouched"
+    );
+}
+
+#[tokio::test]
+async fn workspace_mirror_falls_back_to_main_and_drops_what_it_removed() {
+    let (_server, state) = world(true, true).await;
+    let view = mirror_of(&state, "bikes-v2", "helsinki").await.unwrap();
+    assert_eq!(
+        period(&view, "b").as_deref(),
+        Some("60s"),
+        "untouched reads as main"
+    );
+    assert_eq!(period(&view, "gone"), None, "removed in the workspace");
+    assert!(period(&state.mirror, "gone").is_some());
+}
+
+#[tokio::test]
+async fn a_workspace_with_no_commit_yet_reads_as_main() {
+    let (_server, state) = world(true, false).await;
+    let view = mirror_of(&state, "bikes-v2", "helsinki").await.unwrap();
+    assert_eq!(period(&view, "a").as_deref(), Some("60s"));
+    assert_eq!(period(&view, "c"), None);
+}
+
+#[tokio::test]
+async fn an_unknown_workspace_or_another_projects_is_not_found() {
+    let (_server, state) = world(false, true).await;
+    let Err(err) = mirror_of(&state, "bikes-v2", "helsinki").await else {
+        panic!("no workspace was opened")
+    };
+    assert!(err.to_string().contains("bikes-v2"), "{err}");
+    let (_server, state) = world(true, true).await;
+    let Err(err) = mirror_of(&state, "bikes-v2", "espoo").await else {
+        panic!("the workspace is helsinki's")
+    };
+    assert!(err.to_string().contains("espoo"), "{err}");
+}

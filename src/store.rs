@@ -179,11 +179,32 @@ impl Mirror {
         }
     }
 
+    /// A copy of what the mirror holds now, to overlay without touching the original.
+    pub fn snapshot(&self) -> Mirror {
+        let copy = Mirror::new();
+        copy.replace_all(self);
+        copy
+    }
+
     pub fn load_dir(root: &Path) -> Result<Self, MirrorError> {
         let mirror = Self::new();
         visit_dir(root, &mirror)?;
         Ok(mirror)
     }
+}
+
+/// The manifest one file holds, when it holds one of a kind and version this platform serves;
+/// anything else, a malformed file included, is no manifest.
+pub fn envelope_of(content: &str) -> Option<ResourceEnvelope> {
+    let value: serde_yaml_ng::Value = serde_yaml_ng::from_str(content).ok()?;
+    let api_version = value.get("apiVersion")?.as_str()?;
+    let kind = value.get("kind")?.as_str()?;
+    if !jc_core::serves(kind, api_version) {
+        return None;
+    }
+    let envelope: ResourceEnvelope = serde_yaml_ng::from_value(value).ok()?;
+    crate::resource::validate_meta(&envelope.metadata).ok()?;
+    Some(envelope)
 }
 
 fn visit_dir(dir: &Path, mirror: &Mirror) -> Result<(), MirrorError> {

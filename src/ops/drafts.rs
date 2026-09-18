@@ -27,6 +27,10 @@ pub struct Draft {
     pub project: String,
     pub kind: String,
     pub name: String,
+    /// The workspace the draft belongs to, or none (CC-76): a draft of one workspace is not
+    /// a draft of another, nor of the main project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
     pub manifest: Value,
     pub verdict: Option<Verdict>,
     pub touched_by: String,
@@ -101,13 +105,23 @@ impl DraftHub {
 
 enum DraftStoreInner {
     Db(sqlx::PgPool),
-    Memory(RwLock<HashMap<(String, String, String), Draft>>),
+    Memory(RwLock<HashMap<(String, String, String, String), Draft>>),
 }
 
 #[derive(Clone)]
 pub struct DraftStore {
     inner: Arc<DraftStoreInner>,
     hub: Option<DraftHub>,
+}
+
+/// A draft's key: its workspace (empty for none), project, kind and name.
+fn key(workspace: &str, project: &str, kind: &str, name: &str) -> (String, String, String, String) {
+    (
+        workspace.to_owned(),
+        project.to_owned(),
+        kind.to_owned(),
+        name.to_owned(),
+    )
 }
 
 /// The store the state carries: one per process, memory-backed without a database.
@@ -138,20 +152,32 @@ impl DraftStore {
         kind: &str,
         name: &str,
     ) -> Result<Option<Draft>, DraftError> {
+        self.get_in(None, project, kind, name).await
+    }
+
+    /// The draft of `kind/name` in `workspace`, or outside every workspace for `None` (CC-76).
+    pub async fn get_in(
+        &self,
+        workspace: Option<&str>,
+        project: &str,
+        kind: &str,
+        name: &str,
+    ) -> Result<Option<Draft>, DraftError> {
+        let ws = workspace.unwrap_or_default();
         match &*self.inner {
             DraftStoreInner::Memory(map) => {
                 let r = map.read().await;
-                let key = (project.to_string(), kind.to_string(), name.to_string());
-                Ok(r.get(&key).cloned())
+                Ok(r.get(&key(ws, project, kind, name)).cloned())
             }
             DraftStoreInner::Db(pool) => {
                 let row = sqlx::query(
-                    "SELECT project, kind, name, manifest, verdict, touched_by, touched_kind, version, updated_at \
-                     FROM drafts WHERE project = $1 AND kind = $2 AND name = $3",
+                    "SELECT project, kind, name, workspace, manifest, verdict, touched_by, touched_kind, version, updated_at \
+                     FROM drafts WHERE project = $1 AND kind = $2 AND name = $3 AND workspace = $4",
                 )
                 .bind(project)
                 .bind(kind)
                 .bind(name)
+                .bind(ws)
                 .fetch_optional(pool)
                 .await
                 .map_err(|e| DraftError::Db(e.to_string()))?;
@@ -172,13 +198,40 @@ impl DraftStore {
         touched_by: &str,
         touched_kind: &str,
     ) -> Result<Draft, DraftError> {
+        self.put_in(
+            None,
+            project,
+            kind,
+            name,
+            manifest,
+            expected_version,
+            touched_by,
+            touched_kind,
+        )
+        .await
+    }
+
+    /// [`DraftStore::put`] into `workspace` (CC-76).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn put_in(
+        &self,
+        workspace: Option<&str>,
+        project: &str,
+        kind: &str,
+        name: &str,
+        manifest: Value,
+        expected_version: Option<i64>,
+        touched_by: &str,
+        touched_kind: &str,
+    ) -> Result<Draft, DraftError> {
+        let ws = workspace.unwrap_or_default();
         if let Some(secret_field) = crate::api::mutate::find_literal_secret(&manifest) {
             return Err(DraftError::Secret(secret_field));
         }
 
         let _ = self.sweep(Duration::from_secs(24 * 3600)).await;
 
-        let key = (project.to_string(), kind.to_string(), name.to_string());
+        let key = key(ws, project, kind, name);
         let draft = match &*self.inner {
             DraftStoreInner::Memory(map) => {
                 let mut w = map.write().await;
@@ -204,6 +257,7 @@ impl DraftStore {
                     project: project.to_string(),
                     kind: kind.to_string(),
                     name: name.to_string(),
+                    workspace: workspace.map(str::to_owned),
                     manifest,
                     verdict,
                     touched_by: touched_by.to_string(),
@@ -220,11 +274,12 @@ impl DraftStore {
                     .await
                     .map_err(|e| DraftError::Db(e.to_string()))?;
                 let existing = sqlx::query(
-                    "SELECT version FROM drafts WHERE project = $1 AND kind = $2 AND name = $3 FOR UPDATE",
+                    "SELECT version FROM drafts WHERE project = $1 AND kind = $2 AND name = $3 AND workspace = $4 FOR UPDATE",
                 )
                 .bind(project)
                 .bind(kind)
                 .bind(name)
+                .bind(ws)
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(|e| DraftError::Db(e.to_string()))?;
@@ -240,8 +295,8 @@ impl DraftStore {
                         sqlx::query(
                             "UPDATE drafts SET manifest = $4, touched_by = $5, touched_kind = $6, \
                              version = version + 1, updated_at = now() \
-                             WHERE project = $1 AND kind = $2 AND name = $3 \
-                             RETURNING project, kind, name, manifest, verdict, touched_by, touched_kind, version, updated_at",
+                             WHERE project = $1 AND kind = $2 AND name = $3 AND workspace = $7 \
+                             RETURNING project, kind, name, workspace, manifest, verdict, touched_by, touched_kind, version, updated_at",
                         )
                         .bind(project)
                         .bind(kind)
@@ -249,6 +304,7 @@ impl DraftStore {
                         .bind(&manifest)
                         .bind(touched_by)
                         .bind(touched_kind)
+                        .bind(ws)
                         .fetch_one(&mut *tx)
                         .await
                         .map_err(|e| DraftError::Db(e.to_string()))?
@@ -260,9 +316,9 @@ impl DraftStore {
                             }
                         }
                         sqlx::query(
-                            "INSERT INTO drafts (project, kind, name, manifest, verdict, touched_by, touched_kind, version, updated_at) \
-                             VALUES ($1, $2, $3, $4, NULL, $5, $6, 1, now()) \
-                             RETURNING project, kind, name, manifest, verdict, touched_by, touched_kind, version, updated_at",
+                            "INSERT INTO drafts (project, kind, name, workspace, manifest, verdict, touched_by, touched_kind, version, updated_at) \
+                             VALUES ($1, $2, $3, $7, $4, NULL, $5, $6, 1, now()) \
+                             RETURNING project, kind, name, workspace, manifest, verdict, touched_by, touched_kind, version, updated_at",
                         )
                         .bind(project)
                         .bind(kind)
@@ -270,6 +326,7 @@ impl DraftStore {
                         .bind(&manifest)
                         .bind(touched_by)
                         .bind(touched_kind)
+                        .bind(ws)
                         .fetch_one(&mut *tx)
                         .await
                         .map_err(|e| DraftError::Db(e.to_string()))?
@@ -308,7 +365,21 @@ impl DraftStore {
         name: &str,
         verdict: Verdict,
     ) -> Result<Draft, DraftError> {
-        let key = (project.to_string(), kind.to_string(), name.to_string());
+        self.set_verdict_in(None, project, kind, name, verdict)
+            .await
+    }
+
+    /// [`DraftStore::set_verdict`] on the draft of `workspace` (CC-76).
+    pub async fn set_verdict_in(
+        &self,
+        workspace: Option<&str>,
+        project: &str,
+        kind: &str,
+        name: &str,
+        verdict: Verdict,
+    ) -> Result<Draft, DraftError> {
+        let ws = workspace.unwrap_or_default();
+        let key = key(ws, project, kind, name);
         let draft = match &*self.inner {
             DraftStoreInner::Memory(map) => {
                 let mut w = map.write().await;
@@ -326,13 +397,14 @@ impl DraftStore {
                     serde_json::to_value(&verdict).map_err(|e| DraftError::Db(e.to_string()))?;
                 let row = sqlx::query(
                     "UPDATE drafts SET verdict = $4, updated_at = now() \
-                     WHERE project = $1 AND kind = $2 AND name = $3 \
-                     RETURNING project, kind, name, manifest, verdict, touched_by, touched_kind, version, updated_at",
+                     WHERE project = $1 AND kind = $2 AND name = $3 AND workspace = $5 \
+                     RETURNING project, kind, name, workspace, manifest, verdict, touched_by, touched_kind, version, updated_at",
                 )
                 .bind(project)
                 .bind(kind)
                 .bind(name)
                 .bind(&verdict_json)
+                .bind(ws)
                 .fetch_optional(pool)
                 .await
                 .map_err(|e| DraftError::Db(e.to_string()))?
@@ -365,12 +437,23 @@ impl DraftStore {
     }
 
     pub async fn list(&self, project: &str) -> Result<Vec<Draft>, DraftError> {
+        self.list_in(None, project).await
+    }
+
+    /// The drafts of `project` in `workspace`, or outside every workspace for `None` (CC-76).
+    pub async fn list_in(
+        &self,
+        workspace: Option<&str>,
+        project: &str,
+    ) -> Result<Vec<Draft>, DraftError> {
+        let ws = workspace.unwrap_or_default();
         match &*self.inner {
             DraftStoreInner::Memory(map) => {
                 let r = map.read().await;
                 let mut drafts: Vec<Draft> = r
-                    .values()
-                    .filter(|d| d.project == project)
+                    .iter()
+                    .filter(|((key_ws, ..), d)| d.project == project && key_ws == ws)
+                    .map(|(_, d)| d)
                     .cloned()
                     .collect();
                 drafts.sort_by_key(|d| std::cmp::Reverse(d.updated_at));
@@ -378,10 +461,11 @@ impl DraftStore {
             }
             DraftStoreInner::Db(pool) => {
                 let rows = sqlx::query(
-                    "SELECT project, kind, name, manifest, verdict, touched_by, touched_kind, version, updated_at \
-                     FROM drafts WHERE project = $1 ORDER BY updated_at DESC",
+                    "SELECT project, kind, name, workspace, manifest, verdict, touched_by, touched_kind, version, updated_at \
+                     FROM drafts WHERE project = $1 AND workspace = $2 ORDER BY updated_at DESC",
                 )
                 .bind(project)
+                .bind(ws)
                 .fetch_all(pool)
                 .await
                 .map_err(|e| DraftError::Db(e.to_string()))?;
@@ -392,7 +476,19 @@ impl DraftStore {
     }
 
     pub async fn drop(&self, project: &str, kind: &str, name: &str) -> Result<bool, DraftError> {
-        let key = (project.to_string(), kind.to_string(), name.to_string());
+        self.drop_in(None, project, kind, name).await
+    }
+
+    /// [`DraftStore::drop`] of the draft of `workspace` (CC-76).
+    pub async fn drop_in(
+        &self,
+        workspace: Option<&str>,
+        project: &str,
+        kind: &str,
+        name: &str,
+    ) -> Result<bool, DraftError> {
+        let ws = workspace.unwrap_or_default();
+        let key = key(ws, project, kind, name);
         let (dropped, dropped_event) = match &*self.inner {
             DraftStoreInner::Memory(map) => {
                 let mut w = map.write().await;
@@ -417,13 +513,14 @@ impl DraftStore {
             }
             DraftStoreInner::Db(pool) => {
                 let row = sqlx::query(
-                    "DELETE FROM drafts WHERE project = $1 AND kind = $2 AND name = $3 \
+                    "DELETE FROM drafts WHERE project = $1 AND kind = $2 AND name = $3 AND workspace = $4 \
                      RETURNING project, kind, name, version, touched_by, touched_kind, updated_at, \
                      manifest",
                 )
                 .bind(project)
                 .bind(kind)
                 .bind(name)
+                .bind(ws)
                 .fetch_optional(pool)
                 .await
                 .map_err(|e| DraftError::Db(e.to_string()))?;
@@ -486,6 +583,7 @@ fn row_to_draft(row: sqlx::postgres::PgRow) -> Result<Draft, DraftError> {
     let project: String = row.get("project");
     let kind: String = row.get("kind");
     let name: String = row.get("name");
+    let workspace: String = row.get("workspace");
     let manifest: Value = row.get("manifest");
     let verdict_val: Option<Value> = row.get("verdict");
     let verdict = verdict_val.and_then(|v| serde_json::from_value(v).ok());
@@ -498,6 +596,7 @@ fn row_to_draft(row: sqlx::postgres::PgRow) -> Result<Draft, DraftError> {
         project,
         kind,
         name,
+        workspace: (!workspace.is_empty()).then_some(workspace),
         manifest,
         verdict,
         touched_by,
@@ -507,13 +606,13 @@ fn row_to_draft(row: sqlx::postgres::PgRow) -> Result<Draft, DraftError> {
     })
 }
 
-fn odt_to_chrono(odt: time::OffsetDateTime) -> DateTime<Utc> {
+pub(crate) fn odt_to_chrono(odt: time::OffsetDateTime) -> DateTime<Utc> {
     let secs = odt.unix_timestamp();
     let nsecs = odt.nanosecond();
     DateTime::from_timestamp(secs, nsecs).unwrap_or_else(Utc::now)
 }
 
-fn chrono_to_odt(dt: DateTime<Utc>) -> time::OffsetDateTime {
+pub(crate) fn chrono_to_odt(dt: DateTime<Utc>) -> time::OffsetDateTime {
     time::OffsetDateTime::from_unix_timestamp(dt.timestamp())
         .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
 }

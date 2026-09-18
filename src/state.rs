@@ -50,6 +50,8 @@ pub struct AppState {
     pub drafts: DraftStore,
     /// Live hub for draft change events (UI-47).
     pub draft_events: DraftHub,
+    /// The workspace registry (CC-76): durable with a database, in memory without one.
+    pub workspaces: crate::ops::workspaces::WorkspaceStore,
     /// What is happening in a project (UI-31, OPS-48). Always present, durable only when there
     /// is a database: without one, the Portal shows what happened since it started.
     pub activity: crate::activity::ActivityStore,
@@ -108,6 +110,7 @@ impl AppState {
             agent_events: Arc::new(AgentEventHub::new()),
             drafts,
             draft_events,
+            workspaces: crate::ops::workspaces::WorkspaceStore::new(None),
             activity,
             activity_events,
             drift: Arc::new(crate::reconciler::drift::Store::default()),
@@ -138,6 +141,7 @@ impl AppState {
     pub fn with_db(mut self, db: sqlx::PgPool) -> Self {
         self.agents = Arc::new(AgentStore::new(Some(db.clone())));
         self.drafts = DraftStore::new(Some(db.clone())).with_hub(self.draft_events.clone());
+        self.workspaces = crate::ops::workspaces::WorkspaceStore::new(Some(db.clone()));
         self.activity = crate::activity::ActivityStore::new(Some(db.clone()))
             .with_hub(self.activity_events.clone());
         self.db = Some(db);
@@ -173,6 +177,7 @@ impl AppState {
             );
         }
         state.drafts = DraftStore::new(db.clone()).with_hub(state.draft_events.clone());
+        state.workspaces = crate::ops::workspaces::WorkspaceStore::new(db.clone());
         state.activity =
             crate::activity::ActivityStore::new(db.clone()).with_hub(state.activity_events.clone());
         state.db = db;

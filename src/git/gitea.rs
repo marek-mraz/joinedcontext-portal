@@ -381,6 +381,8 @@ struct GitTreeEntryDto {
     path: String,
     #[serde(rename = "type")]
     entry_type: String,
+    #[serde(default)]
+    sha: String,
 }
 
 impl GiteaClient {
@@ -547,6 +549,16 @@ impl GiteaClient {
 
     /// `GET /git/trees/{git_ref}?recursive=true&per_page=1000` — retrieves the Git tree.
     pub async fn list_tree(&self, git_ref: &str) -> Result<Vec<String>, GitError> {
+        Ok(self
+            .list_tree_blobs(git_ref)
+            .await?
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect())
+    }
+
+    /// The tree's files with their blob ids, so two trees compare without reading a file.
+    pub async fn list_tree_blobs(&self, git_ref: &str) -> Result<Vec<(String, String)>, GitError> {
         let mut url = self.repo_url(&format!("git/trees/{git_ref}"))?;
         url.query_pairs_mut()
             .append_pair("recursive", "true")
@@ -571,7 +583,7 @@ impl GiteaClient {
             .tree
             .into_iter()
             .filter(|entry| entry.entry_type == "blob")
-            .map(|entry| entry.path)
+            .map(|entry| (entry.path, entry.sha))
             .collect();
 
         Ok(paths)

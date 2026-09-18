@@ -720,3 +720,124 @@ async fn the_draft_stream_announces_only_what_the_reader_may_read() {
         "another space's draft reached the reader: {seen}"
     );
 }
+
+/// CC-76: a draft belongs to one workspace or to none, and the same resource drafted in two
+/// places is two drafts (T-1235).
+#[tokio::test]
+async fn draft_scoped_to_workspace() {
+    let store = joinedcontext_portal::ops::drafts::DraftStore::new(None);
+    let manifest = |title: &str| serde_json::json!({ "kind": "Pipeline", "metadata": { "name": "bikes", "title": title } });
+    store
+        .put(
+            "helsinki",
+            "Pipeline",
+            "bikes",
+            manifest("main"),
+            None,
+            "jana",
+            "human",
+        )
+        .await
+        .unwrap();
+    let in_ws = store
+        .put_in(
+            Some("bikes-v2"),
+            "helsinki",
+            "Pipeline",
+            "bikes",
+            manifest("ws"),
+            None,
+            "jana",
+            "human",
+        )
+        .await
+        .unwrap();
+    assert_eq!(in_ws.workspace.as_deref(), Some("bikes-v2"));
+    assert_eq!(
+        in_ws.version, 1,
+        "a workspace draft does not continue the main one's versions"
+    );
+    store
+        .put_in(
+            Some("other"),
+            "helsinki",
+            "Pipeline",
+            "bikes",
+            manifest("other"),
+            None,
+            "ana",
+            "human",
+        )
+        .await
+        .unwrap();
+
+    let title = |d: Option<joinedcontext_portal::ops::drafts::Draft>| {
+        d.unwrap().manifest["metadata"]["title"].clone()
+    };
+    assert_eq!(
+        title(store.get("helsinki", "Pipeline", "bikes").await.unwrap()),
+        "main"
+    );
+    assert_eq!(
+        title(
+            store
+                .get_in(Some("bikes-v2"), "helsinki", "Pipeline", "bikes")
+                .await
+                .unwrap()
+        ),
+        "ws"
+    );
+    assert_eq!(
+        store.list("helsinki").await.unwrap().len(),
+        1,
+        "the main list holds no workspace draft"
+    );
+    assert_eq!(
+        store
+            .list_in(Some("other"), "helsinki")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(store
+        .get_in(Some("nope"), "helsinki", "Pipeline", "bikes")
+        .await
+        .unwrap()
+        .is_none());
+
+    assert!(store
+        .drop_in(Some("bikes-v2"), "helsinki", "Pipeline", "bikes")
+        .await
+        .unwrap());
+    assert!(
+        store
+            .get("helsinki", "Pipeline", "bikes")
+            .await
+            .unwrap()
+            .is_some(),
+        "the main draft stays"
+    );
+}
+
+#[tokio::test]
+async fn draft_without_workspace_still_works_and_serializes_without_one() {
+    let store = joinedcontext_portal::ops::drafts::DraftStore::new(None);
+    let draft = store
+        .put(
+            "helsinki",
+            "Pipeline",
+            "bikes",
+            serde_json::json!({ "kind": "Pipeline" }),
+            None,
+            "jana",
+            "human",
+        )
+        .await
+        .unwrap();
+    assert_eq!(draft.workspace, None);
+    assert!(serde_json::to_value(&draft)
+        .unwrap()
+        .get("workspace")
+        .is_none());
+}

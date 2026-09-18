@@ -122,6 +122,35 @@ pub fn branch_name(project: &str, kind: &str, name: &str, operation: Operation) 
     format!("portal/{op_str}-{kind_lower}-{name}-{short}")
 }
 
+/// Refuses a manifest the workspace does not cover (CC-76): another project, a resource not in
+/// its list, a space not in its subtree.
+fn within_workspace(
+    workspace: &crate::ops::workspaces::Workspace,
+    project: &str,
+    kind: &str,
+    envelope: &ResourceEnvelope,
+) -> Result<(), ApiError> {
+    let name = &envelope.metadata.name;
+    let outside = |what: String| {
+        Err(ApiError::BadRequest(format!(
+            "workspace '{}' does not cover {what}; open one that does, or propose it on its own",
+            workspace.name
+        )))
+    };
+    if workspace.project != project {
+        return outside(format!("project '{project}'"));
+    }
+    let space = if kind == "ContextSpace" {
+        None
+    } else {
+        crate::permissions::space_ref(&serde_json::to_value(envelope).unwrap_or_default())
+    };
+    if !workspace.scope.covers(kind, name, space.as_deref()) {
+        return outside(format!("{kind} '{name}'"));
+    }
+    Ok(())
+}
+
 /// The open change whose pull request still uses `branch`, if any (T-0883, T-0886).
 pub(crate) async fn open_change_on(
     gitea: &crate::git::GiteaClient,
@@ -282,6 +311,20 @@ pub(crate) fn author_credentials(
 pub enum ProposeOutcome {
     DryRun(DryRunResult),
     Change(Change),
+    /// Committed to a workspace's branch; no Change exists until the workspace is brought back
+    /// (CC-76, CC-79).
+    Workspace(WorkspaceCommit),
+}
+
+/// What a proposal into a workspace wrote (CC-76).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceCommit {
+    pub workspace: String,
+    pub branch: String,
+    /// The manifest's path in the repository.
+    pub path: String,
+    pub lane: crate::change::Lane,
 }
 
 impl ProposeOutcome {
@@ -294,6 +337,9 @@ impl ProposeOutcome {
                 "url": chg.status.merge_request,
                 "change": chg,
             }),
+            Self::Workspace(commit) => {
+                serde_json::to_value(commit).unwrap_or(serde_json::Value::Null)
+            }
         }
     }
 }
@@ -324,6 +370,7 @@ pub async fn propose(
     match outcome {
         ProposeOutcome::DryRun(res) => Ok((StatusCode::OK, Json(res)).into_response()),
         ProposeOutcome::Change(change) => Ok((StatusCode::ACCEPTED, Json(change)).into_response()),
+        ProposeOutcome::Workspace(commit) => Ok((StatusCode::OK, Json(commit)).into_response()),
     }
 }
 
@@ -397,6 +444,7 @@ async fn propose_checked(
     match outcome {
         ProposeOutcome::DryRun(res) => Ok((StatusCode::OK, Json(res)).into_response()),
         ProposeOutcome::Change(change) => Ok((StatusCode::ACCEPTED, Json(change)).into_response()),
+        ProposeOutcome::Workspace(commit) => Ok((StatusCode::OK, Json(commit)).into_response()),
     }
 }
 
@@ -417,7 +465,36 @@ pub async fn propose_with_identity(
     body_val: Value,
 ) -> Result<ProposeOutcome, ApiError> {
     propose_engine(
-        identity, state, project, plural, path_name, operation, dry_run, body_val, false,
+        identity, state, project, plural, path_name, operation, dry_run, body_val, false, None,
+    )
+    .await
+}
+
+/// [`propose_with_identity`] into the workspace `workspace`: the same checks (PF-82), then a
+/// commit to its branch and no pull request; the workspace comes back as one Change (CC-76,
+/// CC-79).
+#[allow(clippy::too_many_arguments)]
+pub async fn propose_into_workspace(
+    identity: &crate::auth::session::Identity,
+    state: &AppState,
+    project: &str,
+    plural: &str,
+    path_name: Option<&str>,
+    operation: Operation,
+    body_val: Value,
+    workspace: &str,
+) -> Result<ProposeOutcome, ApiError> {
+    propose_engine(
+        identity,
+        state,
+        project,
+        plural,
+        path_name,
+        operation,
+        false,
+        body_val,
+        false,
+        Some(workspace),
     )
     .await
 }
@@ -436,7 +513,7 @@ pub async fn propose_gated(
     body_val: Value,
 ) -> Result<ProposeOutcome, ApiError> {
     propose_engine(
-        identity, state, project, plural, path_name, operation, false, body_val, true,
+        identity, state, project, plural, path_name, operation, false, body_val, true, None,
     )
     .await
 }
@@ -452,6 +529,7 @@ async fn propose_engine(
     dry_run: bool,
     mut body_val: Value,
     gated: bool,
+    workspace: Option<&str>,
 ) -> Result<ProposeOutcome, ApiError> {
     // The manifest as it was sent, which is what its check judged and what the verdict is fresh for.
     let received = gated.then(|| body_val.clone());
@@ -738,17 +816,38 @@ async fn propose_engine(
         Operation::Delete => "delete",
     };
 
-    let branch = branch_name(project, kind_info.kind, &envelope.metadata.name, operation);
-    // One open change per resource (CC-34): the branch is one per resource and operation, so a
-    // second proposal while one is pending would rewrite the open pull request under its
-    // approver. Refused before anything is written, naming the change to decide first (T-0883).
-    if let Some(pending) = open_change_on(gitea, &branch, project).await? {
-        return Err(ApiError::Conflict(format!(
-            "a change for {} '{}' is already open: {}; approve or reject it first",
-            kind_info.kind, envelope.metadata.name, pending.name
-        )));
-    }
-    let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
+    let branch = match workspace {
+        // A workspace is one branch for everything it holds (CC-76): no per-resource branch,
+        // no pull request, and a change open on `main` does not stop an edit here.
+        Some(name) => {
+            let open = state
+                .workspaces
+                .live(name)
+                .await
+                .map_err(|err| ApiError::NotFound(err.to_string()))?;
+            within_workspace(&open, project, kind_info.kind, &envelope)?;
+            let branch = open.branch();
+            match gitea.create_branch(&branch, &default_branch).await {
+                Ok(()) | Err(GitError::Conflict(_)) => {}
+                Err(err) => return Err(err.into()),
+            }
+            branch
+        }
+        None => {
+            let branch = branch_name(project, kind_info.kind, &envelope.metadata.name, operation);
+            // One open change per resource (CC-34): the branch is one per resource and
+            // operation, so a second proposal while one is pending would rewrite the open pull
+            // request under its approver. Refused before anything is written, naming the change
+            // to decide first (T-0883).
+            if let Some(pending) = open_change_on(gitea, &branch, project).await? {
+                return Err(ApiError::Conflict(format!(
+                    "a change for {} '{}' is already open: {}; approve or reject it first",
+                    kind_info.kind, envelope.metadata.name, pending.name
+                )));
+            }
+            create_or_reuse_branch(gitea, &branch, &default_branch).await?
+        }
+    };
     let repo_path = manifest_path;
 
     let mut envelope_to_commit = envelope.clone();
@@ -808,6 +907,15 @@ async fn propose_engine(
     }
 
     gitea.put_file(&file_write).await?;
+
+    if let Some(name) = workspace {
+        return Ok(ProposeOutcome::Workspace(WorkspaceCommit {
+            workspace: name.to_owned(),
+            branch,
+            path: repo_path,
+            lane,
+        }));
+    }
 
     let pr_title = format!("{op_str} {} {}", kind_info.kind, envelope.metadata.name);
     let pr_body = format!(

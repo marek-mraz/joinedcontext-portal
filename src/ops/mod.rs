@@ -21,6 +21,7 @@ pub mod space_complete;
 pub mod sync_sources;
 pub mod verdict;
 pub mod views;
+pub mod workspaces;
 
 pub use drafts::*;
 pub use verdict::*;
