@@ -102,8 +102,9 @@ test.describe("approvals", () => {
 
     await expect(page).toHaveURL(/\/approvals\/chg-1a2b3c4d$/);
     await expect(page.getByRole("heading", { name: summary })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "spec.audience" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: '"internal"' })).toBeVisible();
+    // The field in words with its path underneath, the value as text (T-1385).
+    await expect(page.getByRole("cell", { name: "Audience spec.audience" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "internal", exact: true })).toBeVisible();
     // The token appears only as the redaction marker, never as its value.
     await expect(page.getByText("Redacted").first()).toBeVisible();
 
