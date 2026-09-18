@@ -136,6 +136,21 @@ export async function unwrap<T>(result: {
   throw new ApiError(status, message, problem);
 }
 
+/** Phases a resource leaves by itself, without anyone acting. */
+const MOVING = new Set(["Pending", "Deploying"]);
+
+/**
+ * `refetchInterval` for a list query: every 10 s while any item is Pending or Deploying, so a
+ * change on its way shows up without a reload, and not at all once every item has settled.
+ */
+export function whilePending(query: { state: { data?: unknown } }): number | false {
+  const items = (query.state.data as { items?: unknown[] } | undefined)?.items ?? [];
+  const moving = items.some((item) =>
+    MOVING.has(String((item as { status?: { phase?: unknown } } | null)?.status?.phase)),
+  );
+  return moving ? 10_000 : false;
+}
+
 export const queryKeys = {
   session: () => ["session"] as const,
   // Not a prefix of `list`: invalidating one project's lists must not refetch the project list.

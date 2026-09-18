@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { api, ApiError, queryKeys, unwrap } from "../api/client";
+import { api, ApiError, queryKeys, unwrap, whilePending } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
@@ -189,6 +189,8 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
 
   const list = useQuery({
     queryKey: queryKeys.list(project, "pipelines"),
+    // A change on its way polls until it lands (T-1392).
+    refetchInterval: whilePending,
     queryFn: async () =>
       unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}", {

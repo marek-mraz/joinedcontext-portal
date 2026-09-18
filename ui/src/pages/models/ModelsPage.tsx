@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { api, queryKeys, readCsrfToken, unwrap } from "../../api/client";
+import { api, queryKeys, readCsrfToken, unwrap, whilePending } from "../../api/client";
 import type { ProblemDetails } from "../../api/client";
 import { asManifests, refName } from "../../api/manifest";
 import { useOrgDomain } from "../../api/projects";
@@ -157,6 +157,8 @@ export function ModelsPage({
     );
   const models = useQuery({
     queryKey: queryKeys.list(project, "datamodels"),
+    // A change on its way polls until it lands (T-1392).
+    refetchInterval: whilePending,
     retry: false,
     queryFn: () => listOf("datamodels"),
     select: (list) => asManifests(list.items ?? []),

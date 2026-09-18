@@ -3,7 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { api, ApiError, queryKeys, readCsrfToken, unwrap } from "../api/client";
+import { api, ApiError, queryKeys, readCsrfToken, unwrap, whilePending } from "../api/client";
 import { proposeChecked } from "../api/proposal";
 import { asManifests, isChange, localized, overlay, plainTitle } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
@@ -267,6 +267,8 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
 
   const list = useQuery({
     queryKey: queryKeys.list(project, "endpoints"),
+    // A change on its way polls until it lands (T-1392).
+    refetchInterval: whilePending,
     queryFn: async () =>
       unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}", {

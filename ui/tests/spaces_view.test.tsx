@@ -167,6 +167,21 @@ describe("context spaces view", () => {
     });
   });
 
+  it("polls the list while a space is still deploying (T-1392)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetchMock = renderSpaces();
+      await screen.findByText("doprava");
+      const lists = () =>
+        fetchMock.mock.calls.filter(([input]) => new URL((input as Request).url).pathname.endsWith("/spaces")).length;
+      const before = lists();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await waitFor(() => expect(lists()).toBeGreaterThan(before));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("links each mirrored space to its manifest in the forge", async () => {
     renderSpaces();
     const row = (await screen.findByText("ovzdusie")).closest("tr") as HTMLElement;

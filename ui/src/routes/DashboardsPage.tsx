@@ -4,7 +4,7 @@ import type { JSX } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { Feature, FeatureCollection } from "geojson";
-import { api, ApiError, queryKeys, unwrap } from "../api/client";
+import { api, ApiError, queryKeys, unwrap, whilePending } from "../api/client";
 import { getDraft } from "../api/drafts";
 import { asManifests, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
@@ -140,6 +140,8 @@ async function fetchFeatures(url: string): Promise<Feature[] | null> {
 function useResourceList(project: string, plural: string) {
   return useQuery({
     queryKey: queryKeys.list(project, plural),
+    // A change on its way polls until it lands (T-1392).
+    refetchInterval: whilePending,
     queryFn: async () =>
       unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}", {

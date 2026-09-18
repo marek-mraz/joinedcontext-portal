@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { api, queryKeys, unwrap } from "../api/client";
+import { api, queryKeys, unwrap, whilePending } from "../api/client";
 import { asManifests, localized } from "../api/manifest";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { EditResourceAction } from "../components/EditResourceDialog";
@@ -74,6 +74,8 @@ function GenericListPage({
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "en";
   const list = useQuery({
     queryKey: queryKeys.list(project, plural),
+    // A change on its way polls until it lands (T-1392).
+    refetchInterval: whilePending,
     queryFn: async () =>
       unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}", {

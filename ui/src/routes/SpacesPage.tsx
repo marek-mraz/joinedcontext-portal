@@ -4,7 +4,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link } from "@tanstack/react-router";
-import { api, ApiError, queryKeys, unwrap } from "../api/client";
+import { api, ApiError, queryKeys, unwrap, whilePending } from "../api/client";
 import { proposeChecked } from "../api/proposal";
 import { asManifests, isChange, localized, refName } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
@@ -85,6 +85,8 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
 
   const list = useQuery({
     queryKey: queryKeys.list(project, "spaces"),
+    // A change on its way polls until it lands (T-1392).
+    refetchInterval: whilePending,
     queryFn: async () =>
       unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}", {

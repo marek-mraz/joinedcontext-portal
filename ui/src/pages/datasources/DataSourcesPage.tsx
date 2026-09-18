@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { takeEditRequest, takePrefill } from "../../assistant/state";
 import { PermissionGuard } from "../../components/ui/PermissionGuard";
-import { api, ApiError, queryKeys, unwrap } from "../../api/client";
+import { api, ApiError, queryKeys, unwrap, whilePending } from "../../api/client";
 import { asManifests, isChange, localized, plainTitle, prune } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
@@ -288,6 +288,8 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
 
   const list = useQuery({
     queryKey: queryKeys.list(project, PLURAL),
+    // A change on its way polls until it lands (T-1392).
+    refetchInterval: whilePending,
     queryFn: async () =>
       unwrap(
         await api.GET("/api/v1/projects/{project}/{plural}", {
