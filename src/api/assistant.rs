@@ -824,8 +824,35 @@ pub(crate) fn declared_groups(state: &AppState, project: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{endpoint_access, org_domain, score, words};
+    use super::{endpoint_access, field_words, org_domain, score, words};
     use serde_json::json;
+
+    /// T-0964: `field_words` and `ops::feed_shape::split_camel` look alike and are not the same
+    /// function. This pins what this one does, so a later de-slop that merges them has to see
+    /// what it would change: the assistant's search index is built from these words.
+    #[test]
+    fn a_field_splits_at_punctuation_and_at_camel_case() {
+        assert_eq!(
+            field_words("BikeHireDockingStation"),
+            vec!["bike", "hire", "docking", "station"]
+        );
+        assert_eq!(
+            field_words("available_bike-number"),
+            vec!["available", "bike", "number"]
+        );
+        assert_eq!(
+            field_words("pm10"),
+            vec!["pm10"],
+            "a digit continues the word"
+        );
+        assert_eq!(field_words("PM10Sensor"), vec!["pm10", "sensor"]);
+        // A one-letter word is kept here and dropped from a question (`words`): a field that is
+        // one letter is still the field's name.
+        assert_eq!(field_words("A sensor"), vec!["a", "sensor"]);
+        assert_eq!(field_words("Kvalita ovzdušia"), vec!["kvalita", "ovzdušia"]);
+        assert_eq!(field_words(""), Vec::<String>::new());
+        assert_eq!(field_words("---"), Vec::<String>::new());
+    }
 
     #[test]
     fn the_org_domain_is_the_installations_before_the_project_name() {
