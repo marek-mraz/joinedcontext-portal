@@ -14,9 +14,12 @@ use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 const SPACE: &str = "air-quality";
+/// What the gateway and every id call the space: `{project}-{name}` when no segment is pinned
+/// (PF-84, CC-82).
+const SEGMENT: &str = "helsinki-air-quality";
 const PROJECT: &str = "helsinki";
 const DOMAIN: &str = "hel.fi";
-const ID: &str = "urn:ngsi-ld:Subscription:hel.fi:air-quality:alerts";
+const ID: &str = "urn:ngsi-ld:Subscription:hel.fi:helsinki-air-quality:alerts";
 
 /// The realm, answering the reconciler's client-credentials request.
 async fn realm(server: &MockServer) {
@@ -112,12 +115,12 @@ async fn a_declared_subscription_is_created_in_the_space_it_names() {
     let server = MockServer::start().await;
     realm(&server).await;
     Mock::given(method("GET"))
-        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions")))
+        .and(path(format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions")))
+        .and(path(format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions")))
         .respond_with(ResponseTemplate::new(201))
         .mount(&server)
         .await;
@@ -166,17 +169,17 @@ async fn a_subscription_the_space_already_holds_is_updated_not_duplicated() {
     let server = MockServer::start().await;
     realm(&server).await;
     Mock::given(method("GET"))
-        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions")))
+        .and(path(format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([{ "id": ID }])))
         .mount(&server)
         .await;
     Mock::given(method("POST"))
-        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions")))
+        .and(path(format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions")))
         .respond_with(ResponseTemplate::new(409).set_body_string("already exists"))
         .mount(&server)
         .await;
     Mock::given(method("PATCH"))
-        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions/{ID}")))
+        .and(path(format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions/{ID}")))
         .respond_with(ResponseTemplate::new(204))
         .mount(&server)
         .await;
@@ -221,10 +224,10 @@ async fn the_subscription_of_a_manifest_that_is_gone_is_removed() {
     // The space also holds one an application created through the API, in the very same URN
     // namespace: it was never declared here, so it is not this reconciler's to remove.
     Mock::given(method("GET"))
-        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions")))
+        .and(path(format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([
             { "id": ID },
-            { "id": "urn:ngsi-ld:Subscription:hel.fi:air-quality:written-by-an-application" },
+            { "id": "urn:ngsi-ld:Subscription:hel.fi:helsinki-air-quality:written-by-an-application" },
         ])))
         .mount(&server)
         .await;
@@ -258,7 +261,7 @@ async fn the_subscription_of_a_manifest_that_is_gone_is_removed() {
         .collect();
     assert_eq!(
         deleted,
-        vec![format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions/{ID}")],
+        vec![format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions/{ID}")],
         "only what this reconciler wrote is removed; an application's subscription and another \
          organization's are left alone"
     );
@@ -269,7 +272,7 @@ async fn a_credential_that_cannot_be_resolved_stops_the_subscription_before_any_
     let server = MockServer::start().await;
     realm(&server).await;
     Mock::given(method("GET"))
-        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions")))
+        .and(path(format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
         .mount(&server)
         .await;
@@ -341,7 +344,7 @@ async fn a_space_that_refuses_the_write_leaves_the_reason_on_the_manifest() {
     let server = MockServer::start().await;
     realm(&server).await;
     Mock::given(method("POST"))
-        .and(path(format!("/cs/{SPACE}/ngsi-ld/v1/subscriptions")))
+        .and(path(format!("/cs/{SEGMENT}/ngsi-ld/v1/subscriptions")))
         .respond_with(ResponseTemplate::new(403).set_body_json(json!({
             "type": "https://uri.etsi.org/ngsi-ld/errors/OperationNotSupported",
             "title": "the service account may not write this space"
@@ -374,7 +377,7 @@ async fn a_space_that_refuses_the_write_leaves_the_reason_on_the_manifest() {
 async fn each_subscription_is_written_to_the_space_its_manifest_names() {
     let server = MockServer::start().await;
     realm(&server).await;
-    for space in [SPACE, "traffic"] {
+    for space in [SEGMENT, "helsinki-traffic"] {
         Mock::given(method("POST"))
             .and(path(format!("/cs/{space}/ngsi-ld/v1/subscriptions")))
             .respond_with(ResponseTemplate::new(201))
@@ -417,7 +420,7 @@ async fn each_subscription_is_written_to_the_space_its_manifest_names() {
     assert_eq!(air.2["id"], json!(ID));
     assert_eq!(
         traffic.2["id"],
-        json!("urn:ngsi-ld:Subscription:hel.fi:traffic:jams")
+        json!("urn:ngsi-ld:Subscription:hel.fi:helsinki-traffic:jams")
     );
     assert_eq!(traffic.2["geoQ"]["geometry"], json!("Point"));
     assert_eq!(traffic.2["geoQ"]["coordinates"], json!([24.9, 60.2]));
