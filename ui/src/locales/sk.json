@@ -957,7 +957,8 @@
       "preview": "Náhľad",
       "mappings": "Mapovania",
       "editor": "Editor",
-      "subset": "Podmnožina"
+      "subset": "Podmnožina",
+      "graph": "Graf"
     },
     "sdm": {
       "browse": "Katalóg Smart Data Models",
@@ -1044,7 +1045,14 @@
     "classParentNone": "Žiadna",
     "classMixins": "Primiešané (oddelené čiarkou)",
     "slotSubsets": "Profily (oddelené čiarkou)",
-    "dimensionLabel": "Použitie v dashboarde"
+    "dimensionLabel": "Použitie v dashboarde",
+    "graph": {
+      "title": "Triedy modelu a čo ich spája",
+      "legend": "Plná čiara je `is_a`, prerušovaná mixin, bodkovaná slot, ktorého rozsah menuje inú triedu.",
+      "empty": "Tento model zatiaľ nemá žiadnu triedu, takže niet čo nakresliť.",
+      "openClass": "Otvoriť {name} v štruktúre",
+      "more": "a ďalších {count}"
+    }
   },
   "apps": {
     "title": "Aplikácie",

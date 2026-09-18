@@ -673,3 +673,73 @@ export function slotDimension(affordance: Affordance): "sizeBy" | "colorBy" | un
   }
   return affordance === "select" ? "colorBy" : undefined;
 }
+
+/** One class as the graph draws it: a box with its own slots, on a row by its depth. */
+export interface GraphNode {
+  name: string;
+  /** The slots this class declares itself, without the inherited ones. */
+  slots: string[];
+  /** How far down the `is_a` chain it sits, which is the row it is drawn on. */
+  depth: number;
+}
+
+/** One line between two classes, and why it is there. */
+export interface GraphEdge {
+  from: string;
+  to: string;
+  kind: "is_a" | "mixin" | "range";
+  /** The slot whose range draws the line, for a `range` edge. */
+  label?: string;
+}
+
+/**
+ * The model as classes and the lines between them (DM-13, T-1111).
+ *
+ * Three kinds of line, because a reader asks three different questions of a model: what a class
+ * specialises (`is_a`), what it mixes in (`mixins`), and which class one of its slots points at
+ * (a `range` that names another class). A slot whose range is a primitive or an enum draws no
+ * line — it is inside the box.
+ *
+ * The depth is the length of the `is_a` chain, computed here rather than by a layout library:
+ * a class graph is a forest of short chains, and rows by depth put every parent above its
+ * children without a dependency that would have to be pinned, audited and shipped.
+ */
+export function graphData(model: LinkmlModel): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const byName = new Map(model.classes.map((klass) => [klass.name, klass]));
+  const slotsByName = new Map(model.slots.map((slot) => [slot.name, slot]));
+
+  const depthOf = (klass: LinkmlClass, seen: Set<string> = new Set()): number => {
+    // A cycle is a model somebody is still editing, not a reason to hang: the chain stops.
+    if (klass.is_a === undefined || seen.has(klass.name)) {
+      return 0;
+    }
+    seen.add(klass.name);
+    const parent = byName.get(klass.is_a);
+    return parent === undefined ? 0 : depthOf(parent, seen) + 1;
+  };
+
+  const nodes: GraphNode[] = model.classes.map((klass) => ({
+    name: klass.name,
+    slots: klass.slots,
+    depth: depthOf(klass),
+  }));
+
+  const edges: GraphEdge[] = [];
+  for (const klass of model.classes) {
+    if (klass.is_a !== undefined && byName.has(klass.is_a)) {
+      edges.push({ from: klass.name, to: klass.is_a, kind: "is_a" });
+    }
+    for (const mixin of klass.mixins ?? []) {
+      if (byName.has(mixin)) {
+        edges.push({ from: klass.name, to: mixin, kind: "mixin" });
+      }
+    }
+    for (const name of klass.slots) {
+      const range = slotsByName.get(name)?.range;
+      if (range !== undefined && byName.has(range)) {
+        edges.push({ from: klass.name, to: range, kind: "range", label: name });
+      }
+    }
+  }
+  return { nodes, edges };
+}

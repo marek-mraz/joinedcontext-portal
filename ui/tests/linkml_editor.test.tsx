@@ -8,7 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { LinkmlEditor } from "../src/pages/models/LinkmlEditor";
 import { applyOperations } from "../src/pages/models/operations";
-import { parseModel } from "../src/pages/models/linkml";
+import { graphData, parseModel } from "../src/pages/models/linkml";
+import { place } from "../src/pages/models/LinkmlGraphView";
+import en from "../src/locales/en.json";
 import type { Subset } from "../src/pages/models/subset";
 
 const SOURCE = `id: https://hel.fi/models/fleet
@@ -120,6 +122,27 @@ describe("LinkML editor", () => {
     expect(parseModel(source()).classes[0].slots).toEqual(["id", "name", "speed", "colour", "plate"]);
   });
 
+  /// T-1111, DM-13: the third view is a picture of the model — every class a box, every way one
+  /// class names another a line — and clicking a class opens it where it can be edited.
+  it("draws the classes and what joins them, and opens one in the structure view", async () => {
+    renderEditor();
+    await userEvent.click(screen.getByRole("tab", { name: en.models.view.graph }));
+
+    const canvas = await screen.findByRole("img", { name: en.models.graph.title });
+    expect(canvas).toBeInTheDocument();
+    // Both classes, each with its own slots inside the box.
+    expect(screen.getByRole("button", { name: /Open Vehicle/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open User/ })).toBeInTheDocument();
+    expect(canvas.textContent).toContain("speed");
+
+    await userEvent.click(screen.getByRole("button", { name: /Open Vehicle/ }));
+    // The structure view is what edits a class, so that is where the click lands.
+    expect(screen.getByRole("tab", { name: en.models.view.structure })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
   it("in subset mode shows the picker and previews the narrowed model", async () => {
     const { fetchMock, user } = renderEditor(true);
     expect(screen.getByRole("tab", { name: "Subset" })).toHaveAttribute("aria-selected", "true");
@@ -136,5 +159,86 @@ describe("LinkML editor", () => {
       ["Vehicle", ["id", "name"]],
     ]);
     expect(compiled.slots.map((slot) => slot.name)).toEqual(["id", "name"]);
+  });
+});
+
+/** The graph's own two functions, away from the editor that draws them (T-1111). */
+describe("the model as a graph", () => {
+  const source = `id: https://hel.fi/models/fleet
+name: fleet
+classes:
+  Thing:
+    slots: []
+  Vehicle:
+    is_a: Thing
+    mixins: [Traceable]
+    slots: [refDevice, speed]
+  Device:
+    slots: []
+  Traceable:
+    slots: []
+slots:
+  refDevice:
+    range: Device
+  speed:
+    range: float
+`;
+
+  it("draws a line for what a class specialises, mixes in, and points at", () => {
+    const { edges } = graphData(parseModel(source));
+    expect(edges).toContainEqual({ from: "Vehicle", to: "Thing", kind: "is_a" });
+    expect(edges).toContainEqual({ from: "Vehicle", to: "Traceable", kind: "mixin" });
+    expect(edges).toContainEqual({
+      from: "Vehicle",
+      to: "Device",
+      kind: "range",
+      label: "refDevice",
+    });
+    // A slot whose range is a primitive is inside the box, not a line.
+    expect(edges.some((edge) => edge.label === "speed")).toBe(false);
+  });
+
+  it("names no line to a class the model does not declare", () => {
+    const dangling = `name: x
+classes:
+  Vehicle:
+    is_a: Elsewhere
+    slots: [owner]
+slots:
+  owner:
+    range: Person
+`;
+    expect(graphData(parseModel(dangling)).edges).toEqual([]);
+  });
+
+  it("puts a child below its parent and survives a model somebody is mid-edit", () => {
+    const { nodes } = graphData(parseModel(source));
+    const depth = (name: string) => nodes.find((node) => node.name === name)?.depth;
+    expect(depth("Thing")).toBe(0);
+    expect(depth("Vehicle")).toBe(1);
+
+    // A cycle is a model being edited, not a reason to hang: the walk stops at the class it
+    // has already seen, so the depth is finite and no deeper than the chain is long.
+    const circular = `name: x
+classes:
+  A:
+    is_a: B
+    slots: []
+  B:
+    is_a: A
+    slots: []
+`;
+    const cycled = graphData(parseModel(circular)).nodes;
+    expect(cycled).toHaveLength(2);
+    expect(cycled.every((node) => node.depth <= cycled.length)).toBe(true);
+  });
+
+  it("lays a row per depth out and gives every box a place of its own", () => {
+    const placed = place(graphData(parseModel(source)).nodes);
+    const vehicle = placed.find((node) => node.name === "Vehicle");
+    const thing = placed.find((node) => node.name === "Thing");
+    expect(vehicle && thing && vehicle.y > thing.y).toBe(true);
+    const corners = placed.map((node) => `${node.x},${node.y}`);
+    expect(new Set(corners).size).toBe(placed.length);
   });
 });

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { LinkmlPreviewPanel } from "./LinkmlPreviewPanel";
+import { LinkmlGraphView } from "./LinkmlGraphView";
 import { LinkmlSourceEditor } from "./LinkmlSourceEditor";
 import { LinkmlVisualEditor } from "./LinkmlVisualEditor";
 import { ModelSubsetPicker } from "./ModelSubsetPicker";
@@ -21,7 +22,7 @@ import type { Subset } from "./subset";
  * checkboxes and the preview of the narrowed model an endpoint would serve (MP-01, MP-03).
  * Without it, the editor edits: structure, source and preview of the whole model.
  */
-export type EditorView = "structure" | "source" | "preview" | "subset";
+export type EditorView = "structure" | "source" | "graph" | "preview" | "subset";
 
 export interface LinkmlEditorProps {
   source: string;
@@ -34,7 +35,7 @@ export interface LinkmlEditorProps {
   initialView?: EditorView;
 }
 
-const EDIT_VIEWS: EditorView[] = ["structure", "source", "preview"];
+const EDIT_VIEWS: EditorView[] = ["structure", "source", "graph", "preview"];
 const SUBSET_VIEWS: EditorView[] = ["subset", "preview"];
 
 export function LinkmlEditor({
@@ -86,6 +87,10 @@ export function LinkmlEditor({
             diagnostics={diagnostics}
             locales={locales}
           />
+        ) : null}
+        {view === "graph" ? (
+          // Read-only, and clicking a class opens it where it can be edited (T-1111).
+          <LinkmlGraphView source={source} onOpenClass={() => setView("structure")} />
         ) : null}
         {view === "source" ? (
           <LinkmlSourceEditor source={source} onChange={onChange} diagnostics={diagnostics} />

@@ -957,7 +957,8 @@
       "preview": "Preview",
       "mappings": "Mappings",
       "editor": "Editor",
-      "subset": "Subset"
+      "subset": "Subset",
+      "graph": "Graph"
     },
     "source": {
       "loading": "Loading model source…",
@@ -1044,7 +1045,14 @@
     "classParentNone": "None",
     "classMixins": "Mixed in (comma separated)",
     "slotSubsets": "Profiles (comma separated)",
-    "dimensionLabel": "Dashboard use"
+    "dimensionLabel": "Dashboard use",
+    "graph": {
+      "title": "The model's classes and what joins them",
+      "legend": "A solid line is `is_a`, a dashed one a mixin, a dotted one a slot whose range names another class.",
+      "empty": "This model declares no class yet, so there is nothing to draw.",
+      "openClass": "Open {name} in the structure view",
+      "more": "and {count} more"
+    }
   },
   "apps": {
     "title": "Applications",

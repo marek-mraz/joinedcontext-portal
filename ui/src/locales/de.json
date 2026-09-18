@@ -957,7 +957,8 @@
       "preview": "Vorschau",
       "mappings": "Mappings",
       "editor": "Editor",
-      "subset": "Teilmenge"
+      "subset": "Teilmenge",
+      "graph": "Graph"
     },
     "sdm": {
       "browse": "Smart-Data-Models-Katalog",
@@ -1044,7 +1045,14 @@
     "classParentNone": "Keine",
     "classMixins": "Eingemischt (kommagetrennt)",
     "slotSubsets": "Profile (kommagetrennt)",
-    "dimensionLabel": "Dashboard-Nutzung"
+    "dimensionLabel": "Dashboard-Nutzung",
+    "graph": {
+      "title": "Die Klassen des Modells und was sie verbindet",
+      "legend": "Eine durchgezogene Linie ist `is_a`, eine gestrichelte ein Mixin, eine gepunktete ein Slot, dessen Range eine andere Klasse nennt.",
+      "empty": "Dieses Modell erklärt noch keine Klasse, also gibt es nichts zu zeichnen.",
+      "openClass": "{name} in der Struktur öffnen",
+      "more": "und {count} weitere"
+    }
   },
   "apps": {
     "title": "Anwendungen",
