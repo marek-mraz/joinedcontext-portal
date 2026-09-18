@@ -12,6 +12,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { KpiPipelineCard, kpiPipelineOf } from "../src/pages/apps/KpiPipelineCard";
 import type { KpiPipeline } from "../src/pages/apps/KpiPipelineCard";
+import { answeringChecks, checksSoFar } from "./checks";
 
 const OUTPUT = {
   name: "free-bikes",
@@ -89,6 +90,7 @@ describe("the indicator pipeline card", () => {
         return new Response(JSON.stringify({ id: "c1", branch: "b", lane: "yellow" }), { status: 201, headers: { "content-type": "application/json" } });
       }),
     );
+    vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
     renderCard(kpiPipelineOf(OUTPUT) as KpiPipeline);
     await userEvent.click(await screen.findByRole("button", { name: en.agentRun.kpiPipeline.propose }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Policy transportation-kpi-read was not proposed: may not propose a Policy");
@@ -97,6 +99,8 @@ describe("the indicator pipeline card", () => {
       "/api/v1/projects/helsinki/endpoints",
       "/api/v1/projects/helsinki/policies",
     ]);
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("POST /api/v1/projects/"))).toBe(true);
   });
 
   it("with an existing space offers only the pipelines page and says when the test passed", async () => {

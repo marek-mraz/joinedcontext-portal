@@ -10,6 +10,7 @@ import { App } from "../src/App";
 import { rememberPrefill } from "../src/assistant/state";
 import { geojsonUrl } from "../src/routes/DashboardsPage";
 import { layerFromManifest, layerToManifest } from "../src/pages/dashboards/editors";
+import { answeringChecks, checksSoFar } from "./checks";
 
 const calls = vi.hoisted(() => ({
   sources: [] as { id: string; source: Record<string, unknown> }[],
@@ -160,6 +161,7 @@ function renderDashboards(options: { writeStatus?: number; writeBody?: unknown; 
     return json(list([]));
   });
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -225,6 +227,8 @@ describe("dashboard editors", () => {
     expect(body.spec.filter).toEqual({ q: "availableBikeNumber>0" });
     expect(body.spec.colorBy).toEqual({ property: "availableBikeNumber", domain: [0, 20] });
     expect(body.spec.visible).toBeUndefined();
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("/layers"))).toBe(true);
   });
 
   it("opens a layer's editor on the change the assistant made, and sends nothing until proposed (AG-77)", async () => {
@@ -352,5 +356,7 @@ describe("dashboard editors", () => {
     const body = (await writes(fetchMock)[0].clone().json()) as Record<string, unknown>;
     expect(body.kind).toBe("Dashboard");
     expect(body.draft).toBeUndefined();
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("/dashboards"))).toBe(true);
   });
 });

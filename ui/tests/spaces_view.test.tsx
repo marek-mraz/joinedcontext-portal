@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
+import { answeringChecks, checksSoFar } from "./checks";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -105,6 +106,7 @@ function renderSpaces(options: { quota?: number; refusal?: string; listFails?: s
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -225,6 +227,8 @@ describe("context spaces view", () => {
     expect(
       screen.getByRole("link", { name: en.changes.review }),
     ).toHaveAttribute("href", "/projects/banskabystrica/approvals/chg-1a2b3c4d");
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("POST /api/v1/projects/banskabystrica/spaces"))).toBe(true);
   });
 
   it("shows the name to use when another project already holds the one typed (PF-76)", async () => {
@@ -300,6 +304,7 @@ describe("a viewer on the spaces list", () => {
       return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { api, ApiError, unwrap } from "../../api/client";
+import { proposeChecked } from "../../api/proposal";
 import { isChange, ORG_NAMESPACE } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
 import type { components } from "../../api/schema";
@@ -86,11 +87,11 @@ function ProfileCard({ project, profile }: { project: string; profile: ProfileAc
       } else {
         spec.access = block;
       }
-      return unwrap(
-        await api.PUT("/api/v1/projects/{project}/{plural}/{name}", {
-          params: { path },
-          body: manifest as never,
-        }),
+      return proposeChecked(
+        path.project,
+        path.plural,
+        manifest as { metadata: { name: string } },
+        false,
       );
     },
     onSuccess: (result) => {

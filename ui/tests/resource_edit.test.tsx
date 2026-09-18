@@ -7,6 +7,7 @@ import { parse as parseYaml } from "yaml";
 import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { rememberPrefill } from "../src/assistant/state";
+import { answeringChecks, checksSoFar } from "./checks";
 
 // Monaco needs a canvas and a worker, which jsdom has neither of; a textarea keeps its contract.
 function MockEditor({ value, onChange }: { value: string; onChange?: (value: string) => void }) {
@@ -70,6 +71,7 @@ function renderList(options: { verbs: string[]; answer?: "change" | "invalid" })
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -127,6 +129,8 @@ describe("editing a resource from its list", () => {
     expect(new URL(sent[0].url).pathname).toBe(`/api/v1/projects/${PROJECT}/csrs/${NAME}`);
     expect(sent[0].headers.get("x-csrf-token")).toBe("csrf-token-value");
     expect((await sent[0].json()).spec).toEqual({ contextSpaceRef: "air" });
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("/csrs/"))).toBe(true);
   });
 
   it("refuses a renamed manifest before anything is sent", async () => {

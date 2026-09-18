@@ -27,6 +27,7 @@ import {
   unfilledRequired,
 } from "../src/pages/models/mapping";
 import type { Derivation } from "../src/pages/models/mapping";
+import { answeringChecks, checksSoFar } from "./checks";
 
 /** What the city measures: micrograms, a Slovak band name and a station label. */
 const CITY = `id: https://banskabystrica.sk/models/air
@@ -359,6 +360,7 @@ describe("the editor on screen", () => {
         );
       }),
     );
+    vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
     const onProposed = vi.fn();
     render(<Harness project="banskabystrica" spaceOf={() => "ovzdusie"} onProposed={onProposed} />);
 
@@ -401,6 +403,8 @@ describe("the editor on screen", () => {
     const produced = JSON.parse(body.files[expected]) as Record<string, unknown>;
     expect(produced.id).toBe((JSON.parse(body.files[input]) as { id: string }).id);
     expect(produced).not.toHaveProperty("output");
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("/mappings"))).toBe(true);
   });
 
   it("will not propose a golden test whose example is not JSON (T-0905)", async () => {

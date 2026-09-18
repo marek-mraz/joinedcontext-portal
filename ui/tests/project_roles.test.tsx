@@ -5,6 +5,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { App } from "../src/App";
+import { answeringChecks, checksSoFar } from "./checks";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -80,6 +81,7 @@ function renderAccess() {
     return json(list([]));
   });
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -127,5 +129,7 @@ describe("the roles of a project on the Access page", () => {
     await screen.findByText(/chg-0000002a/);
     expect(posted).toHaveLength(1);
     expect(posted[0].path).toBe("/api/v1/projects/banskabystrica/roles");
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("POST /api/v1/projects/banskabystrica/roles"))).toBe(true);
   });
 });

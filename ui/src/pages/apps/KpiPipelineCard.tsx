@@ -2,7 +2,8 @@ import { useState } from "react";
 import type { JSX } from "react";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { api, ApiError, unwrap } from "../../api/client";
+import { ApiError } from "../../api/client";
+import { proposeChecked } from "../../api/proposal";
 import { Badge } from "../../components/ui/Badge";
 import { Button, buttonClass } from "../../components/ui/Button";
 
@@ -103,11 +104,11 @@ export function KpiPipelineCard({ project, pipeline }: { project: string; pipeli
     for (const draft of pipeline.drafts) {
       try {
         // A Portal with a forge answers a Change; one without writes the manifest directly.
-        await unwrap(
-          await api.POST("/api/v1/projects/{project}/{plural}", {
-            params: { path: { project, plural: draft.plural } },
-            body: draft.manifest as never,
-          }),
+        await proposeChecked(
+          project,
+          draft.plural,
+          draft.manifest as { metadata: { name: string } },
+          true,
         );
         count += 1;
       } catch (err) {

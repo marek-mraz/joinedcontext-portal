@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
+import { proposeChecked } from "../../api/proposal";
 import { asManifests, isChange, ORG_NAMESPACE } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
 import { takePrefill } from "../../assistant/state";
@@ -141,11 +142,11 @@ export function GrantRoleDialog({
 
   const propose = useMutation({
     mutationFn: async () =>
-      unwrap(
-        await api.POST("/api/v1/projects/{project}/{plural}", {
-          params: { path: { project: ORG_NAMESPACE, plural: "rolebindings" } },
-          body: bindingOf(form, project, branding.orgDomain) as never,
-        }),
+      proposeChecked(
+        ORG_NAMESPACE,
+        "rolebindings",
+        bindingOf(form, project, branding.orgDomain) as { metadata: { name: string } },
+        true,
       ),
     onSuccess: (result) => {
       if (isChange(result)) {

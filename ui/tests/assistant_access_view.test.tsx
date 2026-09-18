@@ -5,6 +5,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { App } from "../src/App";
+import { answeringChecks, checksSoFar } from "./checks";
 
 const PROJECT = "helsinki";
 
@@ -63,6 +64,7 @@ function renderPage() {
       return json({ items: [] });
     }),
   );
+  vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
   vi.stubGlobal("EventSource", class { addEventListener() {} removeEventListener() {} close() {} });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -114,5 +116,7 @@ describe("Agent access on the Assistant page (UI-56)", () => {
     expect(sent.spec.role).toBe("builder");
     expect(sent.status).toBeUndefined();
     expect(await screen.findByText("pr-7")).toBeInTheDocument();
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("PUT /api/v1/projects/org/agentprofiles/app-builder"))).toBe(true);
   });
 });

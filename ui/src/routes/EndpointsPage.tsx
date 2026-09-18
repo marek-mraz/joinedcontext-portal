@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, readCsrfToken, unwrap } from "../api/client";
+import { proposeChecked } from "../api/proposal";
 import { asManifests, isChange, localized, overlay, plainTitle } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import type { Verdict } from "../api/drafts";
@@ -620,11 +621,11 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   // One click declares the SharedSpaceReference; it lands as a Change like every write (EP-15).
   const reference = useMutation({
     mutationFn: async ({ source, endpoint }: { source: string; endpoint: Manifest }) =>
-      unwrap(
-        await api.POST("/api/v1/projects/{project}/{plural}", {
-          params: { path: { project, plural: "shared" } },
-          body: referenceManifest(project, source, endpoint) as never,
-        }),
+      proposeChecked(
+        project,
+        "shared",
+        referenceManifest(project, source, endpoint) as { metadata: { name: string } },
+        true,
       ),
     onSuccess: (result) => {
       if (isChange(result)) {

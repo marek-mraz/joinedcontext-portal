@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, unwrap } from "../../api/client";
+import { proposeChecked } from "../../api/proposal";
 import { isChange } from "../../api/manifest";
 import type { Change } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
@@ -70,12 +71,7 @@ export function CkanPage({ project }: { project: string }): JSX.Element {
           apiTokenRef: { name: instance.secretName, key: instance.secretKey || "apiToken" },
         },
       };
-      return unwrap(
-        await api.POST("/api/v1/projects/{project}/{plural}", {
-          params: { path: { project, plural: "ckaninstances" } },
-          body: body as never,
-        }),
-      );
+      return proposeChecked(project, "ckaninstances", body as { metadata: { name: string } }, true);
     },
     onSuccess: (result) => {
       if (isChange(result)) {

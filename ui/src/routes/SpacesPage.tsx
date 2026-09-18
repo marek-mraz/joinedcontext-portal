@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { usePermissions } from "../api/permissions";
 import { Link } from "@tanstack/react-router";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
+import { proposeChecked } from "../api/proposal";
 import { asManifests, isChange, localized, refName } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
@@ -83,11 +84,11 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
   const create = useMutation({
     mutationFn: async (form: SpaceForm) => {
       setFormError(null);
-      return unwrap(
-        await api.POST("/api/v1/projects/{project}/{plural}", {
-          params: { path: { project, plural: "spaces" } },
-          body: toEnvelope(project, form) as never,
-        }),
+      return proposeChecked(
+        project,
+        "spaces",
+        toEnvelope(project, form) as { metadata: { name: string } },
+        true,
       );
     },
     onSuccess: (result) => {

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
+import { proposeChecked } from "../api/proposal";
 import { isChange } from "../api/manifest";
 import type { Change } from "../api/manifest";
 import { usePermissions } from "../api/permissions";
@@ -59,12 +60,7 @@ export function EditResourceDialog({
 
   const propose = useMutation({
     mutationFn: async (body: unknown) =>
-      unwrap(
-        await api.PUT("/api/v1/projects/{project}/{plural}/{name}", {
-          params: { path: { project: home, plural, name } },
-          body: body as never,
-        }),
-      ),
+      proposeChecked(home, plural, body as { metadata: { name: string } }, false),
     onSuccess: (result) => {
       if (isChange(result)) {
         setChange(result);

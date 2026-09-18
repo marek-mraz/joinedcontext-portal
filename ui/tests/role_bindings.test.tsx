@@ -12,6 +12,7 @@ import i18n from "../src/i18n";
 import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { rememberPrefill } from "../src/assistant/state";
+import { answeringChecks, checksSoFar } from "./checks";
 
 const PROJECT = "helsinki";
 
@@ -93,6 +94,7 @@ function renderAccess(options: { grants: unknown[]; refusal?: string }) {
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -171,6 +173,8 @@ describe("people and roles", () => {
       },
     });
     expect(await within(dialog).findByText("chg-00000301")).toBeInTheDocument();
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("POST /api/v1/projects/org/rolebindings"))).toBe(true);
   });
 
   it("opens the grant the assistant drafted, filled in, and shows a refusal in the API's words", async () => {

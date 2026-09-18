@@ -5,6 +5,51 @@ import { api, ApiError, queryKeys, unwrap } from "./client";
 import { isChange } from "./manifest";
 import type { Change } from "./manifest";
 
+/** What a dry run answers, as far as the check before a proposal reads it. */
+type CheckAnswer = {
+  valid?: boolean;
+  verdict?: { ok?: boolean; findings?: { message?: string }[] };
+};
+
+/**
+ * Checks a manifest, then proposes it (PF-57, T-0956). Every proposal needs a fresh green check,
+ * whatever door it comes through, so a page that has no Check button of its own runs the dry run
+ * on the same route and verb, with the same body, and proposes only when it is green; a red check
+ * stops here with what it found, and nothing is proposed.
+ */
+export async function proposeChecked(
+  project: string,
+  plural: string,
+  body: { metadata: { name: string } },
+  create: boolean,
+): Promise<unknown> {
+  const send = (dryRun: boolean) => {
+    const query = dryRun ? { dryRun: "All" } : undefined;
+    return create
+      ? api.POST("/api/v1/projects/{project}/{plural}", {
+          params: { path: { project, plural }, query },
+          body: body as never,
+        })
+      : api.PUT("/api/v1/projects/{project}/{plural}/{name}", {
+          params: { path: { project, plural, name: body.metadata.name }, query },
+          body: body as never,
+        });
+  };
+  const check = (await unwrap(await send(true))) as CheckAnswer;
+  if (check.valid === false || check.verdict?.ok === false) {
+    const found = (check.verdict?.findings ?? [])
+      .map((finding) => finding.message)
+      .filter((message): message is string => Boolean(message));
+    throw new ApiError(422, found.join("; ") || "the check found problems", {
+      type: "about:blank",
+      title: "The check found problems",
+      status: 422,
+      detail: found.join("; ") || "the check found problems",
+    });
+  }
+  return unwrap(await send(false));
+}
+
 /** One PUT or POST of a manifest, as the endpoints page does it; the result is a Change. */
 export function useProposal(project: string, plural: string, onChange: (change: Change) => void) {
   const { t } = useTranslation();
@@ -30,16 +75,7 @@ export function useProposal(project: string, plural: string, onChange: (change: 
           }),
         );
       }
-      const result = create
-        ? await api.POST("/api/v1/projects/{project}/{plural}", {
-            params: { path: { project, plural } },
-            body: body as never,
-          })
-        : await api.PUT("/api/v1/projects/{project}/{plural}/{name}", {
-            params: { path: { project, plural, name: body.metadata.name } },
-            body: body as never,
-          });
-      return unwrap(result);
+      return proposeChecked(project, plural, body, create);
     },
     onSuccess: (result, { bundle = [] }) => {
       if (isChange(result)) {

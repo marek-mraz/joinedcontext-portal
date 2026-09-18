@@ -10,6 +10,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { App } from "../src/App";
+import { answeringChecks, checksSoFar } from "./checks";
 
 const IDENTITY = {
   subject: "b7c1e0f4",
@@ -89,6 +90,7 @@ function renderAccess(verbs: string[]) {
     return json(list([]));
   });
   vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", answeringChecks(globalThis.fetch));
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -134,6 +136,8 @@ describe("the groups of the organization on the Access page", () => {
     await user.click(within(dialog).getByRole("button", { name: "Propose the group" }));
     await screen.findByText(/chg-0000003b/);
     expect(posted).toEqual([{ path: "/api/v1/projects/org/groups" }]);
+    // Checked before it was proposed (PF-57, T-0956).
+    expect(checksSoFar().some((check) => check.includes("POST /api/v1/projects/org/groups"))).toBe(true);
   });
 
   it("disables the control with the reason when the caller may only read groups", async () => {
