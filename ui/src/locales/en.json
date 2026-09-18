@@ -115,7 +115,11 @@
     "rejectReason": "Why are you rejecting this?",
     "rejectConfirm": "Reject the change",
     "rejectCancel": "Cancel",
-    "rejectReasonHint": "The author reads it on the change and needs it to fix the change."
+    "rejectReasonHint": "The author reads it on the change and needs it to fix the change.",
+    "filterMine": "Only mine",
+    "filterPhase": "Phase",
+    "filterAll": "All",
+    "noneMatch": "No change matches these filters."
   },
   "lane": {
     "green": "Green",

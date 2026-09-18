@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -116,6 +117,48 @@ describe("pending approvals view", () => {
     await screen.findByText(en.lane.yellow);
     expect(screen.getByText(en.lane.yellow)).toHaveAttribute("title", en.lane.yellowHelp);
     expect(screen.getByText(en.lane.red)).toBeInTheDocument();
+  });
+
+  it("shows the phase of every proposal as a chip", async () => {
+    renderApprovals({
+      ...CHANGES,
+      items: [CHANGES.items[0], { ...CHANGES.items[1], status: { ...CHANGES.items[1].status, phase: "Deploying" } }],
+    });
+
+    await screen.findByText("chg-9f8e7d6c");
+    const table = screen.getByRole("table");
+    expect(within(table).getByText(en.phase.pendingApproval)).toBeInTheDocument();
+    expect(within(table).getByText(en.phase.deploying)).toBeInTheDocument();
+  });
+
+  it("narrows the list to the caller's own proposals", async () => {
+    const mineToo = proposal({
+      metadata: { name: "chg-00000001", namespace: "banskabystrica" },
+      author: { name: "Jana Kováčová", email: "Jana.Kovacova@banskabystrica.sk" },
+    });
+    renderApprovals({ ...CHANGES, items: [...CHANGES.items, mineToo] });
+
+    expect(await screen.findByText("chg-9f8e7d6c")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText(en.approvals.filterMine));
+    expect(screen.getByText("chg-00000001")).toBeInTheDocument();
+    expect(screen.queryByText("chg-9f8e7d6c")).toBeNull();
+    expect(screen.queryByText("chg-1a2b3c4d")).toBeNull();
+  });
+
+  it("narrows the list to one phase, and says so when nothing is left", async () => {
+    renderApprovals({
+      ...CHANGES,
+      items: [CHANGES.items[0], { ...CHANGES.items[1], status: { ...CHANGES.items[1].status, phase: "Deploying" } }],
+    });
+
+    await userEvent.selectOptions(await screen.findByLabelText(en.approvals.filterPhase), "Deploying");
+    expect(screen.getByText("chg-9f8e7d6c")).toBeInTheDocument();
+    expect(screen.queryByText("chg-1a2b3c4d")).toBeNull();
+
+    await userEvent.click(screen.getByLabelText(en.approvals.filterMine));
+    expect(screen.getByText(en.approvals.noneMatch)).toBeInTheDocument();
+    // The filters stay, so the person can widen the list again.
+    expect(screen.getByLabelText(en.approvals.filterMine)).toBeChecked();
   });
 
   it("attributes each proposal to the person who wrote it", async () => {

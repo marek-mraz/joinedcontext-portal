@@ -63,6 +63,13 @@ export interface ApprovalStanding {
   ownAsAdministrator: boolean;
 }
 
+/** Whether the caller wrote the change: its author is the caller's own e-mail (CC-34). */
+export function isOwn(callerEmail: string | null | undefined, change: { author: { email?: string | null } }): boolean {
+  return Boolean(
+    callerEmail && change.author.email && callerEmail.toLowerCase() === change.author.email.toLowerCase(),
+  );
+}
+
 /**
  * What the approval rules say about the caller and one change (CC-34, PF-50, PF-58): an approver of
  * the kind may approve someone else's change, and their own only when they may also delete that
@@ -86,12 +93,7 @@ export function approvalStanding(
   if (kind === "Endpoint" && makesPublic(change) && !mayPublish(permissions.data)) {
     return { block: "needsPublisher", ownAsAdministrator: false };
   }
-  const own = Boolean(
-    callerEmail &&
-      change.author.email &&
-      callerEmail.toLowerCase() === change.author.email.toLowerCase(),
-  );
-  if (!own) {
+  if (!isOwn(callerEmail, change)) {
     return { block: null, ownAsAdministrator: false };
   }
   // The bootstrap group is not a binding, so it does not administer a kind (PF-58).

@@ -115,7 +115,11 @@
     "rejectReason": "Prečo to zamietate?",
     "rejectConfirm": "Zamietnuť zmenu",
     "rejectCancel": "Zrušiť",
-    "rejectReasonHint": "Autor si to prečíta pri zmene a potrebuje to na jej opravu."
+    "rejectReasonHint": "Autor si to prečíta pri zmene a potrebuje to na jej opravu.",
+    "filterMine": "Iba moje",
+    "filterPhase": "Fáza",
+    "filterAll": "Všetky",
+    "noneMatch": "Týmto filtrom nezodpovedá žiadna zmena."
   },
   "lane": {
     "green": "Zelená",

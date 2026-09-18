@@ -115,7 +115,11 @@
     "rejectReason": "Warum lehnen Sie das ab?",
     "rejectConfirm": "Änderung ablehnen",
     "rejectCancel": "Abbrechen",
-    "rejectReasonHint": "Die Autorin oder der Autor liest es an der Änderung und braucht es, um sie zu korrigieren."
+    "rejectReasonHint": "Die Autorin oder der Autor liest es an der Änderung und braucht es, um sie zu korrigieren.",
+    "filterMine": "Nur meine",
+    "filterPhase": "Phase",
+    "filterAll": "Alle",
+    "noneMatch": "Keine Änderung passt zu diesen Filtern."
   },
   "lane": {
     "green": "Grün",

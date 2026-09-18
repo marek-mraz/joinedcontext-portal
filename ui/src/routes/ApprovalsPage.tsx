@@ -1,8 +1,11 @@
+import { useState } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { isOwn } from "../api/approval";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import {
   Alert,
@@ -10,6 +13,7 @@ import {
   EmptyState,
   Icon,
   PageHeader,
+  Select,
   Table,
   TableBody,
   TableCell,
@@ -20,11 +24,14 @@ import {
   buttonClass,
 } from "../components/ui";
 
-const COLUMNS = 5;
+const COLUMNS = 6;
 
 export function ApprovalsPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
+  const { identity } = useAuth();
+  const [mine, setMine] = useState(false);
+  const [phase, setPhase] = useState("");
 
   const list = useQuery({
     queryKey: queryKeys.changes(project),
@@ -41,6 +48,7 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
   const head = (
     <TableHead>
       <TableHeaderCell>{t("approvals.summary")}</TableHeaderCell>
+      <TableHeaderCell>{t("approvals.phase")}</TableHeaderCell>
       <TableHeaderCell>{t("approvals.lane")}</TableHeaderCell>
       <TableHeaderCell>{t("approvals.author")}</TableHeaderCell>
       <TableHeaderCell>{t("approvals.created")}</TableHeaderCell>
@@ -89,13 +97,49 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
     );
   }
 
-  const items = list.data.items ?? [];
+  const all = list.data.items ?? [];
+  // The phases the list holds, in the order a change goes through them.
+  const phases = [...new Set(all.map((proposal) => proposal.status.phase))];
+  // Both filters narrow what the API already let this caller read; they decide nothing.
+  const items = all.filter(
+    (proposal) =>
+      (!mine || isOwn(identity?.email, proposal)) && (phase === "" || proposal.status.phase === phase),
+  );
+  const filters =
+    all.length > 0 ? (
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 text-body">
+          <input type="checkbox" checked={mine} onChange={(event) => setMine(event.target.checked)} />
+          {t("approvals.filterMine")}
+        </label>
+        <label className="flex items-center gap-2 text-body">
+          {t("approvals.filterPhase")}
+          <Select value={phase} onChange={(event) => setPhase(event.target.value)}>
+            <option value="">{t("approvals.filterAll")}</option>
+            {phases.map((value) => (
+              <option key={value} value={value}>
+                {t(`phase.${value.charAt(0).toLowerCase()}${value.slice(1)}`, { defaultValue: value })}
+              </option>
+            ))}
+          </Select>
+        </label>
+      </div>
+    ) : null;
 
-  if (items.length === 0) {
+  if (all.length === 0) {
     return (
       <div className="flex flex-col gap-section">
         {header}
         <EmptyState icon="approvals" title={t("approvals.empty")} />
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col gap-section">
+        {header}
+        {filters}
+        <EmptyState icon="approvals" title={t("approvals.noneMatch")} />
       </div>
     );
   }
@@ -108,6 +152,7 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
   return (
     <div className="flex flex-col gap-section">
       {header}
+      {filters}
       <Table caption={t("approvals.title")}>
         {head}
         <TableBody>
@@ -137,6 +182,9 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
                       {t("approvals.fileCount", { count: proposal.fileCount })}
                     </div>
                   ) : null}
+                </TableCell>
+                <TableCell>
+                  <LifecycleBadge kind="phase" value={proposal.status.phase} />
                 </TableCell>
                 <TableCell>
                   <LifecycleBadge kind="lane" value={proposal.status.lane} />
