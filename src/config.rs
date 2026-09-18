@@ -20,6 +20,13 @@ pub struct Config {
     pub cookie_key: Key,
     pub sync_interval: Duration,
     pub gitea_webhook_secret: Option<String>,
+    /// The secret this Portal accepted before the current one, during a rotation (T-0982).
+    ///
+    /// A webhook secret is shared with the forge, so the two sides cannot change at the same
+    /// instant: the new one is written here as the active secret and the old one stays accepted
+    /// until the forge's own hook is updated, then it is removed. Without it a rotation is a
+    /// window in which every push is refused, which is why nobody rotates.
+    pub gitea_webhook_secret_previous: Option<String>,
     /// Base URL of a project's Bento pipeline runner with `{project}` still in it, e.g.
     /// `http://pipeline-runner.{project}-pipeline-runner.svc.cluster.local:4195`. `None`
     /// leaves the metrics route answering 503 instead of guessing a service name.
@@ -101,6 +108,13 @@ impl std::fmt::Debug for Config {
             .field(
                 "gitea_webhook_secret",
                 &self.gitea_webhook_secret.as_ref().map(|_| "[redacted]"),
+            )
+            .field(
+                "gitea_webhook_secret_previous",
+                &self
+                    .gitea_webhook_secret_previous
+                    .as_ref()
+                    .map(|_| "[redacted]"),
             )
             .field("pipeline_runner_url", &self.pipeline_runner_url)
             .field("gateway_url", &self.gateway_url)
@@ -605,6 +619,7 @@ impl Config {
         let sync_interval = Duration::from_secs(sync_interval_secs);
 
         let gitea_webhook_secret = lookup("JC_GITEA_WEBHOOK_SECRET");
+        let gitea_webhook_secret_previous = lookup("JC_GITEA_WEBHOOK_SECRET_PREVIOUS");
 
         // The space surface's base: one host, no path. A typo here is a subscription that never
         // reaches its broker, so it is refused at startup like every other address.
@@ -770,6 +785,7 @@ impl Config {
             cookie_key,
             sync_interval,
             gitea_webhook_secret,
+            gitea_webhook_secret_previous,
             pipeline_runner_url,
             gateway_url,
             broker_url,
@@ -802,6 +818,7 @@ impl Config {
             cookie_key: Key::generate(),
             sync_interval: Duration::ZERO,
             gitea_webhook_secret: None,
+            gitea_webhook_secret_previous: None,
             pipeline_runner_url: None,
             gateway_url: None,
             broker_url: None,

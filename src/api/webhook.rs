@@ -124,12 +124,21 @@ pub async fn gitea_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ApiError> {
-    // 1. Webhook secret must be configured; fail closed (503) if missing.
-    let secret = state
-        .config
-        .gitea_webhook_secret
-        .as_deref()
-        .ok_or_else(|| ApiError::Unavailable("gitea webhook secret is not configured".into()))?;
+    // 1. Webhook secret must be configured; fail closed (503) if missing. During a rotation
+    //    two are configured and both are accepted, because the forge's own hook changes in a
+    //    separate step and a window where every push is refused is why nobody rotates (T-0982).
+    let secrets: Vec<&str> = [
+        state.config.gitea_webhook_secret.as_deref(),
+        state.config.gitea_webhook_secret_previous.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if secrets.is_empty() {
+        return Err(ApiError::Unavailable(
+            "gitea webhook secret is not configured".into(),
+        ));
+    }
 
     // 2. Validate HMAC-SHA256 signature before deserializing payload body.
     // Order matters: missing or invalid signature returns 401 without parsing JSON.
@@ -138,7 +147,12 @@ pub async fn gitea_webhook(
         .and_then(|v| v.to_str().ok())
         .ok_or(ApiError::Unauthorized)?;
 
-    if !verify_signature(secret, &body, presented_sig) {
+    // Every configured secret is tried, and each comparison is the constant-time one: a
+    // signature made with the secret being retired verifies until it is removed.
+    if !secrets
+        .iter()
+        .any(|secret| verify_signature(secret, &body, presented_sig))
+    {
         return Err(ApiError::Unauthorized);
     }
 
@@ -329,6 +343,100 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// T-0982: a webhook secret is shared with the forge, so the two sides cannot change in the
+    /// same instant. Both are accepted for as long as the rotation takes, and the retired one is
+    /// removed afterwards — after which its signature is refused like any other.
+    #[tokio::test]
+    async fn a_rotation_accepts_the_retiring_secret_until_it_is_removed() {
+        let old_secret = "the-one-gitea-still-has";
+        let new_secret = "the-one-written-today";
+        let payload = json!({ "action": "opened" });
+        let body = serde_json::to_vec(&payload).unwrap();
+
+        let post = |config: Config, signature: String, body: Vec<u8>| async move {
+            server::app(AppState::new(config, None))
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/api/v1/webhooks/gitea")
+                        .header(SIGNATURE_HEADER, signature)
+                        .header(EVENT_HEADER, "pull_request")
+                        .header(axum::http::header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status()
+        };
+
+        let rotating = || {
+            let mut config = Config::for_tests();
+            config.gitea_webhook_secret = Some(new_secret.into());
+            config.gitea_webhook_secret_previous = Some(old_secret.into());
+            config
+        };
+
+        // During the overlap both sign a request the Portal accepts.
+        assert_eq!(
+            post(
+                rotating(),
+                compute_signature(new_secret, &body),
+                body.clone()
+            )
+            .await,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            post(
+                rotating(),
+                compute_signature(old_secret, &body),
+                body.clone()
+            )
+            .await,
+            StatusCode::NO_CONTENT
+        );
+
+        // A secret that is neither is refused while both are configured.
+        assert_eq!(
+            post(
+                rotating(),
+                compute_signature("somebody-elses", &body),
+                body.clone()
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+
+        // Once the rotation is finished the retired secret is a stranger's.
+        let mut finished = Config::for_tests();
+        finished.gitea_webhook_secret = Some(new_secret.into());
+        assert_eq!(
+            post(finished, compute_signature(old_secret, &body), body.clone()).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    /// Fail closed: with neither secret configured nothing is accepted, whatever it is signed
+    /// with, and the answer says the Portal cannot judge rather than that the caller is wrong.
+    #[tokio::test]
+    async fn with_no_secret_at_all_every_webhook_is_refused() {
+        let body = serde_json::to_vec(&json!({ "action": "opened" })).unwrap();
+        let response = server::app(AppState::new(Config::for_tests(), None))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/webhooks/gitea")
+                    .header(SIGNATURE_HEADER, compute_signature("anything", &body))
+                    .header(EVENT_HEADER, "pull_request")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]
