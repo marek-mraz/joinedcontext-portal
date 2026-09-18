@@ -1849,5 +1849,26 @@
     },
     "fields": "{count, plural, one {# Feld} other {# Felder}}",
     "items": "{count, plural, one {# Eintrag} other {# Einträge}}"
+  },
+  "saveAs": {
+    "title": "{name} speichern unter",
+    "lead": "Die Kopie wird als eine Änderung vorgeschlagen; nichts wird geschrieben, bis sie genehmigt ist.",
+    "button": "Speichern unter",
+    "action": "{name} speichern unter",
+    "project": "Projekt",
+    "name": "Name",
+    "qualified": "Sie heißt dann {name}.",
+    "spaceNamed": "Der Raum wird mit allem kopiert, was er enthält, und der Import benennt die Kopie.",
+    "space": "Der Raum {space}",
+    "choice": {
+      "copy": "Den Raum mitkopieren",
+      "map": "Einen Raum des Zielprojekts nutzen",
+      "reference": "Die Daten der Quelle nutzen (keine Kopie)"
+    },
+    "mapTo": "Raum des Zielprojekts",
+    "check": "Prüfen",
+    "propose": "Vorschlagen",
+    "checked": "Geprüft: die Kopie kann vorgeschlagen werden.",
+    "mayNotPropose": "Sie dürfen diese Art in {project} nicht vorschlagen."
   }
 }

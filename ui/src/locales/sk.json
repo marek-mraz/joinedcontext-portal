@@ -1849,5 +1849,26 @@
     },
     "fields": "{count, plural, one {# pole} few {# polia} other {# polí}}",
     "items": "{count, plural, one {# položka} few {# položky} other {# položiek}}"
+  },
+  "saveAs": {
+    "title": "Uložiť {name} ako",
+    "lead": "Kópia sa navrhne ako jedna zmena; nič sa nezapíše, kým ju schvaľovateľ nezlúči.",
+    "button": "Uložiť ako",
+    "action": "Uložiť {name} ako",
+    "project": "Projekt",
+    "name": "Názov",
+    "qualified": "Bude sa volať {name}.",
+    "spaceNamed": "Priestor sa skopíruje so všetkým, čo obsahuje, a import pomenuje kópiu.",
+    "space": "Priestor {space}",
+    "choice": {
+      "copy": "Skopírovať aj priestor",
+      "map": "Použiť priestor cieľového projektu",
+      "reference": "Použiť dáta zdroja (bez kópie)"
+    },
+    "mapTo": "Priestor cieľového projektu",
+    "check": "Skontrolovať",
+    "propose": "Navrhnúť",
+    "checked": "Skontrolované: kópiu možno navrhnúť.",
+    "mayNotPropose": "V projekte {project} nemôžete navrhovať tento druh."
   }
 }

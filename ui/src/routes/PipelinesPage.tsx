@@ -9,6 +9,7 @@ import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { ResourceList } from "../components/ResourceList";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
+import { SaveAsResourceAction } from "../components/SaveAsDialog";
 import { PipelineEditorDialog } from "../pages/pipelines/PipelineEditor";
 import type { PipelineForm, toEnvelope } from "../pages/pipelines/PipelineEditor";
 import { takeEditRequest, takePrefill } from "../assistant/state";
@@ -408,6 +409,9 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
                       {t("pipelines.edit")}
                     </Button>
                   </PermissionGuard>
+                  <SaveAsResourceAction
+                    target={{ project, kind: "Pipeline", plural: "pipelines", name: pipeline.metadata.name }}
+                  />
                   <DeleteResourceAction
                     target={{ project, kind: "Pipeline", plural: "pipelines", name: pipeline.metadata.name }}
                   />

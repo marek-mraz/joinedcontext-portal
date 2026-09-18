@@ -440,6 +440,7 @@ pub fn operations() -> Vec<Operation> {
                         dry_run: input.dry_run,
                         url: None,
                         manifests: None,
+                        space_mapping: Vec::new(),
                     };
                     let (_, body) = crate::api::import::import_bundle(
                         state,

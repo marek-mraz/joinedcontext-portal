@@ -16,6 +16,7 @@ import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { ResourceList } from "../components/ResourceList";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
+import { SaveAsResourceAction } from "../components/SaveAsDialog";
 import { ExportButton } from "../components/export/ExportButton";
 import { SchemaProjectionPanel } from "../pages/endpoints/SchemaProjectionPanel";
 import {
@@ -815,6 +816,9 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                       {t("endpoints.edit")}
                     </Button>
                   </PermissionGuard>
+                  <SaveAsResourceAction
+                    target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
+                  />
                   <DeleteResourceAction
                     target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
                   />

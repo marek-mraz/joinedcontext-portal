@@ -97,6 +97,18 @@ pub struct ImportOptions {
     /// The manifests themselves, for a caller that posts JSON rather than a file.
     #[serde(default)]
     pub manifests: Option<Value>,
+    /// Spaces the bundle names that are not copied: each reference to `from` lands on the
+    /// target project's space `to`, ids included (T-1441, MF-26).
+    #[serde(default)]
+    pub space_mapping: Vec<SpaceMapping>,
+}
+
+/// One space of the origin mapped onto a space of the target project (T-1441).
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SpaceMapping {
+    pub from: String,
+    pub to: String,
 }
 
 /// `?dryRun=All`, as the OpenAPI document, the multipart field and every caller spell it.
@@ -578,8 +590,15 @@ fn unresolved(manifests: &[ResourceEnvelope], state: &AppState, project: &str) -
             {
                 continue;
             }
+            let options = if kind == "ContextSpace" {
+                // The three honest outcomes of a copy whose space stays behind (T-1441).
+                "; copy the space with it, map it onto a space of this project (spaceMapping), \
+                 or use the source's data through a SharedSpaceReference"
+            } else {
+                ""
+            };
             missing.insert(format!(
-                "{}: {kind} '{name}' is in neither the bundle nor project '{project}'",
+                "{}: {kind} '{name}' is in neither the bundle nor project '{project}'{options}",
                 envelope.metadata.name
             ));
         }
@@ -870,6 +889,13 @@ async fn read_request(
                         matches!(String::from_utf8_lossy(&data).trim(), "true" | "All")
                 }
                 "url" => options.url = Some(String::from_utf8_lossy(&data).into_owned()),
+                "spaceMapping" => {
+                    options.space_mapping = serde_json::from_slice(&data).map_err(|err| {
+                        ApiError::BadRequest(format!(
+                            "spaceMapping is a list of {{from, to}}: {err}"
+                        ))
+                    })?
+                }
                 _ => {}
             }
         }
@@ -985,6 +1011,26 @@ pub async fn import_bundle(
         None => crate::api::assistant::org_domain(state, &project),
     };
 
+    // A space mapped onto is one the caller may read in this project; the refusal is the same
+    // whether it exists or not, so nobody learns of a space they may not read (T-1441, R20).
+    let reads_spaces =
+        crate::permissions::for_request(state, identity, &project).may_read("ContextSpace");
+    for mapping in &options.space_mapping {
+        let there = resource::is_dns1123(&mapping.from)
+            && resource::is_dns1123(&mapping.to)
+            && reads_spaces
+            && state
+                .mirror
+                .get(&project, "ContextSpace", &mapping.to)
+                .is_some();
+        if !there {
+            return Err(ApiError::BadRequest(format!(
+                "spaceMapping: '{}' is not a space of project '{project}' you may read",
+                mapping.to
+            )));
+        }
+    }
+
     let (report, files) = plan_import(
         &incoming,
         state,
@@ -992,12 +1038,19 @@ pub async fn import_bundle(
         &target,
         &domain,
         options.conflict_policy,
+        &options.space_mapping,
     )?;
     // PF-57 on the import door (T-1460): the dry run is the bundle's check, over the bundle as
     // sent and the options it is imported with, so another manifest, policy or domain is stale;
     // the import itself needs that check before anything reaches the forge. Not over the planned
     // files: a plan mints a fresh endpoint slug each time, so no two plans are equal.
-    let subject = import_subject(bytes, options.conflict_policy, &domain, &target);
+    let subject = import_subject(
+        bytes,
+        options.conflict_policy,
+        &domain,
+        &target,
+        &options.space_mapping,
+    );
     if options.dry_run {
         crate::ops::record_import_check(state, identity, &project, &subject).await;
         return Ok((
@@ -1034,7 +1087,13 @@ pub async fn import_bundle(
 
 /// What an import's check is fresh for: the SHA-256 of the bundle as sent, and the options that
 /// decide what it writes.
-fn import_subject(bytes: &[u8], policy: ConflictPolicy, domain: &str, target: &str) -> Value {
+fn import_subject(
+    bytes: &[u8],
+    policy: ConflictPolicy,
+    domain: &str,
+    target: &str,
+    space_mapping: &[SpaceMapping],
+) -> Value {
     use sha2::{Digest, Sha256};
     let bundle: String = Sha256::digest(bytes)
         .iter()
@@ -1045,6 +1104,7 @@ fn import_subject(bytes: &[u8], policy: ConflictPolicy, domain: &str, target: &s
         "conflictPolicy": policy,
         "orgDomain": domain,
         "targetNamespace": target,
+        "spaceMapping": space_mapping,
     })
 }
 
@@ -1198,6 +1258,7 @@ fn plan_import(
     target: &str,
     domain: &str,
     policy: ConflictPolicy,
+    space_mapping: &[SpaceMapping],
 ) -> Result<(ImportReport, Vec<(String, String)>), ApiError> {
     let mut manifests: Vec<ResourceEnvelope> = Vec::new();
     let mut natives: Vec<(String, String)> = Vec::new();
@@ -1265,6 +1326,22 @@ fn plan_import(
                 .clone()
                 .unwrap_or_else(|| target.to_owned());
             remap(&mut envelope, &from, target, domain, &spaces);
+            // A mapped space is not copied: its references and the `{space}` segment of its
+            // ids land on the target's space (T-1441, PF-84).
+            for mapping in space_mapping {
+                let old = crate::spaces::segment(&state.mirror, &from, &mapping.from);
+                let new = crate::spaces::segment(&state.mirror, project, &mapping.to);
+                rewrite_reference(
+                    &mut envelope.spec,
+                    "ContextSpace",
+                    &mapping.from,
+                    &mapping.to,
+                );
+                rewrite_space(&mut envelope.spec, &old, &new);
+                // A bundle from elsewhere, or a space that predates rendered segments, writes
+                // the space's own name as the segment.
+                rewrite_space(&mut envelope.spec, &mapping.from, &new);
+            }
             (from, envelope)
         })
         .collect();

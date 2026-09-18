@@ -15,6 +15,7 @@ import { ChangeNotice } from "../components/ChangeNotice";
 import { ProjectQuota, useProjectUsage } from "../components/ProjectQuota";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { EditResourceAction } from "../components/EditResourceDialog";
+import { SaveAsResourceAction } from "../components/SaveAsDialog";
 import { contextSpaceSchema } from "../schemas/kinds";
 import {
   Alert,
@@ -260,6 +261,7 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                     {t("spaces.inside.open")}
                   </Link>
                   <EditResourceAction target={target} />
+                  <SaveAsResourceAction target={target} />
                   <DeleteResourceAction target={target} />
                 </div>
               </TableCell>

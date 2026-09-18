@@ -6,6 +6,7 @@ import { api, queryKeys, unwrap, whilePending } from "../api/client";
 import { asManifests, localized } from "../api/manifest";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { EditResourceAction } from "../components/EditResourceDialog";
+import { SaveAsResourceAction } from "../components/SaveAsDialog";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import {
   EmptyState,
@@ -112,6 +113,7 @@ function GenericListPage({
               <TableCell align="right">
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                   <EditResourceAction target={target} />
+                  <SaveAsResourceAction target={target} />
                   <DeleteResourceAction target={target} />
                 </div>
               </TableCell>

@@ -1488,3 +1488,138 @@ async fn a_bundle_whose_dry_run_is_refused_records_no_check() {
     assert_ne!(body["error"], "verdict_required", "{body}");
     assert!(written(&server).await.is_empty());
 }
+
+// --- Save as into another project: the endpoint's space (T-1441) --------------------------
+
+/// The target project already holds the space `air`, readable by a steward.
+const TARGET_SPACE: &str = r#"apiVersion: joinedcontext.com/v1alpha1
+kind: ContextSpace
+metadata:
+  name: air
+  namespace: banskabystrica
+spec:
+  isSandbox: false
+"#;
+
+fn endpoint_only(mapping: Value) -> Vec<u8> {
+    let endpoint: Value = serde_yaml_ng::from_str(ENDPOINT).expect("the endpoint parses");
+    serde_json::to_vec(&json!({ "manifests": [endpoint], "spaceMapping": mapping })).expect("body")
+}
+
+#[tokio::test]
+async fn an_endpoint_mapped_onto_a_space_of_the_target_keeps_its_name_and_gets_a_fresh_slug() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![TARGET_SPACE]);
+    let body = endpoint_only(json!([{ "from": "ovzdusie", "to": "air" }]));
+    let (status, answer) = post(state, &cookie, "application/json", body).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
+
+    let written = put_bodies(&server).await;
+    let endpoint = written
+        .iter()
+        .find(|body| body.contains("kind: Endpoint"))
+        .expect("the endpoint is written");
+    assert!(
+        endpoint.contains("name: public-air"),
+        "the name is kept: {endpoint}"
+    );
+    assert!(endpoint.contains("contextSpaceRef: air"), "{endpoint}");
+    assert!(
+        !endpoint.contains("mluyob4nz52lok3ssk7pgn5vwt"),
+        "a fresh slug: {endpoint}"
+    );
+    assert!(
+        endpoint.contains(
+            "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:banskabystrica-air:sever-01"
+        ),
+        "its ids land on the target space: {endpoint}"
+    );
+    assert!(
+        endpoint.contains("tampere.fi:ilma"),
+        "another city's id is not ours to move: {endpoint}"
+    );
+    assert!(
+        !written
+            .iter()
+            .any(|body| body.contains("kind: ContextSpace")),
+        "no space is copied"
+    );
+}
+
+#[tokio::test]
+async fn a_mapping_onto_a_space_the_caller_cannot_read_says_nothing_of_whether_it_exists() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![TARGET_SPACE]);
+    let (missing, absent) = post(
+        state.clone(),
+        &cookie,
+        "application/json",
+        endpoint_only(json!([{ "from": "ovzdusie", "to": "nowhere" }])),
+    )
+    .await;
+    assert_eq!(missing, StatusCode::BAD_REQUEST, "{absent}");
+
+    // A person who may import but not read spaces meets the same words for a space that exists.
+    let (state, cookie) = state_as(
+        &server,
+        vec![TARGET_SPACE],
+        &[],
+        vec![
+            role(
+                "importer",
+                json!([{ "kinds": ["Endpoint"], "verbs": ["propose", "read"] }]),
+            ),
+            binding("importer"),
+        ],
+    );
+    let (hidden, there) = post(
+        state,
+        &cookie,
+        "application/json",
+        endpoint_only(json!([{ "from": "ovzdusie", "to": "air" }])),
+    )
+    .await;
+    assert_eq!(hidden, StatusCode::BAD_REQUEST, "{there}");
+    let said = |v: &Value| {
+        v["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .replace("nowhere", "X")
+            .replace("air", "X")
+    };
+    assert_eq!(said(&absent), said(&there));
+    assert!(written(&server).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_dangling_space_names_the_three_ways_out() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let (status, answer) = post(state, &cookie, "application/json", endpoint_only(json!([]))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+    let detail = answer["detail"].as_str().unwrap_or_default();
+    for way in ["copy the space", "spaceMapping", "SharedSpaceReference"] {
+        assert!(detail.contains(way), "{way}: {detail}");
+    }
+}
+
+#[tokio::test]
+async fn a_name_taken_in_the_target_is_a_conflict_that_never_offers_a_prefixed_name() {
+    let server = forge().await;
+    let taken = ENDPOINT.replace("namespace: helsinki", "namespace: banskabystrica");
+    let (state, cookie) = state(&server, vec![TARGET_SPACE, &taken]);
+    let (status, answer) = post(
+        state,
+        &cookie,
+        "application/json",
+        endpoint_only(json!([{ "from": "ovzdusie", "to": "air" }])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{answer}");
+    let detail = answer["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("public-air"), "{detail}");
+    assert!(
+        !detail.contains("banskabystrica-public-air") && !detail.contains("public-air-helsinki"),
+        "{detail}"
+    );
+}

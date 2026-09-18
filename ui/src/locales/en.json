@@ -1849,5 +1849,26 @@
     },
     "fields": "{count, plural, one {# field} other {# fields}}",
     "items": "{count, plural, one {# item} other {# items}}"
+  },
+  "saveAs": {
+    "title": "Save {name} as",
+    "lead": "A copy is proposed as one change; nothing is written until an approver merges it.",
+    "button": "Save as",
+    "action": "Save {name} as",
+    "project": "Project",
+    "name": "Name",
+    "qualified": "It will be called {name}.",
+    "spaceNamed": "The space is copied with everything it holds, and the import names the copy.",
+    "space": "The space {space}",
+    "choice": {
+      "copy": "Copy the space too",
+      "map": "Use a space of the target project",
+      "reference": "Use the source's data (no copy)"
+    },
+    "mapTo": "Space of the target project",
+    "check": "Check",
+    "propose": "Propose",
+    "checked": "Checked: the copy can be proposed.",
+    "mayNotPropose": "You may not propose this kind in {project}."
   }
 }

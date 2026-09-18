@@ -1849,5 +1849,26 @@
     },
     "fields": "{count, plural, one {# pole} few {# pole} other {# polí}}",
     "items": "{count, plural, one {# položka} few {# položky} other {# položek}}"
+  },
+  "saveAs": {
+    "title": "Uložit {name} jako",
+    "lead": "Kopie se navrhne jako jedna změna; nic se nezapíše, dokud ji schvalovatel nesloučí.",
+    "button": "Uložit jako",
+    "action": "Uložit {name} jako",
+    "project": "Projekt",
+    "name": "Název",
+    "qualified": "Bude se jmenovat {name}.",
+    "spaceNamed": "Prostor se zkopíruje se vším, co obsahuje, a import kopii pojmenuje.",
+    "space": "Prostor {space}",
+    "choice": {
+      "copy": "Zkopírovat i prostor",
+      "map": "Použít prostor cílového projektu",
+      "reference": "Použít data zdroje (bez kopie)"
+    },
+    "mapTo": "Prostor cílového projektu",
+    "check": "Zkontrolovat",
+    "propose": "Navrhnout",
+    "checked": "Zkontrolováno: kopii lze navrhnout.",
+    "mayNotPropose": "V projektu {project} nemůžete navrhovat tento druh."
   }
 }
