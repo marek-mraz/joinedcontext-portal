@@ -452,6 +452,39 @@ pub async fn propose_with_identity(
         })?;
     }
 
+    // 4c. A ServiceAccount's Keycloak client id is derived, `{project}-{name}`, and the hyphen
+    //     is a character of both, so another project's account may derive the same id. The
+    //     gateway resolves such an id to nobody (T-1454); refusing it here keeps a proposal from
+    //     switching off the other project's account. The other account is not named: it may live
+    //     in a project the author cannot read (PF-59).
+    if kind_info.kind == "ServiceAccount" {
+        use jc_core::kinds::service_account::keycloak_client_id;
+        let id = keycloak_client_id(project, &envelope.metadata.name);
+        let taken = state.mirror.namespaces().into_iter().any(|namespace| {
+            state
+                .mirror
+                .list(
+                    &namespace,
+                    "ServiceAccount",
+                    &crate::store::ListOptions::default(),
+                )
+                .items
+                .iter()
+                .any(|account| {
+                    (namespace.as_str(), account.metadata.name.as_str())
+                        != (project, envelope.metadata.name.as_str())
+                        && keycloak_client_id(&namespace, &account.metadata.name) == id
+                })
+        });
+        if taken {
+            return Err(ApiError::BadRequest(format!(
+                "metadata.name '{}' gives the Keycloak client id '{id}', which another \
+                 ServiceAccount already derives; choose another name (T-1456)",
+                envelope.metadata.name
+            )));
+        }
+    }
+
     // 4b''. An agent profile names only operations this Portal registers (MF-40): jc-core checks
     //       the shape of an operation name, the registry is the Portal's to know.
     if kind_info.kind == "AgentProfile" {

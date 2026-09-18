@@ -4,6 +4,8 @@
 //! write to (locally: `docker run -e POSTGRES_PASSWORD=… postgres:17-alpine`); the rest of the
 //! file, the parts that decide who may manage an account, needs no database at all.
 
+mod common;
+
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -365,4 +367,72 @@ async fn a_write_without_the_csrf_token_is_refused() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+/// T-1456: `helsinki` + `kpi-writer` and `helsinki-kpi` + `writer` derive one Keycloak client id,
+/// which the gateway then resolves to nobody (T-1454). The Check refuses the second account and
+/// names the id, not the account or project that holds it; a name that derives a free id passes
+/// this rule, and re-proposing the account that holds the id is not a collision with itself.
+#[tokio::test]
+async fn an_account_whose_client_id_another_project_derives_is_refused_at_check() {
+    let forge = common::forge().await;
+    let state = common::state_on(&forge);
+    let account = |project: &str, name: &str| {
+        json!({
+            "apiVersion": "joinedcontext.com/v1alpha1",
+            "kind": "ServiceAccount",
+            "metadata": { "name": name, "namespace": project },
+            "spec": {
+                "owner": { "user": "demo.steward" },
+                "purpose": "writes indicators",
+                "roles": [{ "role": "space-writer", "scope": { "project": project } }],
+                "credentials": [{ "kind": "oauth-client", "name": "default" }]
+            }
+        })
+    };
+    let held = account("helsinki", "kpi-writer");
+    state
+        .mirror
+        .upsert(serde_json::from_value(held.clone()).expect("an envelope"));
+    let mut admin = common::person("admin");
+    admin.groups = vec!["portal-approver".into()];
+    let check = |project: &'static str, body: Value| {
+        let state = state.clone();
+        let admin = admin.clone();
+        async move {
+            common::send(
+                &state,
+                admin,
+                "POST",
+                &format!("/api/v1/projects/{project}/serviceaccounts?dryRun=All"),
+                Some(body),
+            )
+            .await
+        }
+    };
+
+    let refused = check("helsinki-kpi", account("helsinki-kpi", "writer")).await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.text);
+    assert!(
+        refused.text.contains("helsinki-kpi-writer"),
+        "{}",
+        refused.text
+    );
+    assert!(
+        !refused.text.contains("'kpi-writer'") && !refused.text.contains("'helsinki'"),
+        "the holder is not named: {}",
+        refused.text
+    );
+
+    for (project, body) in [
+        ("helsinki-kpi", account("helsinki-kpi", "reader")),
+        ("helsinki", held),
+    ] {
+        let answer = check(project, body).await;
+        assert!(
+            !answer.text.contains("T-1456"),
+            "{project}: {}",
+            answer.text
+        );
+    }
 }
