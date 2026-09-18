@@ -308,6 +308,22 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     ]);
   });
 
+  it("shows the model picker open, with what is ticked said above it (T-1389)", async () => {
+    setupTest();
+    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.add }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(dialog.querySelector("#root_name") as HTMLElement, "open-picker");
+
+    // No click on a disclosure: the classes are there to tick.
+    await waitFor(() => expect(within(dialog).getByLabelText("Vehicle")).toBeVisible());
+    expect(within(dialog).queryByText(en.endpoints.section.projection)?.closest("summary")).toBeNull();
+    expect(within(dialog).getByTestId("projection-summary")).toHaveTextContent("Publishing 0 types with 0 attributes.");
+    await userEvent.click(within(dialog).getByLabelText("Vehicle"));
+    await waitFor(() =>
+      expect(within(dialog).getByTestId("projection-summary")).not.toHaveTextContent("Publishing 0 types"),
+    );
+  });
+
   it("refuses proposal if space has model but nothing is ticked", async () => {
     setupTest();
     await userEvent.click(await screen.findByRole("button", { name: en.endpoints.add }));

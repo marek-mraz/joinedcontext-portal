@@ -358,7 +358,8 @@
       "notCompiled": "The gateway does not compile this formalism; it is served once Model Tools commits it beside the source.",
       "addHidden": "Hide an attribute by name",
       "add": "Hide",
-      "attribute": "Attribute"
+      "attribute": "Attribute",
+      "summary": "Publishing {types} types with {attributes} attributes."
     },
     "link": {
       "index": "index",

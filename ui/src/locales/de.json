@@ -339,7 +339,8 @@
       "notCompiled": "Das Gateway kompiliert diesen Formalismus nicht; er wird ausgeliefert, sobald Model Tools ihn neben der Quelle ablegt.",
       "addHidden": "Attribut nach Namen verbergen",
       "add": "Verbergen",
-      "attribute": "Attribut"
+      "attribute": "Attribut",
+      "summary": "Veröffentlicht {types} Typen mit {attributes} Attributen."
     },
     "link": {
       "index": "Index",

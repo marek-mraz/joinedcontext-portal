@@ -358,7 +358,8 @@
       "notCompiled": "Tento formalismus brána nekompiluje; zveřejní se, jakmile jej Model Tools uloží vedle zdroje.",
       "addHidden": "Skrýt atribut podle názvu",
       "add": "Skrýt",
-      "attribute": "Atribut"
+      "attribute": "Atribut",
+      "summary": "Zveřejňuje {types} typů s {attributes} atributy."
     },
     "link": {
       "index": "index",

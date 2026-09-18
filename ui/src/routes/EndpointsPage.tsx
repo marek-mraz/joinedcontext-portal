@@ -1093,11 +1093,21 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
               </Alert>
             ) : null}
 
+            {/* What the endpoint publishes is its purpose, so the picker is open, never behind a
+                click, with what is ticked said above it (T-1389). */}
             {editing?.contextSpaceRef ? (
-              <details className="rounded border border-border p-3">
-                <summary className="cursor-pointer text-body font-medium text-fg">
+              <section className="rounded border border-border p-3" aria-labelledby="endpoint-projection">
+                <h3 id="endpoint-projection" className="text-body font-medium text-fg">
                   {t("endpoints.section.projection")}
-                </summary>
+                </h3>
+                <p data-testid="projection-summary" className="text-caption text-fg-muted">
+                  {t("endpoints.projection.summary", {
+                    types: Object.values(pickerState.classes).filter((config) => config.ticked).length,
+                    attributes: Object.values(pickerState.classes)
+                      .filter((config) => config.ticked)
+                      .reduce((sum, config) => sum + config.slots.length, 0),
+                  })}
+                </p>
                 <div className="mt-3">
                   <ModelPicker
                     handed={handedClasses}
@@ -1109,7 +1119,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                     onChange={setPickerState}
                   />
                 </div>
-              </details>
+              </section>
             ) : null}
 
             {/* A new endpoint publishes nothing yet, so there is no schema to hide attributes of. */}
