@@ -414,8 +414,9 @@ describe("watching a run", () => {
     );
     expect(frame).toHaveAttribute("src", "/apps/ovzdusie-dnes-preview/");
     // `allow-scripts` with `allow-same-origin` on a same-origin frame is not a sandbox: the
-    // frame could read the CSRF cookie and write as the person reviewing it.
-    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    // frame could read the CSRF cookie and write as the person reviewing it. `allow-forms` is
+    // what lets an application's Save reach its submit handler (T-1219); nothing else.
+    expect(frame.getAttribute("sandbox")?.split(/\s+/).sort()).toEqual(["allow-forms", "allow-scripts"]);
   });
 
   it("builds in the frame's place with the agent's step and the types it reads, never a template (SDK-14)", async () => {

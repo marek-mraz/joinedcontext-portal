@@ -125,14 +125,17 @@ export function AgentRunPage({
                 that pair beside `allow-scripts` is not a sandbox at all — the frame could
                 read the deliberately readable CSRF cookie and write as the signed-in
                 reviewer (AP-19). The URL carries the pass number, so a new pass is a new
-                frame rather than a stale one.
+                frame rather than a stale one. `allow-forms` because an application saves
+                through a form: without it the browser drops the submit event, so the SDK is
+                never called and Save does nothing, silently (T-1219). The preview's own CSP
+                is `form-action 'none'`, so a form still navigates nowhere.
               */}
               <iframe
                 ref={frame}
                 key={record.previewUrl}
                 title={t("agentRun.preview.frameTitle", { app: displayName })}
                 src={record.previewUrl}
-                sandbox="allow-scripts"
+                sandbox="allow-scripts allow-forms"
                 className="h-[82vh] min-h-[28rem] w-full rounded border border-border bg-surface"
               />
               <a
