@@ -832,6 +832,45 @@ async fn put_for_a_name_the_project_does_not_hold_creates_the_model_in_its_space
         .any(|p| p.ends_with("/datamodels/json-schema/bikes.v0.json")));
 }
 
+/// T-1139, DM-56: a source past the limit is refused by the route, before the body is read into
+/// a generator call and before the forge is touched. The ceiling is the one the layer enforces,
+/// so a caller learns it from the answer rather than from a closed connection.
+#[tokio::test]
+async fn put_of_a_source_past_the_limit_is_refused_and_the_forge_is_not_called() {
+    let forge = MockServer::start().await;
+    let forge_url = forge.uri().parse().expect("valid forge url");
+    let gitea = GiteaClient::new(forge_url, "owner", "repo", "token").expect("client");
+
+    let config = Config::for_tests();
+    let cookie = session_cookie(&config);
+    let state = AppState::new(config, None).with_gitea(Arc::new(gitea));
+    seed_space(&state, "ovzdusie", "mobility");
+
+    // One byte over: the refusal is the size, not the content.
+    let huge = "#".repeat(512 * 1024 + 1);
+    let response = server::app(state)
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/projects/ovzdusie/datamodels/bikes/source?space=mobility")
+                .header(header::COOKIE, &cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "text/yaml")
+                .body(Body::from(huge))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::PAYLOAD_TOO_LARGE,
+        "a source past the limit is refused, not accepted: {}",
+        response.status()
+    );
+    assert!(forge.received_requests().await.unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn put_for_an_unknown_model_without_a_space_is_400_and_the_forge_is_not_called() {
     let forge = MockServer::start().await;

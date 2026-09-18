@@ -141,6 +141,61 @@ pub struct Verified {
     pub equal: bool,
 }
 
+#[cfg(test)]
+mod verification_tests {
+    use super::{ImportReport, Verified};
+    use crate::change::Lane;
+
+    fn report(verified: Vec<Verified>) -> ImportReport {
+        ImportReport {
+            created: Vec::new(),
+            replaced: Vec::new(),
+            skipped: Vec::new(),
+            renamed: std::collections::BTreeMap::new(),
+            native_files: 0,
+            lane: Lane::Green,
+            source: None,
+            verified,
+        }
+    }
+
+    fn file(path: &str, equal: bool) -> Verified {
+        Verified {
+            path: path.to_owned(),
+            equal,
+        }
+    }
+
+    /// MF-42: the line the change body leads with counts what matched out of what was checked.
+    #[test]
+    fn the_summary_counts_what_matched_out_of_what_was_checked() {
+        let files: Vec<Verified> = (0..10)
+            .map(|index| file(&format!("f{index}.yaml"), index != 3))
+            .collect();
+        assert_eq!(
+            report(files).verification_summary().as_deref(),
+            Some("9 of 10 files equal")
+        );
+    }
+
+    #[test]
+    fn a_transfer_that_all_arrived_says_so_in_the_same_words() {
+        assert_eq!(
+            report(vec![file("a.yaml", true), file("b.yaml", true)])
+                .verification_summary()
+                .as_deref(),
+            Some("2 of 2 files equal")
+        );
+    }
+
+    /// A bundle with no checksums is unverifiable, and says nothing rather than something
+    /// reassuring: `0 of 0 files equal` would read as a verified transfer.
+    #[test]
+    fn a_bundle_that_carried_no_checksums_says_nothing_about_verification() {
+        assert_eq!(report(Vec::new()).verification_summary(), None);
+    }
+}
+
 impl ImportReport {
     /// `n of m files equal`, the line the `Change` body leads with (MF-42), or `None` when the
     /// bundle carried no checksums.

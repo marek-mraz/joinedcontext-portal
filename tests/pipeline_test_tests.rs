@@ -310,6 +310,29 @@ async fn a_harness_the_runner_refuses_is_a_lint_error_with_its_line() {
     runner.verify().await;
 }
 
+/// T-1139, PL-43: a runner that answers with its own failure is the platform's problem, not the
+/// caller's. It is `503` and no trace, because a trace of nothing would read as a pipeline that
+/// produced nothing.
+#[tokio::test]
+async fn a_runner_that_fails_the_create_is_503_and_no_trace() {
+    let runner = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/[a-z-]+/streams/pipeline-test-[a-z2-7]{26}$"))
+        .respond_with(ResponseTemplate::new(503).set_body_string("no capacity"))
+        .expect(1)
+        .mount(&runner)
+        .await;
+    let state = AppState::new(config(Some(&runner)), None).with_mirror(mirror("kuopio"));
+
+    let (status, body) = post(&state, "dev@hel.fi", "kuopio", &request("root = this")).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(body.get("errors").is_none(), "{body}");
+    // The runner's own words stay inside the cluster: the caller learns the platform is at
+    // fault and nothing about its capacity.
+    assert!(!body.to_string().contains("no capacity"), "{body}");
+    runner.verify().await;
+}
+
 #[tokio::test]
 async fn what_the_kind_refuses_is_400_before_the_runner_is_asked() {
     let runner = MockServer::start().await;

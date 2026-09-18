@@ -1484,6 +1484,16 @@ const PIPELINE_YAML: &str = "apiVersion: joinedcontext.com/v1alpha1\nkind: Pipel
 /// A merge request by somebody else, headed by the Pipeline `aq` and carrying `extra` files
 /// beside it, and an approver whose only rights are `rules` over the organization.
 async fn bundle_of(rules: Value, extra: &[(&str, &str)]) -> (MockServer, AppState) {
+    bundle_of_with_status(rules, extra, "added").await
+}
+
+/// The same bundle with the files carrying one status: `added`, or `deleted` — the word the
+/// forge uses, which is what decides which branch the file is read from.
+async fn bundle_of_with_status(
+    rules: Value,
+    extra: &[(&str, &str)],
+    status: &str,
+) -> (MockServer, AppState) {
     use joinedcontext_portal::permissions::ORG_NAMESPACE;
     use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 
@@ -1539,14 +1549,31 @@ async fn bundle_of(rules: Value, extra: &[(&str, &str)]) -> (MockServer, AppStat
         .mount(&server)
         .await;
     let mut files = vec![(PIPELINE_PATH, "added")];
-    files.extend(extra.iter().map(|(file, _)| (*file, "added")));
+    files.extend(extra.iter().map(|(file, _)| (*file, status)));
     pr_files(&server, 7, &files).await;
-    for (file, content) in std::iter::once(&(PIPELINE_PATH, PIPELINE_YAML)).chain(extra) {
+    // A deleted file is read from the base branch, because the head no longer holds it.
+    let extra_ref = if status == "deleted" {
+        "main"
+    } else {
+        BUNDLE_BRANCH
+    };
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/repos/test-owner/test-repo/contents/{PIPELINE_PATH}"
+        )))
+        .and(query_param("ref", BUNDLE_BRANCH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": "blob-head",
+            "content": encode_b64(PIPELINE_YAML)
+        })))
+        .mount(&server)
+        .await;
+    for (file, content) in extra {
         Mock::given(method("GET"))
             .and(path(format!(
                 "/api/v1/repos/test-owner/test-repo/contents/{file}"
             )))
-            .and(query_param("ref", BUNDLE_BRANCH))
+            .and(query_param("ref", extra_ref))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "sha": format!("blob-{}", file.len()),
                 "content": encode_b64(content)
@@ -1622,6 +1649,69 @@ async fn a_bundle_headed_by_a_pipeline_cannot_smuggle_a_rolebinding_past_a_pipel
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert!(body.contains("RoleBinding"), "{body}");
     assert!(!merged(&server).await);
+}
+
+/// T-1139, PF-50: a file that is not a manifest still belongs to a kind — the directory says
+/// which — and approving it is that kind's `approve`, not a free pass for anything unparsable.
+#[tokio::test]
+async fn a_native_file_of_a_bundle_is_approved_as_the_kind_its_directory_names() {
+    let bento = "input:\n  mqtt:\n    urls: [ mqtts://mqtt.example.sk:8883 ]\n";
+    let (server, state) = bundle_of(
+        json!([{ "kinds": ["Pipeline"], "verbs": ["approve"] }]),
+        &[("projects/ovzdusie/pipelines/aq/bento.yaml", bento)],
+    )
+    .await;
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(merged(&server).await, "{body}");
+}
+
+#[tokio::test]
+async fn a_file_of_no_kind_this_platform_serves_is_approved_by_nobody() {
+    let (server, state) = bundle_of(
+        json!([{ "kinds": ["Pipeline", "ContextSpace", "Endpoint"], "verbs": ["approve", "delete"] }]),
+        &[("projects/ovzdusie/notes/readme.txt", "a file nobody declared")],
+    )
+    .await;
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("belongs to no kind"), "{body}");
+    assert!(!merged(&server).await);
+}
+
+/// PF-77: a change that removes a manifest is held to `delete` on that kind as well as
+/// `approve`, so nobody approves away what their role never let them delete.
+#[tokio::test]
+async fn approving_a_deletion_needs_the_delete_verb_on_that_kind() {
+    let space = "apiVersion: joinedcontext.com/v1alpha1\nkind: ContextSpace\nmetadata:\n  name: ovzdusie\n  namespace: ovzdusie\nspec: {}\n";
+    let approve_only = json!([{ "kinds": ["Pipeline", "ContextSpace"], "verbs": ["approve"] }]);
+    let (server, state) = bundle_of_with_status(
+        approve_only,
+        &[("projects/ovzdusie/spaces/ovzdusie/space.yaml", space)],
+        "deleted",
+    )
+    .await;
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(body.contains("delete"), "{body}");
+    assert!(!merged(&server).await);
+
+    // The same change, from a role that may delete that kind: the removal goes through.
+    let may_delete =
+        json!([{ "kinds": ["Pipeline", "ContextSpace"], "verbs": ["approve", "delete"] }]);
+    let (server, state) = bundle_of_with_status(
+        may_delete,
+        &[("projects/ovzdusie/spaces/ovzdusie/space.yaml", space)],
+        "deleted",
+    )
+    .await;
+    // A deletion is red whatever it takes with it, so the name is typed back.
+    let (status, body) = approve_bundle(state, Some("aq")).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert!(merged(&server).await, "{body}");
 }
 
 #[tokio::test]
