@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { PermissionGuard } from "../components/ui/PermissionGuard";
 import type { JSX } from "react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
@@ -454,23 +455,36 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
             {t("apps.generate.title")}
           </button>
           <div className="flex flex-col gap-2">
-            {[
-              t("assistant.empty.examples.find"),
-              t("assistant.empty.examples.share"),
-              t("assistant.empty.examples.build"),
-            ].map((exampleText) => (
-              <button
-                key={exampleText}
-                type="button"
-                disabled={isStarting}
-                onClick={() => {
-                  void startConversation(exampleText);
-                }}
-                className="rounded border border-border bg-surface-subtle p-2 text-left text-xs text-fg hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
-              >
-                {exampleText}
-              </button>
-            ))}
+            {/* A prompt the caller's role cannot carry out stays, disabled with the reason (T-1390, UI-44). */}
+            {(
+              [
+                ["find", null],
+                ["share", "Endpoint"],
+                ["build", "Dashboard"],
+              ] as const
+            ).map(([example, kind]) => {
+              const exampleText = t(`assistant.empty.examples.${example}`);
+              const button = (
+                <button
+                  key={exampleText}
+                  type="button"
+                  disabled={isStarting}
+                  onClick={() => {
+                    void startConversation(exampleText);
+                  }}
+                  className="rounded border border-border bg-surface-subtle p-2 text-left text-xs text-fg hover:bg-surface-muted focus:outline-none focus:ring-2 focus:ring-border-focus disabled:opacity-50"
+                >
+                  {exampleText}
+                </button>
+              );
+              return kind ? (
+                <PermissionGuard key={exampleText} project={activeProject} kind={kind} verb="propose">
+                  {button}
+                </PermissionGuard>
+              ) : (
+                button
+              );
+            })}
           </div>
 
           <form

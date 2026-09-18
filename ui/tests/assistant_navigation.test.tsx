@@ -84,7 +84,7 @@ class StubEventSource {
 let requests: Request[] = [];
 const fetchCalls = () => requests;
 
-function renderPortal() {
+function renderPortal(permissions?: unknown) {
   requests = [];
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
@@ -99,6 +99,9 @@ function renderPortal() {
       );
     if (path.endsWith("/auth/me")) {
       return json(IDENTITY);
+    }
+    if (path.endsWith("/permissions/me") && permissions) {
+      return json(permissions);
     }
     if (path.endsWith(`/agent-runs/${RUN_ID}`)) {
       return json(RUN);
@@ -514,6 +517,30 @@ describe("the assistant dock", () => {
       expect(screen.queryByTestId("assistant-empty")).toBeNull();
     });
     expect(screen.getByRole("heading", { name: en.assistant.title })).toBeInTheDocument();
+  });
+
+  it("keeps the example prompts a viewer cannot carry out, disabled with the reason (T-1390)", async () => {
+    window.history.pushState({}, "", `/projects/${PROJECT}/spaces`);
+    renderPortal({
+      project: PROJECT,
+      bootstrap: false,
+      grants: [{ role: "viewer", binding: "v", rule: { kinds: ["*"], verbs: ["get", "list"] } }],
+    });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: en.assistant.open }));
+    await screen.findByTestId("assistant-empty");
+
+    expect(screen.getByRole("button", { name: i18n.t("assistant.empty.examples.find") })).toBeEnabled();
+    for (const [example, kind] of [["share", "Endpoint"], ["build", "Dashboard"]]) {
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: i18n.t(`assistant.empty.examples.${example}`) })).toBeDisabled(),
+      );
+      const prompt = screen.getByRole("button", { name: i18n.t(`assistant.empty.examples.${example}`) });
+      expect(prompt.parentElement).toHaveAttribute("title", i18n.t("permissions.denied", { verb: "propose", kind }));
+    }
+    // A disabled prompt starts nothing.
+    await user.click(screen.getByRole("button", { name: i18n.t("assistant.empty.examples.build") }));
+    expect(fetchCalls().some((req) => req.method === "POST")).toBe(false);
   });
 
   it("leaves full screen on Escape key", async () => {
