@@ -104,12 +104,15 @@ describe("editing a resource from its list", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows no Edit to a person whose role may not propose the kind", async () => {
+  it("keeps Edit disabled with the reason for a person whose role may not propose the kind (UI-44)", async () => {
     renderList({ verbs: ["delete"] });
     expect(await screen.findByText("Zvolen air quality")).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Edit Zvolen air quality" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Zvolen air quality" })).toBeDisabled();
     });
+    expect(screen.getByRole("button", { name: "Edit Zvolen air quality" }).closest("[title]")?.getAttribute("title")).toMatch(
+      /propose/,
+    );
   });
 
   it("opens the stored manifest without its status and proposes the edit once", async () => {

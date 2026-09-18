@@ -92,12 +92,15 @@ describe("removing a resource from its list", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows no Delete to a person whose role may not delete the kind", async () => {
+  it("keeps Delete disabled with the reason for a person whose role may not delete the kind (UI-44)", async () => {
     renderList({ verbs: ["propose"] });
     expect(await screen.findByText("Zvolen air quality")).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Delete Zvolen air quality" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Delete Zvolen air quality" })).toBeDisabled();
     });
+    expect(screen.getByRole("button", { name: "Delete Zvolen air quality" }).closest("[title]")?.getAttribute("title")).toMatch(
+      /delete/,
+    );
   });
 
   it("proposes the removal only once the name is typed back, and shows the change", async () => {

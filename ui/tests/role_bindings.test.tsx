@@ -136,14 +136,16 @@ describe("people and roles", () => {
     expect(within(table).getAllByRole("button", { name: /^Delete\b/ })).toHaveLength(2);
   });
 
-  it("offers a viewer no change and keeps Grant a role where it is, disabled with the reason", async () => {
+  it("keeps every change a viewer may not make where it is, disabled with the reason", async () => {
     renderAccess({ grants: [] });
 
     expect(await screen.findByText("demo.steward@hel.fi")).toBeInTheDocument();
     const grant = screen.getByRole("button", { name: en.access.roles.grant });
     expect(grant).toBeDisabled();
     expect(grant.closest("[title]")?.getAttribute("title")).toMatch(/RoleBinding/);
-    expect(within(roles()).queryByRole("button", { name: /^(Edit|Delete)\b/ })).not.toBeInTheDocument();
+    for (const button of within(roles()).queryAllByRole("button", { name: /^(Edit|Delete)\b/ })) {
+      expect(button).toBeDisabled();
+    }
   });
 
   it("proposes the binding the form shows to the organization's route and shows the red change", async () => {
