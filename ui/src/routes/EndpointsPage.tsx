@@ -508,7 +508,11 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
             "Content-Type": "application/json",
             "x-csrf-token": readCsrfToken() ?? "",
           },
-          body: JSON.stringify({ manifests: buildManifests(form) }),
+          // The bundle is the form's own endpoint, its projection and its policies, not a
+          // foreign import, so a projection an earlier proposal already drew is updated by this
+          // one instead of refusing the whole check (MF-23, T-1227). Every manifest still lands
+          // as a Change an approver reads, and "Show the manifests this proposes" says what.
+          body: JSON.stringify({ manifests: buildManifests(form), conflictPolicy: "replace" }),
         },
       ),
     );

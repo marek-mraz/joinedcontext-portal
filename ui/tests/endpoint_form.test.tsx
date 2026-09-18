@@ -149,6 +149,29 @@ function setupTest(endpoints: unknown = { apiVersion: "joinedcontext.com/v1alpha
     if (url.pathname.endsWith("/spaces")) return json(SPACES);
     if (url.pathname.endsWith("/datamodels")) return json(DATAMODELS);
     if (url.pathname.endsWith("/projections")) return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
+    if (url.pathname.endsWith("/import")) {
+      // The import door refuses a name the project already holds unless the caller says what to
+      // do with it (MF-23). The form's own bundle names the projection after the endpoint, so a
+      // second proposal for a space that already has one is refused here, not in the browser.
+      return request
+        .clone()
+        .json()
+        .then((body: { manifests?: { metadata?: { name?: string } }[]; conflictPolicy?: string }) => {
+          const collides = (body.manifests ?? []).some(
+            (m) => m.metadata?.name === "vehicles-again",
+          );
+          if (collides && body.conflictPolicy !== "replace") {
+            return json(
+              {
+                detail:
+                  "ModelProjection 'vehicles-again' already exists in project 'banskabystrica'; choose skip, replace or rename (MF-23)",
+              },
+              409,
+            );
+          }
+          return json(CHANGE, 202);
+        });
+    }
     // A check answers a verdict fresh for the manifest it judged; without it the form proposes
     // nothing under strict validation (AG-62, PF-57, T-0779).
     if (isCheck(request, url)) {
@@ -157,8 +180,6 @@ function setupTest(endpoints: unknown = { apiVersion: "joinedcontext.com/v1alpha
     if (url.pathname.endsWith("/endpoints") && request.method === "POST") return json({ valid: true, lane: "yellow" });
     if (url.pathname.endsWith("/endpoints/vehicles-live")) return json(CHANGE, 202);
     if (url.pathname.endsWith("/endpoints")) return json(endpoints);
-    if (url.pathname.endsWith("/import")) return json(CHANGE, 202);
-
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -285,6 +306,28 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
 
     expect(await within(dialog).findByText(en.endpoints.picker.nothingTicked)).toBeInTheDocument();
+  });
+
+  it("proposes a projection the space already holds as an update, so the second share is checkable (MF-23, T-1227)", async () => {
+    const fetchMock = setupTest();
+    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.add }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(dialog.querySelector("#root_name") as HTMLElement, "vehicles-again");
+
+    await waitFor(() => expect(within(dialog).getByLabelText("Vehicle")).toBeInTheDocument());
+    await userEvent.click(within(dialog).getByLabelText("Vehicle"));
+
+    await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
+
+    // The check reaches the endpoint's own dry run and its verdict, instead of dying on the
+    // projection an earlier proposal drew.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.endpoints.propose })).toBeEnabled(),
+    );
+    const bundle = fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .find((request) => request.url.includes("/import"))!;
+    expect((await bundle.clone().json()).conflictPolicy).toBe("replace");
   });
 
   it("ticks the classes the assistant's proposal names, so its check is not refused (T-0895)", async () => {
