@@ -28,6 +28,7 @@ import { WorkspaceProvider } from "./components/layout/WorkspaceContext";
 import { WorkspacesPage } from "./routes/WorkspacesPage";
 import { ComparePage } from "./pages/workspaces/ComparePage";
 import { BringBackPage } from "./pages/workspaces/BringBackPage";
+import { TryItPage } from "./pages/workspaces/TryItPage";
 import type { AuthState } from "./auth/AuthProvider";
 
 export interface RouterContext {
@@ -132,6 +133,19 @@ const workspaceCompareRoute = createRoute({
     return (
       <Shell project={project}>
         <ComparePage project={project} name={name} />
+      </Shell>
+    );
+  },
+});
+
+const workspaceTryItRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/workspaces/$name/try-it",
+  component: function WorkspaceTryItRoute() {
+    const { project, name } = workspaceTryItRoute.useParams();
+    return (
+      <Shell project={project}>
+        <TryItPage project={project} name={name} />
       </Shell>
     );
   },
@@ -420,6 +434,7 @@ export const routeTree = rootRoute.addChildren([
     assistantRoute,
     sharedRedirectRoute,
     workspacesRoute,
+    workspaceTryItRoute,
     workspaceCompareRoute,
     workspaceBringBackRoute,
     resourceListRoute,

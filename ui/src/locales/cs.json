@@ -1927,7 +1927,8 @@
       "bringBack": "Vrátit",
       "expired": "Tato kopie vypršela {date}. Její změny se nikdy nevrátily do projektu.",
       "refused": "Tuto kopii nemůžete otevřít: {reason}",
-      "foreign": "Jen pro čtení: kopie uživatele {owner}"
+      "foreign": "Jen pro čtení: kopie uživatele {owner}",
+      "tryIt": "Vyzkoušet"
     },
     "compare": {
       "title": "Co kopie mění",
@@ -1954,6 +1955,23 @@
       "propose": "Navrhnout jako jednu změnu",
       "proposed": "Navrženo jako",
       "notOwner": "Kopii vrací jen ten, kdo ji začal."
+    },
+    "tryIt": {
+      "action": "Vyzkoušet",
+      "title": "Vyzkoušet kopii",
+      "lead": "Náhled obsluhuje kopii {name} vedle projektu, na vlastních adresách. Nic v něm není živé.",
+      "start": "Spustit náhled",
+      "stop": "Zastavit",
+      "failed": "Náhled se nespustil",
+      "notOwner": "Náhled spouští jen osoba, která kopii založila.",
+      "addresses": "Kde odpovídá",
+      "noEndpoints": "Kopie nemá endpointy.",
+      "pausedPipelines": "Pozastavené pipeline",
+      "noPipelines": "Kopie nemá pipeline.",
+      "copyData": "Zkopírovat data",
+      "copyHint": "Nejvýše {limit} entit na typ, čtené a zapsané s vašimi právy.",
+      "copied": "{count, plural, =0 {Nic se nezkopírovalo} one {Zkopírována # entita} few {Zkopírovány # entity} other {Zkopírováno # entit}}.",
+      "copyStopped": "Zastaveno: {reason}"
     }
   }
 }

@@ -74,6 +74,13 @@ export function WorkspaceBar({ project }: { project: string }): React.JSX.Elemen
       )}
       <div className="ml-auto flex items-center gap-2">
         <Link
+          to="/projects/$project/workspaces/$name/try-it"
+          params={{ project, name: wsName }}
+          className="focus-ring rounded-md px-2 py-1 text-body underline hover:no-underline"
+        >
+          {t("workspaces.bar.tryIt")}
+        </Link>
+        <Link
           to="/projects/$project/workspaces/$name/compare"
           params={{ project, name: wsName }}
           className="focus-ring rounded-md px-2 py-1 text-body underline hover:no-underline"

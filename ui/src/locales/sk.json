@@ -1927,7 +1927,8 @@
       "bringBack": "Vrátiť",
       "expired": "Táto kópia vypršala {date}. Jej zmeny sa nikdy nevrátili do projektu.",
       "refused": "Túto kópiu nemôžete otvoriť: {reason}",
-      "foreign": "Len na čítanie: kópia používateľa {owner}"
+      "foreign": "Len na čítanie: kópia používateľa {owner}",
+      "tryIt": "Vyskúšať"
     },
     "compare": {
       "title": "Čo kópia mení",
@@ -1954,6 +1955,23 @@
       "propose": "Navrhnúť ako jednu zmenu",
       "proposed": "Navrhnuté ako",
       "notOwner": "Kópiu vracia len ten, kto ju začal."
+    },
+    "tryIt": {
+      "action": "Vyskúšať",
+      "title": "Vyskúšať kópiu",
+      "lead": "Náhľad obsluhuje kópiu {name} popri projekte, na vlastných adresách. Nič v ňom nie je živé.",
+      "start": "Spustiť náhľad",
+      "stop": "Zastaviť",
+      "failed": "Náhľad sa nespustil",
+      "notOwner": "Náhľad spúšťa iba osoba, ktorá kópiu založila.",
+      "addresses": "Kde odpovedá",
+      "noEndpoints": "Kópia nemá endpointy.",
+      "pausedPipelines": "Pozastavené pipeline",
+      "noPipelines": "Kópia nemá pipeline.",
+      "copyData": "Skopírovať dáta",
+      "copyHint": "Najviac {limit} entít na typ, čítané a zapísané s vašimi právami.",
+      "copied": "{count, plural, =0 {Nič sa neskopírovalo} one {Skopírovaná # entita} few {Skopírované # entity} other {Skopírovaných # entít}}.",
+      "copyStopped": "Zastavené: {reason}"
     }
   }
 }

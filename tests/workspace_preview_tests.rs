@@ -91,6 +91,12 @@ async fn world() -> (MockServer, AppState) {
     let server = forge().await;
     branch(&server, "air-v2", "head1", &files()).await;
     let state = state_on(&server);
+    state.mirror.upsert(common::envelope(
+        "Endpoint",
+        "public-air",
+        PROJECT,
+        json!({ "slug": SLUG, "contextSpaceRef": "air", "audience": "public" }),
+    ));
     opened(&state, "air-v2").await;
     (server, state)
 }
@@ -118,6 +124,7 @@ async fn starting_renders_the_project_with_its_prefix_and_every_pipeline_paused(
             "name": "public-air",
             "slug": minted,
             "url": format!("{}api/endpoint/{minted}", state.config.public_base_url),
+            "originSlug": SLUG,
         }])
     );
     assert_eq!(preview["pausedPipelines"], json!(["air-feed"]));

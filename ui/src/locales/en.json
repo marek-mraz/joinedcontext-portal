@@ -1927,7 +1927,8 @@
       "bringBack": "Bring back",
       "expired": "This copy expired on {date}. Its changes were never brought back.",
       "refused": "You may not open this copy: {reason}",
-      "foreign": "Read only: the copy of {owner}"
+      "foreign": "Read only: the copy of {owner}",
+      "tryIt": "Try it"
     },
     "compare": {
       "title": "What the copy changes",
@@ -1954,6 +1955,23 @@
       "propose": "Propose as one change",
       "proposed": "Proposed as",
       "notOwner": "Only the person who started this copy brings it back."
+    },
+    "tryIt": {
+      "action": "Try it",
+      "title": "Try the copy",
+      "lead": "A preview serves the copy {name} beside the project, under addresses of its own. Nothing in it is live.",
+      "start": "Start the preview",
+      "stop": "Stop",
+      "failed": "The preview did not start",
+      "notOwner": "Only the person who started this copy runs its preview.",
+      "addresses": "Where it answers",
+      "noEndpoints": "The copy has no endpoints.",
+      "pausedPipelines": "Paused pipelines",
+      "noPipelines": "The copy has no pipelines.",
+      "copyData": "Copy data in",
+      "copyHint": "Up to {limit} entities per type, read and written with your own rights.",
+      "copied": "{count, plural, =0 {Nothing copied} one {# entity copied} other {# entities copied}}.",
+      "copyStopped": "Stopped: {reason}"
     }
   }
 }

@@ -35,6 +35,10 @@ pub struct PreviewEndpoint {
     /// The slug minted for the preview; never the origin's.
     pub slug: String,
     pub url: String,
+    /// The slug `main` serves the same Endpoint on, the source of a copy; absent for an
+    /// Endpoint the workspace adds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_slug: Option<String>,
 }
 
 /// A workspace's preview as a person, an agent or an MCP client reads it.
@@ -224,6 +228,10 @@ fn view(state: &AppState, workspace: &Workspace, render: Option<&Render>) -> Pre
                         .join(&format!("/api/endpoint/{slug}"))
                         .map(String::from)
                         .unwrap_or_default(),
+                    origin_slug: state
+                        .mirror
+                        .get(&workspace.project, "Endpoint", name)
+                        .and_then(|endpoint| endpoint.spec["slug"].as_str().map(str::to_owned)),
                 })
                 .collect();
             preview.paused_pipelines = pipelines.clone();

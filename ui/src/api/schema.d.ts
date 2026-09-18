@@ -2232,6 +2232,11 @@ export interface components {
         PreviewEndpoint: {
             /** @description The Endpoint's name, as in the workspace. */
             name: string;
+            /**
+             * @description The slug `main` serves the same Endpoint on, the source of a copy; absent for an
+             *     Endpoint the workspace adds.
+             */
+            originSlug?: string | null;
             /** @description The slug minted for the preview; never the origin's. */
             slug: string;
             url: string;

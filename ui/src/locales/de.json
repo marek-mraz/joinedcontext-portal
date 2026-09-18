@@ -1927,7 +1927,8 @@
       "bringBack": "Zurückbringen",
       "expired": "Diese Kopie ist am {date} abgelaufen. Ihre Änderungen wurden nie zurückgebracht.",
       "refused": "Sie dürfen diese Kopie nicht öffnen: {reason}",
-      "foreign": "Nur lesen: die Kopie von {owner}"
+      "foreign": "Nur lesen: die Kopie von {owner}",
+      "tryIt": "Ausprobieren"
     },
     "compare": {
       "title": "Was die Kopie ändert",
@@ -1954,6 +1955,23 @@
       "propose": "Als eine Änderung vorschlagen",
       "proposed": "Vorgeschlagen als",
       "notOwner": "Nur wer die Kopie gestartet hat, bringt sie zurück."
+    },
+    "tryIt": {
+      "action": "Ausprobieren",
+      "title": "Die Kopie ausprobieren",
+      "lead": "Eine Vorschau bedient die Kopie {name} neben dem Projekt, unter eigenen Adressen. Nichts darin ist live.",
+      "start": "Vorschau starten",
+      "stop": "Stoppen",
+      "failed": "Die Vorschau ist nicht gestartet",
+      "notOwner": "Nur wer die Kopie begonnen hat, startet ihre Vorschau.",
+      "addresses": "Wo sie antwortet",
+      "noEndpoints": "Die Kopie hat keine Endpunkte.",
+      "pausedPipelines": "Pausierte Pipelines",
+      "noPipelines": "Die Kopie hat keine Pipelines.",
+      "copyData": "Daten kopieren",
+      "copyHint": "Höchstens {limit} Entitäten je Typ, mit Ihren eigenen Rechten gelesen und geschrieben.",
+      "copied": "{count, plural, =0 {Nichts kopiert} one {# Entität kopiert} other {# Entitäten kopiert}}.",
+      "copyStopped": "Gestoppt: {reason}"
     }
   }
 }
