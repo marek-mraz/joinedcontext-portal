@@ -264,11 +264,20 @@ pub async fn stream_draft_events(
     }
 
     let live = state.draft_events.subscribe(&project).await;
+    // Each event is checked as it passes, against the bindings of that moment, so a draft of a
+    // kind or space the reader may not read is never announced and a revoked binding stops the
+    // flow without a reconnect (PF-59, T-1455).
+    let identity = user.0.identity;
     let stream = BroadcastStream::new(live).filter_map(
-        |item| -> Option<Result<Event, std::convert::Infallible>> {
+        move |item| -> Option<Result<Event, std::convert::Infallible>> {
             match item {
-                Ok(event) => Some(Ok(sse_draft_event(&event))),
-                Err(BroadcastStreamRecvError::Lagged(_)) => None,
+                Ok(event)
+                    if crate::permissions::for_request(&state, &identity, &project)
+                        .may_read_in(&event.kind, event.space.as_deref()) =>
+                {
+                    Some(Ok(sse_draft_event(&event)))
+                }
+                Ok(_) | Err(BroadcastStreamRecvError::Lagged(_)) => None,
             }
         },
     );
@@ -327,6 +336,7 @@ mod tests {
             touched_kind: "person".into(),
             event: "put".into(),
             updated_at: chrono::Utc::now(),
+            space: None,
         };
         let sse = sse_draft_event(&event);
         assert!(format!("{sse:?}").contains("put"));

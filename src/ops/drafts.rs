@@ -48,6 +48,10 @@ pub struct DraftEvent {
     pub event: String,
     #[schema(value_type = String, format = DateTime)]
     pub updated_at: DateTime<Utc>,
+    /// The draft's context space, so a stream filters what it forwards by the reader's binding
+    /// (PF-59, T-1455). In-process only: never sent.
+    #[serde(skip)]
+    pub space: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -289,6 +293,7 @@ impl DraftStore {
                 touched_kind: draft.touched_kind.clone(),
                 event: "put".to_string(),
                 updated_at: draft.updated_at,
+                space: crate::permissions::space_ref(&draft.manifest),
             })
             .await;
         }
@@ -351,6 +356,7 @@ impl DraftStore {
                 touched_kind: draft.touched_kind.clone(),
                 event: "verdict".to_string(),
                 updated_at: draft.updated_at,
+                space: crate::permissions::space_ref(&draft.manifest),
             })
             .await;
         }
@@ -394,6 +400,7 @@ impl DraftStore {
                     (
                         true,
                         Some(DraftEvent {
+                            space: crate::permissions::space_ref(&removed.manifest),
                             project: removed.project,
                             kind: removed.kind,
                             name: removed.name,
@@ -411,7 +418,8 @@ impl DraftStore {
             DraftStoreInner::Db(pool) => {
                 let row = sqlx::query(
                     "DELETE FROM drafts WHERE project = $1 AND kind = $2 AND name = $3 \
-                     RETURNING project, kind, name, version, touched_by, touched_kind, updated_at",
+                     RETURNING project, kind, name, version, touched_by, touched_kind, updated_at, \
+                     manifest",
                 )
                 .bind(project)
                 .bind(kind)
@@ -425,9 +433,11 @@ impl DraftStore {
                     let touched_by: String = r.get("touched_by");
                     let touched_kind: String = r.get("touched_kind");
                     let odt: time::OffsetDateTime = r.get("updated_at");
+                    let manifest: Value = r.get("manifest");
                     (
                         true,
                         Some(DraftEvent {
+                            space: crate::permissions::space_ref(&manifest),
                             project: project.to_string(),
                             kind: kind.to_string(),
                             name: name.to_string(),

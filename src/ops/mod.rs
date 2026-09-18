@@ -1764,13 +1764,16 @@ fn core_operations() -> Vec<Operation> {
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<DraftRef>(val.clone()).map(|_| ()),
-            run: |_caller, state, project, val| {
+            run: |caller, state, project, val| {
                 Box::pin(async move {
                     let d: DraftRef = parse_input(val)?;
+                    let effective = crate::permissions::for_request(state, &caller.identity, project);
                     let draft = draft_store(state)
                         .get(project, &d.kind, &d.name)
                         .await
                         .map_err(draft_error)?
+                        // Not readable is not there (PF-59, R20, T-1455).
+                        .filter(|draft| effective.may_read_manifest(&draft.kind, &draft.manifest))
                         .ok_or_else(|| {
                             ApiError::NotFound(format!(
                                 "draft '{}/{}' not found in project '{project}'",
@@ -1805,9 +1808,17 @@ fn core_operations() -> Vec<Operation> {
                     })
                 }
             },
-            run: |_caller, state, project, _val| {
+            run: |caller, state, project, _val| {
                 Box::pin(async move {
-                    let items = draft_store(state).list(project).await.map_err(draft_error)?;
+                    // A draft is readable exactly where its manifest would be (PF-59, T-1455).
+                    let effective = crate::permissions::for_request(state, &caller.identity, project);
+                    let items: Vec<_> = draft_store(state)
+                        .list(project)
+                        .await
+                        .map_err(draft_error)?
+                        .into_iter()
+                        .filter(|draft| effective.may_read_manifest(&draft.kind, &draft.manifest))
+                        .collect();
                     Ok(json!({ "items": items }))
                 })
             },

@@ -152,15 +152,20 @@ impl Effective {
     /// kind, and — when the binding is scoped to one context space — a manifest of that space.
     /// This is what an organization-level list filters with, item by item.
     pub fn may_read_manifest(&self, kind: &str, manifest: &Value) -> bool {
+        self.may_read_in(kind, space_ref(manifest).as_deref())
+    }
+
+    /// [`Self::may_read_manifest`] for a manifest known only by its kind and its context space
+    /// (`None` for a kind that lives outside one), as a draft event carries them.
+    pub fn may_read_in(&self, kind: &str, space: Option<&str>) -> bool {
         if self.bootstrap {
             return true;
         }
-        let space = space_ref(manifest);
         self.grants.iter().any(|grant| {
             grant.rule.grants(kind, Verb::Read)
                 && match &grant.space {
                     None => true,
-                    Some(bound) => space.as_deref() == Some(bound.as_str()),
+                    Some(bound) => space == Some(bound.as_str()),
                 }
         })
     }
@@ -523,7 +528,7 @@ fn audience_of(target: Option<&Value>) -> Option<&str> {
     target?.pointer("/spec/audience")?.as_str()
 }
 
-fn space_ref(target: &Value) -> Option<String> {
+pub fn space_ref(target: &Value) -> Option<String> {
     let value = target.pointer("/spec/contextSpaceRef")?;
     value
         .as_str()

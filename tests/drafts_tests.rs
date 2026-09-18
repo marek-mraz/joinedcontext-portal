@@ -523,3 +523,200 @@ async fn a_person_bound_on_the_project_reads_its_drafts_and_its_stream() {
         "text/event-stream"
     );
 }
+
+/// A draft of `kind` named `name` in `ovzdusie`, in the space `space` when there is one.
+async fn draft_of(state: &AppState, kind: &str, name: &str, space: Option<&str>) {
+    let mut manifest = json!({
+        "apiVersion": API_VERSION, "kind": kind, "metadata": { "name": name }, "spec": {}
+    });
+    if let Some(space) = space {
+        manifest["spec"]["contextSpaceRef"] = json!(space);
+    }
+    joinedcontext_portal::ops::drafts::draft_store(state)
+        .put("ovzdusie", kind, name, manifest, None, "author", "person")
+        .await
+        .expect("draft put");
+}
+
+/// Binds `who@hel.fi` to a role reading `kinds`, over `scope`.
+fn bind_reader(state: &AppState, who: &str, kinds: Value, scope: Value) {
+    use joinedcontext_portal::permissions::ORG_NAMESPACE;
+    state.mirror.upsert(common::envelope(
+        "Role",
+        &format!("{who}-role"),
+        ORG_NAMESPACE,
+        json!({ "rules": [{ "kinds": kinds, "verbs": ["read"] }] }),
+    ));
+    state.mirror.upsert(common::envelope(
+        "RoleBinding",
+        &format!("{who}-binding"),
+        ORG_NAMESPACE,
+        json!({
+            "subjects": [{ "user": format!("{who}@hel.fi") }],
+            "role": format!("{who}-role"),
+            "scope": scope,
+        }),
+    ));
+}
+
+fn names(list: &str) -> Vec<String> {
+    let body: Value = serde_json::from_str(list).expect("a JSON list");
+    let mut names: Vec<String> = body["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|d| {
+            format!(
+                "{}/{}",
+                d["kind"].as_str().unwrap(),
+                d["name"].as_str().unwrap()
+            )
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// PF-59 (T-1455): a draft is the next version of a manifest and says who is writing it, so it
+/// is listed and read exactly where the manifest would be: by kind, and by space for a binding
+/// scoped to one.
+#[tokio::test]
+async fn drafts_are_listed_and_read_by_the_kind_and_space_the_caller_may_read() {
+    let state = AppState::new(Config::for_tests(), None).with_mirror(Arc::new(Mirror::new()));
+    for space in ["vzduch", "doprava"] {
+        state.mirror.upsert(common::envelope(
+            "ContextSpace",
+            space,
+            "ovzdusie",
+            json!({}),
+        ));
+    }
+    bind_reader(
+        &state,
+        "pipes",
+        json!(["Pipeline"]),
+        json!({ "project": "ovzdusie" }),
+    );
+    bind_reader(
+        &state,
+        "air",
+        json!(["Pipeline", "Endpoint"]),
+        json!({ "contextSpace": "vzduch" }),
+    );
+    draft_of(&state, "Role", "secret-admins", None).await;
+    draft_of(&state, "Pipeline", "air-feed", Some("vzduch")).await;
+    draft_of(&state, "Pipeline", "traffic-feed", Some("doprava")).await;
+    draft_of(&state, "Endpoint", "air-public", Some("vzduch")).await;
+
+    let list = |who: &'static str| {
+        let state = state.clone();
+        async move {
+            let answer = common::send(
+                &state,
+                common::person(who),
+                "GET",
+                "/api/v1/projects/ovzdusie/drafts",
+                None,
+            )
+            .await;
+            assert_eq!(answer.status, StatusCode::OK, "{who}: {}", answer.text);
+            names(&answer.text)
+        }
+    };
+    assert_eq!(
+        list("pipes").await,
+        vec!["Pipeline/air-feed", "Pipeline/traffic-feed"]
+    );
+    assert_eq!(
+        list("air").await,
+        vec!["Endpoint/air-public", "Pipeline/air-feed"]
+    );
+
+    for (who, uri, status) in [
+        (
+            "pipes",
+            "/api/v1/projects/ovzdusie/drafts/Role/secret-admins",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "air",
+            "/api/v1/projects/ovzdusie/drafts/Pipeline/traffic-feed",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "air",
+            "/api/v1/projects/ovzdusie/drafts/Pipeline/air-feed",
+            StatusCode::OK,
+        ),
+    ] {
+        let answer = common::send(&state, common::person(who), "GET", uri, None).await;
+        assert_eq!(answer.status, status, "{who} {uri}: {}", answer.text);
+        assert!(
+            !answer.text.contains("author") || status == StatusCode::OK,
+            "{who} {uri}"
+        );
+    }
+}
+
+/// The stream announces a draft only to a reader of its kind and space (T-1455): the Role draft
+/// and the other space's pipeline pass by unseen, the pipeline of the reader's space arrives.
+#[tokio::test]
+async fn the_draft_stream_announces_only_what_the_reader_may_read() {
+    let state = AppState::new(Config::for_tests(), None).with_mirror(Arc::new(Mirror::new()));
+    for space in ["vzduch", "doprava"] {
+        state.mirror.upsert(common::envelope(
+            "ContextSpace",
+            space,
+            "ovzdusie",
+            json!({}),
+        ));
+    }
+    bind_reader(
+        &state,
+        "air",
+        json!(["Pipeline"]),
+        json!({ "contextSpace": "vzduch" }),
+    );
+    let config = state.config.clone();
+    let response = server::app(state.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects/ovzdusie/drafts/events")
+                .header(
+                    header::COOKIE,
+                    common::cookie(&config, common::person("air")),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    draft_of(&state, "Role", "secret-admins", None).await;
+    draft_of(&state, "Pipeline", "traffic-feed", Some("doprava")).await;
+    draft_of(&state, "Pipeline", "air-feed", Some("vzduch")).await;
+
+    // Events arrive in order, so once the last one is read the two before it were filtered.
+    let mut body = response.into_body();
+    let mut seen = String::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !seen.contains("air-feed") {
+        let frame = tokio::time::timeout_at(deadline, body.frame())
+            .await
+            .expect("the reader's own pipeline is announced within 5 s")
+            .expect("the stream stays open")
+            .expect("a frame");
+        if let Ok(data) = frame.into_data() {
+            seen.push_str(&String::from_utf8_lossy(&data));
+        }
+    }
+    assert!(
+        !seen.contains("secret-admins"),
+        "a Role draft reached a pipeline reader: {seen}"
+    );
+    assert!(
+        !seen.contains("traffic-feed"),
+        "another space's draft reached the reader: {seen}"
+    );
+}
