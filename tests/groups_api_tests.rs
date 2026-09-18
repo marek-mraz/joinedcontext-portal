@@ -70,7 +70,7 @@ async fn a_reader_sees_the_members_and_a_stranger_sees_no_such_plural() {
     ));
     bound(&state, "keeper", json!(["read"]));
 
-    let answer = common::send(
+    let answer = common::checked_send(
         &state,
         person("keeper"),
         "GET",
@@ -81,7 +81,7 @@ async fn a_reader_sees_the_members_and_a_stranger_sees_no_such_plural() {
     assert_eq!(answer.status, StatusCode::OK, "{}", answer.text);
     assert!(answer.text.contains("lead@hel.fi"), "{}", answer.text);
 
-    let one = common::send(
+    let one = common::checked_send(
         &state,
         person("keeper"),
         "GET",
@@ -92,7 +92,7 @@ async fn a_reader_sees_the_members_and_a_stranger_sees_no_such_plural() {
     assert_eq!(one.status, StatusCode::OK, "{}", one.text);
 
     // No binding at all: the kind is not there, not forbidden (PF-59, R20).
-    let stranger = common::send(
+    let stranger = common::checked_send(
         &state,
         person("nobody"),
         "GET",
@@ -111,7 +111,7 @@ async fn proposing_a_group_needs_propose_on_group_and_lands_in_the_red_lane() {
     bound(&state, "keeper", json!(["read"]));
 
     // Read is not write, and the refusal says which verb is missing (PF-50).
-    let refused = common::send(
+    let refused = common::checked_send(
         &state,
         person("keeper"),
         "POST",
@@ -127,7 +127,7 @@ async fn proposing_a_group_needs_propose_on_group_and_lands_in_the_red_lane() {
     );
 
     bound(&state, "keeper", json!(["read", "propose"]));
-    let accepted = common::send(
+    let accepted = common::checked_send(
         &state,
         person("keeper"),
         "POST",
@@ -174,7 +174,7 @@ async fn a_binding_to_a_group_no_manifest_declares_is_refused_before_a_change_ex
         })
     };
 
-    let refused = common::send(
+    let refused = common::checked_send(
         &state,
         person("keeper"),
         "POST",
@@ -196,7 +196,7 @@ async fn a_binding_to_a_group_no_manifest_declares_is_refused_before_a_change_ex
         ORG_NAMESPACE,
         json!({ "members": [{ "user": "lead@hel.fi" }] }),
     ));
-    let accepted = common::send(
+    let accepted = common::checked_send(
         &state,
         person("keeper"),
         "POST",

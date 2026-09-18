@@ -160,7 +160,41 @@ fn state_with(gitea: &MockServer) -> AppState {
     AppState::new(Config::for_tests(), None).with_gitea(Arc::new(client))
 }
 
+/// A request as every door makes it since T-0956 (PF-57): a proposal is checked first with the
+/// same manifest, on the route (`?dryRun=All`) or through `jc_manifest_dry_run`, then sent.
 async fn send(
+    state: &AppState,
+    who: Identity,
+    http: &str,
+    uri: &str,
+    body: Value,
+) -> (StatusCode, Value) {
+    if let Some((base, op)) = uri.rsplit_once("/ops/") {
+        if op.ends_with("_propose") && body.get("manifest").is_some() {
+            let check = json!({ "manifest": body["manifest"] });
+            send_once(
+                state,
+                who.clone(),
+                "POST",
+                &format!("{base}/ops/jc_manifest_dry_run"),
+                check,
+            )
+            .await;
+        }
+    } else if matches!(http, "POST" | "PUT" | "PATCH") && !uri.contains("dryRun") {
+        send_once(
+            state,
+            who.clone(),
+            http,
+            &format!("{uri}?dryRun=All"),
+            body.clone(),
+        )
+        .await;
+    }
+    send_once(state, who, http, uri, body).await
+}
+
+async fn send_once(
     state: &AppState,
     who: Identity,
     http: &str,

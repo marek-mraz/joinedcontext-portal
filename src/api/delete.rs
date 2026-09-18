@@ -255,6 +255,7 @@ pub async fn delete_with_identity(
             lane,
             plan,
             probe: None,
+            verdict: None,
         }));
     }
 

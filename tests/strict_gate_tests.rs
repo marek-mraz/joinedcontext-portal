@@ -673,64 +673,266 @@ async fn space_propose_requires_jc_manifest_dry_run() {
     assert_eq!(body["check"], "jc_manifest_dry_run");
 }
 
-/// T-0956: what a proposal naming no draft does today, pinned so it cannot change by accident.
-///
-/// The strict gate (PF-57) lives on the registered operation, which a body carrying a `draft`
-/// reaches; a bare manifest posted to the same route does not meet it and opens a change with
-/// `202`. Whether that is the intended reading of "proposals require a fresh green verdict" is
-/// the owner's to settle — 19 tests across resource_mutate, spaces and projects post manifests
-/// this way under the default strict mode and expect them to land, so the behaviour is a design
-/// and not an oversight. This test states it rather than leaving it implied.
-#[tokio::test]
-async fn a_rest_proposal_naming_no_draft_is_not_gated_today() {
-    let (_gitea_server, gitea_client) = setup_mock_gitea().await;
+/// One request through the whole router as the steward; the status and the JSON answer.
+async fn rest(app: &axum::Router, method: &str, uri: &str, body: &Value) -> (StatusCode, Value) {
+    let config_cookie = STEWARD.with(|cookie| cookie.borrow().clone());
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header(header::COOKIE, config_cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+thread_local! {
+    static STEWARD: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// A strict Portal (the default) against the mock forge, the steward signed in; the forge server
+/// is returned so a test can see that nothing reached it.
+async fn strict_portal() -> (MockServer, AppState, axum::Router) {
+    let (gitea_server, gitea_client) = setup_mock_gitea().await;
     let config = Config::for_tests();
     let state = AppState::new(config.clone(), None)
         .with_mirror(Arc::new(Mirror::new()))
         .with_gitea(Arc::new(gitea_client));
     assert_eq!(
         state.branding().validation,
-        joinedcontext_portal::branding::Validation::Strict,
-        "the default mode, so this is the gate's own reading and not a lax instance"
+        joinedcontext_portal::branding::Validation::Strict
     );
-    let app = server::app(state);
-    let steward_cookie = session_cookie(
+    let cookie = session_cookie(
         &config,
         "steward.user",
         Some("steward@banskabystrica.sk"),
         vec!["portal-approver"],
         vec![],
     );
+    STEWARD.with(|steward| *steward.borrow_mut() = cookie);
+    let app = server::app(state.clone());
+    (gitea_server, state, app)
+}
 
+fn space(name: &str, sandbox: bool) -> Value {
+    json!({
+        "apiVersion": API_VERSION,
+        "kind": "ContextSpace",
+        "metadata": { "name": name, "namespace": "ovzdusie" },
+        "spec": { "isSandbox": sandbox }
+    })
+}
+
+async fn branches_created(server: &MockServer) -> usize {
+    server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.method.as_str() == "POST" && r.url.path().ends_with("/branches"))
+        .count()
+}
+
+/// Owner decision T-0956 (PF-57): every door is gated. A bare manifest posted to the REST route,
+/// never checked, is refused with the gate's own document and nothing reaches the forge; the
+/// same manifest checked on the same route first is proposed, and the draft its check created is
+/// gone afterwards.
+#[tokio::test]
+async fn a_rest_proposal_naming_no_draft_needs_its_own_check() {
+    let (forge, state, app) = strict_portal().await;
+    let uri = "/api/v1/projects/ovzdusie/spaces";
+    let manifest = space("air", true);
+
+    let (status, refused) = rest(&app, "POST", uri, &manifest).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["error"], "verdict_required");
+    assert_eq!(refused["check"], "jc_manifest_dry_run");
+    assert_eq!(refused["reason"], "verdict_absent");
+    assert_eq!(
+        branches_created(&forge).await,
+        0,
+        "nothing reached the forge"
+    );
+
+    let (status, checked) = rest(&app, "POST", &format!("{uri}?dryRun=All"), &manifest).await;
+    assert_eq!(status, StatusCode::OK, "{checked}");
+    assert_eq!(checked["verdict"]["ok"], true, "{checked}");
+
+    let (status, change) = rest(&app, "POST", uri, &manifest).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{change}");
+    assert!(
+        state
+            .drafts
+            .get("ovzdusie", "ContextSpace", "air")
+            .await
+            .unwrap()
+            .is_none(),
+        "the draft the check created is forgotten once proposed"
+    );
+}
+
+/// A check is fresh for the manifest it judged and no other: the same resource proposed with other
+/// content is refused as stale, and a manifest the check refused leaves nothing to propose on.
+#[tokio::test]
+async fn a_changed_or_refused_manifest_is_not_proposed_on_an_earlier_check() {
+    let (forge, _state, app) = strict_portal().await;
+    let uri = "/api/v1/projects/ovzdusie/spaces";
+
+    let (status, _) = rest(
+        &app,
+        "POST",
+        &format!("{uri}?dryRun=All"),
+        &space("air", true),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, stale) = rest(&app, "POST", uri, &space("air", false)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{stale}");
+    assert_eq!(stale["reason"], "stale");
+
+    let mut invalid = space("water", true);
+    invalid["spec"]["isSandbox"] = json!("not a flag");
+    let (status, _) = rest(&app, "POST", &format!("{uri}?dryRun=All"), &invalid).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "the check refuses the manifest itself"
+    );
+    let (status, body) = rest(&app, "POST", uri, &invalid).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a manifest that fails its own checks says so before the gate: {body}"
+    );
+    assert_eq!(branches_created(&forge).await, 0);
+}
+
+/// The operations registry is a door like the REST route: a bare manifest proposed through
+/// `jc_space_propose` needs the verdict `jc_manifest_dry_run` records for it, and a person's own
+/// draft of the same resource, with other content, survives a bare proposal of it.
+#[tokio::test]
+async fn the_operation_door_gates_a_bare_manifest_and_leaves_a_persons_draft_alone() {
+    let (_forge, state, app) = strict_portal().await;
+    let ops = "/api/v1/projects/ovzdusie/ops";
+    let manifest = space("air", true);
+
+    let (status, refused) = rest(
+        &app,
+        "POST",
+        &format!("{ops}/jc_space_propose"),
+        &json!({ "manifest": manifest }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["error"], "verdict_required");
+
+    let (status, checked) = rest(
+        &app,
+        "POST",
+        &format!("{ops}/jc_manifest_dry_run"),
+        &json!({ "manifest": manifest }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{checked}");
+    // Somebody opens the same space in a form and changes it after the check. The verdict is
+    // still fresh for the manifest the operation proposes, which is the one that was checked.
+    let theirs = space("air", false);
+    state
+        .drafts
+        .put(
+            "ovzdusie",
+            "ContextSpace",
+            "air",
+            theirs.clone(),
+            None,
+            "someone.else",
+            "person",
+        )
+        .await
+        .unwrap();
+    let (status, change) = rest(
+        &app,
+        "POST",
+        &format!("{ops}/jc_space_propose"),
+        &json!({ "manifest": manifest }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{change}");
+    assert_eq!(change["changeId"], "chg-0000002a", "{change}");
+    let kept = state
+        .drafts
+        .get("ovzdusie", "ContextSpace", "air")
+        .await
+        .unwrap()
+        .expect("their draft survives a bare proposal of the same space");
+    assert_eq!(kept.manifest, theirs);
+}
+
+/// The refusal names the check of the kind: a DataSource is checked by `jc_datasource_check`.
+#[tokio::test]
+async fn an_unchecked_data_source_is_told_to_run_the_data_source_check() {
+    let (_forge, _state, app) = strict_portal().await;
     let manifest = json!({
         "apiVersion": API_VERSION,
         "kind": "DataSource",
         "metadata": { "name": "feed-unchecked", "namespace": "ovzdusie" },
         "spec": { "type": "http", "http": { "url": "https://example.com/bikes.json" } }
     });
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/projects/ovzdusie/datasources")
-                .header(header::COOKIE, &steward_cookie)
-                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_vec(&manifest).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        resp.status(),
-        StatusCode::ACCEPTED,
-        "a bare manifest opens a change; the gate is the draft door's (T-0956)"
-    );
+    let (status, refused) = rest(
+        &app,
+        "POST",
+        "/api/v1/projects/ovzdusie/datasources",
+        &manifest,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["check"], "jc_datasource_check");
 }
 
-/// The generic REST door with a `draft` beside the manifest reaches the same registered
-/// operations as the ops route (ADR-N-021): a dry run checks the body and files the verdict
-/// on the draft, a proposal without one is the strict gate's 409, with one it is a change.
+/// A lax installation lets an unchecked bare manifest through, as it lets an unchecked draft.
+#[tokio::test]
+async fn a_lax_portal_proposes_an_unchecked_bare_manifest() {
+    let (_gitea_server, gitea_client) = setup_mock_gitea().await;
+    let branding_path =
+        std::env::temp_dir().join(format!("jc-branding-lax-bare-{}.yaml", std::process::id()));
+    std::fs::write(&branding_path, "validation: lax\n").expect("write branding file");
+    let mut config = Config::for_tests();
+    config.branding_file = Some(branding_path.to_string_lossy().to_string());
+    let state = AppState::new(config.clone(), None)
+        .with_mirror(Arc::new(Mirror::new()))
+        .with_gitea(Arc::new(gitea_client));
+    STEWARD.with(|steward| {
+        *steward.borrow_mut() = session_cookie(
+            &config,
+            "steward.user",
+            Some("steward@banskabystrica.sk"),
+            vec!["portal-approver"],
+            vec![],
+        )
+    });
+    let app = server::app(state);
+    let (status, body) = rest(
+        &app,
+        "POST",
+        "/api/v1/projects/ovzdusie/spaces",
+        &space("air", true),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+}
+
 #[tokio::test]
 async fn rest_door_with_a_draft_reaches_the_check_and_the_gate() {
     let (_gitea_server, gitea_client) = setup_mock_gitea().await;

@@ -126,6 +126,44 @@ pub async fn send(
     }
 }
 
+/// A request the way every door makes it since T-0956 (PF-57): a proposal of a manifest — POST,
+/// PUT or PATCH on a resource route, or a `*_propose` operation carrying a `manifest` — is checked
+/// first with the same body (`?dryRun=All`, or `jc_manifest_dry_run`), and then sent. Any other
+/// request is sent as it is; an approval is never repeated as a check.
+pub async fn checked_send(
+    state: &AppState,
+    identity: Identity,
+    http: &str,
+    uri: &str,
+    body: Option<Value>,
+) -> Answer {
+    if matches!(http, "POST" | "PUT" | "PATCH") && !uri.contains("dryRun") {
+        let path = uri.split('?').next().unwrap_or(uri);
+        let rest: Vec<&str> = path
+            .strip_prefix("/api/v1/projects/")
+            .map(|rest| rest.split('/').collect())
+            .unwrap_or_default();
+        match rest.as_slice() {
+            [project, "ops", op] if op.ends_with("_propose") => {
+                if let Some(manifest) = body.as_ref().and_then(|b| b.get("manifest")) {
+                    let check = serde_json::json!({ "manifest": manifest });
+                    let uri = format!("/api/v1/projects/{project}/ops/jc_manifest_dry_run");
+                    send(state, identity.clone(), "POST", &uri, Some(check)).await;
+                }
+            }
+            [_, plural] | [_, plural, _]
+                if joinedcontext_portal::resource::by_plural(plural).is_some() =>
+            {
+                let joiner = if uri.contains('?') { '&' } else { '?' };
+                let dry = format!("{uri}{joiner}dryRun=All");
+                send(state, identity.clone(), http, &dry, body.clone()).await;
+            }
+            _ => {}
+        }
+    }
+    send(state, identity, http, uri, body).await
+}
+
 /// The Portal's state against the mock forge `gitea`, with an empty mirror.
 pub fn state_on(gitea: &MockServer) -> AppState {
     let client = GiteaClient::new(
@@ -216,4 +254,48 @@ pub async fn forge() -> MockServer {
         .mount(&gitea)
         .await;
     gitea
+}
+
+/// A proposal the way every door makes one since T-0956: the same request as a dry run first, which
+/// records a green verdict for the manifest (PF-57), then the proposal itself.
+pub trait CheckFirst {
+    async fn oneshot_checked(
+        self,
+        request: Request<Body>,
+    ) -> Result<axum::response::Response, std::convert::Infallible>;
+}
+
+impl CheckFirst for axum::Router {
+    async fn oneshot_checked(
+        self,
+        request: Request<Body>,
+    ) -> Result<axum::response::Response, std::convert::Infallible> {
+        let (parts, body) = request.into_parts();
+        let bytes = body.collect().await.expect("request body").to_bytes();
+        let uri = parts.uri.to_string();
+        let dry_uri = if uri.contains('?') {
+            format!("{uri}&dryRun=All")
+        } else {
+            format!("{uri}?dryRun=All")
+        };
+        let mut check = Request::builder().method(parts.method.clone()).uri(dry_uri);
+        for (name, value) in &parts.headers {
+            check = check.header(name, value);
+        }
+        let checked = self
+            .clone()
+            .oneshot(
+                check
+                    .body(Body::from(bytes.clone()))
+                    .expect("check request"),
+            )
+            .await?;
+        assert_eq!(
+            checked.status(),
+            StatusCode::OK,
+            "the check before the proposal"
+        );
+        self.oneshot(Request::from_parts(parts, Body::from(bytes)))
+            .await
+    }
 }

@@ -8,7 +8,7 @@ use axum::http::StatusCode;
 use serde_json::{json, Value};
 use wiremock::MockServer;
 
-use common::{envelope, forge, person, send};
+use common::{checked_send as send, envelope, forge, person};
 use joinedcontext_portal::permissions::ORG_NAMESPACE;
 use joinedcontext_portal::resource::API_VERSION;
 use joinedcontext_portal::state::AppState;

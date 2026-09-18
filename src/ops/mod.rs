@@ -211,6 +211,11 @@ impl From<OpError> for ApiError {
             OpError::InvalidInput { path, message } => {
                 ApiError::BadRequest(format!("{path}: {message}"))
             }
+            // The verdict gate's document travels whole, so a REST door answers what the
+            // operation answers (T-0956).
+            OpError::Conflict(val) if val.get("error") == Some(&json!("verdict_required")) => {
+                ApiError::VerdictRequired(val)
+            }
             OpError::Conflict(val) => ApiError::Conflict(
                 val.get("error")
                     .and_then(Value::as_str)
@@ -380,7 +385,7 @@ fn parse_input<T: serde::de::DeserializeOwned>(val: Value) -> Result<T, OpError>
 
 /// The verdict of a DataSource check: the dry run's validity and, for an `http` source, the
 /// probe of its feed (MF-39).
-fn datasource_verdict(out: &Value, manifest: &Value) -> Verdict {
+pub(crate) fn datasource_verdict(out: &Value, manifest: &Value) -> Verdict {
     let ok = out.get("valid").and_then(Value::as_bool).unwrap_or(false);
     let mut findings = Vec::new();
     if !ok {
@@ -937,6 +942,7 @@ async fn mutate_manifest(
     plural: &'static str,
     manifest: Value,
     dry_run: bool,
+    gated: bool,
 ) -> Result<Value, OpError> {
     let kind = manifest
         .get("kind")
@@ -954,17 +960,30 @@ async fn mutate_manifest(
         None => ChangeOp::Create,
     };
 
-    let outcome = mutate::propose_with_identity(
-        &caller.identity,
-        state,
-        project,
-        plural,
-        name.as_deref(),
-        op,
-        dry_run,
-        manifest,
-    )
-    .await?;
+    let outcome = if gated && !dry_run {
+        mutate::propose_gated(
+            &caller.identity,
+            state,
+            project,
+            plural,
+            name.as_deref(),
+            op,
+            manifest,
+        )
+        .await?
+    } else {
+        mutate::propose_with_identity(
+            &caller.identity,
+            state,
+            project,
+            plural,
+            name.as_deref(),
+            op,
+            dry_run,
+            manifest,
+        )
+        .await?
+    };
 
     Ok(outcome.into_value())
 }
@@ -991,7 +1010,8 @@ async fn resolve_manifest_input(
         return Ok((draft.manifest, Some(d.clone())));
     }
     if let Some(m) = &input.manifest {
-        return Ok((m.clone(), None));
+        // Checked under its own kind and name, so its proposal finds the verdict (T-0956).
+        return Ok((m.clone(), own_draft(m)));
     }
     Err(OpError::InvalidInput {
         path: "/manifest".into(),
@@ -1056,6 +1076,78 @@ pub fn check_operation_for(op_name: &str) -> &'static str {
     }
 }
 
+/// The check that judges a manifest of `kind`, as the gate names it.
+pub fn check_for_kind(kind: &str) -> &'static str {
+    match kind {
+        "DataSource" => "jc_datasource_check",
+        "Pipeline" => "jc_pipeline_test",
+        _ => "jc_manifest_dry_run",
+    }
+}
+
+/// The draft a manifest proposed without one is checked under: its own kind and name.
+fn own_draft(manifest: &Value) -> Option<DraftRef> {
+    Some(DraftRef {
+        kind: manifest.get("kind")?.as_str()?.to_owned(),
+        name: manifest.pointer("/metadata/name")?.as_str()?.to_owned(),
+    })
+}
+
+/// PF-57 for a manifest proposed without a draft, whatever door it comes through (owner decision
+/// T-0956): the verdict its own check recorded under its kind and name, green and fresh for this
+/// exact manifest. `Ok(true)` is a lax installation letting an unchecked one through.
+pub async fn verdict_for_manifest(
+    state: &AppState,
+    project: &str,
+    manifest: &Value,
+) -> Result<bool, OpError> {
+    let Some(own) = own_draft(manifest) else {
+        // No kind or no name: the proposal refuses the shape itself, naming the field.
+        return Ok(false);
+    };
+    let recorded = draft_store(state)
+        .get(project, &own.kind, &own.name)
+        .await
+        .map_err(|e| OpError::Api(ApiError::Internal(e.to_string())))?
+        .and_then(|draft| draft.verdict);
+    verdict_gate(
+        state,
+        recorded.as_ref(),
+        manifest,
+        check_for_kind(&own.kind),
+        "manifest",
+    )
+}
+
+/// After a manifest proposed without a draft became a Change, the draft its check created goes,
+/// but only while it still holds that manifest: a person's draft of the same resource with other
+/// content stays theirs.
+pub async fn forget_check(state: &AppState, project: &str, manifest: &Value) {
+    let Some(own) = own_draft(manifest) else {
+        return;
+    };
+    let store = draft_store(state);
+    if let Ok(Some(draft)) = store.get(project, &own.kind, &own.name).await {
+        if verdict::digest_of(&draft.manifest) == verdict::digest_of(manifest) {
+            let _ = store.drop(project, &own.kind, &own.name).await;
+        }
+    }
+}
+
+/// Records the verdict of a check of a manifest that names no draft, under its own kind and
+/// name, so the proposal of the same manifest finds it (T-0956).
+pub async fn record_check(
+    caller: &Caller,
+    state: &AppState,
+    project: &str,
+    manifest: &Value,
+    verdict: &Verdict,
+) {
+    if let Some(own) = own_draft(manifest) {
+        record_verdict(caller, state, project, &own, manifest, verdict).await;
+    }
+}
+
 /// The refusal an operation's verdict gate already holds for these arguments, or `None` when
 /// it lets them through (PF-57, AG-62).
 ///
@@ -1082,22 +1174,46 @@ pub async fn verdict_refusal(
 }
 
 fn apply_verdict_gate(state: &AppState, draft: &Draft, check_op: &str) -> Result<bool, OpError> {
+    verdict_gate(
+        state,
+        draft.verdict.as_ref(),
+        &draft.manifest,
+        check_op,
+        "draft",
+    )
+}
+
+/// The gate itself, for a verdict and the manifest it must be fresh for: `Ok(true)` lets an
+/// unchecked manifest through with a warning (lax), `Ok(false)` finds nothing to say.
+fn verdict_gate(
+    state: &AppState,
+    verdict: Option<&Verdict>,
+    manifest: &Value,
+    check_op: &str,
+    subject: &str,
+) -> Result<bool, OpError> {
     let mode = verdict::get_validation_mode(state);
-    let reason = match &draft.verdict {
+    let reason = match verdict {
         None => Some("verdict_absent"),
         Some(v) if !v.ok => Some("verdict_failed"),
-        Some(v) if !v.is_fresh_for(&draft.manifest) => Some("stale"),
+        Some(v) if !v.is_fresh_for(manifest) => Some("stale"),
         _ => None,
     };
 
     if let Some(reason) = reason {
         if mode == verdict::Validation::Strict {
             let detail = match reason {
-                "verdict_absent" => "The draft has not been checked; check it, then propose it.",
-                "verdict_failed" => {
-                    "The draft's check found problems; resolve them and check it again."
+                "verdict_absent" => {
+                    format!("The {subject} has not been checked; check it, then propose it.")
                 }
-                _ => "The draft changed since its check; check it again, then propose it.",
+                "verdict_failed" => {
+                    format!(
+                        "The {subject}'s check found problems; resolve them and check it again."
+                    )
+                }
+                _ => format!(
+                    "The {subject} changed since its check; check it again, then propose it."
+                ),
             };
             return Err(OpError::Conflict(json!({
                 "error": "verdict_required",
@@ -1139,6 +1255,7 @@ async fn propose_with_optional_draft(
             plural,
             draft.manifest.clone(),
             false,
+            false,
         )
         .await?;
         let _ = draft_store(state).drop(project, &d.kind, &d.name).await;
@@ -1151,7 +1268,30 @@ async fn propose_with_optional_draft(
         path: "/manifest".into(),
         message: "either manifest or draft is required".into(),
     })?;
-    mutate_manifest(caller, state, project, plural, manifest, false).await
+    propose_bare(caller, state, project, plural, manifest).await
+}
+
+/// A manifest proposed without a draft: proposed with its own check's verdict required once it has
+/// passed its own checks (PF-57, T-0956), then the draft that check created is forgotten.
+async fn propose_bare(
+    caller: &Caller,
+    state: &AppState,
+    project: &str,
+    plural: &'static str,
+    manifest: Value,
+) -> Result<Value, OpError> {
+    let out = mutate_manifest(
+        caller,
+        state,
+        project,
+        plural,
+        manifest.clone(),
+        false,
+        true,
+    )
+    .await?;
+    forget_check(state, project, &manifest).await;
+    Ok(out)
 }
 
 fn init_registry() -> Vec<Operation> {
@@ -1255,7 +1395,7 @@ fn core_operations() -> Vec<Operation> {
                                 ))
                             })?;
                         let warning = apply_verdict_gate(state, &draft, "jc_manifest_dry_run")?;
-                        let mut out = mutate_manifest(caller, state, project, "endpoints", draft.manifest.clone(), false).await?;
+                        let mut out = mutate_manifest(caller, state, project, "endpoints", draft.manifest.clone(), false, false).await?;
                         let _ = draft_store(state).drop(project, &d.kind, &d.name).await;
                         if warning {
                             out["warning"] = json!("proposed without a fresh green verdict");
@@ -1263,7 +1403,7 @@ fn core_operations() -> Vec<Operation> {
                         return Ok(out);
                     }
                     if let Some(manifest) = input.manifest {
-                        return mutate_manifest(caller, state, project, "endpoints", manifest, false).await;
+                        return propose_bare(caller, state, project, "endpoints", manifest).await;
                     }
                     let params = share::ProposeEndpoint {
                         context_space: input.context_space.unwrap_or_default(),
@@ -1461,7 +1601,8 @@ fn core_operations() -> Vec<Operation> {
                             (draft.manifest, Some(d.clone()))
                         }
                     } else if let Some(p) = input.pipeline {
-                        (p, None)
+                        let own = own_draft(&p);
+                        (p, own)
                     } else {
                         return Err(OpError::InvalidInput {
                             path: "/pipeline".into(),
@@ -1615,7 +1756,7 @@ fn core_operations() -> Vec<Operation> {
                     let input: ManifestInput = parse_input(val)?;
                     let (manifest, draft_ref) = resolve_manifest_input(state, project, &input).await?;
                     let mut out =
-                        mutate_manifest(caller, state, project, "datasources", manifest.clone(), true).await?;
+                        mutate_manifest(caller, state, project, "datasources", manifest.clone(), true, false).await?;
                     let verdict = datasource_verdict(&out, &manifest);
                     if let Some(d) = &draft_ref {
                         record_verdict(caller, state, project, d, &manifest, &verdict).await;

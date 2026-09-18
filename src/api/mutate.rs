@@ -327,9 +327,84 @@ pub async fn propose(
     }
 }
 
+/// The REST doors of a manifest that names no draft (PF-57, owner decision T-0956): its dry run
+/// records a verdict under the manifest's own kind and name, and its proposal needs that verdict,
+/// green and fresh for the same manifest, exactly as the draft door and the operations do. A
+/// proposal that became a Change forgets the draft its check created.
+#[allow(clippy::too_many_arguments)]
+async fn propose_checked(
+    user: &CurrentUser,
+    front: Front,
+    state: &AppState,
+    project: &str,
+    plural: &str,
+    path_name: Option<&str>,
+    operation: Operation,
+    dry_run: bool,
+    body_val: Value,
+) -> Result<Response, ApiError> {
+    let manifest = body_val.clone();
+    if dry_run {
+        let outcome = propose_with_identity(
+            &user.0.identity,
+            state,
+            project,
+            plural,
+            path_name,
+            operation,
+            true,
+            body_val,
+        )
+        .await?;
+        let ProposeOutcome::DryRun(mut result) = outcome else {
+            return Err(ApiError::Internal("a dry run proposed a change".into()));
+        };
+        let verdict = if manifest.get("kind") == Some(&Value::from("DataSource")) {
+            let answer =
+                serde_json::to_value(&result).map_err(|e| ApiError::Internal(e.to_string()))?;
+            crate::ops::datasource_verdict(&answer, &manifest)
+        } else {
+            crate::ops::verdict::Verdict::new(
+                result.valid,
+                Vec::new(),
+                serde_json::to_value(&result.plan).ok(),
+                &manifest,
+            )
+        };
+        let caller = crate::ops::Caller {
+            identity: user.0.identity.clone(),
+            via: match front {
+                Front::Portal | Front::Edge => crate::ops::Via::Session,
+                Front::Bearer => crate::ops::Via::Bearer,
+            },
+            access: None,
+        };
+        crate::ops::record_check(&caller, state, project, &manifest, &verdict).await;
+        result.verdict = Some(verdict);
+        return Ok((StatusCode::OK, Json(result)).into_response());
+    }
+    let outcome = propose_gated(
+        &user.0.identity,
+        state,
+        project,
+        plural,
+        path_name,
+        operation,
+        body_val,
+    )
+    .await?;
+    crate::ops::forget_check(state, project, &manifest).await;
+    match outcome {
+        ProposeOutcome::DryRun(res) => Ok((StatusCode::OK, Json(res)).into_response()),
+        ProposeOutcome::Change(change) => Ok((StatusCode::ACCEPTED, Json(change)).into_response()),
+    }
+}
+
 /// Shared mutation engine that operates on `Identity`: validates manifest constraints, plans diffs,
 /// and submits merge requests to Git under human authorship (MF-12, CC-03, CC-44, CC-63).
-/// Called by both session-based REST routes and the operations registry / MCP server.
+/// Called by both session-based REST routes and the operations registry / MCP server. Asks for no
+/// verdict: the draft door has asked already, and a published application was checked by its
+/// preview. A manifest proposed without a draft goes through [`propose_gated`].
 #[allow(clippy::too_many_arguments)]
 pub async fn propose_with_identity(
     identity: &crate::auth::session::Identity,
@@ -339,8 +414,47 @@ pub async fn propose_with_identity(
     path_name: Option<&str>,
     operation: Operation,
     dry_run: bool,
-    mut body_val: Value,
+    body_val: Value,
 ) -> Result<ProposeOutcome, ApiError> {
+    propose_engine(
+        identity, state, project, plural, path_name, operation, dry_run, body_val, false,
+    )
+    .await
+}
+
+/// [`propose_with_identity`] for a manifest that names no draft (PF-57, owner decision T-0956):
+/// once the manifest has passed every check of its own, its proposal needs the verdict its check
+/// recorded, green and fresh for this exact manifest, before anything reaches the forge.
+#[allow(clippy::too_many_arguments)]
+pub async fn propose_gated(
+    identity: &crate::auth::session::Identity,
+    state: &AppState,
+    project: &str,
+    plural: &str,
+    path_name: Option<&str>,
+    operation: Operation,
+    body_val: Value,
+) -> Result<ProposeOutcome, ApiError> {
+    propose_engine(
+        identity, state, project, plural, path_name, operation, false, body_val, true,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn propose_engine(
+    identity: &crate::auth::session::Identity,
+    state: &AppState,
+    project: &str,
+    plural: &str,
+    path_name: Option<&str>,
+    operation: Operation,
+    dry_run: bool,
+    mut body_val: Value,
+    gated: bool,
+) -> Result<ProposeOutcome, ApiError> {
+    // The manifest as it was sent, which is what its check judged and what the verdict is fresh for.
+    let received = gated.then(|| body_val.clone());
     // 0. The files a manifest names but cannot contain (a Mapping's golden examples, DM-39),
     // taken out of the body the way `draft` is, before anything reads it as an envelope.
     let sidecar_files = body_val.as_object_mut().and_then(|map| map.remove("files"));
@@ -586,7 +700,13 @@ pub async fn propose_with_identity(
             lane,
             plan,
             probe,
+            verdict: None,
         }));
+    }
+
+    // 7a. The verdict, after every check of the manifest's own and before the forge (T-0956).
+    if let Some(received) = &received {
+        crate::ops::verdict_for_manifest(state, project, received).await?;
     }
 
     // 8. Commit to Git merge request via Gitea client
@@ -858,8 +978,9 @@ pub async fn create(
         )
         .await;
     }
-    propose(
+    propose_checked(
         &user,
+        front,
         &state,
         &project,
         &plural,
@@ -909,8 +1030,9 @@ pub async fn replace(
         )
         .await;
     }
-    propose(
+    propose_checked(
         &user,
+        front,
         &state,
         &project,
         &plural,
@@ -951,6 +1073,7 @@ pub async fn replace(
 )]
 pub async fn patch(
     user: CurrentUser,
+    front: Front,
     State(state): State<AppState>,
     Path((project, plural, name)): Path<(String, String, String)>,
     Query(dry_run_q): Query<DryRunQuery>,
@@ -996,8 +1119,9 @@ pub async fn patch(
 
     plan::merge_patch(&mut desired_val, &patch_val);
 
-    propose(
+    propose_checked(
         &user,
+        front,
         &state,
         &project,
         &plural,
@@ -1434,6 +1558,7 @@ mod tests {
         let user = dummy_user();
         let resp = patch(
             user,
+            Front::Portal,
             State(state),
             Path(("ovzdusie".into(), "spaces".into(), "mobility".into())),
             Query(DryRunQuery {

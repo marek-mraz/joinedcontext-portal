@@ -324,7 +324,7 @@ fn state_with(gitea: &MockServer) -> AppState {
 }
 
 async fn send(state: &AppState, who: Who, http: &str, uri: &str, body: Option<Value>) -> Answer {
-    common::send(state, who.identity(), http, uri, body).await
+    common::checked_send(state, who.identity(), http, uri, body).await
 }
 
 /// What a cell expects: the status, and for a refusal the words its reason must carry.
@@ -607,6 +607,16 @@ async fn every_role_meets_every_route_and_operation_exactly_as_the_table_says() 
                 &refused("an agent never approves or rejects a change"),
             );
         }
+        // The agent checks what it proposes, as every door does (T-0956).
+        let dry_run = ops::find("jc_manifest_dry_run").expect("registered");
+        let _ = ops::call(
+            dry_run,
+            &agent,
+            &state,
+            project,
+            json!({ "manifest": manifest(family, "new-agent") }),
+        )
+        .await;
         let propose = ops::find("jc_resource_propose").expect("registered");
         let answer = match ops::call(
             propose,

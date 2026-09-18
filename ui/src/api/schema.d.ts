@@ -1593,6 +1593,7 @@ export interface components {
              */
             restartsStream?: boolean;
             valid: boolean;
+            verdict?: null | components["schemas"]["Verdict"];
         };
         /** @description One directed relation between two nodes. */
         Edge: {

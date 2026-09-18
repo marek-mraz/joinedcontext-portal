@@ -4,6 +4,9 @@
 //! `CkanInstance` is a manifest, so it is written through the resource API as a change
 //! proposal like everything else, and that is what the last two cases assert.
 
+mod common;
+use common::CheckFirst;
+
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -315,7 +318,7 @@ async fn a_catalogue_is_configured_through_the_resource_api_as_a_change_proposal
     let app = server::app(AppState::new(config, None).with_gitea(Arc::new(client)));
 
     let response = app
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/ckaninstances")

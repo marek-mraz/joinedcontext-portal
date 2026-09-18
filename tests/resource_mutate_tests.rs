@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+mod common;
+use common::CheckFirst;
+
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
 use axum_extra::extract::cookie::PrivateCookieJar;
@@ -129,7 +132,7 @@ async fn create_returns_202_with_change_and_commits_to_gitea() {
     });
 
     let response = app
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/spaces")
@@ -630,7 +633,7 @@ async fn patch_merge_patch_json_changes_field_and_returns_202() {
     });
 
     let response = app
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("PATCH")
                 .uri("/api/v1/projects/ovzdusie/spaces/mobility")
@@ -738,7 +741,7 @@ async fn lane_classification_public_endpoint_red_and_sandbox_space_green() {
     });
 
     let resp_endpoint = app
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/endpoints")
@@ -783,7 +786,7 @@ async fn create_without_forge_returns_503() {
     });
 
     let response = app
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/spaces")
@@ -916,7 +919,7 @@ async fn a_second_proposal_while_a_change_is_open_names_it_and_writes_nothing() 
         "spec": { "isSandbox": true }
     });
     let response = app
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/spaces")
@@ -1006,7 +1009,7 @@ async fn an_open_change_on_a_suffixed_branch_still_blocks_a_proposal() {
         "spec": { "isSandbox": true }
     });
     let response = server::app(state)
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/spaces")
@@ -1107,7 +1110,7 @@ async fn an_open_change_elsewhere_does_not_block_a_proposal() {
         "spec": { "isSandbox": true }
     });
     let response = app
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/spaces")
@@ -1197,7 +1200,7 @@ async fn a_stale_proposal_branch_is_recreated_from_main() {
         "spec": { "isSandbox": true }
     });
     let response = server::app(state)
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/spaces")
@@ -1356,7 +1359,7 @@ async fn a_subscription_is_proposed_into_the_space_it_watches() {
         }
     });
     let response = app
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/subscriptions")
@@ -1588,7 +1591,7 @@ async fn a_proposal_commits_the_files_its_manifest_names() {
     let app = server::app(state);
 
     let response = app
-        .oneshot(mapping_proposal(
+        .oneshot_checked(mapping_proposal(
             &config,
             json!({
                 "./tests/air-to-partner-air.input.json": "{\n  \"id\": \"urn:ngsi-ld:AirQualityObserved:x\"\n}\n",

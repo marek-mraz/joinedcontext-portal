@@ -40,6 +40,9 @@ pub struct DryRunResult {
     /// What one fetch of an `http` DataSource returned (MF-39); absent for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probe: Option<Probe>,
+    /// The verdict this check recorded for the manifest, which its proposal needs (PF-57, T-0956).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<crate::ops::verdict::Verdict>,
 }
 
 /// One fetch of a DataSource on the project's runner, or why there was none (MF-39).

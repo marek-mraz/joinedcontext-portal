@@ -41,6 +41,10 @@ pub enum ApiError {
     SelfApproval(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    /// 409 with the verdict gate's own document (PF-57): `error: verdict_required`, the check to
+    /// run and why; the body the operations registry answers, so every door reads alike (T-0956).
+    #[error("verdict required")]
+    VerdictRequired(serde_json::Value),
     #[error("unsupported media type: {0}")]
     UnsupportedMediaType(String),
     #[error("too many requests: {0}")]
@@ -55,8 +59,19 @@ pub enum ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        let this = match self {
+            Self::VerdictRequired(body) => {
+                return (
+                    StatusCode::CONFLICT,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    axum::Json(body),
+                )
+                    .into_response()
+            }
+            other => other,
+        };
         let mut errors = None;
-        let (status, slug, title, detail) = match self {
+        let (status, slug, title, detail) = match this {
             Self::NotFound(msg) => (
                 StatusCode::NOT_FOUND,
                 "resource-not-found",
@@ -96,6 +111,13 @@ impl IntoResponse for ApiError {
                 Some(msg),
             ),
             Self::Conflict(msg) => (StatusCode::CONFLICT, "conflict", "Conflict", Some(msg)),
+            // Answered above with its own document; kept here so the match stays exhaustive.
+            Self::VerdictRequired(body) => (
+                StatusCode::CONFLICT,
+                "verdict-required",
+                "Verdict Required",
+                Some(body.to_string()),
+            ),
             Self::UnsupportedMediaType(msg) => (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 "unsupported-media-type",

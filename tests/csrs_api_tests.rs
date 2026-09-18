@@ -5,6 +5,9 @@
 //! change proposal like everything else, and the write case below asserts exactly that: the
 //! kind's own repository path, and the Red lane a federation edge always takes (CC-63).
 
+mod common;
+use common::CheckFirst;
+
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -346,7 +349,7 @@ async fn a_write_becomes_a_red_lane_merge_request_at_the_kinds_own_path() {
     let config = Config::for_tests();
     let state = AppState::new(config.clone(), None).with_gitea(Arc::new(client));
     let response = server::app(state)
-        .oneshot(
+        .oneshot_checked(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/projects/ovzdusie/csrs")

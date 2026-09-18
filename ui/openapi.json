@@ -6670,6 +6670,17 @@
           },
           "valid": {
             "type": "boolean"
+          },
+          "verdict": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Verdict",
+                "description": "The verdict this check recorded for the manifest, which its proposal needs (PF-57, T-0956)."
+              }
+            ]
           }
         }
       },

@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use common::{encode, envelope, person, send, Answer, REPO};
+use common::{checked_send as send, encode, envelope, person, Answer, REPO};
 use joinedcontext_portal::permissions::ORG_NAMESPACE;
 use joinedcontext_portal::resource::API_VERSION;
 use joinedcontext_portal::state::AppState;
