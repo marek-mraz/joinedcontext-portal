@@ -125,7 +125,9 @@
     "filterMine": "Iba moje",
     "filterPhase": "Fáza",
     "filterAll": "Všetky",
-    "noneMatch": "Týmto filtrom nezodpovedá žiadna zmena."
+    "noneMatch": "Týmto filtrom nezodpovedá žiadna zmena.",
+    "workspace": "Z kópie",
+    "fromWorkspace": "Z kópie {name}, ktorú pripravil(a) {author}, vrátené {date}: upravené mimo živého projektu a pred návrhom znova skontrolované."
   },
   "lane": {
     "green": "Zelená",

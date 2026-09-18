@@ -6697,6 +6697,13 @@
           },
           "summary": {
             "$ref": "#/components/schemas/ChangeSummary"
+          },
+          "workspace": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The workspace this Change brings back, so the approver reads that it was worked on as a\ncopy first, and whose (UI-63, CC-79)."
           }
         }
       },

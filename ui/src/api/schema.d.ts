@@ -1514,6 +1514,11 @@ export interface components {
             planFields?: components["schemas"]["FieldChange"][] | null;
             status: components["schemas"]["ChangeStatus"];
             summary: components["schemas"]["ChangeSummary"];
+            /**
+             * @description The workspace this Change brings back, so the approver reads that it was worked on as a
+             *     copy first, and whose (UI-63, CC-79).
+             */
+            workspace?: string | null;
         };
         /** @description Approval and reconciliation status of a change. */
         ChangeStatus: {

@@ -125,7 +125,9 @@
     "filterMine": "Only mine",
     "filterPhase": "Phase",
     "filterAll": "All",
-    "noneMatch": "No change matches these filters."
+    "noneMatch": "No change matches these filters.",
+    "workspace": "From a copy",
+    "fromWorkspace": "From the copy {name} by {author}, brought back on {date}: worked on apart from the live project, checked again before it was proposed."
   },
   "lane": {
     "green": "Green",

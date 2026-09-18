@@ -404,3 +404,18 @@ describe("the files of a bundle (T-0861)", () => {
     expect(screen.queryAllByTestId("change-file")).toHaveLength(0);
   });
 });
+
+describe("a change brought back from a copy (UI-63)", () => {
+  it("says which copy it came from and whose it was", async () => {
+    renderDetail({ change: proposal({ workspace: "air-v2" }) });
+    const line = await screen.findByTestId("change-workspace");
+    expect(line.textContent).toContain("air-v2");
+    expect(line.textContent).toContain("Marek Mráz");
+  });
+
+  it("says nothing of a copy for an ordinary change", async () => {
+    renderDetail({ change: proposal() });
+    await screen.findByText("Marek Mráz");
+    expect(screen.queryByTestId("change-workspace")).toBeNull();
+  });
+});

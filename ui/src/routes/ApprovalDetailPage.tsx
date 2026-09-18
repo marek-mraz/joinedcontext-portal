@@ -235,6 +235,18 @@ export function ApprovalDetailPage({
             ) : null}
           </dd>
         </div>
+        {proposal.workspace ? (
+          <div className="sm:col-span-2" data-testid="change-workspace">
+            <dt className="text-xs font-medium text-surface-fg/70">{t("approvals.workspace")}</dt>
+            <dd className="mt-1 text-sm text-surface-fg">
+              {t("approvals.fromWorkspace", {
+                name: proposal.workspace,
+                author: proposal.author.name,
+                date: new Date(proposal.createdAt).toLocaleDateString(),
+              })}
+            </dd>
+          </div>
+        ) : null}
         {proposal.status.mergeRequest ? (
           <div>
             <dt className="text-xs font-medium text-surface-fg/70">

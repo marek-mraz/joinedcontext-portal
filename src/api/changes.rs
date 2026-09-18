@@ -59,6 +59,10 @@ pub struct ChangeProposal {
     /// How many files the merge request changes, the headline manifest included.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_count: Option<usize>,
+    /// The workspace this Change brings back, so the approver reads that it was worked on as a
+    /// copy first, and whose (UI-63, CC-79).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 impl ChangeProposal {
@@ -302,6 +306,19 @@ async fn find_manifest_in_tree(
     Ok(None)
 }
 
+/// Whether a pull request on `branch` is a Change of this Portal: a proposal of its own, or a
+/// workspace brought back (CC-79).
+fn is_change_branch(branch: &str) -> bool {
+    let branch = branch.strip_prefix("refs/heads/").unwrap_or(branch);
+    branch.starts_with("portal/") || branch.starts_with("workspace/")
+}
+
+/// The workspace a Change brings back, when its branch is one (UI-63).
+fn workspace_of(branch: &str) -> Option<String> {
+    let branch = branch.strip_prefix("refs/heads/").unwrap_or(branch);
+    branch.strip_prefix("workspace/").map(str::to_owned)
+}
+
 /// The branch prefixes of a change that carries several resources and names none of them:
 /// `blueprints::flow_branch`, `import`'s headless bundle, `projects`' deletion.
 const BUNDLE_PREFIXES: [&str; 3] = ["flow-", "import-", "delete-project-"];
@@ -319,13 +336,14 @@ async fn bundle_headline(
         .head_branch
         .strip_prefix("refs/heads/")
         .unwrap_or(&pr.head_branch);
-    let Some(rest) = branch.strip_prefix("portal/") else {
-        return Ok(None);
+    // A workspace brought back is a bundle too: several resources under one Change (CC-79).
+    let bundle = match branch.strip_prefix("portal/") {
+        Some(rest) => BUNDLE_PREFIXES
+            .iter()
+            .any(|prefix| rest.starts_with(prefix)),
+        None => branch.starts_with("workspace/"),
     };
-    if !BUNDLE_PREFIXES
-        .iter()
-        .any(|prefix| rest.starts_with(prefix))
-    {
+    if !bundle {
         return Ok(None);
     }
     let home = format!("projects/{project}/");
@@ -647,6 +665,7 @@ fn build_proposal(
         // headline alone says nothing about them rather than claiming there is one.
         files: None,
         file_count: None,
+        workspace: workspace_of(&pr.head_branch),
     }
 }
 
@@ -742,7 +761,7 @@ pub async fn list_changes_for(state: &AppState, project: &str) -> Result<ChangeL
     let mut proposals = Vec::new();
 
     for pr in prs {
-        if !pr.head_branch.starts_with("portal/") {
+        if !is_change_branch(&pr.head_branch) {
             continue;
         }
 
@@ -807,7 +826,7 @@ pub async fn change_for(
         .ok_or_else(|| ApiError::Unavailable("git forge is not configured".into()))?;
 
     let pr = gitea.pull_request(pr_number).await?;
-    if !pr.head_branch.starts_with("portal/") {
+    if !is_change_branch(&pr.head_branch) {
         return Err(ApiError::NotFound(format!(
             "change proposal '{id}' not found in project '{project}'"
         )));

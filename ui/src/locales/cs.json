@@ -125,7 +125,9 @@
     "filterMine": "Jen moje",
     "filterPhase": "Fáze",
     "filterAll": "Všechny",
-    "noneMatch": "Těmto filtrům neodpovídá žádná změna."
+    "noneMatch": "Těmto filtrům neodpovídá žádná změna.",
+    "workspace": "Z kopie",
+    "fromWorkspace": "Z kopie {name}, kterou připravil(a) {author}, vráceno {date}: upraveno mimo živý projekt a před návrhem znovu zkontrolováno."
   },
   "lane": {
     "green": "Zelená",

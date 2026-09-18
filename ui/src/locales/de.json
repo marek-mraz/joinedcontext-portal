@@ -125,7 +125,9 @@
     "filterMine": "Nur meine",
     "filterPhase": "Phase",
     "filterAll": "Alle",
-    "noneMatch": "Keine Änderung passt zu diesen Filtern."
+    "noneMatch": "Keine Änderung passt zu diesen Filtern.",
+    "workspace": "Aus einer Kopie",
+    "fromWorkspace": "Aus der Kopie {name} von {author}, zurückgebracht am {date}: getrennt vom Live-Projekt bearbeitet und vor dem Vorschlag erneut geprüft."
   },
   "lane": {
     "green": "Grün",
