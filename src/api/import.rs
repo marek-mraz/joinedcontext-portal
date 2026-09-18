@@ -99,7 +99,15 @@ pub struct ImportOptions {
     pub manifests: Option<Value>,
 }
 
+/// `?dryRun=All`, as the OpenAPI document, the multipart field and every caller spell it.
+///
+/// Without the rename serde bound the parameter `dry_run`, so `?dryRun=All` — what the endpoint
+/// form's **Check** sends, what `API/01 §10` documents and what the generated client uses — was
+/// silently ignored and every check committed a change and opened a merge request (T-1226). A
+/// person pressing a button that says "check" wrote to the repository, and the next check
+/// answered `409: a change for … is already open`.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportQuery {
     #[serde(default)]
     pub dry_run: Option<String>,

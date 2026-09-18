@@ -579,6 +579,59 @@ async fn a_manifest_posted_as_json_is_imported_too() {
     assert_eq!(written(&server).await.len(), 1);
 }
 
+/// T-1226: `?dryRun=All` is the spelling the OpenAPI document, the endpoint form's **Check** and
+/// the generated client all use. `ImportQuery` bound `dry_run` instead, so the parameter was
+/// silently ignored: a button that says "check" committed a change and opened a merge request,
+/// and the next check answered `409 … is already open`. The multipart field was always parsed,
+/// which is why the dry-run tests above never saw it.
+#[tokio::test]
+async fn a_dry_run_asked_for_in_the_query_writes_nothing_either() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let manifest: Value = serde_yaml_ng::from_str(SPACE).expect("the space parses");
+    let body = json!({ "manifests": { "apiVersion": "joinedcontext.com/v1alpha1",
+                                      "kind": "List", "items": [manifest] } });
+    let app = server::app(state);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/projects/{PROJECT}/import?dryRun=All"))
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(CSRF_HEADER, CSRF)
+                .body(Body::from(serde_json::to_vec(&body).expect("body")))
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let answer: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes(),
+    )
+    .unwrap_or(Value::Null);
+
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a dry run answers the report: {answer}"
+    );
+    assert_eq!(answer["created"], json!(["ovzdusie"]), "{answer}");
+    assert!(
+        answer.get("status").is_none(),
+        "a dry run answers a report, never a Change: {answer}"
+    );
+    assert!(
+        written(&server).await.is_empty(),
+        "the check wrote to the repository"
+    );
+}
+
 // --- the conflict policy (MF-23) ---------------------------------------------------------
 
 #[tokio::test]
