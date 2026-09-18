@@ -403,8 +403,11 @@ describe("accessibility", () => {
     stubManagerApi();
 
     const { container } = renderApp();
+    // The page draws its own list and the endpoints shared with it; axe reads it once its own
+    // list has loaded.
     await waitFor(() => {
-      expect(screen.getByRole("table")).toBeInTheDocument();
+      expect(screen.getByRole("table", { name: i18n.t("endpoints.title") })).not.toHaveAttribute("aria-busy", "true");
+      expect(screen.queryByText(i18n.t("app.loading"))).toBeNull();
     });
 
     await expectNoViolations(container);
