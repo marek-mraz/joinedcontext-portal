@@ -127,7 +127,7 @@ test("an administrator of the kind approves their own change, and the space is c
     } else {
       // The space the approval created goes with it — and a removal is a Red change of its own, so
       // it is approved too. A bare DELETE would leave the space standing and the change open.
-      await removeCompletely(steward, approver.page, PROJECT, "spaces", name);
+      await removeCompletely(steward, PROJECT, "spaces", name);
     }
     await context.close();
     await approver.context.close();

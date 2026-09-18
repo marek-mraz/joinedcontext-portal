@@ -91,6 +91,8 @@ test("a second change on the same resource is refused by the name of the first, 
     second = await proposedChange(steward.page);
     expect(second).toMatch(/^chg-/);
   } finally {
+    // Reject what is still open first, and wait for it: a resource takes one open change, so the
+    // removal below is refused while either of these is open — the very rule this journey tests.
     for (const change of [second, first]) {
       if (!change || (await phase(steward.page, change)) !== "PendingApproval") {
         continue;
@@ -105,10 +107,11 @@ test("a second change on the same resource is refused by the name of the first, 
         await why.fill("withdrawn by the live journey of T-1588");
       }
       await dialog.getByRole("button", { name: /^(Reject|Confirm)/ }).click();
+      await expect.poll(() => phase(steward.page, change), { timeout: 60_000 }).toBe("Rejected");
     }
-    // The space the approved change created goes with it, removal approved as well: a bare DELETE
-    // leaves the space standing and its removal open (T-1592).
-    await removeCompletely(steward, approver.page, PROJECT, "spaces", name).catch(() => undefined);
+    // The space the approved change created goes with it, its removal approved as well. Not
+    // swallowed: a cleanup that fails quietly is how residue reaches dev (T-2236).
+    await removeCompletely(steward, PROJECT, "spaces", name);
     await steward.context.close();
     await approver.context.close();
   }

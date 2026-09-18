@@ -77,8 +77,11 @@ export async function proposedChange(page: Page): Promise<string> {
 export async function approve(page: Page, project: string, change: string, confirm?: string): Promise<void> {
   await page.goto(`/projects/${project}/approvals/${change}?lang=en`, { waitUntil: "networkidle" });
   const button = page.getByRole("button", { name: "Approve", exact: true });
-  if (confirm) {
-    const input = page.locator("#confirm-resource-name");
+  // Only a Red lane asks for the name typed back (CC-19). A caller that knows the name passes it
+  // and this types it when the page asks; a Yellow change has no such field, and waiting for one
+  // would fail on a change that needed no confirmation.
+  const input = page.locator("#confirm-resource-name");
+  if (confirm && (await input.count())) {
     await expect(input).toBeEnabled({ timeout: 60_000 });
     await input.pressSequentially(confirm, { delay: 60 });
   }
@@ -134,14 +137,18 @@ export async function csrf(context: BrowserContext): Promise<string> {
 }
 
 /**
- * Removes a resource a journey created, all the way: the removal is itself a Red change, so it is
- * proposed by its owner and approved by the approver with the name typed back (CC-19). A journey
- * that only sent the DELETE left the resource standing and the change open — which is how six
- * spaces were found on dev on 2026-09-18 (T-1592).
+ * Removes a resource a journey created, all the way: the removal is itself a Change, so it is
+ * proposed and then approved. A journey that only sent the DELETE left the resource standing and the
+ * change open — which is how three spaces were found on dev on 2026-09-18 (T-2236).
+ *
+ * The **owner** approves it, not the approver: approving a removal needs `delete` on the kind
+ * (`an_approver_approves_a_grant_only_within_their_own_rights_and_a_removal_only_with_delete`), which
+ * the `approver` role does not carry and `demo.steward` does through `org-admin`. A steward
+ * approving their own removal is the administrator exception of CC-34, the one
+ * `roles-refusals.spec.ts` plays.
  */
 export async function removeCompletely(
   owner: { context: BrowserContext; page: Page },
-  approver: Page,
   project: string,
   plural: string,
   name: string,
@@ -161,5 +168,5 @@ export async function removeCompletely(
   if (!change) {
     throw new Error(`the removal of ${plural}/${name} named no change`);
   }
-  await approve(approver, project, change, name);
+  await approve(owner.page, project, change, name);
 }
