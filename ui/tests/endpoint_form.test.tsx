@@ -265,7 +265,10 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
       typeof c[0] === "string" ? c[0] : (c[0] as Request).url,
     );
     const write = urls.findIndex((u) => u.includes("/import") && !u.includes("dryRun"));
-    const checked = urls.slice(0, write).findLastIndex((u) => u.includes("/import?dryRun=All"));
+    const checked = urls
+      .slice(0, write)
+      .map((u) => u.includes("/import?dryRun=All"))
+      .lastIndexOf(true);
     expect(checked).toBeGreaterThanOrEqual(0);
     const bodyOf = (i: number) => (fetchMock.mock.calls[i][0] as Request).clone().text();
     expect(await bodyOf(checked)).toBe(await bodyOf(write));
