@@ -908,7 +908,10 @@
       "temporal": "Zeitfilter",
       "geometry": "Kartenebene",
       "link": "Beziehungsauswahl",
-      "text": "Text"
+      "text": "Text",
+      "multi-select": "Mehrfachauswahl",
+      "language-map": "ein Wert je Sprache",
+      "code": "Dokumentansicht"
     },
     "newClass": "Neue Klasse",
     "newSlot": "Neues Attribut",

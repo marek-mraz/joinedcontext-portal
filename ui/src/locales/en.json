@@ -908,7 +908,10 @@
       "temporal": "time filter",
       "geometry": "map layer",
       "link": "link picker",
-      "text": "text"
+      "text": "text",
+      "multi-select": "multi-select filter",
+      "language-map": "one value per language",
+      "code": "document view"
     },
     "newClass": "New class",
     "newSlot": "New slot",

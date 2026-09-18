@@ -908,7 +908,10 @@
       "temporal": "časový filter",
       "geometry": "mapová vrstva",
       "link": "výber väzby",
-      "text": "text"
+      "text": "text",
+      "multi-select": "viacnásobný výber",
+      "language-map": "jedna hodnota na jazyk",
+      "code": "zobrazenie dokumentu"
     },
     "newClass": "Nová trieda",
     "newSlot": "Nový atribút",

@@ -635,13 +635,27 @@ export function effectiveSlots(model: LinkmlModel, klass: LinkmlClass): string[]
   return slots;
 }
 
-export type Affordance = "range" | "select" | "temporal" | "geometry" | "link" | "text";
+export type Affordance =
+  | "range"
+  | "select"
+  | "multi-select"
+  | "temporal"
+  | "geometry"
+  | "link"
+  | "language-map"
+  | "code"
+  | "text";
 
 /**
  * How a dashboard may use a slot, derived from its range and kind (DM-20).
  *
  * `enums` are the model's own enum names: a slot whose range is one of them is a select, which
  * the classification could never reach while it judged the slot alone (T-1113).
+ *
+ * The kind is read before the range, because the four NGSI-LD kinds beyond Property and
+ * Relationship say what the value *is* and the range only says what one element of it is
+ * (Architecture/11 §1.1, T-1175). Without them a language map and an opaque document both
+ * arrived here as `text`, and the editor offered a text filter over a JSON object.
  */
 export function slotAffordance(slot: LinkmlSlot, enums: readonly string[] = []): Affordance {
   if (slot.kind === "GeoProperty") {
@@ -649,6 +663,25 @@ export function slotAffordance(slot: LinkmlSlot, enums: readonly string[] = []):
   }
   if (slot.kind === "Relationship") {
     return "link";
+  }
+  if (slot.kind === "LanguageProperty") {
+    // One value per locale: a single text box would edit whichever language it happened to
+    // show and silently drop the rest.
+    return "language-map";
+  }
+  if (slot.kind === "JsonProperty") {
+    // The model does not describe what is inside, so nothing can be generated for it but a
+    // view of the document itself.
+    return "code";
+  }
+  if (slot.kind === "VocabProperty") {
+    // A term of a vocabulary, which the model supplies as an enum.
+    return "select";
+  }
+  if (slot.kind === "ListProperty") {
+    // Several values at once. A list of terms picks from them; a list of anything else has no
+    // set to pick from, so it stays what its elements are.
+    return slot.range !== undefined && enums.includes(slot.range) ? "multi-select" : "text";
   }
   if (slot.range !== undefined && enums.includes(slot.range)) {
     return "select";
@@ -671,6 +704,8 @@ export function slotDimension(affordance: Affordance): "sizeBy" | "colorBy" | un
   if (affordance === "range") {
     return "sizeBy";
   }
+  // Only a single pick colours a mark: a multi-select has no one value per entity to colour
+  // by, and a language map and a document have none at all.
   return affordance === "select" ? "colorBy" : undefined;
 }
 

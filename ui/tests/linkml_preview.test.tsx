@@ -282,10 +282,40 @@ describe("what a dashboard may do with a slot", () => {
     );
   });
 
+  /**
+   * T-1175, Architecture/11 §1.1: the four kinds beyond Property and Relationship say what the
+   * value *is*, and the range only says what one element of it is. While the classification
+   * read the range alone, a language map and an opaque document both arrived as `text` and the
+   * editor promised a text filter over a JSON object.
+   */
+  it("reads the kind before the range, so a map and a document are not text", () => {
+    const of = (slot: Partial<LinkmlSlot>) =>
+      slotAffordance({ name: "s", kind: "Property", ...slot } as LinkmlSlot, enums);
+
+    expect(of({ kind: "LanguageProperty", range: "string" })).toBe("language-map");
+    expect(of({ kind: "JsonProperty", range: "string" })).toBe("code");
+    expect(of({ kind: "VocabProperty", range: "QualityBand" })).toBe("select");
+    // A vocabulary whose enum the model has not declared is still a pick, not free text.
+    expect(of({ kind: "VocabProperty", range: "Pollutant" })).toBe("select");
+    // A list of terms picks from them; a list of anything else has no set to pick from.
+    expect(of({ kind: "ListProperty", range: "QualityBand" })).toBe("multi-select");
+    expect(of({ kind: "ListProperty", range: "float" })).toBe("text");
+  });
+
   it("names the dimension a dashboard sizes or colours by, and nothing for the rest", () => {
     expect(slotDimension("range")).toBe("sizeBy");
     expect(slotDimension("select")).toBe("colorBy");
-    for (const affordance of ["temporal", "geometry", "link", "text"] as const) {
+    for (const affordance of [
+      "temporal",
+      "geometry",
+      "link",
+      "text",
+      // A multi-select has no one value per entity to colour by, and a map and a document
+      // have none at all.
+      "multi-select",
+      "language-map",
+      "code",
+    ] as const) {
       expect(slotDimension(affordance)).toBeUndefined();
     }
   });
