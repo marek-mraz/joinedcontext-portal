@@ -108,7 +108,13 @@
     "ownAsAdministrator": "Túto zmenu ste navrhli vy; schvaľujete ju ako administrátor {kind}.",
     "files": "Súbory v tejto zmene",
     "fileCount": "{count, plural, one {# súbor} few {# súbory} other {# súborov}}",
-    "filesLead": "Schválenie kontroluje každý z nich a rozhoduje najprísnejší pruh."
+    "filesLead": "Schválenie kontroluje každý z nich a rozhoduje najprísnejší pruh.",
+    "confirmFirst": "Na schválenie zmeny v červenom pruhu napíšte vyššie {name}.",
+    "rejectTitle": "Zamietnuť túto zmenu?",
+    "rejectLead": "Navrhovateľ si dôvod prečíta pri zmene.",
+    "rejectReason": "Prečo ju zamietate? (nepovinné)",
+    "rejectConfirm": "Zamietnuť zmenu",
+    "rejectCancel": "Zrušiť"
   },
   "lane": {
     "green": "Zelená",

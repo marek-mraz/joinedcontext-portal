@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -9,7 +9,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { PlanDiffViewer } from "../components/diff/PlanDiffViewer";
 import type { components } from "../api/schema";
-import { Alert, Button, Input, PageHeader } from "../components/ui";
+import { Alert, Button, Dialog, Input, PageHeader, Textarea } from "../components/ui";
 
 type ChangeProposal = components["schemas"]["ChangeProposal"];
 type ChangeFile = components["schemas"]["ChangeFile"];
@@ -45,6 +45,10 @@ export function ApprovalDetailPage({
   const { identity } = useAuth();
   const permissions = usePermissions(project);
 
+  const approveReasonId = useId();
+  const rejectReasonId = useId();
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const [confirmInput, setConfirmInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -103,10 +107,12 @@ export function ApprovalDetailPage({
   });
 
   const rejectMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (reason: string) => {
       setActionError(null);
       const res = await api.POST("/api/v1/projects/{project}/changes/{id}/reject", {
         params: { path: { project, id } },
+        // The reason goes into the merge request's closing comment, where the proposer reads it.
+        body: reason.trim() === "" ? undefined : ({ reason: reason.trim() } as never),
       });
       return unwrap(res);
     },
@@ -167,6 +173,9 @@ export function ApprovalDetailPage({
   const isPendingApproval = proposal.status.phase === "PendingApproval";
   const canAct = !disabledReason && isPendingApproval && !isMutating;
   const canApprove = canAct && confirmMatches;
+  // Why Approve is disabled, on the button itself and not only beside it (UI-44).
+  const approveReason =
+    disabledReason ?? (canAct && !confirmMatches ? t("approvals.confirmFirst", { name: expectedName }) : null);
   const canReject = canAct;
 
   const summaryText = t(
@@ -292,26 +301,68 @@ export function ApprovalDetailPage({
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="primary"
-            disabled={!canApprove}
-            loading={approveMutation.isPending}
-            onClick={() => approveMutation.mutate()}
+          <span
+            title={approveReason ?? undefined}
+            tabIndex={approveReason ? 0 : undefined}
+            className="inline-flex"
           >
-            {approveMutation.isPending ? t("approvals.approving") : t("approvals.approve")}
-          </Button>
+            <Button
+              variant="primary"
+              disabled={!canApprove}
+              aria-describedby={approveReason ? approveReasonId : undefined}
+              loading={approveMutation.isPending}
+              onClick={() => approveMutation.mutate()}
+            >
+              {approveMutation.isPending ? t("approvals.approving") : t("approvals.approve")}
+            </Button>
+          </span>
 
           <Button
             variant="danger"
             disabled={!canReject}
             loading={rejectMutation.isPending}
-            onClick={() => rejectMutation.mutate()}
+            onClick={() => setRejecting(true)}
           >
             {rejectMutation.isPending ? t("approvals.rejecting") : t("approvals.reject")}
           </Button>
+          <Dialog
+            open={rejecting}
+            onOpenChange={setRejecting}
+            title={t("approvals.rejectTitle")}
+            description={t("approvals.rejectLead")}
+            closeLabel={t("approvals.rejectCancel")}
+            footer={
+              <>
+                <Button onClick={() => setRejecting(false)}>{t("approvals.rejectCancel")}</Button>
+                <Button
+                  variant="danger"
+                  loading={rejectMutation.isPending}
+                  onClick={() => {
+                    setRejecting(false);
+                    rejectMutation.mutate(rejectReason);
+                  }}
+                >
+                  {t("approvals.rejectConfirm")}
+                </Button>
+              </>
+            }
+          >
+            <label htmlFor={rejectReasonId} className="text-sm font-medium">
+              {t("approvals.rejectReason")}
+            </label>
+            <Textarea
+              id={rejectReasonId}
+              rows={3}
+              maxLength={2000}
+              value={rejectReason}
+              onChange={(event) => setRejectReason(event.target.value)}
+            />
+          </Dialog>
 
-          {disabledReason ? (
-            <p className="text-body text-fg-muted">{disabledReason}</p>
+          {approveReason ? (
+            <p id={approveReasonId} className="text-body text-fg-muted">
+              {approveReason}
+            </p>
           ) : null}
         </div>
       </section>

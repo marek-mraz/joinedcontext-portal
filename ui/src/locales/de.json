@@ -108,7 +108,13 @@
     "ownAsAdministrator": "Sie haben diese Änderung verfasst; Sie genehmigen sie als Administrator von {kind}.",
     "files": "Dateien in dieser Änderung",
     "fileCount": "{count, plural, one {# Datei} other {# Dateien}}",
-    "filesLead": "Die Freigabe prüft jede einzelne, und die strengste Spur entscheidet."
+    "filesLead": "Die Freigabe prüft jede einzelne, und die strengste Spur entscheidet.",
+    "confirmFirst": "Geben Sie oben {name} ein, um eine Änderung der roten Spur zu genehmigen.",
+    "rejectTitle": "Diese Änderung ablehnen?",
+    "rejectLead": "Die vorschlagende Person liest den Grund an der Änderung.",
+    "rejectReason": "Warum lehnen Sie sie ab? (optional)",
+    "rejectConfirm": "Änderung ablehnen",
+    "rejectCancel": "Abbrechen"
   },
   "lane": {
     "green": "Grün",

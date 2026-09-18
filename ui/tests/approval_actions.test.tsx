@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -128,14 +128,34 @@ describe("approval actions", () => {
     );
   });
 
-  it("posts to the reject endpoint from the Reject button", async () => {
+  it("asks why before it rejects, and sends the reason to the reject endpoint", async () => {
     const fetchMock = renderDetail();
     await userEvent.click(await screen.findByRole("button", { name: en.approvals.reject }));
+
+    const dialog = await screen.findByRole("dialog", { name: en.approvals.rejectTitle });
+    expect(posts(fetchMock)).toHaveLength(0);
+    await userEvent.type(within(dialog).getByLabelText(en.approvals.rejectReason), "  The slug is wrong  ");
+    await userEvent.click(within(dialog).getByRole("button", { name: en.approvals.rejectConfirm }));
 
     await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
     expect(posts(fetchMock)[0].url).toContain(
       "/api/v1/projects/banskabystrica/changes/chg-1a2b3c4d/reject",
     );
+    await expect(posts(fetchMock)[0].clone().json()).resolves.toEqual({ reason: "The slug is wrong" });
+  });
+
+  it("rejects with no reason when none is given, and Cancel rejects nothing", async () => {
+    const fetchMock = renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: en.approvals.reject }));
+    let dialog = await screen.findByRole("dialog", { name: en.approvals.rejectTitle });
+    await userEvent.click(within(dialog).getAllByRole("button", { name: en.approvals.rejectCancel })[0]);
+    expect(posts(fetchMock)).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole("button", { name: en.approvals.reject }));
+    dialog = await screen.findByRole("dialog", { name: en.approvals.rejectTitle });
+    await userEvent.click(within(dialog).getByRole("button", { name: en.approvals.rejectConfirm }));
+    await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
+    expect(await posts(fetchMock)[0].clone().text()).toBe("");
   });
 
   it("disables both actions without the approver role, and says why", async () => {
@@ -146,6 +166,10 @@ describe("approval actions", () => {
     expect(await screen.findByRole("button", { name: en.approvals.approve })).toBeDisabled();
     expect(screen.getByRole("button", { name: en.approvals.reject })).toBeDisabled();
     expect(screen.getByText(en.approvals.needsRole)).toBeInTheDocument();
+    // On the button itself too: by pointer the wrapper's tooltip, by keyboard its description.
+    const approve = screen.getByRole("button", { name: en.approvals.approve });
+    expect(approve.parentElement).toHaveAttribute("title", en.approvals.needsRole);
+    expect(approve).toHaveAccessibleDescription(en.approvals.needsRole);
 
     await userEvent.click(screen.getByRole("button", { name: en.approvals.approve }));
     expect(posts(fetchMock)).toHaveLength(0);
@@ -218,6 +242,10 @@ describe("approval actions", () => {
     expect(await screen.findByRole("button", { name: en.approvals.approve })).toBeDisabled();
     expect(screen.getByRole("button", { name: en.approvals.reject })).toBeEnabled();
 
+    expect(screen.getByRole("button", { name: en.approvals.approve }).parentElement).toHaveAttribute(
+      "title",
+      en.approvals.confirmFirst.replace("{name}", "air-quality"),
+    );
     const confirm = screen.getByLabelText(en.approvals.confirmLabel);
     await userEvent.type(confirm, "air-qualit");
     expect(screen.getByRole("button", { name: en.approvals.approve })).toBeDisabled();
