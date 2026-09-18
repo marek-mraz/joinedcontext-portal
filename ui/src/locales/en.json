@@ -1773,5 +1773,27 @@
       "verified": "{equal} of {total} files equal the checksum the bundle carries.",
       "unverifiable": "The bundle carries no checksums, so nothing here says the files are unchanged."
     }
+  },
+  "drift": {
+    "modal": {
+      "title": "What changed in ‘{id}’",
+      "lead": {
+        "modified": "The space answers differently from what the repository declares. Revert writes the repository back; adopt proposes what is live as the declared value.",
+        "missing": "The repository declares this entity and the space does not hold it. Revert writes it back."
+      },
+      "revert": "Revert to Git",
+      "adopt": "Adopt as a proposal",
+      "close": "Close",
+      "attribute": "Attribute",
+      "declared": "Declared",
+      "live": "Live",
+      "noAdopt": "There is nothing live to adopt: removing the entity from the repository is an explicit deletion, not a button.",
+      "source": "Declared in {file}",
+      "proposed": "Proposed. An approver reviews it like any other change."
+    },
+    "kind": {
+      "modified": "Modified",
+      "missing": "Missing"
+    }
   }
 }

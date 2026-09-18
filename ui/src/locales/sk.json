@@ -1773,5 +1773,27 @@
       "verified": "{equal} z {total} súborov sa zhoduje s kontrolným súčtom v balíku.",
       "unverifiable": "Balík neobsahuje kontrolné súčty, takže nič tu nehovorí, že sú súbory nezmenené."
     }
+  },
+  "drift": {
+    "modal": {
+      "title": "Čo sa zmenilo v „{id}“",
+      "lead": {
+        "modified": "Priestor odpovedá inak, než deklaruje repozitár. Vrátenie zapíše repozitár späť, prevzatie navrhne živú hodnotu ako deklarovanú.",
+        "missing": "Repozitár túto entitu deklaruje a priestor ju nedrží. Vrátenie ju zapíše späť."
+      },
+      "revert": "Vrátiť na Git",
+      "adopt": "Prevziať ako návrh",
+      "close": "Zavrieť",
+      "attribute": "Atribút",
+      "declared": "Deklarované",
+      "live": "Živé",
+      "noAdopt": "Niet čo prevziať: odstránenie entity z repozitára je výslovné zmazanie, nie tlačidlo.",
+      "source": "Deklarované v {file}",
+      "proposed": "Navrhnuté. Schvaľovateľ to posúdi ako každú inú zmenu."
+    },
+    "kind": {
+      "modified": "Zmenené",
+      "missing": "Chýba"
+    }
   }
 }

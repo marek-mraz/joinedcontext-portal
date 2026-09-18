@@ -1773,5 +1773,27 @@
       "verified": "{equal} von {total} Dateien entsprechen der Prüfsumme des Bündels.",
       "unverifiable": "Das Bündel trägt keine Prüfsummen, also sagt hier nichts, dass die Dateien unverändert sind."
     }
+  },
+  "drift": {
+    "modal": {
+      "title": "Was sich in „{id}“ geändert hat",
+      "lead": {
+        "modified": "Der Raum antwortet anders, als das Repository erklärt. Zurücksetzen schreibt das Repository zurück, Übernehmen schlägt den Live-Wert als erklärten vor.",
+        "missing": "Das Repository erklärt diese Entität, der Raum hält sie nicht. Zurücksetzen schreibt sie zurück."
+      },
+      "revert": "Auf Git zurücksetzen",
+      "adopt": "Als Vorschlag übernehmen",
+      "close": "Schließen",
+      "attribute": "Attribut",
+      "declared": "Erklärt",
+      "live": "Live",
+      "noAdopt": "Es gibt nichts zu übernehmen: das Entfernen aus dem Repository ist eine ausdrückliche Löschung, keine Schaltfläche.",
+      "source": "Erklärt in {file}",
+      "proposed": "Vorgeschlagen. Eine prüfende Person sieht es wie jede andere Änderung durch."
+    },
+    "kind": {
+      "modified": "Geändert",
+      "missing": "Fehlt"
+    }
   }
 }
