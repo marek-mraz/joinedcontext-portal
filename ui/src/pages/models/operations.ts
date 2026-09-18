@@ -11,7 +11,7 @@ import {
   reservedNamespace,
   setOrDelete,
 } from "./linkml";
-import type { LinkmlModel, NgsiLdKind } from "./linkml";
+import type { LinkmlModel, LinkmlSlot, NgsiLdKind } from "./linkml";
 
 /**
  * The operations the editor can perform on a model, as plain data (DM-13, DM-31, DM-32).
@@ -129,6 +129,31 @@ const BOOLEAN_FIELDS: SlotField[] = ["required", "multivalued", "deprecated"];
 const TEXT_FIELDS: SlotField[] = ["description", "pattern"];
 const NUMBER_FIELDS: SlotField[] = ["minimum_value", "maximum_value"];
 
+/**
+ * What a borrowed term means is the upstream's to say, not ours (DM-58).
+ *
+ * A slot that cites an `upstream_source` has bound somebody else's IRI: the claim is "this slot
+ * *is* that term". Changing what it holds — its type, its unit, whether it is one value or many,
+ * whether it is required — while keeping the IRI does not extend a standard, it makes two
+ * incompatible things answer to one name, and the disagreement surfaces at the federation
+ * partner rather than here. Adding a term of our own beside it is always allowed; changing a
+ * borrowed one is not.
+ *
+ * Checked at the edit, where both the citation and the change are in hand. Nothing downstream
+ * can do it: the generators see one document with no history, and fetching the upstream to
+ * compare would put a network call in the path of every keystroke's preview.
+ */
+const BORROWED_FIELDS: SlotField[] = ["range", "unit", "required", "multivalued"];
+
+function refuseRedefinition(slot: LinkmlSlot, field: SlotField): void {
+  if (slot.upstream && BORROWED_FIELDS.includes(field)) {
+    refuse(
+      `slot '${slot.name}' cites ${slot.upstream}, so '${field}' is that term's to define (DM-58); ` +
+        `add a slot of your own under this model's prefix, or drop the citation and mint your own IRI`,
+    );
+  }
+}
+
 function setSlotField(
   document: Document,
   model: LinkmlModel,
@@ -137,6 +162,7 @@ function setSlotField(
   value: unknown,
 ): void {
   const slot = slotOf(model, name);
+  refuseRedefinition(slot, field);
   const path = ["slots", name];
   if (BOOLEAN_FIELDS.includes(field)) {
     if (typeof value !== "boolean") {

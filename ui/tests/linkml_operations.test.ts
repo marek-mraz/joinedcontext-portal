@@ -345,3 +345,65 @@ enums:
     expect(mergeModels(SOURCE, "classes: [this is: not: a map").source).toBe(SOURCE);
   });
 });
+
+/**
+ * DM-58: what a borrowed term means is the upstream's to say.
+ *
+ * A slot that cites an `upstream_source` has bound somebody else's IRI, and the citation is the
+ * claim that this slot *is* that term. Keeping the IRI while changing what the slot holds makes
+ * two incompatible things answer to one name, and the disagreement surfaces at the federation
+ * partner reading our `@context`, not here. Checked at the edit because that is the only place
+ * the citation and the change are both in hand.
+ */
+describe("a term this model did not define", () => {
+  const BORROWED = `id: https://banskabystrica.sk/models/air
+name: air
+prefixes:
+  bb: https://banskabystrica.sk/terms/
+  sdm: https://smartdatamodels.org/
+classes:
+  AirQualityObserved:
+    slots:
+      - pm10
+slots:
+  pm10:
+    range: float
+    slot_uri: sdm:pm10
+    annotations:
+      upstream_source: https://github.com/smart-data-models/dataModel.Environment@9f1c2b7
+enums: {}
+`;
+
+  it("refuses to redefine what the borrowed term holds", () => {
+    for (const [field, value] of [
+      ["range", "string"],
+      ["unit", "CEL"],
+      ["required", true],
+      ["multivalued", true],
+    ] as const) {
+      const { refused, source } = applyOperations(BORROWED, [
+        { op: "setSlot", name: "pm10", field, value } as Operation,
+      ]);
+      expect(refused.map((one) => one.reason).join(" "), field).toContain("DM-58");
+      expect(refused[0]?.reason, field).toContain("dataModel.Environment");
+      // Refused means unchanged: the document that comes back is the one that went in.
+      expect(source, field).toBe(BORROWED);
+    }
+  });
+
+  it("allows what is not the upstream's to define, and everything on a term of our own", () => {
+    const described = applyOperations(BORROWED, [
+      { op: "setSlot", name: "pm10", field: "description", value: "particulate matter" },
+    ]);
+    expect(described.refused).toEqual([]);
+    expect(slotNamed(described.source, "pm10")?.description).toBe("particulate matter");
+
+    const ours = applyOperations(BORROWED, [
+      { op: "addSlot", name: "stationHousing", class: "AirQualityObserved" },
+      { op: "setSlot", name: "stationHousing", field: "range", value: "string" },
+      { op: "setSlot", name: "stationHousing", field: "required", value: true },
+    ]);
+    expect(ours.refused).toEqual([]);
+    expect(slotNamed(ours.source, "stationHousing")?.required).toBe(true);
+  });
+});
