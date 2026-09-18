@@ -66,9 +66,14 @@ afterEach(() => {
 describe("roles as code in the UI (T-0526, PF-50)", () => {
   it("a developer sees the propose control", async () => {
     const fetchMock = renderPipelines(DEVELOPER);
+    // The page offers the same action twice when it has nothing to list: in the header and in
+    // the empty state (T-1058). Both are guarded, so both are asserted.
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: en.pipelines.add })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: en.pipelines.add }).length).toBeGreaterThan(0);
     });
+    for (const control of screen.getAllByRole("button", { name: en.pipelines.add })) {
+      expect(control).toBeEnabled();
+    }
     expect(fetchMock.mock.calls.some((call) => (call[0] as Request).url.includes("/permissions/me"))).toBe(true);
   });
 
@@ -81,12 +86,19 @@ describe("roles as code in the UI (T-0526, PF-50)", () => {
       expect(screen.getByRole("heading", { name: en.pipelines.title })).toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: en.pipelines.add })).toBeDisabled();
+      expect(screen.getAllByRole("button", { name: en.pipelines.add }).length).toBeGreaterThan(0);
     });
-    expect(screen.getByRole("button", { name: en.pipelines.add })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByRole("tooltip")).toHaveTextContent(
-      "Disabled: your role does not permit 'propose' on 'Pipeline' in this project",
-    );
+    // Every control the guard covers, not the first one it finds: a guard that closed the
+    // header and left the empty state's call to action open would be the bug to catch.
+    for (const control of screen.getAllByRole("button", { name: en.pipelines.add })) {
+      expect(control).toBeDisabled();
+      expect(control).toHaveAttribute("aria-disabled", "true");
+    }
+    for (const reason of screen.getAllByRole("tooltip")) {
+      expect(reason).toHaveTextContent(
+        "Disabled: your role does not permit 'propose' on 'Pipeline' in this project",
+      );
+    }
   });
 
   it("allows() reads kinds and verbs of every grant, lets bootstrap through and fails open without a document", () => {
