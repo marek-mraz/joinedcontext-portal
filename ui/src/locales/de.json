@@ -8,6 +8,7 @@
     }
   },
   "nav": {
+    "approvalsPending": "{count, plural, one {# Änderung wartet auf Ihre Genehmigung} other {# Änderungen warten auf Ihre Genehmigung}}",
     "menu": "Menü",
     "projects": "Projekte",
     "spaces": "Kontexträume",

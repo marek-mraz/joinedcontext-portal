@@ -8,6 +8,7 @@
     }
   },
   "nav": {
+    "approvalsPending": "{count, plural, one {# change waits for your approval} other {# changes wait for your approval}}",
     "menu": "Menu",
     "projects": "Projects",
     "spaces": "Context Spaces",

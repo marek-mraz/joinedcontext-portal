@@ -8,6 +8,7 @@
     }
   },
   "nav": {
+    "approvalsPending": "{count, plural, one {# zmena čaká na vaše schválenie} few {# zmeny čakajú na vaše schválenie} other {# zmien čaká na vaše schválenie}}",
     "menu": "Menu",
     "projects": "Projekty",
     "spaces": "Kontextové priestory",

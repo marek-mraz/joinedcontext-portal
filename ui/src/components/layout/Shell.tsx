@@ -8,6 +8,10 @@ import { ExportButton } from "../export/ExportButton";
 import { AssistantDock } from "../../assistant/AssistantDock";
 import { useAuth } from "../../auth/AuthProvider";
 import { useProjects } from "../../api/projects";
+import { useQuery } from "@tanstack/react-query";
+import { api, queryKeys, unwrap } from "../../api/client";
+import { approvalStanding } from "../../api/approval";
+import { usePermissions } from "../../api/permissions";
 import { logoUrl, useBranding } from "../../branding";
 import { Button, Icon, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "../ui";
 import type { IconName } from "../ui";
@@ -138,6 +142,42 @@ function NavLabel({ icon, label }: { icon: IconName; label: string }) {
   );
 }
 
+/**
+ * The changes waiting for this person's approval (T-1391): pending, not their own unless they
+ * administer the kind, on a kind they may approve. The same list and key as the Approvals page,
+ * polled every 30 s; a list the API refuses counts as none.
+ */
+function usePendingApprovals(project: string): number {
+  const { identity } = useAuth();
+  const permissions = usePermissions(project);
+  const list = useQuery({
+    queryKey: queryKeys.changes(project),
+    queryFn: async () =>
+      unwrap(await api.GET("/api/v1/projects/{project}/changes", { params: { path: { project } } })),
+    refetchInterval: 30_000,
+  });
+  return (list.data?.items ?? []).filter(
+    (change) =>
+      change.status.phase === "PendingApproval" &&
+      approvalStanding(permissions, identity?.email ?? undefined, change).block === null,
+  ).length;
+}
+
+function PendingBadge({ project }: { project: string }) {
+  const { t } = useTranslation();
+  const count = usePendingApprovals(project);
+  if (count === 0) return null;
+  return (
+    <span
+      className="ml-auto rounded-full bg-danger px-1.5 text-caption font-semibold text-danger-fg"
+      title={t("nav.approvalsPending", { count })}
+    >
+      <span aria-hidden="true">{count}</span>
+      <span className="sr-only">{t("nav.approvalsPending", { count })}</span>
+    </span>
+  );
+}
+
 export function Shell({
   project,
   children,
@@ -265,6 +305,7 @@ export function Shell({
                       className={navLinkClass(isActive)}
                     >
                       {body}
+                      <PendingBadge project={project} />
                     </Link>
                   ) : section.plural === "assistant" ? (
                     <Link
