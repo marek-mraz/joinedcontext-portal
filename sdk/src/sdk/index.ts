@@ -33,6 +33,19 @@ export type { FilterBinding, FilterDef, FilterValue } from "./filters";
 export { aggregate, columnKind, displayName, distinct, extent, format, groupBy, pointOf, toFeatureCollection } from "./helpers";
 export type { Agg, Group } from "./helpers";
 
+// The entity grid (UI-64, UI-71, SDK-29): one component for the Portal, Dashboards and apps
+export { EntityGrid } from "../grid/EntityGrid";
+export type { EntityGridProps } from "../grid/EntityGrid";
+export { DEFAULT_LABELS, useEntityGrid } from "../grid/useEntityGrid";
+export type { GridLabels, GridState, MetaKey, UseEntityGridOptions, VisibleColumn } from "../grid/useEntityGrid";
+export { DEFAULT_PAGE_SIZE, gridConfigSchema, MAX_PAGE_SIZE, parseGridConfig } from "../grid/config";
+export type { ConfigFinding, EntityGridConfig, GridColumn, GridSource, ResolvedGridConfig } from "../grid/config";
+export { endpointSource, fixtureSource, historyOf, SourceError, sourceFor, spaceSource } from "../grid/source";
+export type { EntitySource, GridPage, GridQuery, HistoryPoint, HistoryWindow } from "../grid/source";
+export { attributesOf, cellText, projectRow, toRichCell, toRichRow } from "../grid/model";
+export type { CellKind, RichCell, RichRow } from "../grid/model";
+export { transportFor } from "./transport";
+
 // Tables, maps, exports: what the template's components stand on
 export { compare } from "../views/Table";
 export { mapWorkerReady, NO_BASEMAP, NO_LOCATIONS, styleFor } from "./map";

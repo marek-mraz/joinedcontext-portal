@@ -91,6 +91,35 @@ function download(blob: Blob, filename: string): void
 ```
 Exports of what is shown (AP-66) and the browser download of the result.
 
+### Entity grid (UI-64, UI-71, SDK-29)
+```ts
+function EntityGrid(props: EntityGridProps): JSX.Element
+function useEntityGrid(options: UseEntityGridOptions): { rows, columns, total, loading, error, state, labels, cellOf, toggleMeta, setOffset, setSort, moveActive, getGridProps, getHeaderProps, getRowProps, getCellProps, reload }
+function parseGridConfig(raw: unknown): { config?: ResolvedGridConfig; findings: ConfigFinding[] }
+const gridConfigSchema: JSONSchema // published as grid.config.schema.json
+const DEFAULT_PAGE_SIZE = 50, MAX_PAGE_SIZE = 1000
+const DEFAULT_LABELS: GridLabels
+```
+One spreadsheet-like grid of one entity type: an id column pinned, a value with its unit per attribute, and per attribute a menu that adds `observedAt`, unit, `datasetId`, `createdAt`, `modifiedAt` columns. Arrow keys, Home/End and PageUp/PageDown move the active cell (`role="grid"`). The config is data (`{ source, type, columns, entityTimestamps, filters, pageSize, mode, editableAttrs, history, compareWith, density, rowActions }`); `parseGridConfig` refuses unknown keys with JSON paths and fills defaults. Props: `config`, `source`, `labels` (every visible string; English defaults), `state` + `onStateChange` (controlled per key, else uncontrolled), `renderers` by attribute name or cell kind, `onOpenRelationship`, `toolbar`, `empty`, `classNames`. `useEntityGrid` is the same behaviour without markup. Values render as text; sorting orders the loaded page only.
+```ts
+function endpointSource(slug: string, transport: Transport, language?: string): EntitySource
+function spaceSource(space: string, transport: Transport, language?: string): EntitySource
+function sourceFor(source: { kind: "endpoint"; slug } | { kind: "space"; space }, transport: Transport, language?: string): EntitySource
+function fixtureSource(entities: object[], language?: string): EntitySource
+function transportFor(config: JcConfig): Transport // e.g. transportFor(jc().config)
+class SourceError extends Error { status: number }
+function historyOf(body: unknown, attr: string): HistoryPoint[]
+```
+Where a grid reads: `query`, `get`, and where the source offers them `history`, `patch`, `remove`. The two built-in sources read the normalized representation with `options=sysAttrs` through the person's session; a space's 404 says "no grant on this space" whether or not it exists. The Endpoint's Policy decides every write.
+```ts
+function toRichRow(entity: object, language?: string): RichRow // { id, type, createdAt, modifiedAt, scope, cells, raw }
+function toRichCell(attr: unknown, language: string): RichCell | null // { kind, value, unitCode, observedAt, datasetId, createdAt, modifiedAt, object, geometryType, languageMap, sub }
+function projectRow(rich: RichRow, language?: string): Row
+function attributesOf(rows: RichRow[]): string[]
+function cellText(cell: RichCell | RichCell[] | undefined): string
+```
+The rich cell model: a multi-instance attribute (several `datasetId`s) is an array; `raw` is the entity as received, so an edit never drops a member the grid does not show.
+
 ### Filters Logic
 ```ts
 function filterRows<T extends Row>(rows: T[], filters: FilterDef[], values: FilterValue[]): T[]

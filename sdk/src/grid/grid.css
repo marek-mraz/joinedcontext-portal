@@ -1,0 +1,179 @@
+.jc-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jc-space-2, 8px);
+  font-family: var(--jc-font-body, "Inter", system-ui, sans-serif);
+  font-size: var(--jc-font-size-md, 14px);
+  color: var(--jc-color-ink, #1a1a1a);
+  background: var(--jc-color-surface, #ffffff);
+  border: 1px solid var(--jc-color-line, #e0e0e0);
+  border-radius: var(--jc-radius-md, 4px);
+  overflow: hidden;
+}
+
+.jc-grid[data-density="compact"] {
+  --jc-grid-cell-padding: var(--jc-space-1, 4px) var(--jc-space-2, 8px);
+  --jc-grid-header-padding: var(--jc-space-1, 4px) var(--jc-space-2, 8px);
+}
+
+.jc-grid[data-density="comfortable"] {
+  --jc-grid-cell-padding: var(--jc-space-2, 8px) var(--jc-space-3, 12px);
+  --jc-grid-header-padding: var(--jc-space-2, 8px) var(--jc-space-3, 12px);
+}
+
+.jc-grid-toolbar {
+  padding: var(--jc-space-2, 8px);
+  border-bottom: 1px solid var(--jc-color-line, #e0e0e0);
+}
+
+.jc-grid-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.jc-grid table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.jc-grid thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--jc-color-card, #f5f5f5);
+}
+
+.jc-grid th {
+  padding: var(--jc-grid-header-padding);
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--jc-color-line, #e0e0e0);
+  white-space: nowrap;
+  position: relative;
+}
+
+.jc-grid th.jc-grid-pinned {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--jc-color-card, #f5f5f5);
+}
+
+.jc-grid td {
+  padding: var(--jc-grid-cell-padding);
+  border-bottom: 1px solid var(--jc-color-line, #e0e0e0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jc-grid td.jc-grid-pinned {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  /* A URN is long: the pinned column keeps at most 40% of the grid, the rest scrolls (UI-70). */
+  max-width: min(40vw, 22rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--jc-color-surface, #ffffff);
+}
+
+.jc-grid tr:hover td {
+  background: var(--jc-color-card, #f5f5f5);
+}
+
+.jc-grid td[data-active] {
+  outline: 2px solid var(--jc-color-accent, #0066cc);
+  outline-offset: -2px;
+}
+
+.jc-grid-meta-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: inherit;
+  color: var(--jc-color-muted, #666);
+  margin-left: 4px;
+}
+
+.jc-grid-meta-btn:hover {
+  color: var(--jc-color-accent, #0066cc);
+}
+
+.jc-grid-meta-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--jc-color-card, #f5f5f5);
+  border: 1px solid var(--jc-color-line, #e0e0e0);
+  border-radius: var(--jc-radius-sm, 2px);
+  padding: var(--jc-space-1, 4px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jc-space-1, 4px);
+  min-width: 120px;
+}
+
+.jc-grid-meta-item {
+  display: flex;
+  align-items: center;
+  gap: var(--jc-space-1, 4px);
+  font-size: var(--jc-font-size-sm, 12px);
+  cursor: pointer;
+}
+
+.jc-grid-meta-item input {
+  margin: 0;
+}
+
+.jc-grid-empty,
+.jc-grid-error {
+  text-align: center;
+  padding: var(--jc-space-4, 16px);
+  color: var(--jc-color-muted, #666);
+}
+
+.jc-grid-error {
+  color: var(--jc-color-danger, #cc0000);
+}
+
+.jc-grid-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--jc-space-2, 8px);
+  padding: var(--jc-space-2, 8px);
+  border-top: 1px solid var(--jc-color-line, #e0e0e0);
+}
+
+.jc-grid-pager button {
+  padding: var(--jc-space-1, 4px) var(--jc-space-2, 8px);
+  border: 1px solid var(--jc-color-line, #e0e0e0);
+  border-radius: var(--jc-radius-sm, 2px);
+  background: var(--jc-color-card, #f5f5f5);
+  cursor: pointer;
+  font-size: inherit;
+}
+
+.jc-grid-pager button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.jc-grid-rel-btn {
+  background: none;
+  border: none;
+  color: var(--jc-color-accent, #0066cc);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.jc-grid-rel-btn:hover {
+  color: var(--jc-color-accent, #004499);
+}
