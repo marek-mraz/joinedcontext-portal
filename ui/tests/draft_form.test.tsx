@@ -730,6 +730,74 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
     expect(proposed).toHaveLength(0);
   });
 
+  it("says why a check was refused beside the Check button, and a check that passes clears it (T-1424)", async () => {
+    let refuse = true;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      const method = input instanceof Request ? input.method : (init?.method ?? "GET");
+      if (url.includes("/api/v1/branding")) {
+        return new Response(JSON.stringify({ validation: "strict" }), { status: 200 });
+      }
+      if (method === "POST" && url.includes("dryRun=All")) {
+        if (refuse) {
+          return new Response(
+            JSON.stringify({ title: "Conflict", status: 409, detail: "Tick at least one class to expose." }),
+            { status: 409, headers: { "content-type": "application/problem+json" } },
+          );
+        }
+        const body = JSON.parse(await (input as Request).clone().text()) as Record<string, unknown>;
+        const manifest = { ...body };
+        delete manifest.draft;
+        return new Response(
+          JSON.stringify({
+            verdict: { ok: true, findings: [], checkedAt: new Date().toISOString(), inputDigest: digestOf(manifest) },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Create Data Source"
+            description="Create draft"
+            project="banskabystrica"
+            draftKind="DataSource"
+            plural="datasources"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={() => {}}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "refused-feed" } });
+    const check = screen.getByRole("button", { name: en.form.check });
+    fireEvent.click(check);
+
+    const message = await screen.findByTestId("footer-error");
+    expect(message).toHaveTextContent("Tick at least one class to expose.");
+    expect(message).toHaveAttribute("role", "alert");
+    // In the footer, where the Check was pressed, and said once.
+    expect(check.parentElement).toContainElement(message);
+    expect(screen.getAllByText("Tick at least one class to expose.")).toHaveLength(1);
+    expect(screen.getByTestId("draft-verdict")).toHaveTextContent(en.drafts.verdict.none);
+
+    refuse = false;
+    fireEvent.click(screen.getByRole("button", { name: en.form.check }));
+    await waitFor(() => {
+      expect(screen.queryByTestId("footer-error")).toBeNull();
+    });
+  });
+
   it("offers no check to a dialog that has no collection to check against", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : input.toString();

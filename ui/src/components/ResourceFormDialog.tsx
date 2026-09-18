@@ -9,7 +9,7 @@ import type { JsonSchema, UiSchema } from "./forms/types";
 import { portalThemeWidgets } from "./forms/theme";
 import { arrange, index } from "./forms/uischema";
 import { portalWidgets } from "./forms/widgets";
-import { api, queryKeys, unwrap } from "../api/client";
+import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { Alert, Badge, Button, Dialog, DialogClose } from "./ui";
 import type { DialogSize } from "./ui";
 import { useBranding } from "../branding";
@@ -566,6 +566,10 @@ export function ResourceFormDialog<T>({
       // pipeline then starts its schedule over. A person reads that before proposing, not after.
       setRestartsStream(answer?.restartsStream === true);
     },
+    // A refused check judged nothing: the chip says "not checked", never "changed since".
+    onError: () => {
+      updateVerdict(null);
+    },
   });
 
   /** The check runs on what the active view holds: the form, or the YAML read back into it. */
@@ -653,6 +657,20 @@ export function ResourceFormDialog<T>({
     </span>
   );
 
+  // What the footer's buttons answered, beside them, where the person is looking (T-1424): the
+  // page's own refusal of a check or a proposal, or this dialog's own check refused.
+  const ownCheckError = ownCheck.error
+    ? ownCheck.error instanceof ApiError
+      ? (ownCheck.error.problem?.detail ?? ownCheck.error.message)
+      : ownCheck.error.message
+    : null;
+  const footerError = error ?? ownCheckError;
+  const footerErrorElement = footerError ? (
+    <span data-testid="footer-error" role="alert" className="basis-full text-right text-caption text-danger">
+      {footerError}
+    </span>
+  ) : null;
+
   const reasonElement = proposeReason ? (
     <span
       id="propose-reason"
@@ -677,11 +695,6 @@ export function ResourceFormDialog<T>({
         {conflict ? (
           <Alert role="alert" tone="warning">
             {conflict}
-          </Alert>
-        ) : null}
-        {error ? (
-          <Alert role="alert" tone="danger">
-            {error}
           </Alert>
         ) : null}
 
@@ -804,6 +817,7 @@ export function ResourceFormDialog<T>({
                       {reasonElement}
                     </>
                   ) : null}
+                  {footerErrorElement}
                   {arranged?.advancedFields ? (
                     <label className="flex items-center gap-2 text-caption text-fg-muted">
                       <input
@@ -870,6 +884,7 @@ export function ResourceFormDialog<T>({
                   {reasonElement}
                 </>
               ) : null}
+              {footerErrorElement}
               {effectiveSubmitDisabledReason && !proposeReason ? (
                 <span role="status" className="text-caption text-fg-muted">
                   {effectiveSubmitDisabledReason}

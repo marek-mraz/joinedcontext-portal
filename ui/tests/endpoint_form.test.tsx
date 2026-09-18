@@ -320,6 +320,8 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
 
     expect(await within(dialog).findByText(en.endpoints.picker.nothingTicked)).toBeInTheDocument();
+    // Beside the buttons that were pressed, not a screen above them (T-1424).
+    expect(within(dialog).getByTestId("footer-error")).toHaveTextContent(en.endpoints.picker.nothingTicked);
   });
 
   it("proposes a projection the space already holds as an update, so the second share is checkable (MF-23, T-1227)", async () => {
