@@ -3,7 +3,6 @@ import type { JSX } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, readCsrfToken, unwrap } from "../api/client";
 import { proposeChecked } from "../api/proposal";
 import { asManifests, isChange, localized, overlay, plainTitle } from "../api/manifest";
@@ -258,7 +257,6 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const [base, setBase] = useState<Manifest | null>(null);
   // The endpoint whose slug, hidden attributes and projection the page took over, once.
   const [adopted, setAdopted] = useState<string | null>(null);
-  const mayPropose = usePermissions(project).can("Endpoint", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [hidden, setHidden] = useState<string[]>(() =>
@@ -829,7 +827,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                         label={t("export.action")}
                         size="sm"
                       />
-                      {mayPropose ? (
+                      <PermissionGuard project={project} kind="Endpoint" verb="propose">
                         <Button
                           size="sm"
                           onClick={() => {
@@ -852,7 +850,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                         >
                           {t("endpoints.edit")}
                         </Button>
-                      ) : null}
+                      </PermissionGuard>
                       <DeleteResourceAction
                         target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
                       />

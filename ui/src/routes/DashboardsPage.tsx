@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useId, useMemo, useState } from "react";
+import { PermissionGuard } from "../components/ui/PermissionGuard";
 import type { JSX } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -7,7 +8,6 @@ import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { getDraft } from "../api/drafts";
 import { asManifests, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
-import { usePermissions } from "../api/permissions";
 import { takeEditRequest } from "../assistant/state";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
@@ -177,9 +177,6 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   const [isNew, setIsNew] = useState(false);
   // The assistant may have sent the person here with a change to one dashboard or layer (AG-77).
   const [request, setRequest] = useState(() => takeEditRequest());
-  const permissions = usePermissions(project);
-  const mayEditDashboard = permissions.can("Dashboard", "propose");
-  const mayEditLayer = permissions.can("Layer", "propose");
 
   const dashboards = useResourceList(project, "dashboards");
   const layers = useResourceList(project, "layers");
@@ -399,7 +396,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
   );
   const newButtons = (
     <>
-      {mayEditDashboard ? (
+      <PermissionGuard project={project} kind="Dashboard" verb="propose">
         <Button
           size="sm"
           variant="primary"
@@ -412,8 +409,8 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         >
           {t("dashboards.add")}
         </Button>
-      ) : null}
-      {mayEditLayer ? (
+      </PermissionGuard>
+      <PermissionGuard project={project} kind="Layer" verb="propose">
         <Button
           size="sm"
           icon={<Icon name="plus" className="size-4" />}
@@ -425,7 +422,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         >
           {t("dashboards.addLayer")}
         </Button>
-      ) : null}
+      </PermissionGuard>
     </>
   );
 
@@ -475,7 +472,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
                 </Select>
               </label>
             ) : null}
-            {mayEditDashboard ? (
+            <PermissionGuard project={project} kind="Dashboard" verb="propose">
               <Button
                 size="sm"
                 onClick={() => {
@@ -486,7 +483,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
               >
                 {t("dashboards.edit")}
               </Button>
-            ) : null}
+            </PermissionGuard>
             <DeleteResourceAction
               target={{ project, kind: "Dashboard", plural: "dashboards", name: dashboard.metadata.name }}
             />
@@ -608,7 +605,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
                   </span>
                 </span>
               ) : null}
-              {mayEditLayer ? (
+              <PermissionGuard project={project} kind="Layer" verb="propose">
                 <Button
                   size="sm"
                   variant="ghost"
@@ -621,7 +618,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
                 >
                   {t("dashboards.edit")}
                 </Button>
-              ) : null}
+              </PermissionGuard>
             </li>
           ))}
         </ul>

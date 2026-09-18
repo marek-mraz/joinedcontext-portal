@@ -1,4 +1,5 @@
 import { Suspense, lazy, useState } from "react";
+import { PermissionGuard } from "./ui/PermissionGuard";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -165,24 +166,25 @@ export function EditResourceDialog({
  * opened on click, or at once when the page was opened with `?edit=<name>`, on the change the
  * assistant made when it made one.
  */
-export function EditResourceAction({ target }: { target: ResourceTarget }): JSX.Element | null {
+export function EditResourceAction({ target }: { target: ResourceTarget }): JSX.Element {
   const { t } = useTranslation();
   const mayPropose = usePermissions(target.home ?? target.project).can(target.kind, "propose");
   const [request] = useState(() => takeEditRequest(target.name));
   const [open, setOpen] = useState(request !== null);
-  if (!mayPropose) {
-    return null;
-  }
   return (
     <>
-      <Button
-        size="sm"
-        aria-label={t("resourceEdit.action", { name: target.label ?? target.name })}
-        onClick={() => setOpen(true)}
-      >
-        {t("resourceEdit.button")}
-      </Button>
-      <EditResourceDialog target={target} open={open} onOpenChange={setOpen} changed={request?.manifest} />
+      <PermissionGuard project={target.home ?? target.project} kind={target.kind} verb="propose">
+        <Button
+          size="sm"
+          aria-label={t("resourceEdit.action", { name: target.label ?? target.name })}
+          onClick={() => setOpen(true)}
+        >
+          {t("resourceEdit.button")}
+        </Button>
+      </PermissionGuard>
+      {mayPropose ? (
+        <EditResourceDialog target={target} open={open} onOpenChange={setOpen} changed={request?.manifest} />
+      ) : null}
     </>
   );
 }

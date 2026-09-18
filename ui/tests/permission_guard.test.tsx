@@ -10,6 +10,8 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../src/i18n";
 import { PermissionGuard } from "../src/components/ui/PermissionGuard";
+import { DeleteResourceAction } from "../src/components/DeleteResourceDialog";
+import { EditResourceAction } from "../src/components/EditResourceDialog";
 
 const VIEWER = { project: "helsinki", bootstrap: false, grants: [] };
 const EDITOR = {
@@ -112,5 +114,41 @@ describe("the permission guard", () => {
       expect(fetchMock).toHaveBeenCalled();
     });
     expect(screen.getByRole("button", { name: "New endpoint" })).toBeEnabled();
+  });
+
+  it("keeps a denied delete and edit on the row, disabled with the reason, and opens nothing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(VIEWER), { status: 200, headers: { "Content-Type": "application/json" } }),
+        ),
+      ),
+    );
+    const target = { project: "helsinki", kind: "Endpoint", plural: "endpoints", name: "public-air" };
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <I18nextProvider i18n={i18n}>
+          <EditResourceAction target={target} />
+          <DeleteResourceAction target={target} />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    for (const [name, verb] of [
+      [/Edit/, "propose"],
+      [/Delete/, "delete"],
+    ] as const) {
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name })).toBeDisabled();
+      });
+      const wrapper = screen.getByRole("button", { name }).parentElement as HTMLElement;
+      expect(wrapper).toHaveAttribute(
+        "title",
+        `Disabled: your role does not permit '${verb}' on 'Endpoint' in this project`,
+      );
+      await userEvent.click(screen.getByRole("button", { name }));
+    }
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { usePermissions } from "../api/permissions";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
 import type { Change, Manifest } from "../api/manifest";
@@ -186,8 +185,6 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(
     initial !== undefined || editing !== null || urlDraftName !== undefined,
   );
-  const { can } = usePermissions(project);
-  const mayPropose = can("Pipeline", "propose");
   const [formError, setFormError] = useState<string | null>(null);
 
   const list = useQuery({
@@ -446,11 +443,11 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
                   </TableCell>
                   <TableCell align="right">
                     <div className="flex items-center justify-end gap-1.5">
-                      {mayPropose ? (
+                      <PermissionGuard project={project} kind="Pipeline" verb="propose">
                         <Button size="sm" onClick={() => openEditor(pipeline)}>
                           {t("pipelines.edit")}
                         </Button>
-                      ) : null}
+                      </PermissionGuard>
                       <DeleteResourceAction
                         target={{ project, kind: "Pipeline", plural: "pipelines", name: pipeline.metadata.name }}
                       />

@@ -278,7 +278,7 @@ describe("a viewer on the spaces list", () => {
     vi.restoreAllMocks();
   });
 
-  it("follows the link into a space, and is not offered the controls that change one", async () => {
+  it("follows the link into a space, and sees the controls that change one disabled with the reason (UI-44)", async () => {
     const viewer = {
       subject: "b7c1e0f4",
       username: "demo.viewer",
@@ -287,8 +287,9 @@ describe("a viewer on the spaces list", () => {
       roles: ["portal-viewer"],
     };
     const readOnly = {
+      project: "banskabystrica",
       bootstrap: false,
-      rules: [{ kinds: ["ContextSpace"], verbs: ["read"] }],
+      grants: [{ role: "viewer", binding: "viewers", rule: { kinds: ["ContextSpace"], verbs: ["read"] } }],
     };
     const fetchMock = vi.fn(async (input: Request | string) => {
       const request = typeof input === "string" ? new Request(input) : input;
@@ -321,5 +322,15 @@ describe("a viewer on the spaces list", () => {
     expect(open).toHaveAttribute("href", "/projects/banskabystrica/spaces/ovzdusie");
     // Nothing disables a link, so a viewer who may read is never stopped from looking.
     expect(open).not.toHaveAttribute("aria-disabled", "true");
+    // What changes a space stays on the page, disabled, and says why (T-1383).
+    // The guard remounts the control once the document arrives: queried after the wait.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: en.spaces.add })).toBeDisabled();
+    });
+    expect(screen.getByRole("button", { name: en.spaces.add }).parentElement).toHaveAttribute(
+      "title",
+      "Disabled: your role does not permit 'propose' on 'ContextSpace' in this project",
+    );
+    expect(within(row).getByRole("button", { name: /Delete/ })).toBeDisabled();
   });
 });

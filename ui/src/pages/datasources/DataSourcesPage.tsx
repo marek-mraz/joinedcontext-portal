@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { usePermissions } from "../../api/permissions";
 import { takeEditRequest, takePrefill } from "../../assistant/state";
 import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
@@ -252,7 +251,6 @@ const RUNNER_GROUPS = [
 /** DataSources of one project: what the city reads from, and with which credential (MF-35). */
 export function DataSourcesPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
-  const mayPropose = usePermissions(project).can("DataSource", "propose");
   const queryClient = useQueryClient();
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
@@ -568,11 +566,11 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
                   </TableCell>
                   <TableCell align="right">
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      {mayPropose ? (
+                      <PermissionGuard project={project} kind="DataSource" verb="propose">
                         <Button size="sm" onClick={() => openEdit(source)}>
                           {t("datasources.edit")}
                         </Button>
-                      ) : null}
+                      </PermissionGuard>
                       <DeleteResourceAction
                         target={{ project, kind: "DataSource", plural: "datasources", name: source.metadata.name }}
                       />

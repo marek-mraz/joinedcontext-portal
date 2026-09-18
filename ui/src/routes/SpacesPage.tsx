@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { PermissionGuard } from "../components/ui/PermissionGuard";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { usePermissions } from "../api/permissions";
 import { Link } from "@tanstack/react-router";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { proposeChecked } from "../api/proposal";
@@ -67,7 +67,6 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
 
   const usage = useProjectUsage(project);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const mayPropose = usePermissions(project).can("ContextSpace", "propose");
   const [change, setChange] = useState<Change | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -173,8 +172,8 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
         title={t("spaces.title")}
         description={t("spaces.lead")}
         actions={
-          mayPropose ? (
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <PermissionGuard project={project} kind="ContextSpace" verb="propose">
               <Link
                 to="/projects/$project/spaces/complete"
                 params={{ project }}
@@ -182,6 +181,8 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
               >
                 {t("spaces.complete.title")}
               </Link>
+            </PermissionGuard>
+            <PermissionGuard project={project} kind="ContextSpace" verb="propose">
               <Button
                 variant="primary"
                 disabled={quotaExceeded}
@@ -193,8 +194,8 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
               >
                 {t("spaces.add")}
               </Button>
-            </div>
-          ) : null
+            </PermissionGuard>
+          </div>
         }
       />
 

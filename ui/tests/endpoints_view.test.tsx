@@ -68,7 +68,7 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { update: 1 } },
 };
 
-function renderEndpoints() {
+function renderEndpoints(permissions?: unknown) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const url = new URL(request.url);
@@ -83,6 +83,9 @@ function renderEndpoints() {
 
     if (path.endsWith("/auth/me")) {
       return json(IDENTITY);
+    }
+    if (permissions !== undefined && path.endsWith("/permissions/me")) {
+      return json(permissions);
     }
     // The check is a dry run: it answers a verdict and writes nothing (AG-62, PF-57).
     if (isCheck(request, url)) {
@@ -143,6 +146,23 @@ describe("endpoints view", () => {
     }
     // 130 bits: 50 draws colliding would mean the generator is not random at all.
     expect(slugs.size).toBe(50);
+  });
+
+  it("shows a viewer the edit and the delete of an endpoint disabled with the reason (UI-44)", async () => {
+    renderEndpoints({
+      project: "banskabystrica",
+      bootstrap: false,
+      grants: [{ role: "viewer", binding: "viewers", rule: { kinds: ["Endpoint"], verbs: ["read"] } }],
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: en.endpoints.edit })[0]).toBeDisabled();
+    });
+    expect(screen.getAllByRole("button", { name: en.endpoints.edit })[0].parentElement).toHaveAttribute(
+      "title",
+      "Disabled: your role does not permit 'propose' on 'Endpoint' in this project",
+    );
+    expect(screen.getAllByRole("button", { name: /Delete/ })[0]).toBeDisabled();
   });
 
   it("shows the audience and every enabled representation of an endpoint", async () => {

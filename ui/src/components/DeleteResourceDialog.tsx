@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { PermissionGuard } from "./ui/PermissionGuard";
 import type { JSX } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -135,7 +136,7 @@ export function DeleteResourceDialog({
  * The Delete action of one row: shown only to a person whose role may delete the kind, the
  * dialog opened on click, or at once when the page was opened with `?delete=<name>`.
  */
-export function DeleteResourceAction({ target }: { target: ResourceTarget }): JSX.Element | null {
+export function DeleteResourceAction({ target }: { target: ResourceTarget }): JSX.Element {
   const { t } = useTranslation();
   const mayDelete = usePermissions(target.home ?? target.project).can(target.kind, "delete");
   const [open, setOpen] = useState(
@@ -143,19 +144,18 @@ export function DeleteResourceAction({ target }: { target: ResourceTarget }): JS
       typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).get("delete") === target.name,
   );
-  if (!mayDelete) {
-    return null;
-  }
   return (
     <>
-      <Button
-        size="sm"
-        aria-label={t("resourceDelete.action", { name: target.label ?? target.name })}
-        onClick={() => setOpen(true)}
-      >
-        {t("resourceDelete.button")}
-      </Button>
-      <DeleteResourceDialog target={target} open={open} onOpenChange={setOpen} />
+      <PermissionGuard project={target.home ?? target.project} kind={target.kind} verb="delete">
+        <Button
+          size="sm"
+          aria-label={t("resourceDelete.action", { name: target.label ?? target.name })}
+          onClick={() => setOpen(true)}
+        >
+          {t("resourceDelete.button")}
+        </Button>
+      </PermissionGuard>
+      {mayDelete ? <DeleteResourceDialog target={target} open={open} onOpenChange={setOpen} /> : null}
     </>
   );
 }
