@@ -7058,7 +7058,8 @@
           "skipped",
           "renamed",
           "nativeFiles",
-          "lane"
+          "lane",
+          "needs"
         ],
         "properties": {
           "created": {
@@ -7076,6 +7077,13 @@
             "type": "integer",
             "description": "Files carried through untouched: `bento.yaml`, LinkML sources, schema artifacts.",
             "minimum": 0
+          },
+          "needs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Need"
+            },
+            "description": "What the bundle cannot carry and has to be provided where it lands (CC-84): secret\nvalues, people, hosts, feed credentials. Empty means nothing is to be provided. Never a\nsecret value, only where one is set."
           },
           "renamed": {
             "type": "object",
@@ -7372,6 +7380,34 @@
           },
           "subject": {
             "type": "string"
+          }
+        }
+      },
+      "Need": {
+        "type": "object",
+        "description": "One thing a copy cannot carry (CC-84, API/01 §10).",
+        "required": [
+          "kind",
+          "where",
+          "why",
+          "link"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "`secret`, `person`, `host` or `credential`."
+          },
+          "link": {
+            "type": "string",
+            "description": "The Portal page that sets it."
+          },
+          "where": {
+            "type": "string",
+            "description": "The manifest and the path inside it, `Kind/name spec.path`."
+          },
+          "why": {
+            "type": "string",
+            "description": "Why it has to be provided, in words."
           }
         }
       },

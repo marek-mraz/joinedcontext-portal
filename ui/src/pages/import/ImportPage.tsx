@@ -307,6 +307,29 @@ export function ImportPage({ project }: { project: string }): JSX.Element {
           ) : (
             <p className="text-caption text-fg-muted">{t("import.report.unverifiable")}</p>
           )}
+          {/* CC-84: what no copy carries, as a checklist of where each thing is set. */}
+          <section aria-labelledby="import-needs" className="flex flex-col gap-1">
+            <h3 id="import-needs" className="text-sm font-semibold">
+              {t("import.report.needsTitle")}
+            </h3>
+            {(report.needs ?? []).length === 0 ? (
+              <p className="text-caption text-fg-muted">{t("import.report.nothingToProvide")}</p>
+            ) : (
+              <ul className="flex flex-col gap-1 text-caption">
+                {(report.needs ?? []).map((need) => (
+                  <li key={`${need.kind} ${need.where}`} className="flex flex-wrap items-baseline gap-2">
+                    <input type="checkbox" aria-label={need.where} />
+                    <span className="font-medium">{t(`import.report.need.${need.kind}`)}</span>
+                    <span className="font-mono">{need.where}</span>
+                    <span className="text-fg-muted">{need.why}</span>
+                    <a className="underline" href={need.link}>
+                      {t("import.report.needSet")}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </section>
       ) : null}
 

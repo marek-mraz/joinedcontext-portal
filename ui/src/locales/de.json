@@ -1800,7 +1800,16 @@
       "lane": "Das ganze Bündel landet in der Spur {lane}, nach dem riskantesten, was es trägt.",
       "source": "Exportiert aus {source}.",
       "verified": "{equal} von {total} Dateien entsprechen der Prüfsumme des Bündels.",
-      "unverifiable": "Das Bündel trägt keine Prüfsummen, also sagt hier nichts, dass die Dateien unverändert sind."
+      "unverifiable": "Das Bündel trägt keine Prüfsummen, also sagt hier nichts, dass die Dateien unverändert sind.",
+      "needsTitle": "Am Ziel bereitzustellen",
+      "nothingToProvide": "Nichts bereitzustellen: das Paket bringt alles mit.",
+      "needSet": "Festlegen",
+      "need": {
+        "secret": "Geheimnis",
+        "person": "Person",
+        "host": "Host",
+        "credential": "Zugangsdaten"
+      }
     }
   },
   "drift": {

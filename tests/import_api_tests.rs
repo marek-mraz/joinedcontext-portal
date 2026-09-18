@@ -554,6 +554,8 @@ async fn a_dry_run_reports_what_it_would_do_and_writes_nothing() {
     assert_eq!(status, StatusCode::OK, "{report}");
     assert_eq!(report["created"], json!(["ovzdusie", "public-air"]));
     assert_eq!(report["nativeFiles"], 1);
+    // A space and an endpoint carry nothing that stays behind (CC-84).
+    assert_eq!(report["needs"], json!([]), "{report}");
     assert_eq!(
         report["source"],
         "helsinki@8c56954a1f0e2b3c4d5e6f708192a3b4c5d6e7f8"

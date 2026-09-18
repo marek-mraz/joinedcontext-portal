@@ -137,6 +137,149 @@ pub struct ImportReport {
     /// an unverifiable transfer says so rather than claiming every file is equal.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub verified: Vec<Verified>,
+    /// What the bundle cannot carry and has to be provided where it lands (CC-84): secret
+    /// values, people, hosts, feed credentials. Empty means nothing is to be provided. Never a
+    /// secret value, only where one is set.
+    pub needs: Vec<Need>,
+}
+
+/// One thing a copy cannot carry (CC-84, API/01 §10).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Need {
+    /// `secret`, `person`, `host` or `credential`.
+    pub kind: String,
+    /// The manifest and the path inside it, `Kind/name spec.path`.
+    #[serde(rename = "where")]
+    pub location: String,
+    /// Why it has to be provided, in words.
+    pub why: String,
+    /// The Portal page that sets it.
+    pub link: String,
+}
+
+/// Every need of the manifests an import writes, in manifest order (CC-84).
+///
+/// A `secretRef` names a value that stays behind in the origin's secret store; a user named
+/// by a RoleBinding, a Policy or a Group is a person of the origin's realm; an Environment's
+/// hosts and certificates are the origin's; a DataSource's `authorization` is a feed
+/// credential. Each is reported where it is, and nothing here blocks the import.
+pub fn needs_of(manifests: &[ResourceEnvelope], project: &str) -> Vec<Need> {
+    fn walk(value: &Value, path: &str, found: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    let here = format!("{path}.{key}");
+                    if key == "secretRef" || (key == "secrets" && child.is_array()) {
+                        found.push(here.clone());
+                        if key == "secretRef" {
+                            continue;
+                        }
+                    }
+                    walk(child, &here, found);
+                }
+            }
+            Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    walk(item, &format!("{path}[{index}]"), found);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut needs = Vec::new();
+    for envelope in manifests {
+        let name = format!("{}/{}", envelope.kind, envelope.metadata.name);
+        let plural = resource::by_kind(&envelope.kind).map_or("resources", |info| info.plural);
+        let link = format!("/projects/{project}/{plural}");
+        let need = |kind: &str, path: &str, why: String| Need {
+            kind: kind.to_owned(),
+            location: format!("{name} {path}"),
+            why,
+            link: link.clone(),
+        };
+        let mut secrets = Vec::new();
+        walk(&envelope.spec, "spec", &mut secrets);
+        for path in secrets {
+            needs.push(need(
+                "secret",
+                &path,
+                "the value behind this reference stays in the origin's secret store; set it here"
+                    .into(),
+            ));
+        }
+        if envelope.kind == "DataSource" {
+            if let Some(authorization) = envelope.spec.get("authorization") {
+                if !authorization.is_null() {
+                    needs.push(need(
+                        "credential",
+                        "spec.authorization",
+                        "the feed's credential is the origin's; give this project its own".into(),
+                    ));
+                }
+            }
+        }
+        let mut users = Vec::new();
+        match envelope.kind.as_str() {
+            "RoleBinding" => {
+                for (index, subject) in envelope.spec["subjects"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    if let Some(user) = subject.get("user").and_then(Value::as_str) {
+                        users.push((format!("spec.subjects[{index}].user"), user.to_owned()));
+                    }
+                }
+            }
+            "Group" => {
+                for (index, member) in envelope.spec["members"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    if let Some(user) = member.get("user").and_then(Value::as_str) {
+                        users.push((format!("spec.members[{index}].user"), user.to_owned()));
+                    }
+                }
+            }
+            "Policy"
+                if envelope
+                    .spec
+                    .pointer("/assignee/kind")
+                    .and_then(Value::as_str)
+                    == Some("user") =>
+            {
+                if let Some(user) = envelope
+                    .spec
+                    .pointer("/assignee/id")
+                    .and_then(Value::as_str)
+                {
+                    users.push(("spec.assignee.id".to_owned(), user.to_owned()));
+                }
+            }
+            "Environment" => {
+                needs.push(need(
+                    "host",
+                    "spec",
+                    "the hosts and certificates of an environment are the origin's; set this instance's".into(),
+                ));
+            }
+            _ => {}
+        }
+        for (path, user) in users {
+            needs.push(need(
+                "person",
+                &path,
+                format!(
+                    "{user} is a person of the origin's sign-in; bind someone of this organization"
+                ),
+            ));
+        }
+    }
+    needs
 }
 
 /// One file of a bundle as the import verified it (MF-42).
@@ -1135,6 +1278,7 @@ fn plan_import(
         lane: Lane::Green,
         source,
         verified,
+        needs: Vec::new(),
     };
 
     // Conflicts first: a rename rewrites references, so it has to happen before anything is
@@ -1238,6 +1382,8 @@ fn plan_import(
             spec.insert("slug".to_owned(), Value::String(slug));
         }
     }
+
+    report.needs = needs_of(&keep, project);
 
     let missing = unresolved(&keep, state, project);
     if !missing.is_empty() {
@@ -1449,6 +1595,7 @@ mod verification_tests {
             lane: Lane::Green,
             source: None,
             verified,
+            needs: Vec::new(),
         }
     }
 
@@ -1457,6 +1604,71 @@ mod verification_tests {
             path: path.to_owned(),
             equal,
         }
+    }
+
+    /// CC-84: two secret references, a person and a feed credential are four needs, each
+    /// where it is, and none carries a value.
+    #[test]
+    fn what_a_copy_cannot_carry_is_listed_where_it_is_and_never_as_a_value() {
+        let manifest =
+            |kind: &str, name: &str, spec: serde_json::Value| crate::resource::ResourceEnvelope {
+                api_version: crate::resource::API_VERSION.to_owned(),
+                kind: kind.to_owned(),
+                metadata: crate::resource::ObjectMeta::new(name, "espoo"),
+                spec,
+                status: None,
+            };
+        let bundle = vec![
+            manifest(
+                "DataSource",
+                "feed",
+                serde_json::json!({
+                    "type": "http",
+                    "connection": { "url": "https://example.invalid/feed" },
+                    "authorization": { "type": "bearer", "secretRef": { "name": "feed", "key": "token" } },
+                    "secrets": [{ "name": "feed", "key": "password", "envVar": "PASSWORD" }],
+                }),
+            ),
+            manifest(
+                "RoleBinding",
+                "stewards",
+                serde_json::json!({ "subjects": [{ "user": "demo.steward@hel.fi" }, { "group": "g" }], "role": "steward" }),
+            ),
+            manifest(
+                "ContextSpace",
+                "air",
+                serde_json::json!({ "isSandbox": false }),
+            ),
+        ];
+        let needs = super::needs_of(&bundle, "espoo");
+        let kinds: Vec<&str> = needs.iter().map(|need| need.kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            ["secret", "secret", "credential", "person"],
+            "{needs:?}"
+        );
+        assert_eq!(
+            needs[0].location,
+            "DataSource/feed spec.authorization.secretRef"
+        );
+        assert_eq!(needs[1].location, "DataSource/feed spec.secrets");
+        assert_eq!(
+            needs[3].location,
+            "RoleBinding/stewards spec.subjects[0].user"
+        );
+        assert!(needs[3].why.contains("demo.steward@hel.fi"));
+        assert!(needs
+            .iter()
+            .all(|need| need.link.starts_with("/projects/espoo/")));
+        let said = serde_json::to_string(&needs).expect("serializes");
+        assert!(
+            !said.contains("\"token\"") && !said.contains("password"),
+            "{said}"
+        );
+        assert!(
+            super::needs_of(&bundle[2..], "espoo").is_empty(),
+            "a space alone needs nothing"
+        );
     }
 
     /// EP-77: a reference by name to the project the bundle left follows it; one to another

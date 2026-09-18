@@ -1800,7 +1800,16 @@
       "lane": "The whole bundle lands in the {lane} lane, the riskiest thing it carries.",
       "source": "Exported from {source}.",
       "verified": "{equal} of {total} files equal the checksum the bundle carries.",
-      "unverifiable": "The bundle carries no checksums, so nothing here says the files are unchanged."
+      "unverifiable": "The bundle carries no checksums, so nothing here says the files are unchanged.",
+      "needsTitle": "To provide where it lands",
+      "nothingToProvide": "Nothing to provide: the bundle carries everything it needs.",
+      "needSet": "Set it",
+      "need": {
+        "secret": "Secret",
+        "person": "Person",
+        "host": "Host",
+        "credential": "Credential"
+      }
     }
   },
   "drift": {

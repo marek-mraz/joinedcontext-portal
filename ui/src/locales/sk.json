@@ -1800,7 +1800,16 @@
       "lane": "Celý balík ide do dráhy {lane}, podľa najrizikovejšej veci v ňom.",
       "source": "Exportované z {source}.",
       "verified": "{equal} z {total} súborov sa zhoduje s kontrolným súčtom v balíku.",
-      "unverifiable": "Balík neobsahuje kontrolné súčty, takže nič tu nehovorí, že sú súbory nezmenené."
+      "unverifiable": "Balík neobsahuje kontrolné súčty, takže nič tu nehovorí, že sú súbory nezmenené.",
+      "needsTitle": "Treba doplniť v cieli",
+      "nothingToProvide": "Nič netreba doplniť: balík nesie všetko, čo potrebuje.",
+      "needSet": "Nastaviť",
+      "need": {
+        "secret": "Tajomstvo",
+        "person": "Osoba",
+        "host": "Hostiteľ",
+        "credential": "Prístupový údaj"
+      }
     }
   },
   "drift": {

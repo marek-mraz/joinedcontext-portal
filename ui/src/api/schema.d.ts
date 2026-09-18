@@ -1759,6 +1759,12 @@ export interface components {
             lane: components["schemas"]["Lane"];
             /** @description Files carried through untouched: `bento.yaml`, LinkML sources, schema artifacts. */
             nativeFiles: number;
+            /**
+             * @description What the bundle cannot carry and has to be provided where it lands (CC-84): secret
+             *     values, people, hosts, feed credentials. Empty means nothing is to be provided. Never a
+             *     secret value, only where one is set.
+             */
+            needs: components["schemas"]["Need"][];
             /** @description Resources imported under a new name, `old -> new` (`rename`). */
             renamed: {
                 [key: string]: string;
@@ -1873,6 +1879,17 @@ export interface components {
             reason: string;
             severity: string;
             subject: string;
+        };
+        /** @description One thing a copy cannot carry (CC-84, API/01 §10). */
+        Need: {
+            /** @description `secret`, `person`, `host` or `credential`. */
+            kind: string;
+            /** @description The Portal page that sets it. */
+            link: string;
+            /** @description The manifest and the path inside it, `Kind/name spec.path`. */
+            where: string;
+            /** @description Why it has to be provided, in words. */
+            why: string;
         };
         /** @description One object in the graph. */
         Node: {

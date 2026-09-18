@@ -26,6 +26,20 @@ const REPORT = {
     { path: "projects/x/spaces/ovzdusie/space.yaml", equal: true },
     { path: "projects/x/endpoints/public-air.yaml", equal: false },
   ],
+  needs: [
+    {
+      kind: "secret",
+      where: "DataSource/aq-mqtt spec.secrets",
+      why: "the value behind this reference stays in the origin's secret store; set it here",
+      link: "/projects/banskabystrica/datasources",
+    },
+    {
+      kind: "person",
+      where: "RoleBinding/stewards spec.subjects[0].user",
+      why: "jana@bb.sk is a person of the origin's sign-in; bind someone of this organization",
+      link: "/projects/banskabystrica/rolebindings",
+    },
+  ],
 };
 
 const CHANGE = {
@@ -129,6 +143,15 @@ describe("the import wizard", () => {
       .toBeInTheDocument();
     // MF-42: the checksum count as it is, one equal of two.
     expect(screen.getByText(/1 of 2 files equal/)).toBeInTheDocument();
+    // CC-84: what the copy cannot carry, as a checklist with where each thing is set.
+    const needs = (screen.getByRole("heading", { name: en.import.report.needsTitle })
+      .closest("section") as HTMLElement);
+    expect(within(needs).getByRole("checkbox", { name: "DataSource/aq-mqtt spec.secrets" })).not.toBeChecked();
+    expect(within(needs).getByText(en.import.report.need.person)).toBeInTheDocument();
+    expect(within(needs).getAllByRole("link", { name: en.import.report.needSet })[0]).toHaveAttribute(
+      "href",
+      "/projects/banskabystrica/datasources",
+    );
 
     expect(posts).toHaveLength(1);
     expect(posts[0].url).toContain("dryRun=All");
