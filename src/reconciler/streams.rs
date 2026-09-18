@@ -565,23 +565,7 @@ pub fn render_stream(
         }
     }));
 
-    let output = serde_json::json!({
-        "http_client": {
-            "url": format!("${{JC_GATEWAY_URL}}/api/endpoint/{slug}/ngsi-ld/v1/entityOperations/upsert?options=update"),
-            "verb": "POST",
-            "headers": {
-                "Content-Type": "application/json"
-            },
-            "oauth2": {
-                "enabled": true,
-                "client_key": "${JC_CLIENT_ID}",
-                "client_secret": "${JC_CLIENT_SECRET}",
-                "token_url": "${JC_TOKEN_URL}"
-            },
-            "timeout": "30s",
-            "rate_limit": "pipeline_egress"
-        }
-    });
+    let output = gateway_output(slug);
 
     // T-1125, PL-24: Bento reports its counters under the component's `label`, so an unlabelled
     // stream can only be read as one total. Labelling the input, the output and each processor
@@ -882,23 +866,7 @@ pub fn render_endpoint_stream(
         }
     }));
 
-    let output = serde_json::json!({
-        "http_client": {
-            "url": format!("${{JC_GATEWAY_URL}}/api/endpoint/{target_slug}/ngsi-ld/v1/entityOperations/upsert?options=update"),
-            "verb": "POST",
-            "headers": {
-                "Content-Type": "application/json"
-            },
-            "oauth2": {
-                "enabled": true,
-                "client_key": "${JC_CLIENT_ID}",
-                "client_secret": "${JC_CLIENT_SECRET}",
-                "token_url": "${JC_TOKEN_URL}"
-            },
-            "timeout": "30s",
-            "rate_limit": "pipeline_egress"
-        }
-    });
+    let output = gateway_output(target_slug);
 
     Ok(serde_json::json!({
         "input": input,
@@ -991,6 +959,34 @@ fn truncate_body(s: &str, max_len: usize) -> String {
         }
         format!("{}...", &s[..end])
     }
+}
+
+/// Where every stream writes: the endpoint's batch upsert, as the pipeline's service account.
+///
+/// An answer no retry can fix (a malformed entity, a batch too large) drops the batch and counts
+/// it under the output's label instead of retrying it for good, which stalled the messages behind
+/// it and flooded the gateway's log (T-1465). A token, a policy or the gateway can recover, so
+/// 401, 403, 429 and 5xx stay retried.
+/// ponytail: the whole batch drops with its one bad entity; per-entity 207 handling is the upgrade.
+fn gateway_output(slug: &str) -> serde_json::Value {
+    serde_json::json!({
+        "http_client": {
+            "url": format!("${{JC_GATEWAY_URL}}/api/endpoint/{slug}/ngsi-ld/v1/entityOperations/upsert?options=update"),
+            "verb": "POST",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "oauth2": {
+                "enabled": true,
+                "client_key": "${JC_CLIENT_ID}",
+                "client_secret": "${JC_CLIENT_SECRET}",
+                "token_url": "${JC_TOKEN_URL}"
+            },
+            "timeout": "30s",
+            "rate_limit": "pipeline_egress",
+            "drop_on": [400, 413, 422]
+        }
+    })
 }
 
 #[cfg(test)]
@@ -1405,6 +1401,28 @@ output:
   http_client:
     url: https://somewhere.example/authored
 "#;
+
+    #[test]
+    fn a_write_no_retry_can_fix_is_dropped_and_one_that_can_recover_is_retried() {
+        let output = gateway_output("abc");
+        let dropped = output["http_client"]["drop_on"]
+            .as_array()
+            .expect("drop_on");
+        assert_eq!(
+            dropped,
+            &vec![
+                serde_json::json!(400),
+                serde_json::json!(413),
+                serde_json::json!(422)
+            ]
+        );
+        for recoverable in [401, 403, 429, 500, 502, 503] {
+            assert!(
+                !dropped.contains(&serde_json::json!(recoverable)),
+                "{recoverable} is retried"
+            );
+        }
+    }
 
     #[test]
     fn datasource_with_a_bento_mapping_renders_its_processors_and_the_endpoint_output() {
