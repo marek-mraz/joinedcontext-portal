@@ -151,7 +151,9 @@ test.describe("sharing", () => {
     expect(writes).toHaveLength(2);
     expect(writes[1]).toContain("POST /api/v1/projects/espoo/shared");
     expect(writes[1]).toContain('"kind":"SharedSpaceReference"');
-    expect(writes[1]).toContain(`"endpointSlug":"${BIKES_SLUG}"`);
+    // A reference names the endpoint by project and name, never by its slug (EP-77, CC-83).
+    expect(writes[1]).toContain('"endpointRef":{"project":"helsinki","name":"bikes"}');
+    expect(writes[1]).not.toContain(BIKES_SLUG);
     expect(writes[1]).toContain('"alias":"helsinki-liikenne"');
     // Declared: the row now shows the alias instead of the button.
     await expect(bikes.getByText("Referenced")).toBeVisible();

@@ -168,14 +168,15 @@ test.describe("pipeline editor", () => {
     const [method, path, body] = writes[0].split(" ", 3);
     expect(`${method} ${path}`).toBe("POST /api/v1/projects/helsinki/pipelines");
     expect(JSON.parse(writes[0].slice(method.length + path.length + 2))).toEqual({
-      apiVersion: "joinedcontext.com/v1alpha1",
+      // Whoever writes a Pipeline writes the second shape (PL-54, ADR-N-023).
+      apiVersion: "joinedcontext.com/v1alpha2",
       kind: "Pipeline",
       metadata: { name: "aq-ingest", namespace: "helsinki" },
       spec: {
         class: "resident",
-        source: { dataSourceRef: { kind: "DataSource", name: "mqtt-city" } },
-        compute: { kind: "bloblang" },
-        targetEndpoint: "urn:ngsi-ld:Endpoint:hel.fi:air:public-air",
+        sources: [{ dataSourceRef: { kind: "DataSource", name: "mqtt-city" } }],
+        steps: [{ kind: "bloblang" }],
+        outputs: [{ targetEndpoint: "urn:ngsi-ld:Endpoint:hel.fi:air:public-air" }],
       },
       // The change names the draft the form saved, so the approver reads what was typed (T-0769).
       draft: { kind: "Pipeline", name: "aq-ingest" },

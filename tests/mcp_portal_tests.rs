@@ -162,8 +162,11 @@ fn sign_token(
 }
 
 async fn setup_app_and_keys() -> (axum::Router, String, EncodingKey, String) {
-    let mock_server = MockServer::start().await;
-    let issuer = issuer_of(&mock_server);
+    // Leaked on purpose: the router outlives this function, and a dropped wiremock server goes
+    // back to the pool, where a test running beside this one resets its mocks and the forge
+    // answers 404 half-way through (a flaky `ci-full` on 2026-09-18).
+    let mock_server: &'static MockServer = Box::leak(Box::new(MockServer::start().await));
+    let issuer = issuer_of(mock_server);
     let (signer, jwks) = generate_keypair("key-mcp-test");
 
     Mock::given(method("GET"))
@@ -180,13 +183,13 @@ async fn setup_app_and_keys() -> (axum::Router, String, EncodingKey, String) {
             "subject_types_supported": ["public"],
             "id_token_signing_alg_values_supported": ["ES256"]
         })))
-        .mount(&mock_server)
+        .mount(mock_server)
         .await;
 
     Mock::given(method("GET"))
         .and(path(format!("{REALM_PATH}/protocol/openid-connect/certs")))
         .respond_with(ResponseTemplate::new(200).set_body_json(jwks))
-        .mount(&mock_server)
+        .mount(mock_server)
         .await;
 
     let mut config = Config::from_vars(|k| match k {
@@ -274,7 +277,7 @@ async fn setup_app_and_keys() -> (axum::Router, String, EncodingKey, String) {
 
     // The same mock server plays the forge: `/realms/...` is Keycloak, `/api/v1/repos/...` is
     // Gitea, so a change's plan and a model's source are readable over MCP (T-0847).
-    forge_mocks(&mock_server).await;
+    forge_mocks(mock_server).await;
     let gitea = joinedcontext_portal::git::GiteaClient::new(
         mock_server.uri().parse().expect("mock url"),
         "test-owner",

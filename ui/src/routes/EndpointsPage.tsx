@@ -654,12 +654,19 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   // A reference whose endpoint no longer shows above: unshared, deleted, or in a project this
   // person may not read. It stays visible here, because this is the only page that shows the
   // references now and a row nothing lists is a grant nobody can remove (T-0706, EP-15).
-  const orphaned = references.filter((reference) => {
-    const slug = (reference.spec as { endpointSlug?: string }).endpointSlug ?? "";
-    return !shared.some(
-      ({ endpoint }) => (endpoint.spec as { slug?: string }).slug === slug,
-    );
-  });
+  // A reference names its endpoint by project and name, or by an older slug (EP-77): the same
+  // match the row above uses, or a live reference would also be listed here as orphaned.
+  const orphaned = references.filter(
+    (reference) =>
+      !shared.some(({ source, endpoint }) =>
+        referenceTo(
+          [reference],
+          (endpoint.spec as { slug?: string }).slug ?? "",
+          source,
+          endpoint.metadata.name,
+        ),
+      ),
+  );
   const pickable =
     others.length > 0
       ? [

@@ -2149,7 +2149,7 @@ mod tests {
     #[test]
     fn registry_lists_all_operations() {
         let ops = registry();
-        assert_eq!(ops.len(), 53);
+        assert_eq!(ops.len(), 60);
         for name in [
             "jc_catalog_search",
             "jc_endpoint_propose",
@@ -2303,6 +2303,13 @@ mod tests {
     ("POST", "/projects/{project}/syncsources/{name}/pause", "jc_syncsource_pause"),
     ("GET", "/projects/{project}/syncsources/{name}/status", "jc_syncsource_status"),
     ("POST", "/projects/{project}/syncsources/{name}/sync", "jc_syncsource_sync"),
+    ("GET", "/projects/{project}/workspaces", "jc_workspace_list"),
+    ("POST", "/projects/{project}/workspaces", "jc_workspace_open"),
+    ("GET", "/projects/{project}/workspaces/{name}", "jc_workspace_get"),
+    ("DELETE", "/projects/{project}/workspaces/{name}", "jc_workspace_discard"),
+    ("GET", "/projects/{project}/workspaces/{name}/compare", "jc_workspace_compare"),
+    ("POST", "/projects/{project}/workspaces/{name}/update", "jc_workspace_update_from_main"),
+    ("POST", "/projects/{project}/workspaces/{name}/propose", "jc_workspace_propose"),
     ("GET", "/projects/{project}/{plural}", "jc_resource_list"),
     ("POST", "/projects/{project}/{plural}", "jc_resource_propose"),
     ("GET", "/projects/{project}/{plural}/{name}", "jc_resource_get"),

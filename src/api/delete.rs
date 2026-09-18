@@ -289,7 +289,8 @@ pub async fn delete_with_identity(
     let default_branch = gitea.default_branch().await?;
     let repo_path = resolve_repo_path(&envelope, kind_info, project)?;
 
-    let (branch, read_from) = match workspace {
+    // Inside a workspace, its branch is both where the file is read and where it goes (CC-76).
+    let workspace_branch = match workspace {
         Some(workspace) => {
             let open = state
                 .workspaces
@@ -303,8 +304,20 @@ pub async fn delete_with_identity(
                     open.owner
                 )));
             }
-            (open.branch(), open.branch())
+            Some(open.branch())
         }
+        None => None,
+    };
+    let read_from = workspace_branch
+        .clone()
+        .unwrap_or_else(|| default_branch.clone());
+    let existing = gitea
+        .get_file(&repo_path, &read_from)
+        .await?
+        .ok_or_else(not_found)?;
+
+    let branch = match workspace_branch {
+        Some(branch) => branch,
         None => {
             let branch = branch_name(project, kind_info.kind, name, Operation::Delete);
             // One open change per resource (CC-34, T-0883): the pending removal is decided first.
@@ -314,16 +327,9 @@ pub async fn delete_with_identity(
                     kind_info.kind, pending.name
                 )));
             }
-            (
-                create_or_reuse_branch(gitea, &branch, &default_branch).await?,
-                default_branch.clone(),
-            )
+            create_or_reuse_branch(gitea, &branch, &default_branch).await?
         }
     };
-    let existing = gitea
-        .get_file(&repo_path, &read_from)
-        .await?
-        .ok_or_else(not_found)?;
 
     // The manifest is not the whole resource: a DataModel owns its LinkML source and whatever
     // was rendered from it, and an App, a Pipeline and a Dashboard own native files the same
