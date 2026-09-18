@@ -176,6 +176,15 @@ pub struct BranchInfo {
 pub fn parse_branch_name(branch: &str) -> Option<BranchInfo> {
     let clean = branch.strip_prefix("refs/heads/").unwrap_or(branch);
     let rest = clean.strip_prefix("portal/")?;
+    // A bundle names no one resource: a blueprint flow, a headless import, a project deletion.
+    // `delete-project-helsinki-mobility` would otherwise read as the Project `helsinki` of hash
+    // `mobility`; `load_manifest_data` heads a bundle by its files instead (T-1400).
+    if BUNDLE_PREFIXES
+        .iter()
+        .any(|prefix| rest.starts_with(prefix))
+    {
+        return None;
+    }
     // A retry after a rejection carries `_{nonce}` after the hash (T-0887); the name is the same.
     let rest = match rest.rsplit_once('_') {
         Some((base, nonce)) if nonce.len() == 8 && nonce.bytes().all(|b| b.is_ascii_hexdigit()) => {
@@ -290,13 +299,82 @@ async fn find_manifest_in_tree(
     Ok(None)
 }
 
+/// The branch prefixes of a change that carries several resources and names none of them:
+/// `blueprints::flow_branch`, `import`'s headless bundle, `projects`' deletion.
+const BUNDLE_PREFIXES: [&str; 3] = ["flow-", "import-", "delete-project-"];
+
+/// The headline of a bundle: the first manifest among its files that lives in `project`, the
+/// `Project` manifest first when the bundle deletes one. Every file is still approved on its own
+/// (`approve_every_file`); the headline is what the list and the detail page show, and the kind
+/// the first, cheap approval check reads (T-1400).
+async fn bundle_headline(
+    gitea: &GiteaClient,
+    pr: &PullRequest,
+    project: &str,
+) -> Result<Option<ManifestData>, ApiError> {
+    let branch = pr
+        .head_branch
+        .strip_prefix("refs/heads/")
+        .unwrap_or(&pr.head_branch);
+    let Some(rest) = branch.strip_prefix("portal/") else {
+        return Ok(None);
+    };
+    if !BUNDLE_PREFIXES
+        .iter()
+        .any(|prefix| rest.starts_with(prefix))
+    {
+        return Ok(None);
+    }
+    let home = format!("projects/{project}/");
+    let mut files: Vec<_> = gitea
+        .pull_request_files(pr.number)
+        .await?
+        .into_iter()
+        .filter(|file| file.path.starts_with(&home))
+        .collect();
+    // `false` sorts first: the Project manifest heads a project's deletion.
+    files.sort_by_key(|file| !file.path.ends_with("/project.yaml"));
+    for file in files {
+        let git_ref = if file.deleted {
+            &pr.base_branch
+        } else {
+            &pr.head_branch
+        };
+        let Some(content) = gitea.get_file(&file.path, git_ref).await? else {
+            continue;
+        };
+        let Ok(envelope) = serde_yaml_ng::from_str::<ResourceEnvelope>(&content.content) else {
+            continue;
+        };
+        let (operation, base_envelope, head_envelope) = if file.deleted {
+            (Operation::Delete, Some(envelope.clone()), None)
+        } else if file.added {
+            (Operation::Create, None, Some(envelope.clone()))
+        } else {
+            let base = gitea
+                .get_file(&file.path, &pr.base_branch)
+                .await?
+                .and_then(|base| serde_yaml_ng::from_str::<ResourceEnvelope>(&base.content).ok());
+            (Operation::Update, base, Some(envelope.clone()))
+        };
+        return Ok(Some(ManifestData {
+            kind: envelope.kind,
+            name: envelope.metadata.name,
+            operation,
+            base_envelope,
+            head_envelope,
+        }));
+    }
+    Ok(None)
+}
+
 async fn load_manifest_data(
     gitea: &GiteaClient,
     pr: &PullRequest,
     project: &str,
 ) -> Result<Option<ManifestData>, ApiError> {
     let Some(branch_info) = parse_branch_name(&pr.head_branch) else {
-        return Ok(None);
+        return bundle_headline(gitea, pr, project).await;
     };
 
     let kind_info =
@@ -1282,6 +1360,16 @@ mod tests {
         assert!(parse_branch_name("main").is_none());
         assert!(parse_branch_name("portal/invalid").is_none());
         assert!(parse_branch_name("portal/foo-bar-baz-123").is_none());
+        // Bundles name no one resource and are headed by their files (T-1400); a hyphenated
+        // project's deletion no longer reads as the Project of its first word.
+        for bundle in [
+            "portal/flow-air-quality-0123456789abcdef",
+            "portal/import-helsinki-01234567",
+            "portal/delete-project-ovzdusie",
+            "portal/delete-project-helsinki-mobility",
+        ] {
+            assert!(parse_branch_name(bundle).is_none(), "{bundle}");
+        }
         // A retry's nonce (T-0887) is not part of the name.
         let b4 = parse_branch_name("portal/update-pipeline-hel-news-0711bca4_144d2358").unwrap();
         assert_eq!(b4.operation, Operation::Update);

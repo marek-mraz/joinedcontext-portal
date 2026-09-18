@@ -1494,6 +1494,16 @@ async fn bundle_of_with_status(
     extra: &[(&str, &str)],
     status: &str,
 ) -> (MockServer, AppState) {
+    bundle_on(BUNDLE_BRANCH, rules, extra, status).await
+}
+
+/// The same bundle on `branch`.
+async fn bundle_on(
+    branch: &str,
+    rules: Value,
+    extra: &[(&str, &str)],
+    status: &str,
+) -> (MockServer, AppState) {
     use joinedcontext_portal::permissions::ORG_NAMESPACE;
     use joinedcontext_portal::resource::{ObjectMeta, ResourceEnvelope, API_VERSION};
 
@@ -1539,7 +1549,7 @@ async fn bundle_of_with_status(
             "html_url": "https://gitea.example.sk/pulls/7",
             "state": "open",
             "title": "import bundle",
-            "head": { "ref": BUNDLE_BRANCH },
+            "head": { "ref": branch },
             "base": { "ref": "main" },
             "created_at": "2026-09-15T09:14:22Z",
             "user": { "login": "someone", "full_name": "Someone Else", "email": "someone@banskabystrica.sk" },
@@ -1552,16 +1562,12 @@ async fn bundle_of_with_status(
     files.extend(extra.iter().map(|(file, _)| (*file, status)));
     pr_files(&server, 7, &files).await;
     // A deleted file is read from the base branch, because the head no longer holds it.
-    let extra_ref = if status == "deleted" {
-        "main"
-    } else {
-        BUNDLE_BRANCH
-    };
+    let extra_ref = if status == "deleted" { "main" } else { branch };
     Mock::given(method("GET"))
         .and(path(format!(
             "/api/v1/repos/test-owner/test-repo/contents/{PIPELINE_PATH}"
         )))
-        .and(query_param("ref", BUNDLE_BRANCH))
+        .and(query_param("ref", branch))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "sha": "blob-head",
             "content": encode_b64(PIPELINE_YAML)
@@ -2311,4 +2317,68 @@ async fn a_bundle_is_shown_the_lane_its_approval_will_apply() {
             .any(|f| f["kind"] == "Policy" && f["lane"] == "red"),
         "{files:?}"
     );
+}
+
+/// T-1400: a blueprint flow and a headless import carry several resources and name none in their
+/// branch. They are headed by their own files, so an approver finds, reads and approves them like
+/// any other change; before, the list skipped them and the detail and the approval said 404.
+#[tokio::test]
+async fn a_bundle_that_names_no_resource_in_its_branch_is_shown_and_approved() {
+    let rules = json!([{ "kinds": ["Pipeline"], "verbs": ["read", "approve"] }]);
+    for branch in [
+        "portal/flow-air-quality-0123456789abcdef",
+        "portal/import-ovzdusie-01234567",
+    ] {
+        let (server, state) = bundle_on(branch, rules.clone(), &[], "added").await;
+        let config = state.config.clone();
+        let cookies = session_and_csrf_cookies(
+            &config,
+            "jana.approver",
+            Some("jana.approver@banskabystrica.sk"),
+            Some("Jana Approver"),
+            vec![],
+        );
+        let detail = server::app(state.clone())
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/projects/ovzdusie/changes/chg-00000007")
+                    .header(header::COOKIE, &cookies)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(detail.status(), StatusCode::OK, "{branch}: the detail page");
+        let bytes = detail
+            .into_body()
+            .collect()
+            .await
+            .expect("bytes")
+            .to_bytes();
+        let change: Value = serde_json::from_slice(&bytes).expect("a change");
+        assert_eq!(
+            change["summary"]["params"]["kind"], "Pipeline",
+            "{branch}: {change}"
+        );
+
+        let (status, body) = approve_bundle(state, None).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{branch}: {body}");
+        assert!(merged(&server).await, "{branch}: the approval merged it");
+    }
+}
+
+/// The headline is only the first check: every file of the bundle is approved on its own, so an
+/// approver of Pipelines still cannot let a RoleBinding through a flow (T-0832 holds for bundles).
+#[tokio::test]
+async fn a_flow_cannot_smuggle_a_rolebinding_past_a_pipeline_approver() {
+    let (server, state) = bundle_on(
+        "portal/flow-air-quality-0123456789abcdef",
+        json!([{ "kinds": ["Pipeline"], "verbs": ["approve"] }]),
+        &[("users/bindings/mallory-admin.yaml", SMUGGLED_BINDING)],
+        "added",
+    )
+    .await;
+    let (status, body) = approve_bundle(state, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(!merged(&server).await);
 }
