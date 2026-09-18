@@ -756,7 +756,8 @@ pub async fn stream_events(
         (status = 204, description = "The answer is on the run's log"),
         (status = 401, description = "Unauthorized", body = ProblemDetails),
         (status = 404, description = "No such run in this project", body = ProblemDetails),
-        (status = 409, description = "The run is over", body = ProblemDetails)
+        (status = 409, description = "The run is over", body = ProblemDetails),
+        (status = 400, description = "The answer is not one of what the question offered", body = ProblemDetails)
     )
 )]
 pub async fn answer_question(
@@ -772,6 +773,21 @@ pub async fn answer_question(
             run.status
         )));
     }
+    let asked = state
+        .agents
+        .events_since(&id, 0)
+        .await
+        .map_err(unavailable)?
+        .into_iter()
+        .rev()
+        .find(|event| {
+            event.kind == "question"
+                && event.payload.get("questionId").and_then(|q| q.as_str())
+                    == Some(request.question_id.as_str())
+        });
+    if let Some(asked) = &asked {
+        offered_answer(&asked.payload, &request.answers).map_err(ApiError::BadRequest)?;
+    }
     publish_event(
         &state,
         &id,
@@ -785,6 +801,60 @@ pub async fn answer_question(
     .await?;
     record_answer(&state, &project, &id, &user, &request.question_id).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// An answer to a question the Portal filled or that takes several answers is one of what it
+/// offered, never what a browser made up (AG-83, UI-73): a value that was not offered, a repeat
+/// or a count outside `min`/`max` is refused and the question stays open. A question of the
+/// model's own options with one answer keeps "Something else…" (UI-57).
+fn offered_answer(question: &serde_json::Value, answers: &serde_json::Value) -> Result<(), String> {
+    use serde_json::Value;
+    let picked = question.get("pick").is_some_and(|pick| !pick.is_null());
+    let multiple = question.get("multiple").and_then(Value::as_bool) == Some(true);
+    if !picked && !multiple {
+        return Ok(());
+    }
+    let offered: Vec<&str> = question
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|option| option.get("value").and_then(Value::as_str))
+        .collect();
+    let answer = answers.get("answer");
+    let chosen: Vec<&str> = if multiple {
+        let many = answer
+            .and_then(Value::as_array)
+            .ok_or("the question takes a list of answers")?;
+        many.iter()
+            .map(|one| one.as_str().ok_or("every answer is one of the options"))
+            .collect::<Result<_, _>>()?
+    } else {
+        vec![answer
+            .and_then(Value::as_str)
+            .ok_or("the question takes one of its options")?]
+    };
+    if let Some(stranger) = chosen.iter().find(|one| !offered.contains(one)) {
+        return Err(format!("'{stranger}' is not one of the options offered"));
+    }
+    let mut unique = chosen.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    if unique.len() != chosen.len() {
+        return Err("an option is chosen twice".to_owned());
+    }
+    let count = |key: &str| question.get(key).and_then(Value::as_u64);
+    if let Some(min) = count("min") {
+        if (chosen.len() as u64) < min {
+            return Err(format!("choose at least {min}"));
+        }
+    }
+    if let Some(max) = count("max") {
+        if (chosen.len() as u64) > max {
+            return Err(format!("choose at most {max}"));
+        }
+    }
+    Ok(())
 }
 
 /// A person answered a run's question, on the project's activity (AG-80, OPS-48).

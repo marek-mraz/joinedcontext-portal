@@ -45,12 +45,22 @@ impl Driver {
                 "answer" => {
                     // What the person chose is the next turn: the loop asked, and this is the
                     // reply it waited for (AG-80).
-                    let text = event
+                    let chosen = event
                         .payload
                         .get("answers")
-                        .and_then(|answers| answers.get("answer"))
+                        .and_then(|answers| answers.get("answer"));
+                    let text = chosen
                         .and_then(Value::as_str)
                         .map(str::to_owned)
+                        .or_else(|| {
+                            // Several answers (UI-73) are the next turn as one line.
+                            chosen.and_then(Value::as_array).map(|many| {
+                                many.iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            })
+                        })
                         .unwrap_or_else(|| {
                             event
                                 .payload
@@ -319,7 +329,14 @@ impl Driver {
             }
             if let Some(call) = tools_registry::ask_call(&answer) {
                 match call {
-                    Ok(call) => return self.ask_person(&call).await,
+                    Ok(call) => match self.fill_options(call).await {
+                        Ok(call) => return self.ask_person(&call).await,
+                        Err(reason) => {
+                            drafts += 1;
+                            results.push((drafted("jc_ask", None), format!("error: {reason}")));
+                            continue;
+                        }
+                    },
                     Err(reason) => {
                         drafts += 1;
                         results.push((drafted("jc_ask", None), format!("error: {reason}")));

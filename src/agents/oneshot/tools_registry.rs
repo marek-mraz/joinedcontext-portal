@@ -86,11 +86,19 @@ sees what you mean — the page is one of `spaces`, `space`, `models`, `model`, 
 ```
 
 And ask, rather than guess, whenever a choice is the person's — which space, which base model,
-which unit. Give the options you would take, up to six; the panel draws them as buttons and one
-click answers. Ask one question at a time and wait for the answer:
+which unit. When more than one resource fits the ask, ask; never take the first. To choose among
+the project's resources, name the kind in `pick` (`endpoints`, `spaces`, `datamodels`,
+`pipelines`, `datasources`, `policies`, `projects`): the platform lists what the person may read,
+and `options` then only narrows that list by name. `multiple` takes several answers, with an
+optional `min` and `max`. Otherwise give the options you would take; the panel draws them as
+buttons and one click answers. Ask one question at a time and wait for the answer:
 
 ```json
-{{ "tool": "jc_ask", "arguments": {{ "question": "Which context space?", "options": ["helsinki", "helsinki-kpi"], "default": "helsinki" }} }}
+{{ "tool": "jc_ask", "arguments": {{ "question": "Which endpoints should the app read?", "pick": "endpoints", "multiple": true, "min": 1 }} }}
+```
+
+```json
+{{ "tool": "jc_ask", "arguments": {{ "question": "Which unit?", "options": ["µg/m³", "ppm"], "default": "µg/m³" }} }}
 ```
 
 A call that is refused answers with the reason; correct it and call again. Nothing here writes
@@ -264,16 +272,38 @@ pub(super) struct NavigateCall {
     pub plural: Option<String>,
 }
 
+/// One option of a question: the value the answer carries and what the person reads.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct AskOption {
+    pub value: String,
+    pub title: String,
+    pub description: Option<String>,
+}
+
 /// One `jc_ask` call: the question, its options and the answer taken when nobody chooses.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct AskCall {
     pub question: String,
-    pub options: Vec<String>,
-    pub default: Option<String>,
+    pub options: Vec<AskOption>,
+    /// A string, or for `multiple` an array of strings; settled against the options.
+    pub default: Option<Value>,
+    /// The kind whose resources the platform offers (AG-83), as `pick` names it.
+    pub pick: Option<&'static str>,
+    pub multiple: bool,
+    pub min: Option<usize>,
+    pub max: Option<usize>,
 }
 
-/// At most six options fit on the panel as buttons; more is a list, not a question (UI-57).
-const MAX_OPTIONS: usize = 6;
+/// The kinds a question may offer by name (AG-83): `pick` as the model spells it, and the kind.
+const PICKS: [(&str, &str); 7] = [
+    ("endpoints", "Endpoint"),
+    ("spaces", "ContextSpace"),
+    ("datamodels", "DataModel"),
+    ("pipelines", "Pipeline"),
+    ("datasources", "DataSource"),
+    ("policies", "Policy"),
+    ("projects", "Project"),
+];
 
 pub(super) fn navigate_call(answer: &str) -> Option<Result<NavigateCall, String>> {
     let value = blocks(answer)
@@ -308,6 +338,10 @@ pub(super) fn ask_call(answer: &str) -> Option<Result<AskCall, String>> {
     let value =
         blocks(answer).find(|value| value.get("tool").and_then(Value::as_str) == Some("jc_ask"))?;
     let arguments = value.get("arguments").cloned().unwrap_or(value.clone());
+    Some(parse_ask(&arguments))
+}
+
+fn parse_ask(arguments: &Value) -> Result<AskCall, String> {
     let question = arguments
         .get("question")
         .and_then(Value::as_str)
@@ -315,46 +349,177 @@ pub(super) fn ask_call(answer: &str) -> Option<Result<AskCall, String>> {
         .unwrap_or_default()
         .to_owned();
     if question.is_empty() {
-        return Some(Err("jc_ask asks nothing: give it a question".to_owned()));
+        return Err("jc_ask asks nothing: give it a question".to_owned());
     }
-    let options: Vec<String> = arguments
+    let pick = match arguments.get("pick").and_then(Value::as_str) {
+        None => None,
+        Some(name) => Some(
+            PICKS
+                .iter()
+                .find(|(pick, _)| *pick == name)
+                .map(|(pick, _)| *pick)
+                .ok_or_else(|| {
+                    format!(
+                        "'{name}' is not a kind to pick from; pick one of {}",
+                        PICKS.map(|(pick, _)| pick).join(", ")
+                    )
+                })?,
+        ),
+    };
+    let count = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_u64)
+            .and_then(|n| usize::try_from(n).ok())
+    };
+    let (min, max) = (count("min"), count("max"));
+    if let (Some(min), Some(max)) = (min, max) {
+        if max < min {
+            return Err(format!("jc_ask asks for at least {min} and at most {max}"));
+        }
+    }
+    let mut options: Vec<AskOption> = Vec::new();
+    for option in arguments
         .get("options")
         .and_then(Value::as_array)
-        .map(|options| {
-            options
-                .iter()
-                .filter_map(|option| {
-                    option.as_str().map(str::to_owned).or_else(|| {
-                        option
-                            .get("title")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    })
-                })
-                .filter(|option| !option.trim().is_empty())
-                .take(MAX_OPTIONS)
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(Ok(AskCall {
+        .into_iter()
+        .flatten()
+    {
+        let text = |key: &str| {
+            option
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+        };
+        let value = option
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .or_else(|| text("value"))
+            .or_else(|| text("const"))
+            .or_else(|| text("name"))
+            .or_else(|| text("title"));
+        let Some(value) = value else { continue };
+        if options.iter().any(|known| known.value == value) {
+            continue;
+        }
+        options.push(AskOption {
+            value: value.to_owned(),
+            title: text("title").unwrap_or(value).to_owned(),
+            description: text("description").map(str::to_owned),
+        });
+    }
+    Ok(AskCall {
         question,
-        default: arguments
-            .get("default")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| options.first().cloned()),
         options,
-    }))
+        default: arguments.get("default").cloned(),
+        pick,
+        multiple: arguments.get("multiple").and_then(Value::as_bool) == Some(true),
+        min,
+        max,
+    })
 }
 
-/// The schema the panel renders: one enum is a row of buttons, no enum is a text box (UI-57).
-fn question_schema(call: &AskCall) -> Value {
-    let mut answer = json!({ "type": "string", "title": call.question });
-    if !call.options.is_empty() {
-        answer["enum"] = json!(call.options);
+/// The kind a `pick` names.
+fn picked_kind(pick: &str) -> &'static str {
+    PICKS
+        .iter()
+        .find(|(name, _)| *name == pick)
+        .map_or("", |(_, kind)| *kind)
+}
+
+/// The options final, the default is settled against them: one of them for one answer, a set of
+/// them (at least `min`) for several, the model's own text only for a question with no options.
+fn settle(mut call: AskCall) -> Result<AskCall, String> {
+    let values: Vec<&str> = call.options.iter().map(|o| o.value.as_str()).collect();
+    if call.multiple {
+        if values.is_empty() {
+            return Err("a question with several answers needs options or a pick".to_owned());
+        }
+        let min = call.min.unwrap_or(0);
+        if values.len() < min {
+            return Err(format!(
+                "the question asks for at least {min} answers and offers {}",
+                values.len()
+            ));
+        }
+        let given: Vec<String> = match &call.default {
+            Some(Value::String(one)) => vec![one.clone()],
+            Some(Value::Array(many)) => many
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+            _ => Vec::new(),
+        };
+        let mut chosen: Vec<String> = Vec::new();
+        for value in given.iter().map(String::as_str) {
+            if values.contains(&value) && !chosen.iter().any(|c| c == value) {
+                chosen.push(value.to_owned());
+            }
+        }
+        for value in &values {
+            if min <= chosen.len() {
+                break;
+            }
+            if !chosen.iter().any(|c| c == value) {
+                chosen.push((*value).to_owned());
+            }
+        }
+        chosen.truncate(call.max.unwrap_or(usize::MAX).max(min));
+        call.default = Some(json!(chosen));
+    } else {
+        let given = call
+            .default
+            .as_ref()
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        call.default = match given {
+            Some(one) if values.is_empty() || values.contains(&one.as_str()) => Some(json!(one)),
+            _ => values.first().map(|first| json!(first)),
+        };
     }
+    Ok(call)
+}
+
+/// The schema the panel renders: options are a `oneOf` of `{const, title, description}`, several
+/// answers an array of them, no options a text box (UI-57, UI-73).
+fn question_schema(call: &AskCall) -> Value {
+    let choices: Vec<Value> = call
+        .options
+        .iter()
+        .map(|option| {
+            let mut one = json!({ "const": option.value, "title": option.title });
+            if let Some(description) = &option.description {
+                one["description"] = json!(description);
+            }
+            one
+        })
+        .collect();
+    let mut answer = if call.multiple {
+        let mut many = json!({
+            "type": "array",
+            "title": call.question,
+            "items": { "type": "string", "oneOf": choices },
+            "uniqueItems": true,
+        });
+        if let Some(min) = call.min {
+            many["minItems"] = json!(min);
+        }
+        if let Some(max) = call.max {
+            many["maxItems"] = json!(max);
+        }
+        many
+    } else {
+        let mut one = json!({ "type": "string", "title": call.question });
+        if !choices.is_empty() {
+            one["oneOf"] = json!(choices);
+        }
+        one
+    };
     if let Some(default) = call.default.as_ref() {
-        answer["default"] = json!(default);
+        answer["default"] = default.clone();
     }
     json!({
         "type": "object",
@@ -362,6 +527,46 @@ fn question_schema(call: &AskCall) -> Value {
         "properties": { "answer": answer },
         "required": ["answer"],
     })
+}
+
+/// One line about a resource a question offers: where it lives and, for an endpoint, what it
+/// serves and to whom (AG-83).
+fn describe_option(state: &AppState, project: &str, kind: &str, item: &Value) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(space) = item.get("space").and_then(Value::as_str) {
+        parts.push(format!("space {space}"));
+    }
+    if kind == "Endpoint" {
+        let name = item.get("name").and_then(Value::as_str)?;
+        if let Some(endpoint) = state.mirror.get(project, kind, name) {
+            let representations: Vec<&str> = endpoint.spec["enabledRepresentations"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            if !representations.is_empty() {
+                parts.push(representations.join(", "));
+            }
+            if let Some(audience) = endpoint.spec["audience"].as_str() {
+                parts.push(audience.to_owned());
+            }
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// A title as a listing row carries it: a string, or a text per language.
+fn title_of(item: &Value) -> Option<String> {
+    match item.get("title")? {
+        Value::String(title) if !title.trim().is_empty() => Some(title.clone()),
+        Value::Object(texts) => texts
+            .get("en")
+            .or_else(|| texts.values().next())
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        _ => None,
+    }
 }
 
 impl Driver {
@@ -410,17 +615,79 @@ impl Driver {
         Ok(format!("opened {route}"))
     }
 
+    /// The options of a `pick` question, from what the person may read (AG-83): the same
+    /// listing the registry answers them with, narrowed by the names the model gave, never
+    /// widened by them. `Err` is the refusal the model reads.
+    pub(super) async fn fill_options(&self, mut call: AskCall) -> Result<AskCall, String> {
+        if let Some(pick) = call.pick {
+            let kind = picked_kind(pick);
+            let op = crate::ops::find("jc_resource_list")
+                .ok_or_else(|| "the resource listing is not registered".to_owned())?;
+            let caller = crate::ops::Caller {
+                identity: self.identity.clone(),
+                via: crate::ops::Via::Agent,
+                access: None,
+            };
+            let listed = crate::ops::call(
+                op,
+                &caller,
+                &self.state,
+                &self.project,
+                json!({ "kind": kind }),
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+            let named: Vec<String> = call.options.iter().map(|o| o.value.clone()).collect();
+            call.options = listed["items"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|item| {
+                    let name = item.get("name").and_then(Value::as_str)?;
+                    if !named.is_empty() && !named.iter().any(|n| n == name) {
+                        return None;
+                    }
+                    Some(AskOption {
+                        value: name.to_owned(),
+                        title: title_of(item).unwrap_or_else(|| name.to_owned()),
+                        description: describe_option(&self.state, &self.project, kind, item),
+                    })
+                })
+                .collect();
+            if call.options.is_empty() {
+                return Err(if named.is_empty() {
+                    format!(
+                        "there are no {pick} in project '{}' to pick from",
+                        self.project
+                    )
+                } else {
+                    format!("none of the {pick} named is one the person may pick")
+                });
+            }
+        }
+        settle(call)
+    }
+
     /// Asks the person one question and leaves the turn (AG-80): the answer arrives as an
     /// `answer` event, which starts the next turn with what they chose.
     pub(super) async fn ask_person(&self, call: &AskCall) -> Result<String, String> {
         let id = format!("q-{}", crate::agents::store::now_rfc3339().replace(':', ""));
+        let options: Vec<Value> = call
+            .options
+            .iter()
+            .map(|o| json!({ "value": o.value, "title": o.title, "description": o.description }))
+            .collect();
         self.event(
             "question",
             json!({
                 "questionId": id,
                 "schema": question_schema(call),
                 "default": call.default,
-                "options": call.options,
+                "options": options,
+                "pick": call.pick,
+                "multiple": call.multiple,
+                "min": call.min,
+                "max": call.max,
             }),
         )
         .await?;
@@ -456,16 +723,59 @@ mod tests {
     }
 
     #[test]
-    fn a_question_keeps_at_most_six_options_and_defaults_to_the_first() {
+    fn seven_options_survive_and_the_default_is_the_first() {
         let answer = r#"```json
 { "tool": "jc_ask", "arguments": { "question": "Which space?", "options": ["a","b","c","d","e","f","g"] } }
 ```"#;
-        let call = ask_call(answer).expect("a call").expect("a question");
-        assert_eq!(call.options.len(), 6);
-        assert_eq!(call.default.as_deref(), Some("a"));
+        let call = settle(ask_call(answer).expect("a call").expect("a question")).expect("settled");
+        assert_eq!(call.options.len(), 7);
+        assert_eq!(call.default, Some(json!("a")));
         let schema = question_schema(&call);
-        assert_eq!(schema["properties"]["answer"]["enum"][0], json!("a"));
+        assert_eq!(
+            schema["properties"]["answer"]["oneOf"][6]["const"],
+            json!("g")
+        );
         assert_eq!(schema["required"], json!(["answer"]));
+    }
+
+    #[test]
+    fn an_option_keeps_its_title_and_description_and_unicode() {
+        let call = parse_ask(&json!({ "question": "Unit?", "options": [
+            { "value": "ugm3", "title": "µg/m³", "description": "Mikrogramm je Kubikmeter" }] }))
+        .expect("a question");
+        let schema = question_schema(&settle(call).expect("settled"));
+        let one = &schema["properties"]["answer"]["oneOf"][0];
+        assert_eq!(one["const"], "ugm3");
+        assert_eq!(one["title"], "µg/m³");
+        assert_eq!(one["description"], "Mikrogramm je Kubikmeter");
+    }
+
+    #[test]
+    fn several_answers_are_an_array_whose_default_is_a_subset() {
+        let call = parse_ask(&json!({ "question": "Which?", "options": ["a", "b", "c"],
+            "multiple": true, "min": 1, "max": 2, "default": ["c", "zzz"] }))
+        .expect("a question");
+        let call = settle(call).expect("settled");
+        assert_eq!(call.default, Some(json!(["c"])));
+        let answer = &question_schema(&call)["properties"]["answer"];
+        assert_eq!(answer["type"], "array");
+        assert_eq!(answer["minItems"], 1);
+        assert_eq!(answer["maxItems"], 2);
+        assert_eq!(answer["uniqueItems"], true);
+        assert_eq!(answer["items"]["oneOf"][1]["const"], "b");
+    }
+
+    #[test]
+    fn a_minimum_the_options_cannot_meet_and_an_unknown_pick_are_refused() {
+        let call = parse_ask(
+            &json!({ "question": "Which?", "options": ["a"], "multiple": true, "min": 2 }),
+        )
+        .expect("parsed");
+        assert!(settle(call).is_err());
+        let err =
+            parse_ask(&json!({ "question": "Which?", "pick": "secrets" })).expect_err("refused");
+        assert!(err.contains("endpoints"), "{err}");
+        assert!(parse_ask(&json!({ "question": "Which?", "min": 3, "max": 1 })).is_err());
     }
 
     #[test]
@@ -473,7 +783,7 @@ mod tests {
         let answer = "```json\n{ \"tool\": \"jc_ask\", \"arguments\": { \"question\": \"What should it be called?\" } }\n```";
         let call = ask_call(answer).expect("a call").expect("a question");
         assert!(call.options.is_empty());
-        assert!(question_schema(&call)["properties"]["answer"]["enum"].is_null());
+        assert!(question_schema(&call)["properties"]["answer"]["oneOf"].is_null());
     }
 
     #[test]

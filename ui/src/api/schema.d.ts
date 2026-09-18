@@ -3260,6 +3260,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The answer is not one of what the question offered */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
             /** @description Unauthorized */
             401: {
                 headers: {
