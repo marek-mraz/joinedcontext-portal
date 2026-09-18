@@ -124,6 +124,19 @@ impl Effective {
         self.bootstrap || !self.grants.is_empty()
     }
 
+    /// Whether some grant here lets the caller propose anything: what opening a workspace
+    /// asks for (API/01 §22). Each write into it is still checked on its own kind (PF-82).
+    pub fn may_propose_anything(&self) -> bool {
+        self.bootstrap
+            || self.grants.iter().any(|grant| {
+                grant
+                    .rule
+                    .kinds
+                    .iter()
+                    .any(|kind| grant.rule.grants(kind, Verb::Propose))
+            })
+    }
+
     /// Whether the caller may read `kind` here (PF-59). `propose` on a kind implies `read` on
     /// it, which is what keeps a role written before the verb working (jc-core `Rule::grants`).
     pub fn may_read(&self, kind: &str) -> bool {

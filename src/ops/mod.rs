@@ -126,6 +126,9 @@ impl Caller {
         if op.kind == "Change" && op.verb.is_some() {
             resources::refuse_agent_decision(self)?;
         }
+        if op.name == "jc_workspace_propose" {
+            workspaces::refuse_agent_bring_back(self)?;
+        }
         self.grants(op)
     }
 }
@@ -1369,6 +1372,7 @@ fn init_registry() -> Vec<Operation> {
     operations.extend(views::operations());
     operations.extend(admin::operations());
     operations.extend(sync_sources::operations());
+    operations.extend(workspaces::operations());
     operations
 }
 

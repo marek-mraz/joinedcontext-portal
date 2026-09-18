@@ -433,6 +433,20 @@ async fn mcp_tools_list_filtered_by_caller() {
         "an MCP client is not offered a change decision: {names:?}"
     );
 
+    // The workspaces reach MCP through the registry (T-1236); bringing one back is a person's
+    // (AG-82), so it is not offered, as an approval is not.
+    for name in [
+        "jc_workspace_open",
+        "jc_workspace_list",
+        "jc_workspace_get",
+        "jc_workspace_compare",
+        "jc_workspace_update_from_main",
+        "jc_workspace_discard",
+    ] {
+        assert!(names.contains(&name), "{name}: {names:?}");
+    }
+    assert!(!names.contains(&"jc_workspace_propose"), "{names:?}");
+
     // Check annotations and schemas
     let search_tool = tools
         .iter()

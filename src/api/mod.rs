@@ -28,6 +28,7 @@ pub mod service_accounts;
 pub mod sync;
 pub mod sync_sources;
 pub mod webhook;
+pub mod workspaces;
 
 use axum::http::Uri;
 use axum::response::IntoResponse;
@@ -66,6 +67,7 @@ pub fn router() -> Router<AppState> {
         .merge(service_accounts::router())
         .merge(sync::router())
         .merge(sync_sources::router())
+        .merge(workspaces::router())
         .merge(crate::tools::model_tools::router())
         .layer(axum::middleware::from_fn(auth::csrf::require_csrf));
 

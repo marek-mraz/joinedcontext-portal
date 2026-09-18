@@ -115,6 +115,8 @@ pub struct Reference {
 pub enum DeleteOutcome {
     DryRun(DryRunResult),
     Proposed(Change),
+    /// Removed on a workspace's branch; no Change until it is brought back (API/01 §22).
+    Workspace(crate::api::mutate::WorkspaceCommit),
     /// The references of the caller's project by name, and how many other projects hold one.
     Referenced {
         here: Vec<Reference>,
@@ -173,8 +175,19 @@ pub async fn delete_resource(
     Query(dry_run_q): Query<DryRunQuery>,
 ) -> Result<Response, ApiError> {
     let is_dry = dry_run::is_dry_run(&dry_run_q)?;
-    match delete_with_identity(&user.0.identity, &state, &project, &plural, &name, is_dry).await? {
+    match delete_with_identity(
+        &user.0.identity,
+        &state,
+        &project,
+        &plural,
+        &name,
+        is_dry,
+        dry_run_q.workspace.as_deref(),
+    )
+    .await?
+    {
         DeleteOutcome::DryRun(result) => Ok((StatusCode::OK, Json(result)).into_response()),
+        DeleteOutcome::Workspace(commit) => Ok((StatusCode::OK, Json(commit)).into_response()),
         DeleteOutcome::Proposed(change) => Ok((StatusCode::ACCEPTED, Json(change)).into_response()),
         DeleteOutcome::Referenced { here, elsewhere } => Err(ApiError::Conflict(
             DeleteOutcome::conflict_message(&here, elsewhere),
@@ -192,6 +205,7 @@ pub async fn delete_with_identity(
     plural: &str,
     name: &str,
     dry_run: bool,
+    workspace: Option<&str>,
 ) -> Result<DeleteOutcome, ApiError> {
     let not_found = || {
         ApiError::NotFound(format!(
@@ -201,8 +215,14 @@ pub async fn delete_with_identity(
 
     // 1. Resolve plural catalogue entry and resource from mirror
     let kind_info = resource::by_plural(plural).ok_or_else(not_found)?;
-    let envelope = state
-        .mirror
+    // Inside a workspace the resource and what references it are read on its branch (CC-76).
+    let mirror = match workspace {
+        Some(workspace) => {
+            std::sync::Arc::new(crate::ops::workspaces::mirror_of(state, workspace, project).await?)
+        }
+        None => state.mirror.clone(),
+    };
+    let envelope = mirror
         .get(project, kind_info.kind, name)
         .ok_or_else(not_found)?;
 
@@ -215,7 +235,7 @@ pub async fn delete_with_identity(
     )?;
 
     // 2. Every resource in the mirror that still references the target (MF-07, R20)
-    let dependents = state.mirror.matching(|candidate| {
+    let dependents = mirror.matching(|candidate| {
         let candidate_ns = candidate.metadata.namespace.as_deref().unwrap_or_default();
         let is_victim = candidate.kind == kind_info.kind
             && candidate.metadata.name == name
@@ -269,20 +289,41 @@ pub async fn delete_with_identity(
     let default_branch = gitea.default_branch().await?;
     let repo_path = resolve_repo_path(&envelope, kind_info, project)?;
 
+    let (branch, read_from) = match workspace {
+        Some(workspace) => {
+            let open = state
+                .workspaces
+                .live(workspace)
+                .await
+                .map_err(|err| ApiError::NotFound(err.to_string()))?;
+            crate::api::mutate::within_workspace(&open, project, kind_info.kind, &envelope)?;
+            if !crate::ops::workspaces::owns(&open, identity) {
+                return Err(ApiError::Denied(format!(
+                    "workspace '{workspace}' belongs to {}; only its owner writes into it",
+                    open.owner
+                )));
+            }
+            (open.branch(), open.branch())
+        }
+        None => {
+            let branch = branch_name(project, kind_info.kind, name, Operation::Delete);
+            // One open change per resource (CC-34, T-0883): the pending removal is decided first.
+            if let Some(pending) = open_change_on(gitea, &branch, project).await? {
+                return Err(ApiError::Conflict(format!(
+                    "a change for {} '{name}' is already open: {}; approve or reject it first",
+                    kind_info.kind, pending.name
+                )));
+            }
+            (
+                create_or_reuse_branch(gitea, &branch, &default_branch).await?,
+                default_branch.clone(),
+            )
+        }
+    };
     let existing = gitea
-        .get_file(&repo_path, &default_branch)
+        .get_file(&repo_path, &read_from)
         .await?
         .ok_or_else(not_found)?;
-
-    let branch = branch_name(project, kind_info.kind, name, Operation::Delete);
-    // One open change per resource (CC-34, T-0883): the pending removal is decided first.
-    if let Some(pending) = open_change_on(gitea, &branch, project).await? {
-        return Err(ApiError::Conflict(format!(
-            "a change for {} '{name}' is already open: {}; approve or reject it first",
-            kind_info.kind, pending.name
-        )));
-    }
-    let branch = create_or_reuse_branch(gitea, &branch, &default_branch).await?;
 
     // The manifest is not the whole resource: a DataModel owns its LinkML source and whatever
     // was rendered from it, and an App, a Pipeline and a Dashboard own native files the same
@@ -290,11 +331,11 @@ pub async fn delete_with_identity(
     // the same name would inherit (T-0900, MF-07, CC-08). Read once the removal is going
     // ahead: a refusal must not cost a tree listing.
     let mut removals = vec![(repo_path.clone(), existing.sha.clone())];
-    for path in owned_beside(gitea, &repo_path, name, &default_branch).await? {
+    for path in owned_beside(gitea, &repo_path, name, &read_from).await? {
         if still_named(state, project, kind_info.kind, name, &path) {
             continue;
         }
-        if let Some(file) = gitea.get_file(&path, &default_branch).await? {
+        if let Some(file) = gitea.get_file(&path, &read_from).await? {
             removals.push((path, file.sha));
         }
     }
@@ -316,6 +357,17 @@ pub async fn delete_with_identity(
             &removals,
         )
         .await?;
+
+    if let Some(workspace) = workspace {
+        return Ok(DeleteOutcome::Workspace(
+            crate::api::mutate::WorkspaceCommit {
+                workspace: workspace.to_owned(),
+                branch,
+                path: repo_path,
+                lane,
+            },
+        ));
+    }
 
     let pr_title = format!("delete {} {name}", kind_info.kind);
     let pr_body = format!(
@@ -534,6 +586,7 @@ mod tests {
             State(state),
             Path(("ovzdusie".into(), "spaces".into(), "mobility".into())),
             Query(DryRunQuery {
+                workspace: None,
                 dry_run: Some("All".into()),
             }),
         )

@@ -9,6 +9,9 @@ use crate::plan::PlanDiff;
 pub struct DryRunQuery {
     #[serde(default, rename = "dryRun")]
     pub dry_run: Option<String>,
+    /// Write into this workspace's branch instead of opening a Change (API/01 §22, CC-76).
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 /// Evaluates the `?dryRun` query parameter.
@@ -195,13 +198,17 @@ mod tests {
 
     #[test]
     fn is_dry_run_none_is_false() {
-        let q = DryRunQuery { dry_run: None };
+        let q = DryRunQuery {
+            workspace: None,
+            dry_run: None,
+        };
         assert!(!is_dry_run(&q).expect("query should succeed"));
     }
 
     #[test]
     fn is_dry_run_all_is_true() {
         let q = DryRunQuery {
+            workspace: None,
             dry_run: Some("All".to_string()),
         };
         assert!(is_dry_run(&q).expect("query should succeed"));
@@ -211,6 +218,7 @@ mod tests {
     fn is_dry_run_other_value_is_rejected_with_bad_request() {
         for candidate in ["true", "all", "1", ""] {
             let q = DryRunQuery {
+                workspace: None,
                 dry_run: Some(candidate.to_string()),
             };
             let err = is_dry_run(&q).expect_err("should reject unsupported values");

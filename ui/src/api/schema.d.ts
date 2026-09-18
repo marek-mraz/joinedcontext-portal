@@ -947,6 +947,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project}/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_workspaces"];
+        put?: never;
+        post: operations["open_workspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/workspaces/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_workspace"];
+        put?: never;
+        post?: never;
+        delete: operations["discard_workspace"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/workspaces/{name}/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["compare_workspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/workspaces/{name}/propose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["propose_workspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project}/workspaces/{name}/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["update_workspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project}/{plural}": {
         parameters: {
             query?: never;
@@ -1486,6 +1566,11 @@ export interface components {
              */
             text: string;
         };
+        /** @description What a workspace changes against its base, and where main changed the same files (API/01 §22). */
+        Comparison: {
+            conflicts: components["schemas"]["FileConflict"][];
+            files: components["schemas"]["ChangeFile"][];
+        };
         /**
          * Condition
          * @description Status condition entry.
@@ -1670,6 +1755,22 @@ export interface components {
             from?: Record<string, never>;
             path: string;
             to?: Record<string, never>;
+        };
+        /** @description One field both sides changed to different values since their common base (CC-80). */
+        FieldConflict: {
+            base: Record<string, never>;
+            ours: Record<string, never>;
+            path: string;
+            theirs: Record<string, never>;
+        };
+        /**
+         * @description One file both the workspace and main changed since the workspace's base (CC-80). `fields`
+         *     lists what a person has to choose; empty means the two sides merge on their own, which
+         *     updating from main does.
+         */
+        FileConflict: {
+            fields: components["schemas"]["FieldConflict"][];
+            path: string;
         };
         Finding: {
             level: components["schemas"]["Level"];
@@ -1982,6 +2083,17 @@ export interface components {
             /** @description The slug: the `{project}` segment of every path of it (PF-67). */
             name: string;
         };
+        /** @description What opening a workspace asks for (API/01 §22). */
+        OpenRequest: {
+            name: string;
+            scope?: null | components["schemas"]["Scope"];
+            title?: string | null;
+            /**
+             * Format: int64
+             * @description Seven when absent, at most fourteen.
+             */
+            ttlDays?: number | null;
+        };
         /**
          * @description Resource mutation operation type.
          * @enum {string}
@@ -2104,6 +2216,11 @@ export interface components {
              */
             version: number;
         };
+        /**
+         * @description Where a workspace's preview is (CC-78).
+         * @enum {string}
+         */
+        PreviewState: "none" | "starting" | "running" | "stopped" | "error";
         /** @description One fetch of a DataSource on the project's runner, or why there was none (MF-39). */
         Probe: {
             bytes?: number | null;
@@ -2218,6 +2335,14 @@ export interface components {
             payload: unknown;
             runId: string;
         };
+        /** @description The side a person kept for one conflicting field of one file (CC-80). */
+        Resolution: {
+            /** @description The field's path, as the conflict lists it; empty for the whole file. */
+            field?: string;
+            keep: components["schemas"]["Side"];
+            /** @description The file's path in the repository, as the comparison lists it. */
+            path: string;
+        };
         ResourceEnvelope: {
             apiVersion: string;
             kind: string;
@@ -2300,6 +2425,32 @@ export interface components {
         RunList: {
             items: components["schemas"]["AgentRun"][];
         };
+        /**
+         * @description What a workspace covers (CC-76, API/01 §22): the whole project, one space and what it
+         *     holds, or a list of resources.
+         */
+        Scope: {
+            /** @enum {string} */
+            kind: "project";
+        } | {
+            /** @enum {string} */
+            kind: "space";
+            name: string;
+        } | {
+            items: components["schemas"]["ScopedResource"][];
+            /** @enum {string} */
+            kind: "resources";
+        };
+        /** @description One resource a workspace covers. */
+        ScopedResource: {
+            kind: string;
+            name: string;
+        };
+        /**
+         * @description Which side a person kept for one conflicting field (CC-80).
+         * @enum {string}
+         */
+        Side: "ours" | "theirs";
         /** @description Result returned for `PUT /source?dryRun=All`. */
         SourceDryRunResult: {
             artifacts: components["schemas"]["Artifacts"];
@@ -2388,6 +2539,19 @@ export interface components {
             manifests: number;
             revision?: string | null;
         };
+        /** @description What updating from main did (CC-80). */
+        UpdateReport: {
+            baseRevision: string;
+            comparison: components["schemas"]["Comparison"];
+            /** @description Files both changed, merged field by field and checked again. */
+            merged: string[];
+            /** @description Files main changed that the workspace had not touched, now as main has them. */
+            taken: string[];
+        };
+        /** @description What updating a workspace from main asks for: the answer to every conflict (CC-80). */
+        UpdateRequest: {
+            resolutions?: components["schemas"]["Resolution"][];
+        };
         /** @description One quota dimension of a project: what it holds and what it may (PF-75). */
         Usage: {
             /**
@@ -2417,6 +2581,28 @@ export interface components {
             equal: boolean;
             /** @description The path the bundle index gave the file. */
             path: string;
+        };
+        Workspace: {
+            baseRevision: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            name: string;
+            owner: string;
+            previewState: components["schemas"]["PreviewState"];
+            project: string;
+            scope: components["schemas"]["Scope"];
+            title?: string | null;
+        };
+        WorkspaceList: {
+            items: components["schemas"]["WorkspaceView"][];
+        };
+        /** @description A workspace as the API answers it. */
+        WorkspaceView: components["schemas"]["Workspace"] & {
+            branch: string;
+            /** @description How many files it changes; read only when one workspace is asked for. */
+            changes?: number | null;
         };
     };
     responses: never;
@@ -5703,6 +5889,296 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
+            };
+        };
+    };
+    list_workspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The open workspaces */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceList"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    open_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenRequest"];
+            };
+        };
+        responses: {
+            /** @description The workspace, opened */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceView"];
+                };
+            };
+            /** @description A name, title, scope or TTL out of bounds */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No role with propose in the project */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description A workspace of that name exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    get_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Workspace name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceView"];
+                };
+            };
+            /** @description No such project or workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    discard_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Workspace name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace and its branch are gone */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not the owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description No such project or workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    compare_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Workspace name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What it changes, and where main changed the same */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comparison"];
+                };
+            };
+            /** @description No such project or workspace */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    propose_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Workspace name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Change that brings the workspace back */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Change"];
+                };
+            };
+            /** @description Not the owner, or a kind the owner may not propose */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description A conflict, nothing to bring back, or already brought back */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project name */
+                project: string;
+                /** @description Workspace name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Main merged into the workspace */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateReport"];
+                };
+            };
+            /** @description Not the owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description A conflict without a resolution */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

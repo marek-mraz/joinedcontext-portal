@@ -119,23 +119,22 @@ pub struct ApproveBody {
     pub reason: Option<String>,
 }
 
+/// Whether the field at `path` holds a credential by its name (CC-06).
+pub fn is_sensitive_path(path: &str) -> bool {
+    let last_seg = path.rsplit('.').next().unwrap_or(path);
+    let clean = last_seg.split('[').next().unwrap_or(last_seg);
+    matches!(
+        clean,
+        "password" | "token" | "secret" | "clientSecret" | "client_secret" | "apiKey" | "api_key"
+    )
+}
+
 /// Replaces sensitive field values with `"[REDACTED]"` (CC-06).
 pub fn redact(fields: Vec<FieldChange>) -> Vec<FieldChange> {
     fields
         .into_iter()
         .map(|mut f| {
-            let last_seg = f.path.rsplit('.').next().unwrap_or(&f.path);
-            let clean = last_seg.split('[').next().unwrap_or(last_seg);
-            if matches!(
-                clean,
-                "password"
-                    | "token"
-                    | "secret"
-                    | "clientSecret"
-                    | "client_secret"
-                    | "apiKey"
-                    | "api_key"
-            ) {
+            if is_sensitive_path(&f.path) {
                 if f.from.is_some() {
                     f.from = Some(Value::String("[REDACTED]".to_string()));
                 }

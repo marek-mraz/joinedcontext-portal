@@ -340,10 +340,12 @@ async fn remove(
         info.plural,
         &input.name,
         false,
+        None,
     )
     .await?
     {
         DeleteOutcome::Proposed(change) => Ok(ProposeOutcome::Change(change).into_value()),
+        DeleteOutcome::Workspace(commit) => Ok(ProposeOutcome::Workspace(commit).into_value()),
         DeleteOutcome::DryRun(result) => Ok(ProposeOutcome::DryRun(result).into_value()),
         DeleteOutcome::Referenced { here, elsewhere } => Err(OpError::Conflict(json!({
             "error": "referenced",

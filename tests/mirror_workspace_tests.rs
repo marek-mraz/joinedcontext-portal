@@ -68,9 +68,17 @@ async fn world(open: bool, branch_exists: bool) -> (MockServer, AppState) {
     let b = "projects/helsinki/pipelines/b/pipeline.yaml";
     let c = "projects/helsinki/pipelines/c/pipeline.yaml";
     let gone = "projects/helsinki/pipelines/gone/pipeline.yaml";
+    // Main moved after the workspace opened at `abc`: `b` is b9 now, and the branch still
+    // holds the b1 it was cut with.
     tree(
         &server,
         "main",
+        &[(a, "a1"), (b, "b9"), (gone, "g1"), ("README.md", "r1")],
+    )
+    .await;
+    tree(
+        &server,
+        "abc",
         &[(a, "a1"), (b, "b1"), (gone, "g1"), ("README.md", "r1")],
     )
     .await;
@@ -92,7 +100,7 @@ async fn world(open: bool, branch_exists: bool) -> (MockServer, AppState) {
     }
     file(&server, "workspace/bikes-v2", a, &pipeline("a", "30s")).await;
     file(&server, "workspace/bikes-v2", c, &pipeline("c", "5m")).await;
-    file(&server, "main", gone, &pipeline("gone", "1h")).await;
+    file(&server, "abc", gone, &pipeline("gone", "1h")).await;
 
     let client = GiteaClient::new(
         server.uri().parse().unwrap(),
@@ -184,4 +192,16 @@ async fn an_unknown_workspace_or_another_projects_is_not_found() {
         panic!("the workspace is helsinki's")
     };
     assert!(err.to_string().contains("espoo"), "{err}");
+}
+
+#[tokio::test]
+async fn what_main_changed_after_the_workspace_opened_reads_as_main() {
+    let (_server, state) = world(true, true).await;
+    state.mirror.upsert(envelope("b", "90s"));
+    let view = mirror_of(&state, "bikes-v2", "helsinki").await.unwrap();
+    assert_eq!(
+        period(&view, "b").as_deref(),
+        Some("90s"),
+        "the branch's old copy of b is not the workspace's change"
+    );
 }

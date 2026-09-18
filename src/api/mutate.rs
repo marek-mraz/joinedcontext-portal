@@ -124,7 +124,7 @@ pub fn branch_name(project: &str, kind: &str, name: &str, operation: Operation) 
 
 /// Refuses a manifest the workspace does not cover (CC-76): another project, a resource not in
 /// its list, a space not in its subtree.
-fn within_workspace(
+pub(crate) fn within_workspace(
     workspace: &crate::ops::workspaces::Workspace,
     project: &str,
     kind: &str,
@@ -389,6 +389,7 @@ async fn propose_checked(
     operation: Operation,
     dry_run: bool,
     body_val: Value,
+    workspace: Option<&str>,
 ) -> Result<Response, ApiError> {
     let manifest = body_val.clone();
     if dry_run {
@@ -430,7 +431,7 @@ async fn propose_checked(
         result.verdict = Some(verdict);
         return Ok((StatusCode::OK, Json(result)).into_response());
     }
-    let outcome = propose_gated(
+    let outcome = propose_gated_in(
         &user.0.identity,
         state,
         project,
@@ -438,6 +439,7 @@ async fn propose_checked(
         path_name,
         operation,
         body_val,
+        workspace,
     )
     .await?;
     crate::ops::forget_check(state, project, &manifest).await;
@@ -512,8 +514,27 @@ pub async fn propose_gated(
     operation: Operation,
     body_val: Value,
 ) -> Result<ProposeOutcome, ApiError> {
+    propose_gated_in(
+        identity, state, project, plural, path_name, operation, body_val, None,
+    )
+    .await
+}
+
+/// [`propose_gated`] into a workspace when one is named: the REST doors' `?workspace=`
+/// (API/01 §22), which asks for the same verdict as a write outside one (PF-82).
+#[allow(clippy::too_many_arguments)]
+pub async fn propose_gated_in(
+    identity: &crate::auth::session::Identity,
+    state: &AppState,
+    project: &str,
+    plural: &str,
+    path_name: Option<&str>,
+    operation: Operation,
+    body_val: Value,
+    workspace: Option<&str>,
+) -> Result<ProposeOutcome, ApiError> {
     propose_engine(
-        identity, state, project, plural, path_name, operation, false, body_val, true, None,
+        identity, state, project, plural, path_name, operation, false, body_val, true, workspace,
     )
     .await
 }
@@ -826,6 +847,12 @@ async fn propose_engine(
                 .await
                 .map_err(|err| ApiError::NotFound(err.to_string()))?;
             within_workspace(&open, project, kind_info.kind, &envelope)?;
+            if !crate::ops::workspaces::owns(&open, identity) {
+                return Err(ApiError::Denied(format!(
+                    "workspace '{name}' belongs to {}; only its owner writes into it",
+                    open.owner
+                )));
+            }
             let branch = open.branch();
             match gitea.create_branch(&branch, &default_branch).await {
                 Ok(()) | Err(GitError::Conflict(_)) => {}
@@ -1096,6 +1123,12 @@ pub async fn create(
     let is_dry = dry_run::is_dry_run(&dry_run_q)?;
     let mut body_val = parse_body_to_value(&headers, &body)?;
     if let Some(draft) = take_draft(&mut body_val) {
+        if dry_run_q.workspace.is_some() {
+            return Err(ApiError::BadRequest(
+                "a draft is proposed on its own; send the manifest to write it into a workspace"
+                    .into(),
+            ));
+        }
         return propose_draft(
             user, front, &state, &project, &plural, is_dry, draft, body_val,
         )
@@ -1111,6 +1144,7 @@ pub async fn create(
         Operation::Create,
         is_dry,
         body_val,
+        dry_run_q.workspace.as_deref(),
     )
     .await
 }
@@ -1148,6 +1182,12 @@ pub async fn replace(
     let is_dry = dry_run::is_dry_run(&dry_run_q)?;
     let mut body_val = parse_body_to_value(&headers, &body)?;
     if let Some(draft) = take_draft(&mut body_val) {
+        if dry_run_q.workspace.is_some() {
+            return Err(ApiError::BadRequest(
+                "a draft is proposed on its own; send the manifest to write it into a workspace"
+                    .into(),
+            ));
+        }
         return propose_draft(
             user, front, &state, &project, &plural, is_dry, draft, body_val,
         )
@@ -1163,6 +1203,7 @@ pub async fn replace(
         Operation::Update,
         is_dry,
         body_val,
+        dry_run_q.workspace.as_deref(),
     )
     .await
 }
@@ -1225,14 +1266,17 @@ pub async fn patch(
         ))
     })?;
 
-    let current = state
-        .mirror
-        .get(&project, kind_info.kind, &name)
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "resource '{name}' not found in project '{project}'"
-            ))
-        })?;
+    let mirror = match dry_run_q.workspace.as_deref() {
+        Some(workspace) => std::sync::Arc::new(
+            crate::ops::workspaces::mirror_of(&state, workspace, &project).await?,
+        ),
+        None => state.mirror.clone(),
+    };
+    let current = mirror.get(&project, kind_info.kind, &name).ok_or_else(|| {
+        ApiError::NotFound(format!(
+            "resource '{name}' not found in project '{project}'"
+        ))
+    })?;
 
     let mut curr_to_patch = current;
     curr_to_patch.strip_status();
@@ -1252,6 +1296,7 @@ pub async fn patch(
         Operation::Update,
         is_dry,
         desired_val,
+        dry_run_q.workspace.as_deref(),
     )
     .await
 }
@@ -1723,6 +1768,7 @@ mod tests {
             State(state),
             Path(("ovzdusie".into(), "spaces".into(), "mobility".into())),
             Query(DryRunQuery {
+                workspace: None,
                 dry_run: Some("All".into()),
             }),
             headers,

@@ -613,3 +613,99 @@ mod restart_tests {
         }
     }
 }
+
+/// Which side a person kept for one conflicting field (CC-80).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Ours,
+    Theirs,
+}
+
+/// One field both sides changed to different values since their common base (CC-80).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct FieldConflict {
+    pub path: String,
+    #[schema(value_type = Object)]
+    pub ours: serde_json::Value,
+    #[schema(value_type = Object)]
+    pub theirs: serde_json::Value,
+    #[schema(value_type = Object)]
+    pub base: serde_json::Value,
+}
+
+/// A three-way merge of two JSON documents with their common base (CC-80).
+///
+/// A field only one side changed takes that side's value; a field both changed alike takes it
+/// once. A field both changed differently is a conflict, and `pick` names the side a person
+/// kept; with no answer the merge fails listing every such field, so no side wins by default.
+/// Objects merge key by key; an array is one value, like a scalar. Paths read as the plan's:
+/// `spec.rateLimit.perMinute`.
+pub fn merge3(
+    base: Option<&serde_json::Value>,
+    ours: &serde_json::Value,
+    theirs: &serde_json::Value,
+    pick: &dyn Fn(&str) -> Option<Side>,
+) -> Result<serde_json::Value, Vec<FieldConflict>> {
+    let mut conflicts = Vec::new();
+    let merged = merge_at("", base, Some(ours), Some(theirs), pick, &mut conflicts);
+    if conflicts.is_empty() {
+        Ok(merged.unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(conflicts)
+    }
+}
+
+fn merge_at(
+    path: &str,
+    base: Option<&serde_json::Value>,
+    ours: Option<&serde_json::Value>,
+    theirs: Option<&serde_json::Value>,
+    pick: &dyn Fn(&str) -> Option<Side>,
+    conflicts: &mut Vec<FieldConflict>,
+) -> Option<serde_json::Value> {
+    use serde_json::Value;
+    if ours == theirs || theirs == base {
+        return ours.cloned();
+    }
+    if ours == base {
+        return theirs.cloned();
+    }
+    if let (Some(Value::Object(o)), Some(Value::Object(t))) = (ours, theirs) {
+        let b = base.and_then(Value::as_object);
+        let keys: std::collections::BTreeSet<&String> = o.keys().chain(t.keys()).collect();
+        let mut out = serde_json::Map::new();
+        for key in keys {
+            let child = if path.is_empty() {
+                key.clone()
+            } else {
+                format!("{path}.{key}")
+            };
+            let merged = merge_at(
+                &child,
+                b.and_then(|b| b.get(key)),
+                o.get(key),
+                t.get(key),
+                pick,
+                conflicts,
+            );
+            if let Some(value) = merged {
+                out.insert(key.clone(), value);
+            }
+        }
+        return Some(Value::Object(out));
+    }
+    match pick(path) {
+        Some(Side::Ours) => ours.cloned(),
+        Some(Side::Theirs) => theirs.cloned(),
+        None => {
+            conflicts.push(FieldConflict {
+                path: path.to_owned(),
+                ours: ours.cloned().unwrap_or(Value::Null),
+                theirs: theirs.cloned().unwrap_or(Value::Null),
+                base: base.cloned().unwrap_or(Value::Null),
+            });
+            ours.cloned()
+        }
+    }
+}

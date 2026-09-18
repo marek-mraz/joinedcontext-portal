@@ -4428,6 +4428,393 @@
         }
       }
     },
+    "/api/v1/projects/{project}/workspaces": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "list_workspaces",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The open workspaces",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "open_workspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The workspace, opened",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A name, title, scope or TTL out of bounds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No role with propose in the project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A workspace of that name exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/workspaces/{name}": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "get_workspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workspace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "discard_workspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workspace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The workspace and its branch are gone"
+          },
+          "403": {
+            "description": "Not the owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/workspaces/{name}/compare": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "compare_workspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workspace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What it changes, and where main changed the same",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comparison"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such project or workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/workspaces/{name}/propose": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "propose_workspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workspace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The Change that brings the workspace back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner, or a kind the owner may not propose",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A conflict, nothing to bring back, or already brought back"
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project}/workspaces/{name}/update": {
+      "post": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "update_workspace",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Workspace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Main merged into the workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateReport"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A conflict without a resolution"
+          }
+        }
+      }
+    },
     "/api/v1/projects/{project}/{plural}": {
       "get": {
         "tags": [
@@ -6410,6 +6797,28 @@
           }
         }
       },
+      "Comparison": {
+        "type": "object",
+        "description": "What a workspace changes against its base, and where main changed the same files (API/01 §22).",
+        "required": [
+          "files",
+          "conflicts"
+        ],
+        "properties": {
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileConflict"
+            }
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangeFile"
+            }
+          }
+        }
+      },
       "Condition": {
         "type": "object",
         "title": "Condition",
@@ -6896,6 +7305,49 @@
           },
           "to": {
             "type": "object"
+          }
+        }
+      },
+      "FieldConflict": {
+        "type": "object",
+        "description": "One field both sides changed to different values since their common base (CC-80).",
+        "required": [
+          "path",
+          "ours",
+          "theirs",
+          "base"
+        ],
+        "properties": {
+          "base": {
+            "type": "object"
+          },
+          "ours": {
+            "type": "object"
+          },
+          "path": {
+            "type": "string"
+          },
+          "theirs": {
+            "type": "object"
+          }
+        }
+      },
+      "FileConflict": {
+        "type": "object",
+        "description": "One file both the workspace and main changed since the workspace's base (CC-80). `fields`\nlists what a person has to choose; empty means the two sides merge on their own, which\nupdating from main does.",
+        "required": [
+          "path",
+          "fields"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldConflict"
+            }
+          },
+          "path": {
+            "type": "string"
           }
         }
       },
@@ -7676,6 +8128,44 @@
         },
         "additionalProperties": false
       },
+      "OpenRequest": {
+        "type": "object",
+        "description": "What opening a workspace asks for (API/01 §22).",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Scope",
+                "description": "The whole project when absent."
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ttlDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Seven when absent, at most fourteen."
+          }
+        },
+        "additionalProperties": false
+      },
       "Operation": {
         "type": "string",
         "description": "Resource mutation operation type.",
@@ -8046,6 +8536,17 @@
         },
         "additionalProperties": false
       },
+      "PreviewState": {
+        "type": "string",
+        "description": "Where a workspace's preview is (CC-78).",
+        "enum": [
+          "none",
+          "starting",
+          "running",
+          "stopped",
+          "error"
+        ]
+      },
       "Probe": {
         "type": "object",
         "description": "One fetch of a DataSource on the project's runner, or why there was none (MF-39).",
@@ -8400,6 +8901,28 @@
         },
         "additionalProperties": false
       },
+      "Resolution": {
+        "type": "object",
+        "description": "The side a person kept for one conflicting field of one file (CC-80).",
+        "required": [
+          "path",
+          "keep"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "The field's path, as the conflict lists it; empty for the whole file."
+          },
+          "keep": {
+            "$ref": "#/components/schemas/Side"
+          },
+          "path": {
+            "type": "string",
+            "description": "The file's path in the repository, as the comparison lists it."
+          }
+        },
+        "additionalProperties": false
+      },
       "ResourceEnvelope": {
         "type": "object",
         "required": [
@@ -8641,6 +9164,89 @@
           }
         }
       },
+      "Scope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "space"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "items",
+              "kind"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ScopedResource"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "resources"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "What a workspace covers (CC-76, API/01 §22): the whole project, one space and what it\nholds, or a list of resources."
+      },
+      "ScopedResource": {
+        "type": "object",
+        "description": "One resource a workspace covers.",
+        "required": [
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Side": {
+        "type": "string",
+        "description": "Which side a person kept for one conflicting field (CC-80).",
+        "enum": [
+          "ours",
+          "theirs"
+        ]
+      },
       "SourceDryRunResult": {
         "type": "object",
         "description": "Result returned for `PUT /source?dryRun=All`.",
@@ -8862,6 +9468,51 @@
           }
         }
       },
+      "UpdateReport": {
+        "type": "object",
+        "description": "What updating from main did (CC-80).",
+        "required": [
+          "taken",
+          "merged",
+          "baseRevision",
+          "comparison"
+        ],
+        "properties": {
+          "baseRevision": {
+            "type": "string"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/Comparison"
+          },
+          "merged": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Files both changed, merged field by field and checked again."
+          },
+          "taken": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Files main changed that the workspace had not touched, now as main has them."
+          }
+        }
+      },
+      "UpdateRequest": {
+        "type": "object",
+        "description": "What updating a workspace from main asks for: the answer to every conflict (CC-80).",
+        "properties": {
+          "resolutions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Resolution"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "Usage": {
         "type": "object",
         "description": "One quota dimension of a project: what it holds and what it may (PF-75).",
@@ -8939,6 +9590,94 @@
             "description": "The path the bundle index gave the file."
           }
         }
+      },
+      "Workspace": {
+        "type": "object",
+        "required": [
+          "name",
+          "project",
+          "owner",
+          "baseRevision",
+          "scope",
+          "previewState",
+          "createdAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "baseRevision": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "previewState": {
+            "$ref": "#/components/schemas/PreviewState"
+          },
+          "project": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "WorkspaceList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceView"
+            }
+          }
+        }
+      },
+      "WorkspaceView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Workspace"
+          },
+          {
+            "type": "object",
+            "required": [
+              "branch"
+            ],
+            "properties": {
+              "branch": {
+                "type": "string"
+              },
+              "changes": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "How many files it changes; read only when one workspace is asked for.",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "A workspace as the API answers it."
       }
     }
   },
