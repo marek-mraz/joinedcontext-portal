@@ -22,6 +22,7 @@ import { CkanPage } from "./pages/ckan/CkanPage";
 import { ImportPage } from "./pages/import/ImportPage";
 import { SpaceInside } from "./pages/spaces/SpaceInside";
 import { AppPage } from "./pages/apps/AppPage";
+import { EndpointPage } from "./pages/endpoints/EndpointPage";
 import { AssistantPage } from "./pages/assistant/AssistantPage";
 import { HandOff } from "./assistant/HandOff";
 import { WorkspaceProvider } from "./components/layout/WorkspaceContext";
@@ -363,6 +364,20 @@ const spaceInsideRoute = createRoute({
   },
 });
 
+/** One endpoint and every setting it has (T-2281, EP-51). */
+const endpointRoute = createRoute({
+  getParentRoute: () => protectedRoute,
+  path: "/projects/$project/endpoints/$name",
+  component: function EndpointRoute() {
+    const { project, name } = endpointRoute.useParams();
+    return (
+      <Shell project={project}>
+        <EndpointPage project={project} name={name} />
+      </Shell>
+    );
+  },
+});
+
 /** An application and its runs (AP-68, AP-69, T-0559). */
 const appRoute = createRoute({
   getParentRoute: () => protectedRoute,
@@ -413,12 +428,18 @@ const sharedRedirectRoute = createRoute({
 const resourceListRoute = createRoute({
   getParentRoute: () => protectedRoute,
   path: "/projects/$project/$plural",
+  // `?edit=<name>` opens the kind's own editor on that resource (T-2281): the endpoint's settings
+  // page sends a person here instead of carrying a second copy of the form.
+  validateSearch: (search: Record<string, unknown>): { edit?: string } => ({
+    edit: typeof search.edit === "string" && search.edit !== "" ? search.edit : undefined,
+  }),
   component: function ResourceListRoute() {
     const { project, plural } = resourceListRoute.useParams();
+    const { edit } = resourceListRoute.useSearch();
     return (
       <Shell project={project}>
         <HandOff>
-          <ResourceListPage project={project} plural={plural} />
+          <ResourceListPage project={project} plural={plural} edit={edit} />
         </HandOff>
       </Shell>
     );
@@ -441,6 +462,7 @@ export const routeTree = rootRoute.addChildren([
     federationRoute,
     spaceCompleteRoute,
     spaceInsideRoute,
+    endpointRoute,
     appRoute,
     assistantRoute,
     sharedRedirectRoute,

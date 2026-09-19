@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -208,7 +208,7 @@ function withoutAllowedProjects(schema: JsonSchema): JsonSchema {
 }
 
 /** Endpoints of one project: who may call them, in which representations, and their public URL. */
-export function EndpointsPage({ project }: { project: string }): JSX.Element {
+export function EndpointsPage({ project, edit }: { project: string; edit?: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const usage = useProjectUsage(project);
@@ -661,6 +661,42 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
   );
 
   const endpoints = asManifests(list.data?.items ?? []);
+
+  /** Open this page's own editor on one endpoint: the row's action and `?edit=<name>` (T-2281). */
+  const openEditor = useCallback((endpoint: Manifest) => {
+    setFormError(null);
+    setIsNew(false);
+    setBase(endpoint);
+    setUrlDraftName(endpoint.metadata.name);
+    setHidden(hiddenOf(endpoint));
+    const parsedForm = toForm(endpoint);
+    setActiveSlug(parsedForm.slug || generateSlug());
+    const projectionRefName = (endpoint.spec as { projectionRef?: { name?: string } })?.projectionRef
+      ?.name;
+    setPickerState({
+      projectionName: projectionRefName || endpoint.metadata.name,
+      selectedProjectionRef: projectionRefName,
+      classes: {},
+    });
+    setEditing(parsedForm);
+  }, []);
+
+  // `?edit=<name>` from the endpoint's own settings page: the editor opens once, on the endpoint the
+  // URL names, and only when the list has it — a name nobody publishes opens nothing rather than an
+  // empty form that would propose a new endpoint (T-2281).
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current || !edit) {
+      return;
+    }
+    const wanted = endpoints.find((endpoint) => endpoint.metadata.name === edit);
+    if (!wanted) {
+      return;
+    }
+    openedFromUrl.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    openEditor(wanted);
+  }, [edit, endpoints, openEditor]);
   const spaceNames = asManifests(spacesQuery.data?.items ?? []).map((s) => s.metadata.name);
   const references = asManifests(referencesQuery.data?.items ?? []);
   const shared = others.flatMap((source, index) =>
@@ -785,7 +821,14 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
           return (
             <TableRow key={endpoint.metadata.name}>
               <TableCell primary>
-                <div>{localized(endpoint.metadata.title, locale, endpoint.metadata.name)}</div>
+                {/* The name opens the endpoint's own page, where every setting is (T-2281). */}
+                <Link
+                  to="/projects/$project/endpoints/$name"
+                  params={{ project, name: endpoint.metadata.name }}
+                  className="text-primary underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-border-focus"
+                >
+                  {localized(endpoint.metadata.title, locale, endpoint.metadata.name)}
+                </Link>
                 {endpoint.metadata.title ? (
                   <div className="mt-0.5 font-mono text-caption text-fg-subtle">
                     {endpoint.metadata.name}
@@ -855,26 +898,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                     size="sm"
                   />
                   <PermissionGuard project={project} kind="Endpoint" verb="propose">
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setFormError(null);
-                        setIsNew(false);
-                        setBase(endpoint);
-                        setUrlDraftName(endpoint.metadata.name);
-                        setHidden(hiddenOf(endpoint));
-                        const parsedForm = toForm(endpoint);
-                        setActiveSlug(parsedForm.slug || generateSlug());
-                        const pRefName = (endpoint.spec as { projectionRef?: { name?: string } })
-                          ?.projectionRef?.name;
-                        setPickerState({
-                          projectionName: pRefName || endpoint.metadata.name,
-                          selectedProjectionRef: pRefName,
-                          classes: {},
-                        });
-                        setEditing(parsedForm);
-                      }}
-                    >
+                    <Button size="sm" onClick={() => openEditor(endpoint)}>
                       {t("endpoints.edit")}
                     </Button>
                   </PermissionGuard>

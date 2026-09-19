@@ -366,7 +366,15 @@
       "requestsPerMinute": "Class",
       "burst": "Burst",
       "caching": "Caching",
-      "maxAge": "Cache lifetime (seconds)"
+      "maxAge": "Cache lifetime (seconds)",
+      "types": "Entity types",
+      "hiddenAttributes": "Hidden attributes",
+      "viewMapping": "View mapping",
+      "policy": "Policy",
+      "fileLimits": "File limits",
+      "ckanInstance": "Open-data portal",
+      "ckanOrganization": "Publisher",
+      "catalogue": "Catalogue entry"
     },
     "rateClass": {
       "strict": "Strict",
@@ -447,6 +455,46 @@
       "projection": "Which classes and attributes it shows",
       "hidden": "Hide attributes",
       "manifests": "Show the manifests this proposes"
+    },
+    "filter": {
+      "q": "Attribute query",
+      "qHelp": "Only entities this query matches are published, for example age>30. An endpoint narrows what the space holds and never widens it.",
+      "scopeQ": "Scope",
+      "scopeQHelp": "The branch of the space's scope tree that is published, for example /Helsinki/Kamppi.",
+      "geoQ": "Area",
+      "geoQHelp": "The area entities have to lie in; drawn on a map, it travels as georel, geometry and coordinates together.",
+      "temporalQ": "Time range",
+      "temporalQHelp": "Which part of an entity's history is published; without it a caller reads the current state."
+    },
+    "page": {
+      "back": "All endpoints",
+      "proposedNotice": "A change here is proposed and an approver reviews it before anything is published.",
+      "change": "Change these settings",
+      "whatItIs": "What it is",
+      "whatItAnswers": "What it answers",
+      "alwaysThere": "Always answered",
+      "everyTypeOfTheSpace": "Every entity type the space's model carries.",
+      "nothingHidden": "Every attribute the policy grants is published.",
+      "viewMappingReadOnly": "An endpoint that carries a view mapping is read-only.",
+      "filtering": "Filtering",
+      "filteringLead": "What a caller is shown of the space, before any grant narrows it further. The filter lives on the named projection this endpoint publishes through.",
+      "filterEmpty": "Not narrowed",
+      "filterLivesOn": "This filter belongs to the projection",
+      "noProjection": "This endpoint publishes the whole space its policy grants. To narrow it, publish through a named projection and put the query there.",
+      "whoMayCall": "Who may call it",
+      "noPolicy": "No policy of its own: the grants of the space decide who may read here.",
+      "openPolicies": "Open the policies of this project",
+      "traffic": "Traffic and limits",
+      "perMinute": "{count} requests a minute",
+      "burst": "burst {count}",
+      "noRateLimit": "The project's own limit applies.",
+      "maxAge": "A caller may cache an answer for {count} seconds.",
+      "noCaching": "Answers are not cached.",
+      "maxRows": "At most {count} rows in a file",
+      "maxBytes": "At most {count} bytes in a file",
+      "noFileLimits": "The platform's own file limits apply.",
+      "publication": "Published as open data",
+      "notSet": "not set"
     }
   },
   "datasources": {

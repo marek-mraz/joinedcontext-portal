@@ -26,7 +26,7 @@ import { FlowGallery } from "../pages/flows/Gallery";
 import { AppsCatalog } from "../pages/apps/AppsCatalog";
 import { SyncSourcesPage } from "../pages/sync/SyncSourcesPage";
 
-const VIEWS: Record<string, (props: { project: string }) => JSX.Element> = {
+const VIEWS: Record<string, (props: { project: string; edit?: string }) => JSX.Element> = {
   spaces: SpacesPage,
   endpoints: EndpointsPage,
   pipelines: PipelinesPage,
@@ -49,13 +49,16 @@ const VIEWS: Record<string, (props: { project: string }) => JSX.Element> = {
 export function ResourceListPage({
   project,
   plural,
+  edit,
 }: {
   project: string;
   plural: string;
+  /** `?edit=<name>`: open this kind's own editor on that resource at once (T-2281). */
+  edit?: string;
 }): JSX.Element {
   const View = VIEWS[plural];
   if (View) {
-    return <View project={project} />;
+    return <View project={project} edit={edit} />;
   }
   return <GenericListPage project={project} plural={plural} />;
 }

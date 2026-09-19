@@ -366,7 +366,15 @@
       "burst": "Špička",
       "caching": "Vyrovnávacia pamäť",
       "maxAge": "Životnosť vo vyrovnávacej pamäti (sekundy)",
-      "publicUrl": "Public address"
+      "publicUrl": "Public address",
+      "types": "Typy entít",
+      "hiddenAttributes": "Skryté atribúty",
+      "viewMapping": "Mapovanie pohľadu",
+      "policy": "Politika",
+      "fileLimits": "Limity súborov",
+      "ckanInstance": "Portál otvorených dát",
+      "ckanOrganization": "Vydavateľ",
+      "catalogue": "Záznam v katalógu"
     },
     "rateClass": {
       "strict": "Prísna",
@@ -447,6 +455,46 @@
       "projection": "Which classes and attributes it shows",
       "hidden": "Hide attributes",
       "manifests": "Show the manifests this proposes"
+    },
+    "filter": {
+      "q": "Dotaz na atribúty",
+      "qHelp": "Zverejnia sa iba entity, ktoré dotazu odpovedajú, napríklad age>30. Endpoint zužuje to, čo priestor obsahuje, nikdy to nerozširuje.",
+      "scopeQ": "Rozsah",
+      "scopeQHelp": "Vetva rozsahového stromu priestoru, ktorá sa zverejní, napríklad /Helsinki/Kamppi.",
+      "geoQ": "Územie",
+      "geoQHelp": "Územie, v ktorom entity musia ležať; nakreslené na mape putuje ako georel, geometry a coordinates spolu.",
+      "temporalQ": "Časový rozsah",
+      "temporalQHelp": "Ktorá časť histórie entity sa zverejní; bez neho čitateľ vidí aktuálny stav."
+    },
+    "page": {
+      "back": "Všetky endpointy",
+      "proposedNotice": "Zmena tu sa navrhne a schvaľovateľ ju posúdi, než sa čokoľvek zverejní.",
+      "change": "Zmeniť tieto nastavenia",
+      "whatItIs": "Čo to je",
+      "whatItAnswers": "Čo odpovedá",
+      "alwaysThere": "Vždy odpovedá",
+      "everyTypeOfTheSpace": "Každý typ entity, ktorý model priestoru nesie.",
+      "nothingHidden": "Zverejní sa každý atribút, ktorý politika povoľuje.",
+      "viewMappingReadOnly": "Endpoint s mapovaním pohľadu je iba na čítanie.",
+      "filtering": "Filtrovanie",
+      "filteringLead": "Čo z priestoru čitateľ uvidí, ešte než to zúži jeho oprávnenie. Filter patrí pomenovanej projekcii, cez ktorú tento endpoint zverejňuje.",
+      "filterEmpty": "Nezúžené",
+      "filterLivesOn": "Tento filter patrí projekcii",
+      "noProjection": "Tento endpoint zverejňuje celý priestor, ktorý mu politika povoľuje. Ak ho chcete zúžiť, zverejnite ho cez pomenovanú projekciu a dotaz dajte tam.",
+      "whoMayCall": "Kto ho smie volať",
+      "noPolicy": "Bez vlastnej politiky: kto tu smie čítať, rozhodujú oprávnenia priestoru.",
+      "openPolicies": "Otvoriť politiky tohto projektu",
+      "traffic": "Prevádzka a limity",
+      "perMinute": "{count} požiadaviek za minútu",
+      "burst": "špička {count}",
+      "noRateLimit": "Platí limit projektu.",
+      "maxAge": "Čitateľ smie odpoveď uchovať {count} sekúnd.",
+      "noCaching": "Odpovede sa neuchovávajú.",
+      "maxRows": "Najviac {count} riadkov v súbore",
+      "maxBytes": "Najviac {count} bajtov v súbore",
+      "noFileLimits": "Platia limity platformy.",
+      "publication": "Zverejnené ako otvorené dáta",
+      "notSet": "nenastavené"
     }
   },
   "datasources": {

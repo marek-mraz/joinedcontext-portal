@@ -366,7 +366,15 @@
       "burst": "Špička",
       "caching": "Vyrovnávací paměť",
       "maxAge": "Životnost ve vyrovnávací paměti (sekundy)",
-      "publicUrl": "Public address"
+      "publicUrl": "Public address",
+      "types": "Typy entit",
+      "hiddenAttributes": "Skryté atributy",
+      "viewMapping": "Mapování pohledu",
+      "policy": "Politika",
+      "fileLimits": "Limity souborů",
+      "ckanInstance": "Portál otevřených dat",
+      "ckanOrganization": "Vydavatel",
+      "catalogue": "Záznam v katalogu"
     },
     "rateClass": {
       "strict": "Přísná",
@@ -447,6 +455,46 @@
       "projection": "Which classes and attributes it shows",
       "hidden": "Hide attributes",
       "manifests": "Show the manifests this proposes"
+    },
+    "filter": {
+      "q": "Dotaz na atributy",
+      "qHelp": "Zveřejní se jen entity, které dotazu odpovídají, například age>30. Endpoint zužuje to, co prostor obsahuje, nikdy to nerozšiřuje.",
+      "scopeQ": "Rozsah",
+      "scopeQHelp": "Větev rozsahového stromu prostoru, která se zveřejní, například /Helsinki/Kamppi.",
+      "geoQ": "Území",
+      "geoQHelp": "Území, v němž entity musí ležet; nakreslené na mapě putuje jako georel, geometry a coordinates společně.",
+      "temporalQ": "Časový rozsah",
+      "temporalQHelp": "Která část historie entity se zveřejní; bez něj čtenář vidí aktuální stav."
+    },
+    "page": {
+      "back": "Všechny endpointy",
+      "proposedNotice": "Změna se tu navrhne a schvalovatel ji posoudí, než se cokoli zveřejní.",
+      "change": "Změnit tato nastavení",
+      "whatItIs": "Co to je",
+      "whatItAnswers": "Co odpovídá",
+      "alwaysThere": "Vždy odpovídá",
+      "everyTypeOfTheSpace": "Každý typ entity, který model prostoru nese.",
+      "nothingHidden": "Zveřejní se každý atribut, který politika povoluje.",
+      "viewMappingReadOnly": "Endpoint s mapováním pohledu je jen ke čtení.",
+      "filtering": "Filtrování",
+      "filteringLead": "Co z prostoru čtenář uvidí, ještě než to zúží jeho oprávnění. Filtr patří pojmenované projekci, přes kterou tento endpoint zveřejňuje.",
+      "filterEmpty": "Nezúženo",
+      "filterLivesOn": "Tento filtr patří projekci",
+      "noProjection": "Tento endpoint zveřejňuje celý prostor, který mu politika povoluje. Chcete-li ho zúžit, zveřejněte ho přes pojmenovanou projekci a dotaz dejte tam.",
+      "whoMayCall": "Kdo ho smí volat",
+      "noPolicy": "Bez vlastní politiky: kdo tu smí číst, rozhodují oprávnění prostoru.",
+      "openPolicies": "Otevřít politiky tohoto projektu",
+      "traffic": "Provoz a limity",
+      "perMinute": "{count} požadavků za minutu",
+      "burst": "špička {count}",
+      "noRateLimit": "Platí limit projektu.",
+      "maxAge": "Čtenář smí odpověď uchovat {count} sekund.",
+      "noCaching": "Odpovědi se neuchovávají.",
+      "maxRows": "Nejvýše {count} řádků v souboru",
+      "maxBytes": "Nejvýše {count} bajtů v souboru",
+      "noFileLimits": "Platí limity platformy.",
+      "publication": "Zveřejněno jako otevřená data",
+      "notSet": "nenastaveno"
     }
   },
   "datasources": {

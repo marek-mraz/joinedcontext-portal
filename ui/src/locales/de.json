@@ -347,7 +347,15 @@
       "requestsPerMinute": "Klasse",
       "burst": "Spitze",
       "caching": "Zwischenspeicher",
-      "maxAge": "Lebensdauer im Zwischenspeicher (Sekunden)"
+      "maxAge": "Lebensdauer im Zwischenspeicher (Sekunden)",
+      "types": "Entitätstypen",
+      "hiddenAttributes": "Verborgene Attribute",
+      "viewMapping": "Sichtabbildung",
+      "policy": "Richtlinie",
+      "fileLimits": "Dateigrenzen",
+      "ckanInstance": "Open-Data-Portal",
+      "ckanOrganization": "Herausgeber",
+      "catalogue": "Katalogeintrag"
     },
     "rateClass": {
       "strict": "Streng",
@@ -447,6 +455,46 @@
       "projection": "Which classes and attributes it shows",
       "hidden": "Hide attributes",
       "manifests": "Show the manifests this proposes"
+    },
+    "filter": {
+      "q": "Attributabfrage",
+      "qHelp": "Veröffentlicht werden nur Entitäten, die dieser Abfrage entsprechen, etwa age>30. Ein Endpunkt verengt, was der Raum hält, und weitet es nie aus.",
+      "scopeQ": "Bereich",
+      "scopeQHelp": "Der Zweig des Bereichsbaums, der veröffentlicht wird, etwa /Helsinki/Kamppi.",
+      "geoQ": "Gebiet",
+      "geoQHelp": "Das Gebiet, in dem Entitäten liegen müssen; auf der Karte gezeichnet reist es als georel, geometry und coordinates zusammen.",
+      "temporalQ": "Zeitraum",
+      "temporalQHelp": "Welcher Teil der Geschichte einer Entität veröffentlicht wird; ohne ihn liest ein Aufrufer den aktuellen Stand."
+    },
+    "page": {
+      "back": "Alle Endpunkte",
+      "proposedNotice": "Eine Änderung hier wird vorgeschlagen und von einer Genehmigerin geprüft, bevor etwas veröffentlicht wird.",
+      "change": "Diese Einstellungen ändern",
+      "whatItIs": "Was er ist",
+      "whatItAnswers": "Was er antwortet",
+      "alwaysThere": "Antwortet immer",
+      "everyTypeOfTheSpace": "Jeder Entitätstyp, den das Modell des Raums trägt.",
+      "nothingHidden": "Jedes Attribut, das die Richtlinie gewährt, wird veröffentlicht.",
+      "viewMappingReadOnly": "Ein Endpunkt mit einer Sichtabbildung ist nur lesbar.",
+      "filtering": "Filterung",
+      "filteringLead": "Was ein Aufrufer vom Raum sieht, bevor seine Berechtigung es weiter verengt. Der Filter gehört zur benannten Projektion, über die dieser Endpunkt veröffentlicht.",
+      "filterEmpty": "Nicht verengt",
+      "filterLivesOn": "Dieser Filter gehört zur Projektion",
+      "noProjection": "Dieser Endpunkt veröffentlicht den ganzen Raum, den seine Richtlinie gewährt. Um ihn zu verengen, veröffentlichen Sie über eine benannte Projektion und legen die Abfrage dort ab.",
+      "whoMayCall": "Wer ihn aufrufen darf",
+      "noPolicy": "Keine eigene Richtlinie: wer hier lesen darf, entscheiden die Berechtigungen des Raums.",
+      "openPolicies": "Die Richtlinien dieses Projekts öffnen",
+      "traffic": "Verkehr und Grenzen",
+      "perMinute": "{count} Anfragen pro Minute",
+      "burst": "Spitze {count}",
+      "noRateLimit": "Es gilt die Grenze des Projekts.",
+      "maxAge": "Ein Aufrufer darf eine Antwort {count} Sekunden behalten.",
+      "noCaching": "Antworten werden nicht zwischengespeichert.",
+      "maxRows": "Höchstens {count} Zeilen in einer Datei",
+      "maxBytes": "Höchstens {count} Bytes in einer Datei",
+      "noFileLimits": "Es gelten die Dateigrenzen der Plattform.",
+      "publication": "Als offene Daten veröffentlicht",
+      "notSet": "nicht gesetzt"
     }
   },
   "datasources": {
