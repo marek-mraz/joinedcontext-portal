@@ -319,6 +319,258 @@ mod tests {
         headers
     }
 
+    // ---------------------------------------------------------------------------------------
+    // T-2102 `store`: what reaches the browser, and what must not stay there.
+    // ---------------------------------------------------------------------------------------
+
+    /// The raw `Set-Cookie` lines, as the browser would receive them.
+    fn set_cookie_lines(jar: PrivateCookieJar) -> Vec<String> {
+        use axum::response::IntoResponse;
+        let response = (jar, axum::http::StatusCode::OK).into_response();
+        response
+            .headers()
+            .get_all(axum::http::header::SET_COOKIE)
+            .iter()
+            .map(|value| value.to_str().expect("set-cookie is ascii").to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn nothing_of_the_session_is_readable_in_what_the_browser_is_handed() {
+        let session = sample(600);
+        let lines = set_cookie_lines(
+            store(PrivateCookieJar::new(Key::generate()), &session).expect("store"),
+        );
+        let written = lines.join("\n");
+        for secret in [
+            session.identity.username.as_str(),
+            session.identity.subject.as_str(),
+            session.id_token.as_str(),
+            session
+                .refresh_token
+                .as_deref()
+                .expect("the sample has one"),
+            "demo.steward@banskabystrica.sk",
+        ] {
+            assert!(
+                !written.contains(secret),
+                "{secret:?} is readable in Set-Cookie: {written}",
+            );
+        }
+        // Both cookies carry the flags of the module: a session cookie the page can read, or one
+        // that travels cross-site, is the whole attack.
+        for line in &lines {
+            assert!(line.contains("HttpOnly"), "{line}");
+            assert!(line.contains("Secure"), "{line}");
+            assert!(line.contains("SameSite=Lax"), "{line}");
+            assert!(line.contains("Path=/"), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_session_with_no_refresh_token_takes_the_refresh_cookie_away() {
+        // A refresh token left in the browser after a session that no longer has one is a credential
+        // nobody is watching, so `store` removes it. A jar emits a removal only for a cookie the
+        // request carried, which is why this starts from a browser that has one.
+        let key = Key::generate();
+        let carried =
+            replay_cookies(store(PrivateCookieJar::new(key.clone()), &sample(600)).expect("store"));
+        let mut session = sample(600);
+        session.refresh_token = None;
+        let lines = set_cookie_lines(
+            store(
+                PrivateCookieJar::from_headers(&carried, key.clone()),
+                &session,
+            )
+            .expect("store"),
+        );
+        let refresh = lines
+            .iter()
+            .find(|line| line.starts_with(&format!("{REFRESH_COOKIE}=")))
+            .unwrap_or_else(|| panic!("no line for {REFRESH_COOKIE} in {lines:?}"));
+        assert!(
+            refresh.starts_with(&format!("{REFRESH_COOKIE}=;"))
+                || refresh.contains("Max-Age=0")
+                || refresh.contains("Expires=Thu, 01 Jan 1970"),
+            "the refresh cookie was not removed: {refresh}",
+        );
+
+        // And the session that comes back carries no refresh token, whichever way it is read.
+        let mut config = crate::config::Config::for_tests();
+        config.cookie_key = key;
+        config.cookie_keys_previous = Vec::new();
+        let replayed = replay_cookies(
+            store(PrivateCookieJar::new(config.cookie_key.clone()), &session).expect("store"),
+        );
+        assert_eq!(
+            load_from(&replayed, &config)
+                .expect("session")
+                .refresh_token,
+            None,
+        );
+    }
+
+    #[test]
+    fn an_already_expired_session_is_never_written_with_a_negative_lifetime() {
+        // `Max-Age` is clamped at zero (`max_age_secs.max(0)`): a negative one is not a cookie a
+        // browser keeps for less time, it is a cookie some browsers ignore the age of entirely.
+        let lines = set_cookie_lines(
+            store(PrivateCookieJar::new(Key::generate()), &sample(-3600)).expect("store"),
+        );
+        for line in &lines {
+            assert!(!line.contains("Max-Age=-"), "{line}");
+        }
+        // And what it wrote cannot be loaded back, because it is already expired.
+        let headers = replay_cookies(
+            store(PrivateCookieJar::new(Key::generate()), &sample(-3600)).expect("store"),
+        );
+        let mut config = crate::config::Config::for_tests();
+        config.cookie_key = Key::generate();
+        assert!(load_from(&headers, &config).is_none());
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // T-2103 `load`: every way a cookie can be wrong ends as `None`, never as a session.
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn a_cookie_that_is_not_this_session_is_no_session_at_all() {
+        let key = Key::generate();
+        let good =
+            replay_cookies(store(PrivateCookieJar::new(key.clone()), &sample(600)).expect("store"));
+        let sealed = good
+            .get(axum::http::header::COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .expect("a cookie was written")
+            .to_owned();
+
+        let mut config = crate::config::Config::for_tests();
+        config.cookie_key = key.clone();
+        config.cookie_keys_previous = Vec::new();
+        assert!(
+            load_from(&good, &config).is_some(),
+            "the good one reads back"
+        );
+
+        let mut broken = HeaderMap::new();
+        for forged in [
+            // No cookie at all, an empty value, a value that is not base64, a truncated seal, and
+            // the same value under another name.
+            String::new(),
+            format!("{SESSION_COOKIE}="),
+            format!("{SESSION_COOKIE}=not-encrypted-at-all"),
+            format!("{SESSION_COOKIE}={}", &sealed[..sealed.len() / 2]),
+            format!("{SESSION_COOKIE}={{\"identity\":{{\"subject\":\"x\"}}}}"),
+            sealed.replace(SESSION_COOKIE, "jc_session_x"),
+        ] {
+            broken.clear();
+            if !forged.is_empty() {
+                broken.insert(
+                    axum::http::header::COOKIE,
+                    forged.parse().expect("cookie header"),
+                );
+            }
+            assert!(
+                load_from(&broken, &config).is_none(),
+                "{forged:?} was read as a session",
+            );
+        }
+
+        // Another key's session is not this one's, and trying it does not panic.
+        let mut other = crate::config::Config::for_tests();
+        other.cookie_key = Key::generate();
+        other.cookie_keys_previous = Vec::new();
+        assert!(load_from(&good, &other).is_none());
+    }
+
+    #[test]
+    fn the_refresh_token_is_only_ever_what_its_own_cookie_carries() {
+        let key = Key::generate();
+        let headers =
+            replay_cookies(store(PrivateCookieJar::new(key.clone()), &sample(600)).expect("store"));
+        let mut config = crate::config::Config::for_tests();
+        config.cookie_key = key.clone();
+        config.cookie_keys_previous = Vec::new();
+        let loaded = load_from(&headers, &config).expect("session");
+        assert_eq!(
+            loaded.refresh_token.as_deref(),
+            Some("opaque-refresh-token-for-tests"),
+        );
+
+        // The session cookie alone: whatever the sealed JSON says, the refresh token is absent,
+        // because it is read from `REFRESH_COOKIE` and nowhere else. (`replay_cookies` writes one
+        // `Cookie` header per cookie, the way a jar emits them, so the session's own is picked out
+        // of all of them rather than out of the first.)
+        let session_only = headers
+            .get_all(axum::http::header::COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .find(|value| {
+                value
+                    .trim_start()
+                    .starts_with(&format!("{SESSION_COOKIE}="))
+            })
+            .expect("the session cookie was written")
+            .to_owned();
+        let mut without_refresh = HeaderMap::new();
+        without_refresh.insert(
+            axum::http::header::COOKIE,
+            session_only.parse().expect("cookie header"),
+        );
+        let loaded = load_from(&without_refresh, &config).expect("session");
+        assert_eq!(loaded.refresh_token, None);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // T-2104 `removal`: a logout that leaves anything behind is not a logout.
+    // ---------------------------------------------------------------------------------------
+
+    #[test]
+    fn a_removal_is_empty_expired_and_carries_the_flags_of_the_live_cookie() {
+        for name in [SESSION_COOKIE, REFRESH_COOKIE] {
+            let cookie = removal(name);
+            assert_eq!(cookie.value(), "");
+            assert_eq!(cookie.path(), Some("/"));
+            assert_eq!(cookie.http_only(), Some(true));
+            assert_eq!(cookie.secure(), Some(true));
+            assert_eq!(
+                cookie.max_age(),
+                Some(time::Duration::ZERO),
+                "a removal without Max-Age=0 leaves the cookie where it was",
+            );
+            assert!(
+                cookie
+                    .expires_datetime()
+                    .is_some_and(|when| when < time::OffsetDateTime::now_utc()),
+                "a removal needs a past Expires for a browser that ignores Max-Age",
+            );
+        }
+    }
+
+    #[test]
+    fn clear_removes_both_cookies_even_when_the_request_carried_none() {
+        // Unconditional on purpose (ADR-N-019, AP-29): a logout through the edge never reaches the
+        // Portal with the cookies, and it still has to end what the Portal's own flow left.
+        let lines = set_cookie_lines(clear(PrivateCookieJar::new(Key::generate())));
+        for name in [SESSION_COOKIE, REFRESH_COOKIE] {
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.starts_with(&format!("{name}="))),
+                "{name} was not cleared: {lines:?}",
+            );
+        }
+
+        // And a jar that did carry a session comes back unreadable afterwards.
+        let key = Key::generate();
+        let live = store(PrivateCookieJar::new(key.clone()), &sample(600)).expect("store");
+        let headers = replay_cookies(clear(live));
+        let mut config = crate::config::Config::for_tests();
+        config.cookie_key = key;
+        config.cookie_keys_previous = Vec::new();
+        assert!(load_from(&headers, &config).is_none());
+    }
+
     /// T-0973: a cookie key can only be replaced if the keys it replaces still open what they
     /// sealed. Otherwise a rotation signs everybody out, which is why it never happens.
     #[test]
