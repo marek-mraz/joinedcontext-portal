@@ -14,6 +14,7 @@ import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
 import { PipelineEditorDialog } from "../pages/pipelines/PipelineEditor";
 import type { PipelineForm, toEnvelope } from "../pages/pipelines/PipelineEditor";
 import { takeEditRequest, takePrefill } from "../assistant/state";
+import { useProjectUsage } from "../components/ProjectQuota";
 import { PermissionGuard } from "../components/ui/PermissionGuard";
 import {
   Alert,
@@ -164,6 +165,7 @@ const COLUMNS = 6;
 export function PipelinesPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
+  const usage = useProjectUsage(project);
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
   const [change, setChange] = useState<Change | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -309,6 +311,13 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
   );
 
   const pipelines = asManifests(list.data?.items ?? []);
+  // The reason before the person types: a project at its resident-pipeline quota refuses the next
+  // one, and until T-1594 it said so only after the form was filled and submitted. The numbers are
+  // the API's own (PF-73, PF-75); the page only reads them. The control stays enabled, because a
+  // scheduled pipeline does not count against this dimension and is still allowed.
+  const resident = usage.data?.residentPipelines;
+  const residentFull =
+    resident?.limit !== undefined && (resident.used ?? 0) >= resident.limit;
 
   return (
     <div className="flex flex-col gap-section">
@@ -327,6 +336,15 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
           </PermissionGuard>
         }
       />
+
+      {residentFull ? (
+        <Alert role="status" tone="warning">
+          {t("quota.dimensionExceeded", {
+            limit: resident?.limit,
+            dimension: t("quota.dimension.residentPipelines"),
+          })}
+        </Alert>
+      ) : null}
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
       {error ? (

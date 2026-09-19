@@ -184,7 +184,8 @@
       "residentPipelines": "Resident pipelines",
       "publicEndpoints": "Public endpoints",
       "apps": "Apps"
-    }
+    },
+    "dimensionExceeded": "The project quota of {limit} {dimension} is used up. A change that would go over it is refused until one is removed or an administrator raises the limit."
   },
   "changes": {
     "accepted": "Proposed as a change:",

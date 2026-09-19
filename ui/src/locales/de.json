@@ -184,7 +184,8 @@
       "residentPipelines": "Dauerhafte Pipelines",
       "publicEndpoints": "Öffentliche Endpunkte",
       "apps": "Apps"
-    }
+    },
+    "dimensionExceeded": "Das Projektkontingent von {limit} {dimension} ist aufgebraucht. Eine Änderung, die darüber hinausgeht, wird abgelehnt, bis eine entfernt oder das Kontingent erhöht wird."
   },
   "changes": {
     "accepted": "Als Änderung vorgeschlagen:",

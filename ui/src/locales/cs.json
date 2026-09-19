@@ -184,7 +184,8 @@
       "residentPipelines": "Trvalé linky",
       "publicEndpoints": "Veřejná rozhraní",
       "apps": "Aplikace"
-    }
+    },
+    "dimensionExceeded": "Kvóta projektu {limit} {dimension} je vyčerpaná. Změna, která by ji překročila, bude odmítnuta, dokud jeden neodstraníte nebo administrátor kvótu nezvýší."
   },
   "changes": {
     "accepted": "Navrženo jako změna:",

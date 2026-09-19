@@ -10,6 +10,7 @@ import type { Change, Manifest } from "../api/manifest";
 import type { Verdict } from "../api/drafts";
 import { useProjects } from "../api/projects";
 import { takePrefill } from "../assistant/state";
+import { useProjectUsage } from "../components/ProjectQuota";
 import { PermissionGuard } from "../components/ui/PermissionGuard";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ResourceFormDialog } from "../components/ResourceFormDialog";
@@ -203,6 +204,7 @@ function withoutAllowedProjects(schema: JsonSchema): JsonSchema {
 export function EndpointsPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
+  const usage = useProjectUsage(project);
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
   const [urlDraftName, setUrlDraftName] = useState(() => {
@@ -717,6 +719,14 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     </PermissionGuard>
   );
 
+  // The reason before the person types: a project at its public-endpoint quota refuses the next
+  // public one, and until T-1594 it said so only after the form was filled and submitted. The
+  // control stays enabled, because an endpoint for the project or the organization does not count
+  // against this dimension (PF-73, PF-75).
+  const publicEndpoints = usage.data?.publicEndpoints;
+  const publicFull =
+    publicEndpoints?.limit !== undefined && (publicEndpoints.used ?? 0) >= publicEndpoints.limit;
+
   return (
     <div className="flex flex-col gap-section">
       <PageHeader
@@ -724,6 +734,15 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         description={t("endpoints.lead")}
         actions={addButton}
       />
+
+      {publicFull ? (
+        <Alert role="status" tone="warning">
+          {t("quota.dimensionExceeded", {
+            limit: publicEndpoints?.limit,
+            dimension: t("quota.dimension.publicEndpoints"),
+          })}
+        </Alert>
+      ) : null}
 
       {change ? <ChangeNotice change={change} project={project} /> : null}
 
