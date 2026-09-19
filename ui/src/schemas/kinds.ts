@@ -1,4 +1,5 @@
 import { parse as parseYaml } from "yaml";
+import { gridConfigSchema } from "@joinedcontext/sdk";
 import type { JsonSchema, UiSchema } from "../components/forms/types";
 
 /**
@@ -1050,7 +1051,35 @@ const numberPair = (title: string): JsonSchema => ({
   maxItems: 2,
 });
 
-export function dashboardSchema(t: (key: string) => string, layers: string[]): JsonSchema {
+/** The widget types the Portal draws (UI-18): a `grid` reads a type, a chart reads one property. */
+export const WIDGET_TYPES = ["temporal-chart", "grid"] as const;
+
+/**
+ * The grid's own configuration as a widget carries it (UI-71, SDK-30, T-1440): the schema the SDK
+ * publishes, without the `source` and the `type` that the widget's `endpointRef` and `entityType`
+ * decide — so one schema describes the grid in the explorer, in an application and here.
+ */
+function gridWidgetSchema(t: (key: string) => string): JsonSchema {
+  const published = gridConfigSchema as unknown as {
+    properties: Record<string, unknown>;
+    additionalProperties?: boolean;
+  };
+  const kept = Object.fromEntries(
+    Object.entries(published.properties).filter(([name]) => name !== "source" && name !== "type"),
+  );
+  return {
+    type: "object",
+    title: t("dashboards.field.grid"),
+    additionalProperties: published.additionalProperties ?? false,
+    properties: kept,
+  } as JsonSchema;
+}
+
+export function dashboardSchema(
+  t: (key: string) => string,
+  layers: string[],
+  types: string[] = [],
+): JsonSchema {
   return {
     type: "object",
     required: ["name", "title", "visibility", "pages"],
@@ -1090,10 +1119,23 @@ export function dashboardSchema(t: (key: string) => string, layers: string[]): J
                 type: "object",
                 required: ["widgetType"],
                 properties: {
-                  widgetType: { type: "string", title: t("dashboards.field.widgetType") },
+                  // The two the Portal draws (UI-18, T-1440): a widget type it cannot draw would
+                  // be committed and then say "unsupported" on the page.
+                  widgetType: {
+                    type: "string",
+                    title: t("dashboards.field.widgetType"),
+                    enum: [...WIDGET_TYPES],
+                    default: "temporal-chart",
+                  },
                   endpointRef: { type: "string", title: t("dashboards.field.endpoint"), pattern: DNS1123 },
                   entityId: { type: "string", title: t("dashboards.field.entityId") },
                   property: { type: "string", title: t("dashboards.field.property") },
+                  entityType: {
+                    type: "string",
+                    title: t("dashboards.field.entityType"),
+                    ...(types.length > 0 ? { enum: types } : { pattern: ENTITY_TYPE_PATTERN }),
+                  },
+                  grid: gridWidgetSchema(t),
                 },
               },
             },

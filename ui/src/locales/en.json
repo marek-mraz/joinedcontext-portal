@@ -748,7 +748,8 @@
       "domain": "Domain [min, max]",
       "sizeBy": "Size by",
       "range": "Radius [min, max] px",
-      "popup": "Popup properties"
+      "popup": "Popup properties",
+      "grid": "The grid's configuration"
     },
     "pages": "Pages",
     "page": "Page {number}",
@@ -758,7 +759,8 @@
       "unsupported": "This page has a {type} widget the Portal does not draw yet.",
       "noHistory": "No history to draw.",
       "latest": "Latest {property}: {value} ({count} readings)",
-      "chartLabel": "{property} of {entity} over time"
+      "chartLabel": "{property} of {entity} over time",
+      "badGrid": "This grid could not be drawn: {{reason}}"
     },
     "emptyHint": "A dashboard is a page of maps and numbers built from endpoints this project can read. Make one, or ask the assistant for a dashboard of what you already publish."
   },

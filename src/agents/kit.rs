@@ -9,6 +9,7 @@
 use std::sync::LazyLock;
 
 use base64::Engine;
+use jc_core::kinds::grid::{GridConfig, GridMode};
 use rust_embed::RustEmbed;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -135,128 +136,6 @@ pub enum SortDir {
 pub struct Sort {
     pub attr: String,
     pub dir: SortDir,
-}
-
-/// One column of a `grid` view (SDK-30, UI-71).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GridColumn {
-    /// The attribute shown, which has to be one the source asked for.
-    pub attr: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub width: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pinned: Option<bool>,
-    /// Which of the value's metadata columns start open.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub show: Option<GridColumnShow>,
-    /// Whether this column takes a correction, in `mode: edit`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub editable: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub format: Option<GridFormat>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GridColumnShow {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub observed_at: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unit: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dataset_id: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub modified_at: Option<bool>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum GridFormat {
-    Text,
-    Number,
-    Date,
-    Link,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum GridMode {
-    View,
-    Edit,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum GridDensity {
-    Compact,
-    Comfortable,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GridHistory {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_points: Option<u32>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GridFilters {
-    /// The columns whose filter row is offered; every filterable one when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed: Option<Vec<String>>,
-    /// What the grid asks the endpoint for before anyone filters on screen.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preset: Option<GridPreset>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GridPreset {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub q: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attrs: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id_pattern: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope_q: Option<String>,
-}
-
-/// The configuration of a `grid` view: `EntityGridConfig` of the SDK without the two fields the
-/// application decides for it (SDK-30). It reads through the app's own endpoint and shows the type
-/// of the view's source, so a spec can neither point the grid at another endpoint nor at another
-/// type; everything else — the columns, the page size, the filters, the edit — is the spec's.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct GridConfig {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub columns: Vec<GridColumn>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub entity_timestamps: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filters: Option<GridFilters>,
-    /// Entities per page, 1 to 1000; 50 when absent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page_size: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<GridMode>,
-    /// The attributes a correction may be typed into, which `mode: edit` requires.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub editable_attrs: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub history: Option<GridHistory>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub density: Option<GridDensity>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub row_actions: Vec<String>,
 }
 
 /// One card of the dashboard. Views are drawn in order; `stats`, `map`, `table` and `form` take

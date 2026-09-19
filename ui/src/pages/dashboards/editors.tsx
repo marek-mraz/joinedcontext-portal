@@ -20,7 +20,15 @@ export interface DashboardForm {
     title?: string;
     layout?: string;
     layers?: string[];
-    widgets?: { widgetType: string; endpointRef?: string; entityId?: string; property?: string }[];
+    widgets?: {
+      widgetType: string;
+      endpointRef?: string;
+      entityId?: string;
+      property?: string;
+      /** A `grid` widget: the type it shows and the grid's own configuration (T-1440). */
+      entityType?: string;
+      grid?: Record<string, unknown>;
+    }[];
   }[];
 }
 

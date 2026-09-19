@@ -748,7 +748,8 @@
       "domain": "Wertebereich [min, max]",
       "sizeBy": "Größe nach",
       "range": "Radius [min, max] px",
-      "popup": "Attribute im Popup"
+      "popup": "Attribute im Popup",
+      "grid": "Konfiguration des Rasters"
     },
     "pages": "Seiten",
     "page": "Seite {number}",
@@ -758,7 +759,8 @@
       "unsupported": "Diese Seite hat ein {type}-Widget, das das Portal noch nicht zeichnet.",
       "noHistory": "Keine Historie zum Zeichnen.",
       "latest": "Letzter Wert {property}: {value} ({count} Messungen)",
-      "chartLabel": "{property} von {entity} im Zeitverlauf"
+      "chartLabel": "{property} von {entity} im Zeitverlauf",
+      "badGrid": "Dieses Raster konnte nicht gezeichnet werden: {{reason}}"
     },
     "emptyHint": "Ein Dashboard ist eine Seite aus Karten und Zahlen, gebaut aus Endpunkten, die dieses Projekt lesen kann. Erstellen Sie eines, oder bitten Sie die Assistentin um ein Dashboard aus dem, was Sie schon veröffentlichen."
   },

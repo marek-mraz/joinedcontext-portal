@@ -9,7 +9,14 @@ import en from "../src/locales/en.json";
 import { App } from "../src/App";
 import { rememberPrefill } from "../src/assistant/state";
 import { geojsonUrl } from "../src/routes/DashboardsPage";
-import { layerFromManifest, layerToManifest } from "../src/pages/dashboards/editors";
+import {
+  dashboardFromManifest,
+  dashboardToManifest,
+  layerFromManifest,
+  layerToManifest,
+} from "../src/pages/dashboards/editors";
+import { dashboardSchema } from "../src/schemas/kinds";
+import type { JsonSchema } from "../src/components/forms/types";
 import { answeringChecks, checksSoFar } from "./checks";
 
 const calls = vi.hoisted(() => ({
@@ -358,5 +365,62 @@ describe("dashboard editors", () => {
     expect(body.draft).toBeUndefined();
     // Checked before it was proposed (PF-57, T-0956).
     expect(checksSoFar().some((check) => check.includes("/dashboards"))).toBe(true);
+  });
+});
+
+/**
+ * T-1440, UI-71, SDK-30: a Dashboard may place the entity grid as a widget, configured by the same
+ * object the explorer and a generated application are configured by. The form offers it, and what
+ * the person configured reaches the manifest unchanged.
+ */
+describe("the grid widget of a dashboard", () => {
+  it("is one of the widget types the form offers, with the published configuration under it", () => {
+    const schema = dashboardSchema((key) => key, ["air-quality-stations"]);
+    const pages = schema.properties?.pages as { items?: { properties?: Record<string, JsonSchema> } };
+    const widget = pages.items?.properties?.widgets as { items?: { properties?: Record<string, JsonSchema> } };
+    const properties = widget.items?.properties ?? {};
+    expect((properties.widgetType as { enum?: string[] }).enum).toEqual(["temporal-chart", "grid"]);
+    expect(properties.entityType).toBeDefined();
+    const grid = properties.grid as { properties?: Record<string, unknown> };
+    // The grid's own configuration, and never the two fields the widget decides for it.
+    expect(Object.keys(grid.properties ?? {})).toContain("columns");
+    expect(Object.keys(grid.properties ?? {})).toContain("pageSize");
+    expect(Object.keys(grid.properties ?? {})).not.toContain("source");
+    expect(Object.keys(grid.properties ?? {})).not.toContain("type");
+  });
+
+  it("round-trips a configured grid through the manifest unchanged", () => {
+    const grid = {
+      columns: [{ attr: "pm10", format: "number" }],
+      pageSize: 25,
+      history: { enabled: true },
+      mode: "edit",
+      editableAttrs: ["pm10"],
+    };
+    const form = {
+      name: "air-quality-overview",
+      title: "Air quality",
+      visibility: "project",
+      pages: [
+        {
+          title: "Data",
+          layout: "grid-2x2",
+          widgets: [
+            {
+              widgetType: "grid",
+              endpointRef: "ep-air-quality",
+              entityType: "AirQualityObserved",
+              grid,
+            },
+          ],
+        },
+      ],
+    };
+    const manifest = dashboardToManifest("helsinki", form) as {
+      spec: { pages: { widgets: { grid: unknown; entityType: string }[] }[] };
+    };
+    expect(manifest.spec.pages[0].widgets[0].entityType).toBe("AirQualityObserved");
+    expect(manifest.spec.pages[0].widgets[0].grid).toEqual(grid);
+    expect(dashboardFromManifest(manifest).pages).toEqual(form.pages);
   });
 });

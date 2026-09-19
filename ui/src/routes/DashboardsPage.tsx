@@ -15,6 +15,7 @@ import { rendersWithDeckGl } from "../components/dashboards/rendering";
 import { RAMP } from "../components/dashboards/MapLibreView";
 import type { Bbox, MapLayer } from "../components/dashboards/MapLibreView";
 import type { DenseLayer } from "../components/dashboards/DeckGlOverlay";
+import { GridWidget } from "../components/dashboards/GridWidget";
 import { TemporalChart } from "../components/dashboards/TemporalChart";
 import {
   DashboardEditor,
@@ -74,6 +75,9 @@ interface WidgetSpec {
   endpointRef?: string;
   entityId?: string;
   property?: string;
+  /** A `grid` widget: the entity type it shows and the grid's own configuration (T-1440). */
+  entityType?: string;
+  grid?: Record<string, unknown>;
 }
 
 interface DashboardSpec {
@@ -552,7 +556,19 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
       {widgets.length > 0 ? (
         <div aria-label={t("dashboards.widgets")} className="grid gap-3 md:grid-cols-2">
           {widgets.map(({ widget, slug }, index) =>
-            widget.widgetType === "temporal-chart" && slug && widget.entityId && widget.property ? (
+            widget.widgetType === "grid" && slug && widget.entityType ? (
+              // The same grid the explorer renders, configured by the manifest (UI-71, SDK-30):
+              // the endpoint and the type come from the widget, so a dashboard cannot point it
+              // anywhere else, and the endpoint's Policy still decides every read and write.
+              <GridWidget
+                key={`${widget.endpointRef}-${widget.entityType}-${index}`}
+                project={project}
+                slug={slug}
+                type={widget.entityType}
+                config={widget.grid}
+                title={widget.entityType}
+              />
+            ) : widget.widgetType === "temporal-chart" && slug && widget.entityId && widget.property ? (
               <TemporalChart
                 key={`${widget.entityId}-${widget.property}-${index}`}
                 slug={slug}

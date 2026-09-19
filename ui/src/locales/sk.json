@@ -748,7 +748,8 @@
       "domain": "Rozsah hodnôt [min, max]",
       "sizeBy": "Veľkosť podľa",
       "range": "Polomer [min, max] px",
-      "popup": "Atribúty v bubline"
+      "popup": "Atribúty v bubline",
+      "grid": "Nastavenie tabuľky"
     },
     "pages": "Stránky",
     "page": "Stránka {number}",
@@ -758,7 +759,8 @@
       "unsupported": "Táto stránka má prvok {type}, ktorý Portál zatiaľ nekreslí.",
       "noHistory": "Niet histórie na vykreslenie.",
       "latest": "Posledná hodnota {property}: {value} ({count} meraní)",
-      "chartLabel": "{property} entity {entity} v čase"
+      "chartLabel": "{property} entity {entity} v čase",
+      "badGrid": "Túto tabuľku nebolo možné zobraziť: {{reason}}"
     },
     "emptyHint": "Nástenka je stránka s mapami a číslami, postavená z endpointov, ktoré tento projekt vie čítať. Vytvorte jednu alebo požiadajte asistenta o nástenku z toho, čo už zverejňujete."
   },
