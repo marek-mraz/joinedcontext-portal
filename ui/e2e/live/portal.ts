@@ -90,12 +90,26 @@ export async function approve(page: Page, project: string, change: string, confi
   await expect(page.getByText(/Deploying|Merged|Applied|Live/).first()).toBeVisible({ timeout: 90_000 });
 }
 
-/** Rejects one change as the approver, so a proposal a spec made leaves dev as it was. */
-export async function reject(page: Page, project: string, change: string): Promise<void> {
+/**
+ * Rejects one change as the approver, so a proposal a spec made leaves dev as it was.
+ *
+ * Reject opens a dialog and its confirmation stays disabled until a reason is typed: the proposer
+ * reads that reason on the change. A helper that only clicked Reject left the dialog open and the
+ * change PendingApproval — which is how this journey left changes behind on dev (T-1597).
+ */
+export async function reject(
+  page: Page,
+  project: string,
+  change: string,
+  reason = "Rejected by a live journey: this change was proposed only to prove the form.",
+): Promise<void> {
   await page.goto(`/projects/${project}/approvals/${change}?lang=en`, { waitUntil: "networkidle" });
   const button = page.getByRole("button", { name: "Reject", exact: true });
   await expect(button).toBeEnabled({ timeout: 60_000 });
   await button.click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Why are you rejecting this?").fill(reason);
+  await dialog.getByRole("button", { name: "Reject the change" }).click();
   await expect(page.getByText(/Rejected/).first()).toBeVisible({ timeout: 60_000 });
 }
 
