@@ -24,6 +24,9 @@ const PORTAL_AUDIENCE: &str = "portal-api";
 /// What the internal listener's tokens are issued for, and the client that may hold one.
 const INTERNAL_AUDIENCE: &str = "portal-internal";
 const GATEWAY_CLIENT: &str = "context-gateway";
+/// The credential proxy and the project's pipeline runner, each the owner of its own routes.
+const PROXY_CLIENT: &str = "helsinki-agent-proxy";
+const RUNNER_CLIENT: &str = "helsinki-pipelines";
 
 fn keypair(kid: &str) -> (EncodingKey, Value) {
     let secret = p256::SecretKey::random(&mut rand_core::OsRng);
@@ -51,9 +54,18 @@ fn token(signer: &EncodingKey, issuer: &str, audience: &str, client: &str) -> St
     encode(&header, &claims, signer).expect("sign")
 }
 
-/// The internal listener of a Portal that knows the realm and the gateway's client, and the key
+/// The internal listener of a Portal that knows the realm and every workload client, and the key
 /// that realm signs with.
 async fn listener(gateway_client: Option<&str>) -> (axum::Router, EncodingKey, String) {
+    listener_for(gateway_client, Some(PROXY_CLIENT), Some(RUNNER_CLIENT)).await
+}
+
+/// The same, with each route's client chosen: `None` is a Portal that was never told.
+async fn listener_for(
+    gateway_client: Option<&str>,
+    proxy_client: Option<&str>,
+    runner_client: Option<&str>,
+) -> (axum::Router, EncodingKey, String) {
     let realm: &'static MockServer = Box::leak(Box::new(MockServer::start().await));
     let issuer = format!("{}{REALM_PATH}", realm.uri().trim_end_matches('/'));
     let (signer, jwks) = keypair("key-internal-test");
@@ -64,6 +76,8 @@ async fn listener(gateway_client: Option<&str>) -> (axum::Router, EncodingKey, S
         .await;
 
     let client = gateway_client.map(str::to_owned);
+    let proxy = proxy_client.map(str::to_owned);
+    let runner = runner_client.map(str::to_owned);
     let issuer_for_config = issuer.clone();
     let config = Config::from_vars(move |key| match key {
         "JC_OIDC_ISSUER" => Some(issuer_for_config.clone()),
@@ -71,6 +85,8 @@ async fn listener(gateway_client: Option<&str>) -> (axum::Router, EncodingKey, S
         "JC_OIDC_CLIENT_SECRET" => Some("secret".to_owned()),
         "JC_PORTAL_COOKIE_KEY" => Some("k".repeat(64)),
         "JC_PORTAL_GATEWAY_CLIENT_ID" => client.clone(),
+        "JC_PORTAL_AGENT_PROXY_CLIENT_ID" => proxy.clone(),
+        "JC_PORTAL_PIPELINE_RUNNER_CLIENT_ID" => runner.clone(),
         _ => None,
     })
     .expect("config");
@@ -138,6 +154,128 @@ async fn a_portal_without_a_configured_gateway_client_answers_nobody() {
     let gateway = token(&signer, &issuer, INTERNAL_AUDIENCE, GATEWAY_CLIENT);
     assert_eq!(
         previews(&app, Some(&gateway)).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+/// The status of one internal call with an optional bearer, so every route is asked the same way.
+async fn call(
+    app: &axum::Router,
+    verb: &str,
+    uri: &str,
+    body: &'static str,
+    bearer: Option<&str>,
+) -> StatusCode {
+    let mut request = Request::builder().method(verb).uri(uri);
+    if let Some(token) = bearer {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if verb != "GET" {
+        request = request.header(header::CONTENT_TYPE, "application/json");
+    }
+    app.clone()
+        .oneshot(request.body(Body::from(body)).expect("request"))
+        .await
+        .expect("response")
+        .status()
+}
+
+/// AG-52, T-2271: the run callbacks answered one static bearer shared with `jc-agent-proxy`
+/// (`JC_AGENT_PROXY_TOKEN`) — a key that never rotates and that either side can leak. They ask for
+/// the proxy's own ServiceAccount token now, and a token of any other client of the same realm is
+/// refused even though it is valid and issued for this very listener.
+#[tokio::test]
+async fn the_run_callbacks_refuse_a_token_of_another_client() {
+    let (app, signer, issuer) = listener(Some(GATEWAY_CLIENT)).await;
+    // Every route the credential proxy calls back on. A run id that does not exist answers 404
+    // once the caller is known, which is the point: the refusal has to come first.
+    let routes: [(&str, &str, &str); 5] = [
+        // The bodies are what each route takes; a body the route refuses must still answer 401
+        // first, which is what `internal_post_event` was changed for.
+        ("POST", "/internal/agent-runs/r-1/mcp", "{}"),
+        ("POST", "/internal/agent-runs/events", "{}"),
+        ("GET", "/internal/agent-runs/r-1", ""),
+        ("GET", "/internal/agent-runs/r-1/inbox", ""),
+        ("GET", "/internal/agent-runs/r-1/diagnostics/runner/log", ""),
+    ];
+    let gateway = token(&signer, &issuer, INTERNAL_AUDIENCE, GATEWAY_CLIENT);
+    let for_api = token(&signer, &issuer, PORTAL_AUDIENCE, PROXY_CLIENT);
+    let proxy = token(&signer, &issuer, INTERNAL_AUDIENCE, PROXY_CLIENT);
+    for (verb, uri, body) in routes {
+        assert_eq!(
+            call(&app, verb, uri, body, None).await,
+            StatusCode::UNAUTHORIZED,
+            "{verb} {uri} with no credential"
+        );
+        assert_eq!(
+            call(&app, verb, uri, body, Some("not-a-token")).await,
+            StatusCode::UNAUTHORIZED,
+            "{verb} {uri} with a string that is not a token"
+        );
+        assert_eq!(
+            call(&app, verb, uri, body, Some(&gateway)).await,
+            StatusCode::UNAUTHORIZED,
+            "{verb} {uri} with the gateway's token: right listener, wrong door"
+        );
+        assert_eq!(
+            call(&app, verb, uri, body, Some(&for_api)).await,
+            StatusCode::UNAUTHORIZED,
+            "{verb} {uri} with the proxy's token for the public API"
+        );
+        // The proxy's own token gets past the identity check; what it finds is another matter, and
+        // a 401 here would mean the identity was not accepted.
+        assert_ne!(
+            call(&app, verb, uri, body, Some(&proxy)).await,
+            StatusCode::UNAUTHORIZED,
+            "{verb} {uri} with the proxy's own token"
+        );
+    }
+}
+
+/// The capture presented nothing at all: the test's 130-bit id was the whole of it. The id stays a
+/// capability, and the caller is named as well.
+#[tokio::test]
+async fn the_capture_refuses_a_call_without_the_runners_token() {
+    let (app, signer, issuer) = listener(Some(GATEWAY_CLIENT)).await;
+    let uri = "/internal/pipeline-tests/0123456789abcdef";
+    let body = r#"{"input":"one line"}"#;
+    assert_eq!(
+        call(&app, "POST", uri, body, None).await,
+        StatusCode::UNAUTHORIZED
+    );
+    let gateway = token(&signer, &issuer, INTERNAL_AUDIENCE, GATEWAY_CLIENT);
+    assert_eq!(
+        call(&app, "POST", uri, body, Some(&gateway)).await,
+        StatusCode::UNAUTHORIZED
+    );
+    // The runner's own token is accepted, and the unknown test id is then a 404 as before.
+    let runner = token(&signer, &issuer, INTERNAL_AUDIENCE, RUNNER_CLIENT);
+    assert_eq!(
+        call(&app, "POST", uri, body, Some(&runner)).await,
+        StatusCode::NOT_FOUND
+    );
+}
+
+/// The same fail-closed rule for the two new routes: a Portal that was never told which client owns
+/// them answers nobody, rather than trusting the NetworkPolicy on its own.
+#[tokio::test]
+async fn a_portal_without_those_clients_answers_nobody_on_them_either() {
+    let (app, signer, issuer) = listener_for(Some(GATEWAY_CLIENT), None, None).await;
+    let proxy = token(&signer, &issuer, INTERNAL_AUDIENCE, PROXY_CLIENT);
+    let runner = token(&signer, &issuer, INTERNAL_AUDIENCE, RUNNER_CLIENT);
+    assert_eq!(
+        call(&app, "GET", "/internal/agent-runs/r-1", "", Some(&proxy)).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/internal/pipeline-tests/0123456789abcdef",
+            r#"{"input":"one line"}"#,
+            Some(&runner),
+        )
+        .await,
         StatusCode::UNAUTHORIZED
     );
 }

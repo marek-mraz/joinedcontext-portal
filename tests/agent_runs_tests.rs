@@ -24,8 +24,9 @@ use joinedcontext_portal::store::Mirror;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
+mod common;
+
 const CSRF: &str = "csrf-token-value";
-const PROXY_TOKEN: &str = "the-token-only-jc-agent-proxy-has";
 const PROJECT: &str = "helsinki";
 const STEWARD: &str = "demo.steward";
 const SLUG: &str = "si6epqkx364lprho5uaigutk274r5grb";
@@ -37,13 +38,25 @@ fn config() -> Config {
         match key {
             "JC_AGENTS_NAMESPACE" => Some("agents"),
             "JC_AGENT_PROXY_BASE" => Some("http://jc-agent-proxy.agents.svc.cluster.local:8080"),
-            "JC_AGENT_PROXY_TOKEN" => Some(PROXY_TOKEN),
+            // The callbacks take the proxy's own ServiceAccount token (T-2271), so this Portal
+            // knows the realm that signs it and the client it belongs to.
+            "JC_OIDC_ISSUER" => Some(common::REALM.issuer.as_str()),
+            "JC_OIDC_CLIENT_ID" => Some("portal-api"),
+            "JC_OIDC_CLIENT_SECRET" => Some("secret"),
+            "JC_PORTAL_AGENT_PROXY_CLIENT_ID" => Some(common::AGENT_PROXY_CLIENT),
             "JC_PORTAL_BOOTSTRAP_ADMINS" => Some("portal-approver"),
             _ => None,
         }
         .map(str::to_owned)
     })
     .expect("the agent runner block is complete")
+}
+
+/// The token `jc-agent-proxy` presents on the internal listener: minted by the process's realm for
+/// the client this Portal is told about, and the only credential those routes answer.
+fn proxy_bearer() -> &'static str {
+    static TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TOKEN.get_or_init(|| common::REALM.workload(common::AGENT_PROXY_CLIENT))
 }
 
 fn session_cookie(config: &Config, username: &str, roles: &[&str]) -> String {
@@ -603,7 +616,7 @@ async fn an_application_reads_several_endpoints_each_need_on_its_own_space() {
 
     let (status, context) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{id}"),
         None,
@@ -907,7 +920,7 @@ async fn the_stream_replays_what_a_reconnecting_browser_missed() {
     for text in ["reading the model", "scaffolding the view"] {
         let (status, receipt) = internal_call(
             &internal,
-            Some(PROXY_TOKEN),
+            Some(proxy_bearer()),
             Method::POST,
             "/internal/agent-runs/events",
             Some(json!({ "runId": id, "kind": "thought", "payload": { "text": text } })),
@@ -1033,7 +1046,7 @@ async fn cancelling_ends_the_run_and_the_ticket_with_it() {
 
     let (status, context) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{id}"),
         None,
@@ -1061,7 +1074,7 @@ async fn cancelling_ends_the_run_and_the_ticket_with_it() {
 
     let (_, context) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{id}"),
         None,
@@ -1089,7 +1102,7 @@ async fn cancelling_ends_the_run_and_the_ticket_with_it() {
 
     let (status, problem) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::POST,
         "/internal/agent-runs/events",
         Some(json!({ "runId": id, "kind": "thought", "payload": { "text": "still here" } })),
@@ -1184,7 +1197,7 @@ async fn a_person_steers_a_live_run_and_the_workspace_reads_it() {
     // The workspace reads one channel: what was answered and what was said, after `after`.
     let (status, body) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{id}/inbox?after=0"),
         None,
@@ -1204,7 +1217,7 @@ async fn a_person_steers_a_live_run_and_the_workspace_reads_it() {
     let seq = items[0]["seq"].as_i64().expect("a seq");
     let (status, body) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{id}/inbox?after={seq}&wait=0"),
         None,
@@ -1629,7 +1642,9 @@ async fn a_function_of_the_run_answers_through_jc_functions() {
         match key {
             "JC_AGENTS_NAMESPACE" => Some("agents"),
             "JC_AGENT_PROXY_BASE" => Some("http://jc-agent-proxy.agents.svc.cluster.local:8080"),
-            "JC_AGENT_PROXY_TOKEN" => Some(PROXY_TOKEN),
+            // This case has a realm of its own, because the Portal mints a token for jc-functions
+            // from it; the proxy client is named all the same, so the callbacks stay closed.
+            "JC_PORTAL_AGENT_PROXY_CLIENT_ID" => Some(common::AGENT_PROXY_CLIENT),
             "JC_PORTAL_BOOTSTRAP_ADMINS" => Some("portal-approver"),
             "JC_OIDC_ISSUER" => Some(issuer.as_str()),
             "JC_OIDC_CLIENT_ID" => Some("joinedcontext-portal"),
@@ -1813,7 +1828,7 @@ async fn the_lifecycle_is_driven_by_the_workspace_through_the_proxy() {
     ] {
         let (status, body) = internal_call(
             &internal,
-            Some(PROXY_TOKEN),
+            Some(proxy_bearer()),
             Method::POST,
             "/internal/agent-runs/events",
             Some(json!({ "runId": id, "kind": "status", "payload": { "status": state } })),
@@ -1824,7 +1839,7 @@ async fn the_lifecycle_is_driven_by_the_workspace_through_the_proxy() {
 
     let (status, body) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::POST,
         "/internal/agent-runs/events",
         Some(json!({ "runId": id, "kind": "status", "payload": { "status": "published" } })),
@@ -1861,7 +1876,7 @@ async fn usage_and_the_preview_url_are_recorded_from_the_stream() {
     for tokens in [4_120, 1_880] {
         internal_call(
             &internal,
-            Some(PROXY_TOKEN),
+            Some(proxy_bearer()),
             Method::POST,
             "/internal/agent-runs/events",
             Some(json!({
@@ -1874,7 +1889,7 @@ async fn usage_and_the_preview_url_are_recorded_from_the_stream() {
     }
     internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::POST,
         "/internal/agent-runs/events",
         Some(json!({
@@ -1924,7 +1939,7 @@ async fn the_internal_listener_answers_the_proxy_and_nobody_else() {
 
     let (status, _) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         "/internal/agent-runs/no-such-run",
         None,
@@ -2026,7 +2041,7 @@ async fn the_diagnostics_door_answers_the_proxy_for_the_runs_own_project_only() 
     // A run that does not exist has no project to look into.
     let (status, _) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         "/internal/agent-runs/no-such-run/diagnostics/pipeline/hsl-bikes",
         None,
@@ -2037,7 +2052,7 @@ async fn the_diagnostics_door_answers_the_proxy_for_the_runs_own_project_only() 
     // Only the components the door knows.
     let (status, problem) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{id}/diagnostics/endpoint/hsl-bikes"),
         None,
@@ -2048,7 +2063,7 @@ async fn the_diagnostics_door_answers_the_proxy_for_the_runs_own_project_only() 
     // A pipeline the run's project does not have is not found, whatever other projects hold.
     let (status, problem) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{id}/diagnostics/pipeline/hsl-bikes"),
         None,
@@ -2059,7 +2074,7 @@ async fn the_diagnostics_door_answers_the_proxy_for_the_runs_own_project_only() 
     // A change needs the forge; without one the door says so instead of inventing a state.
     let (status, problem) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{id}/diagnostics/change/chg-0000000a"),
         None,
@@ -2261,7 +2276,7 @@ async fn expired_runs_are_reaped_and_ticket_invalidated_while_live_runs_remain()
 
     let (status, context) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{expired_id}"),
         None,
@@ -2288,7 +2303,7 @@ async fn expired_runs_are_reaped_and_ticket_invalidated_while_live_runs_remain()
 
     let (_, context) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::GET,
         &format!("/internal/agent-runs/{expired_id}"),
         None,
@@ -2302,7 +2317,7 @@ async fn expired_runs_are_reaped_and_ticket_invalidated_while_live_runs_remain()
 
     let (status, problem) = internal_call(
         &internal,
-        Some(PROXY_TOKEN),
+        Some(proxy_bearer()),
         Method::POST,
         "/internal/agent-runs/events",
         Some(
@@ -2970,7 +2985,7 @@ mod the_registry_a_run_reaches {
     async fn mcp(internal: &axum::Router, run: &str, message: Value) -> (StatusCode, Value) {
         internal_call(
             internal,
-            Some(PROXY_TOKEN),
+            Some(proxy_bearer()),
             Method::POST,
             &format!("/internal/agent-runs/{run}/mcp"),
             Some(message),
@@ -3118,7 +3133,7 @@ mod the_registry_a_run_reaches {
 
         let (status, _) = internal_call(
             &internal,
-            Some(PROXY_TOKEN),
+            Some(proxy_bearer()),
             Method::POST,
             "/internal/agent-runs/no-such-run/mcp",
             Some(json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })),

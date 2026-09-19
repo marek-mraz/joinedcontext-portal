@@ -323,3 +323,106 @@ impl CheckFirst for axum::Router {
             .await
     }
 }
+
+// --- the realm the internal listener verifies against (T-2271; AG-52, PF-46) ------------------
+
+/// A realm that signs workload tokens, for the suites that call the Portal's internal listener.
+///
+/// The listener takes a ServiceAccount token per route and no static string any more, so a test
+/// that calls one has to present a real signed token. One realm per process, leaked on purpose:
+/// the Portal's JWKS cache holds its URL for as long as the test binary runs.
+pub struct Realm {
+    pub issuer: String,
+    signer: jsonwebtoken::EncodingKey,
+}
+
+/// What a token for the internal listener must be issued for.
+pub const INTERNAL_AUDIENCE: &str = "portal-internal";
+
+impl Realm {
+    /// A token of `client`, issued for `audience`, valid for five minutes.
+    pub fn token(&self, client: &str, audience: &str) -> String {
+        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
+        header.kid = Some("key-workload-test".to_owned());
+        let now = joinedcontext_portal::auth::session::now_unix();
+        let claims = json!({
+            "iss": self.issuer,
+            "aud": audience,
+            "sub": format!("service-account-{client}"),
+            "azp": client,
+            "exp": now + 300,
+            "iat": now,
+        });
+        jsonwebtoken::encode(&header, &claims, &self.signer).expect("sign")
+    }
+
+    /// The token a workload presents on the internal listener.
+    pub fn workload(&self, client: &str) -> String {
+        self.token(client, INTERNAL_AUDIENCE)
+    }
+}
+
+/// The process's realm, started on a runtime of its own so a synchronous `config()` can name its
+/// issuer. The server and the runtime are both leaked: the Portal's JWKS cache holds that URL for
+/// as long as the test binary runs, and a dropped mock server answers nothing.
+pub static REALM: std::sync::LazyLock<Realm> = std::sync::LazyLock::new(|| {
+    use p256::pkcs8::EncodePrivateKey;
+
+    let secret = p256::SecretKey::random(&mut rand_core::OsRng);
+    let der = secret.to_pkcs8_der().expect("der");
+    let signer = jsonwebtoken::EncodingKey::from_ec_der(der.as_bytes());
+    let mut jwk: Value = serde_json::from_str(&secret.public_key().to_jwk_string()).expect("jwk");
+    jwk["kid"] = json!("key-workload-test");
+    jwk["alg"] = json!("ES256");
+    jwk["use"] = json!("sig");
+    // On a thread of its own: this runs the first time a test asks for the realm, and that test is
+    // already inside a runtime — `block_on` there would panic. The runtime is leaked, so its worker
+    // keeps answering the JWKS request after this thread is gone.
+    let issuer = std::thread::spawn(move || {
+        let runtime: &'static tokio::runtime::Runtime = Box::leak(Box::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .expect("a runtime for the realm"),
+        ));
+        runtime.block_on(async move {
+            let server: &'static MockServer = Box::leak(Box::new(MockServer::start().await));
+            let issuer = format!(
+                "{}/realms/banskabystrica",
+                server.uri().trim_end_matches('/')
+            );
+            Mock::given(method("GET"))
+                .and(path("/realms/banskabystrica/protocol/openid-connect/certs"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "keys": [jwk] })))
+                .mount(server)
+                .await;
+            // A Portal that knows an issuer discovers it at startup, so the document is here too:
+            // one realm serves both the key a workload token is verified with and that discovery.
+            Mock::given(method("GET"))
+                .and(path(
+                    "/realms/banskabystrica/.well-known/openid-configuration",
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "issuer": issuer,
+                    "authorization_endpoint": format!("{issuer}/protocol/openid-connect/auth"),
+                    "token_endpoint": format!("{issuer}/protocol/openid-connect/token"),
+                    "jwks_uri": format!("{issuer}/protocol/openid-connect/certs"),
+                    "end_session_endpoint": format!("{issuer}/protocol/openid-connect/logout"),
+                    "response_types_supported": ["code"],
+                    "subject_types_supported": ["public"],
+                    "id_token_signing_alg_values_supported": ["ES256", "RS256"],
+                })))
+                .mount(server)
+                .await;
+            issuer
+        })
+    })
+    .join()
+    .expect("the realm started");
+    Realm { issuer, signer }
+});
+
+/// The clients the internal listener's routes belong to, as the deployment names them.
+pub const AGENT_PROXY_CLIENT: &str = "helsinki-agent-proxy";
+pub const PIPELINE_RUNNER_CLIENT: &str = "helsinki-pipelines";

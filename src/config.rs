@@ -47,6 +47,13 @@ pub struct Config {
     /// a Portal that was not told whose token to expect must not fall back to trusting the
     /// NetworkPolicy alone.
     pub gateway_client_id: Option<String>,
+    /// The Keycloak client `jc-agent-proxy` holds, which is the only caller the run callbacks on the
+    /// internal listener answer (AG-52, T-2271). It replaced `JC_AGENT_PROXY_TOKEN`, one string both
+    /// sides held. `None` leaves those routes refusing every call.
+    pub agent_proxy_client_id: Option<String>,
+    /// The Keycloak client the project's pipeline runner holds, which is the only caller
+    /// `POST /internal/pipeline-tests/{id}` answers (AG-52, T-2271). `None` refuses every call.
+    pub pipeline_runner_client_id: Option<String>,
     /// The context broker as the Portal reaches it inside the cluster, which is where a
     /// declared `ContextSourceRegistration` is written, in the tenant of its hub space
     /// (`POST /ngsi-ld/v1/csourceRegistrations`, T-0345, SP-08). It is also the address the
@@ -135,6 +142,8 @@ impl std::fmt::Debug for Config {
             .field("pipeline_runner_url", &self.pipeline_runner_url)
             .field("gateway_url", &self.gateway_url)
             .field("gateway_client_id", &self.gateway_client_id)
+            .field("agent_proxy_client_id", &self.agent_proxy_client_id)
+            .field("pipeline_runner_client_id", &self.pipeline_runner_client_id)
             .field("broker_url", &self.broker_url)
             .field("org_domain", &self.org_domain)
             .field("pipeline_test_capture_url", &self.pipeline_test_capture_url)
@@ -248,9 +257,6 @@ pub struct AgentSettings {
     /// Base URL of `jc-agent-proxy` as a workspace sees it, e.g.
     /// `http://jc-agent-proxy.agents.svc.cluster.local:8080`.
     pub proxy_base: String,
-    /// The bearer the proxy presents on the internal listener. Carries a secret, so it is
-    /// redacted in `Debug`.
-    proxy_token: String,
     /// Where the internal listener binds. APISIX routes nothing to it, and a NetworkPolicy
     /// opens it to the proxy alone (AG-52).
     pub internal_bind: SocketAddr,
@@ -259,19 +265,12 @@ pub struct AgentSettings {
     pub run_ttl_secs: i64,
 }
 
-impl AgentSettings {
-    pub fn proxy_token(&self) -> &str {
-        &self.proxy_token
-    }
-}
-
 impl std::fmt::Debug for AgentSettings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AgentSettings")
             .field("namespace", &self.namespace)
             .field("portal_namespace", &self.portal_namespace)
             .field("proxy_base", &self.proxy_base)
-            .field("proxy_token", &"[redacted]")
             .field("internal_bind", &self.internal_bind)
             .field("run_ttl_secs", &self.run_ttl_secs)
             .finish()
@@ -284,17 +283,17 @@ fn agent_settings(
 ) -> Result<Option<AgentSettings>, ConfigError> {
     let namespace = lookup("JC_AGENTS_NAMESPACE").filter(|v| !v.trim().is_empty());
     let proxy_base = lookup("JC_AGENT_PROXY_BASE").filter(|v| !v.trim().is_empty());
-    let proxy_token = lookup("JC_AGENT_PROXY_TOKEN").filter(|v| !v.trim().is_empty());
-    let (namespace, proxy_base, proxy_token) = match (namespace, proxy_base, proxy_token) {
-        (None, None, None) => return Ok(None),
-        (Some(namespace), Some(proxy_base), Some(proxy_token)) => {
-            (namespace, proxy_base, proxy_token)
-        }
+    // `JC_AGENT_PROXY_TOKEN` was the third of these until T-2271: one string the Portal and the
+    // proxy both held, which is the static key between cluster services CLAUDE.md rules out. The
+    // proxy presents its own ServiceAccount token now (`JC_PORTAL_AGENT_PROXY_CLIENT_ID` says whose
+    // token the callbacks accept), so there is no shared secret left to configure here.
+    let (namespace, proxy_base) = match (namespace, proxy_base) {
+        (None, None) => return Ok(None),
+        (Some(namespace), Some(proxy_base)) => (namespace, proxy_base),
         _ => {
             return Err(ConfigError::Invalid {
                 var: "JC_AGENTS_NAMESPACE",
-                reason: "JC_AGENTS_NAMESPACE, JC_AGENT_PROXY_BASE and JC_AGENT_PROXY_TOKEN must \
-                         be set together"
+                reason: "JC_AGENTS_NAMESPACE and JC_AGENT_PROXY_BASE must be set together"
                     .to_string(),
             })
         }
@@ -343,7 +342,6 @@ fn agent_settings(
         namespace,
         portal_namespace,
         proxy_base: proxy_base.trim_end_matches('/').to_owned(),
-        proxy_token,
         internal_bind,
         run_ttl_secs,
     }))
@@ -828,6 +826,10 @@ impl Config {
             gateway_url,
             gateway_client_id: lookup("JC_PORTAL_GATEWAY_CLIENT_ID")
                 .filter(|v| !v.trim().is_empty()),
+            agent_proxy_client_id: lookup("JC_PORTAL_AGENT_PROXY_CLIENT_ID")
+                .filter(|v| !v.trim().is_empty()),
+            pipeline_runner_client_id: lookup("JC_PORTAL_PIPELINE_RUNNER_CLIENT_ID")
+                .filter(|v| !v.trim().is_empty()),
             broker_url,
             org_domain: lookup("JC_PORTAL_ORG_DOMAIN").filter(|v| !v.trim().is_empty()),
             pipeline_test_capture_url,
@@ -863,6 +865,8 @@ impl Config {
             pipeline_runner_url: None,
             gateway_url: None,
             gateway_client_id: None,
+            agent_proxy_client_id: None,
+            pipeline_runner_client_id: None,
             broker_url: None,
             org_domain: None,
             pipeline_test_capture_url: None,

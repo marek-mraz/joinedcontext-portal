@@ -1762,7 +1762,7 @@ pub async fn internal_get_run(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<RunContext>, ApiError> {
-    authenticate_proxy(&state, &headers)?;
+    authenticate_proxy(&state, &headers).await?;
     let run = state
         .agents
         .get_run(&id)
@@ -1807,7 +1807,7 @@ pub async fn internal_diagnostics(
     Path((id, component, name)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    authenticate_proxy(&state, &headers)?;
+    authenticate_proxy(&state, &headers).await?;
     let run = state
         .agents
         .get_run(&id)
@@ -1843,7 +1843,7 @@ pub async fn internal_inbox(
     Query(query): Query<InboxQuery>,
     headers: HeaderMap,
 ) -> Result<Json<Inbox>, ApiError> {
-    authenticate_proxy(&state, &headers)?;
+    authenticate_proxy(&state, &headers).await?;
     let run = state
         .agents
         .get_run(&id)
@@ -1905,12 +1905,17 @@ async fn inbox_items(
         .collect())
 }
 
+/// The body arrives as bytes and is parsed after the caller is known (T-2271): an extractor runs
+/// before the handler does, so `Json<RelayedEvent>` answered 422 to a call carrying no identity at
+/// all, which tells whoever reaches the port what shape the route wants.
 pub async fn internal_post_event(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(relayed): Json<RelayedEvent>,
+    body: axum::body::Bytes,
 ) -> Result<(StatusCode, Json<EventReceipt>), ApiError> {
-    authenticate_proxy(&state, &headers)?;
+    authenticate_proxy(&state, &headers).await?;
+    let relayed: RelayedEvent = serde_json::from_slice(&body)
+        .map_err(|error| ApiError::BadRequest(format!("this is not a relayed event: {error}")))?;
     let run = state
         .agents
         .get_run(&relayed.run_id)
@@ -2028,24 +2033,15 @@ fn navigate_route(payload: &serde_json::Value) -> Result<&str, ApiError> {
     }
 }
 
-/// The bearer the proxy presents. Compared in constant time, and an unconfigured agent runner
-/// refuses rather than accepts: there is no token to match, so nothing may call this.
-fn authenticate_proxy(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
-    let settings = state
-        .config
-        .agent_settings
-        .as_ref()
-        .ok_or(ApiError::Unauthorized)?;
-    let presented = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .ok_or(ApiError::Unauthorized)?;
-    if crate::auth::csrf::constant_time_eq(settings.proxy_token(), presented) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized)
-    }
+/// The credential proxy's own ServiceAccount token, audience-bound to this listener and matched by
+/// the client it was issued to (AG-52, T-2271).
+///
+/// It was a string both sides held, read from `JC_AGENT_PROXY_TOKEN` and compared in constant time.
+/// Constant time was the least of it: a shared secret between two services never rotates, appears in
+/// two configurations, and gives whoever reads either of them every callback of every run. The token
+/// is minted per proxy from the realm now and expires by itself.
+async fn authenticate_proxy(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
+    crate::auth::internal::authenticate_agent_proxy(state, headers).await
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2458,7 +2454,7 @@ pub async fn internal_mcp(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<axum::response::Response, ApiError> {
-    authenticate_proxy(&state, &headers)?;
+    authenticate_proxy(&state, &headers).await?;
     let run = state
         .agents
         .get_run(&id)

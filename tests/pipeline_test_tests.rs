@@ -1,6 +1,8 @@
 //! A candidate pipeline tested on the project's runner (T-0591, PL-43, MF-38): the harness
 //! goes to the runner's streams API, what it posts back is the trace, the stream is deleted
 //! whatever happened, and nothing else is touched.
+mod common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -120,7 +122,29 @@ fn config(runner: Option<&MockServer>) -> Config {
     let mut config = Config::for_tests();
     config.pipeline_runner_url = runner.map(|r| format!("{}/{{project}}", r.uri()));
     config.pipeline_test_capture_url = Some("http://portal-internal:9090".into());
+    // The capture route takes the runner's own ServiceAccount token (T-2271); without the realm and
+    // the client, this Portal refuses every message, which is the point of the route's own test.
+    config.oidc = Config::from_vars(|key| {
+        match key {
+            "JC_OIDC_ISSUER" => Some(common::REALM.issuer.as_str()),
+            "JC_OIDC_CLIENT_ID" => Some("portal-api"),
+            "JC_OIDC_CLIENT_SECRET" => Some("secret"),
+            _ => None,
+        }
+        .map(str::to_owned)
+    })
+    .expect("a realm")
+    .oidc;
+    config.pipeline_runner_client_id = Some(common::PIPELINE_RUNNER_CLIENT.into());
     config
+}
+
+/// The header the project's pipeline runner posts a capture with.
+fn runner_bearer() -> String {
+    format!(
+        "Bearer {}",
+        common::REALM.workload(common::PIPELINE_RUNNER_CLIENT)
+    )
 }
 
 async fn post(state: &AppState, who: &str, project: &str, body: &Value) -> (StatusCode, Value) {
@@ -171,6 +195,7 @@ async fn play_runner(runner: &MockServer, state: &AppState, messages: &[Value]) 
                         Request::builder()
                             .method("POST")
                             .uri(path)
+                            .header(axum::http::header::AUTHORIZATION, runner_bearer())
                             .body(Body::from(message.to_string()))
                             .expect("request"),
                     )
@@ -480,6 +505,7 @@ async fn anonymous_is_401_and_a_capture_for_no_test_is_404() {
             Request::builder()
                 .method("POST")
                 .uri("/internal/pipeline-tests/nosuchtestnosuchtestnosuch")
+                .header(axum::http::header::AUTHORIZATION, runner_bearer())
                 .body(Body::from(r#"{"input":"x","output":null,"error":null}"#))
                 .expect("request"),
         )
@@ -497,6 +523,7 @@ async fn anonymous_is_401_and_a_capture_for_no_test_is_404() {
             Request::builder()
                 .method("POST")
                 .uri("/internal/pipeline-tests/nosuchtestnosuchtestnosuch")
+                .header(axum::http::header::AUTHORIZATION, runner_bearer())
                 .body(Body::from(big))
                 .expect("request"),
         )

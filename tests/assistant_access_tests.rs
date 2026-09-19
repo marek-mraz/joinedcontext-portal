@@ -3,6 +3,8 @@
 //! refused `tool` event before anything runs. The model is a stub proxy that answers every turn
 //! with a share request; the cases differ only in the profile and the person.
 
+mod common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -43,7 +45,12 @@ fn config_with(proxy_base: &str, runner: Option<&str>) -> Config {
         match key {
             "JC_AGENTS_NAMESPACE" => Some("agents"),
             "JC_AGENT_PROXY_BASE" => Some(proxy_base),
-            "JC_AGENT_PROXY_TOKEN" => Some("the-token-only-jc-agent-proxy-has"),
+            // The capture on the internal listener takes the runner's own ServiceAccount token
+            // (T-2271), so this Portal knows the realm that signs it and whose token to expect.
+            "JC_OIDC_ISSUER" => Some(common::REALM.issuer.as_str()),
+            "JC_OIDC_CLIENT_ID" => Some("portal-api"),
+            "JC_OIDC_CLIENT_SECRET" => Some("secret"),
+            "JC_PORTAL_PIPELINE_RUNNER_CLIENT_ID" => Some(common::PIPELINE_RUNNER_CLIENT),
             "JC_PORTAL_BOOTSTRAP_ADMINS" => Some("portal-approver"),
             "JC_PORTAL_PUBLIC_URL" => Some("https://portal.example.com"),
             "JC_PORTAL_PIPELINE_RUNNER_URL" => runner.as_deref(),
@@ -1662,6 +1669,13 @@ async fn change_on_the_runner(
                         Request::builder()
                             .method("POST")
                             .uri(&capture[at..])
+                            .header(
+                                axum::http::header::AUTHORIZATION,
+                                format!(
+                                    "Bearer {}",
+                                    common::REALM.workload(common::PIPELINE_RUNNER_CLIENT)
+                                ),
+                            )
                             .body(Body::from(message.to_string()))
                             .expect("request"),
                     )

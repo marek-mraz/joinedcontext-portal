@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
 use axum::{Json, Router};
 use jc_core::kinds::{PipelineSpec, Verb};
@@ -349,16 +349,35 @@ fn outcome_of(error: &str) -> String {
 
 /// `POST /internal/pipeline-tests/{id}`: what the harness produced, one message per call.
 ///
-/// The id is 130 random bits minted for this test and known to the harness alone; a message
-/// for a test that is not running is dropped with a 404, whoever sent it.
-pub async fn capture(Path(id): Path<String>, body: Bytes) -> StatusCode {
-    let Ok(message) = serde_json::from_slice::<Captured>(&body) else {
+/// The id is 130 random bits minted for this test and known to the harness alone, so it is a
+/// capability of its own; a message for a test that is not running is dropped with a 404. Since
+/// T-2271 the caller is named as well: the project's pipeline runner presents its own ServiceAccount
+/// token, audience-bound to this listener, and a call with no identity gets the 401 it deserves
+/// rather than a 404 that only says "no such test" (AG-52).
+pub async fn capture(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> StatusCode {
+    if crate::auth::internal::authenticate_pipeline_runner(&state, &headers)
+        .await
+        .is_err()
+    {
+        return StatusCode::UNAUTHORIZED;
+    }
+    captured(&id, &body)
+}
+
+/// What the capture does once the caller is known: the message, or why it went nowhere.
+fn captured(id: &str, body: &Bytes) -> StatusCode {
+    let Ok(message) = serde_json::from_slice::<Captured>(body) else {
         return StatusCode::BAD_REQUEST;
     };
     let sent = RUNNING
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&id)
+        .get(id)
         .map(|running| running.sender.send(message).is_ok());
     match sent {
         Some(true) => StatusCode::NO_CONTENT,
@@ -573,18 +592,12 @@ mod tests {
     #[tokio::test]
     async fn a_message_for_no_running_test_is_404_and_a_captured_one_reaches_the_test() {
         let body = Bytes::from(r#"{"input":"a","output":{"id":"x"},"error":null}"#);
-        assert_eq!(
-            capture(Path("unknown".into()), body.clone()).await,
-            StatusCode::NOT_FOUND
-        );
+        assert_eq!(captured("unknown", &body), StatusCode::NOT_FOUND);
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let _slot = Slot::take("capture-project", "id-c", sender).expect("free");
+        assert_eq!(captured("id-c", &body), StatusCode::NO_CONTENT);
         assert_eq!(
-            capture(Path("id-c".into()), body).await,
-            StatusCode::NO_CONTENT
-        );
-        assert_eq!(
-            capture(Path("id-c".into()), Bytes::from("not json")).await,
+            captured("id-c", &Bytes::from("not json")),
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
