@@ -1022,7 +1022,15 @@ pub async fn run(
                 .and_then(Value::as_str)
                 .unwrap_or("endpoint")
                 .to_owned();
-            for policy in policies_for(state, project, &space_name, &name, &class_name, &audience) {
+            for policy in policies_for(
+                state,
+                project,
+                &space_name,
+                &name,
+                &class_name,
+                &audience,
+                &caller.identity.username,
+            ) {
                 drafts.push(checked_draft(caller, state, project, policy, true).await?);
             }
         }
@@ -1267,22 +1275,10 @@ fn policies_for(
     endpoint: &str,
     class: &str,
     audience: &str,
+    owner: &str,
 ) -> Vec<Value> {
     let org = crate::api::assistant::org_domain(state, project);
-    let writer = state
-        .mirror
-        .list(project, "Policy", &crate::store::ListOptions::default())
-        .items
-        .into_iter()
-        .find(|p| {
-            p.spec
-                .get("operations")
-                .and_then(Value::as_array)
-                .is_some_and(|ops| ops.iter().any(|op| op == "upsertBatch"))
-        })
-        .map(|p| p.spec.get("assignee").cloned().unwrap_or(Value::Null))
-        .filter(|assignee| assignee.is_object())
-        .unwrap_or_else(|| json!({ "kind": "serviceAccount", "id": "pipelines" }));
+    let (writer, account) = writer_of(state, project, owner);
     let reader = match audience {
         "public" => json!({ "kind": "role", "id": "public" }),
         _ => json!({ "kind": "group", "id": org }),
@@ -1305,22 +1301,83 @@ fn policies_for(
             "spec": spec,
         })
     };
-    vec![
-        policy(
-            format!("{space}-pipelines-write"),
-            format!("The pipeline writes {space}"),
-            writer,
-            json!(["upsertBatch", "createBatch", "queryBatch"]),
-            false,
-        ),
-        policy(
-            format!("{endpoint}-read"),
-            format!("Read {space} through {endpoint}"),
-            reader,
-            json!(["retrieveOps"]),
-            true,
-        ),
-    ]
+    let mut drafted = Vec::new();
+    // The account the grant names comes first, so a person reading the card sees what is being
+    // granted to before the grant.
+    drafted.extend(account);
+    drafted.push(policy(
+        format!("{space}-pipelines-write"),
+        format!("The pipeline writes {space}"),
+        writer,
+        json!(["upsertBatch", "createBatch", "queryBatch"]),
+        false,
+    ));
+    drafted.push(policy(
+        format!("{endpoint}-read"),
+        format!("Read {space} through {endpoint}"),
+        reader,
+        json!(["retrieveOps"]),
+        true,
+    ));
+    drafted
+}
+
+/// The account a write grant is for, and the `ServiceAccount` to draft beside it when the project
+/// has none (PF-39, T-1494).
+///
+/// The assignee of a write Policy the project already has, so a project that renamed its account
+/// keeps working; otherwise the account named `pipelines`, when it is there. When it is neither, the
+/// grant used to name `pipelines` regardless: no such identity existed, so the pipeline's upsert was
+/// refused at admission far from the cause, and an account created later under that name inherited a
+/// grant written for another purpose. A grant names something that exists — in the project or in the
+/// same set of drafts a person approves.
+fn writer_of(state: &AppState, project: &str, owner: &str) -> (Value, Option<Value>) {
+    const ACCOUNT: &str = "pipelines";
+    let assignee = |id: &str| json!({ "kind": "serviceAccount", "id": id });
+    let from_policy = state
+        .mirror
+        .list(project, "Policy", &crate::store::ListOptions::default())
+        .items
+        .into_iter()
+        .find(|p| {
+            p.spec
+                .get("operations")
+                .and_then(Value::as_array)
+                .is_some_and(|ops| ops.iter().any(|op| op == "upsertBatch"))
+        })
+        .map(|p| p.spec.get("assignee").cloned().unwrap_or(Value::Null))
+        .filter(|assignee| assignee.is_object());
+    if let Some(assignee) = from_policy {
+        return (assignee, None);
+    }
+    if state
+        .mirror
+        .get(project, "ServiceAccount", ACCOUNT)
+        .is_some()
+    {
+        return (assignee(ACCOUNT), None);
+    }
+    (
+        assignee(ACCOUNT),
+        Some(json!({
+            "apiVersion": API_VERSION,
+            "kind": "ServiceAccount",
+            "metadata": {
+                "name": ACCOUNT,
+                "namespace": project,
+                "title": { "en": "The pipelines of this project" }
+            },
+            "spec": {
+                "owner": { "user": owner },
+                "purpose": "The runner authenticates as this identity to write what the pipelines \
+                            of this project load",
+                // One OAuth client, and no platform role: what this identity may write is the
+                // Policy beside it, and nothing else (PF-31, PF-39).
+                "credentials": [{ "kind": "oauth-client", "name": "main" }],
+                "roles": []
+            }
+        })),
+    )
 }
 
 fn map_of(

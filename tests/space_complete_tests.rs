@@ -910,3 +910,132 @@ async fn space_complete_endpoint_has_all_classes_projected() {
         "the endpoint serves every class the model declares: {endpoint}"
     );
 }
+
+/// PF-39, PL-55, T-1494: a grant names something that exists.
+///
+/// The write Policy's assignee fell back to a `ServiceAccount` called `pipelines` whether or not the
+/// project had one. If none existed the pipeline's upsert was refused at admission, far from the
+/// cause; and an account created later under that name inherited a grant written for another purpose.
+#[tokio::test]
+async fn a_project_without_a_pipeline_account_gets_one_drafted_and_named() {
+    let (status, body) = complete_as_steward(json!({
+        "space": "city-bikes",
+        "typeName": "CityBike",
+        "url": "https://example.invalid/free_bike_status.json",
+    }))
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let drafts = body["drafts"].as_array().expect("drafts");
+    let account = drafts
+        .iter()
+        .find(|d| d["kind"] == "ServiceAccount")
+        .unwrap_or_else(|| panic!("the account the grant names is drafted too: {body}"));
+    assert_eq!(account["name"], "pipelines", "{account}");
+    // A drafted account is a manifest a person approves, so it carries what the kind needs: an
+    // accountable owner and a purpose, one OAuth client, and no platform role of its own.
+    assert_eq!(account["manifest"]["spec"]["owner"]["user"], "steward.user");
+    assert!(
+        account["manifest"]["spec"]["purpose"]
+            .as_str()
+            .is_some_and(|purpose| !purpose.is_empty()),
+        "{account}"
+    );
+    assert_eq!(
+        account["manifest"]["spec"]["credentials"][0]["kind"],
+        "oauth-client"
+    );
+    assert_eq!(
+        account["manifest"]["spec"]["roles"],
+        json!([]),
+        "what it may write is the Policy beside it: {account}"
+    );
+
+    let write = drafts
+        .iter()
+        .find(|d| d["manifest"]["spec"]["operations"][0] == "upsertBatch")
+        .expect("a write grant");
+    assert_eq!(
+        write["manifest"]["spec"]["assignee"],
+        json!({ "kind": "serviceAccount", "id": "pipelines" }),
+        "the grant names the account that was drafted: {write}"
+    );
+    // The account comes before the grant that names it, so the card reads in that order.
+    let position = |kind: &str| drafts.iter().position(|d| d["kind"] == kind);
+    assert!(
+        position("ServiceAccount") < position("Policy"),
+        "{drafts:?}"
+    );
+}
+
+/// The account the project already has is used, and nothing is drafted for it.
+#[tokio::test]
+async fn a_project_that_has_the_account_keeps_it_and_drafts_no_second_one() {
+    let (status, body) = complete_with_account(json!({
+        "space": "city-bikes",
+        "typeName": "CityBike",
+        "url": "https://example.invalid/free_bike_status.json",
+    }))
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let drafts = body["drafts"].as_array().expect("drafts");
+    assert!(
+        !drafts.iter().any(|d| d["kind"] == "ServiceAccount"),
+        "the project's own account needs no draft: {body}"
+    );
+    let write = drafts
+        .iter()
+        .find(|d| d["manifest"]["spec"]["operations"][0] == "upsertBatch")
+        .expect("a write grant");
+    assert_eq!(
+        write["manifest"]["spec"]["assignee"]["id"], "pipelines",
+        "{write}"
+    );
+}
+
+/// The same call against a project that already holds the `pipelines` ServiceAccount.
+async fn complete_with_account(payload: Value) -> (StatusCode, Value) {
+    let config = Config::for_tests();
+    let mirror = std::sync::Arc::new(Mirror::new());
+    mirror.upsert(joinedcontext_portal::resource::ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: "ServiceAccount".to_owned(),
+        metadata: joinedcontext_portal::resource::ObjectMeta::new("pipelines", "helsinki"),
+        spec: json!({
+            "owner": { "user": "jana.kovacova" },
+            "purpose": "The runner writes what the pipelines load",
+            "credentials": [{ "kind": "oauth-client", "name": "main" }],
+            "roles": []
+        }),
+        status: None,
+    });
+    let state = AppState::new(config.clone(), None).with_mirror(mirror);
+    let app = server::app(state);
+    let cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@hel.fi"),
+        vec!["portal-approver"],
+        vec![],
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/helsinki/ops/jc_space_complete")
+                .header(header::COOKIE, cookie)
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
