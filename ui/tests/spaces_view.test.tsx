@@ -135,6 +135,9 @@ function renderSpaces(
         ? json(options.draft)
         : json({ status: 404, title: "Not Found" }, 404);
     }
+    if (path.endsWith("/spaces/ovzdusie")) {
+      return json(SPACES.items[0]);
+    }
     if (path.endsWith("/spaces")) {
       return options.listFails
         ? json({ status: 503, title: "Service Unavailable", detail: options.listFails }, 503)
@@ -472,5 +475,32 @@ describe("a viewer on the spaces list", () => {
       "Disabled: your role does not permit 'propose' on 'ContextSpace' in this project",
     );
     expect(within(row).getByRole("button", { name: /Delete/ })).toBeDisabled();
+  });
+
+  it("edits a space in the kind's own form, not as a manifest (T-2278)", async () => {
+    const fetchMock = renderSpaces({});
+
+    const row = (await screen.findByText("ovzdusie")).closest("tr") as HTMLElement;
+    await userEvent.click(within(row).getByRole("button", { name: /Edit/ }));
+    const dialog = await screen.findByRole("dialog");
+
+    // The fields of a context space, filled in from the stored manifest — and the name, which is the
+    // manifest's path, is readable but not editable (MF-11).
+    const name = await within(dialog).findByLabelText(/^Name/);
+    expect(name).toHaveValue("ovzdusie");
+    expect(name).toHaveAttribute("readonly");
+    expect(within(dialog).getByLabelText(new RegExp(`^${en.spaces.field.locale}`))).toBeInTheDocument();
+    // Not the manifest as text: that is what a person was handed before.
+    expect(within(dialog).queryByLabelText("YAML")).toBeNull();
+
+    // And the edit is proposed as a change, from the form's own submit.
+    await userEvent.click(within(dialog).getByRole("button", { name: en.resourceEdit.propose }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls
+          .map((call) => call[0] as Request)
+          .some((request) => request.method === "PUT" && request.url.includes("/spaces/ovzdusie")),
+      ).toBe(true),
+    );
   });
 });

@@ -11,6 +11,8 @@ import type { Change } from "../api/manifest";
 import { usePermissions } from "../api/permissions";
 import { takeEditRequest } from "../assistant/state";
 import { ChangeNotice } from "./ChangeNotice";
+import { SchemaForm } from "./forms/SchemaForm";
+import type { JsonSchema, UiSchema } from "./forms/types";
 import type { ResourceTarget } from "./DeleteResourceDialog";
 import { Alert, Button, Dialog } from "./ui";
 
@@ -24,26 +26,48 @@ function writable(manifest: Record<string, unknown>): string {
 }
 
 /**
- * Editing a resource that has no form of its own (AG-77, CC-19): its manifest as YAML, then one
- * `PUT` that opens a change for an approver. The name stays; a renamed manifest is a new resource.
+ * The kind's own form, for editing a resource whose page already has one (T-2278, UI-61).
+ *
+ * Without this the Edit action opened the manifest as YAML for every kind, including the ones whose
+ * create dialog has a form — so a steward who filled in fields to make a context space was handed a
+ * text editor to change it, and what they saw first was Monaco's line numbers. The two directions are
+ * the same pair the create form uses, so a page passes what it already built.
+ */
+export interface EditableForm {
+  schema: JsonSchema;
+  uiSchema?: UiSchema;
+  /** The stored manifest as the form's own model. */
+  fromManifest: (manifest: unknown) => Record<string, unknown>;
+  /** The form's model back as the manifest to propose. */
+  toManifest: (form: Record<string, unknown>) => unknown;
+}
+
+/**
+ * Editing a resource: the kind's form when the page gave one, else its manifest as YAML (AG-77,
+ * CC-19), then one `PUT` that opens a change for an approver. The name stays either way; a renamed
+ * manifest is a new resource.
  */
 export function EditResourceDialog({
   target,
   open,
   onOpenChange,
   changed,
+  form,
 }: {
   target: ResourceTarget;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The manifest with a change already made, e.g. by the assistant; shown in place of the stored one. */
   changed?: Record<string, unknown> | null;
+  /** The kind's form, when its page has one: the fields instead of the YAML (T-2278). */
+  form?: EditableForm;
 }): JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { project, plural, name } = target;
   const home = target.home ?? project;
   const [text, setText] = useState<string | null>(() => (changed ? writable(changed) : null));
+  const [edited, setEdited] = useState<Record<string, unknown> | null>(null);
   const [invalid, setInvalid] = useState<string | null>(null);
   const [change, setChange] = useState<Change | null>(null);
 
@@ -70,14 +94,8 @@ export function EditResourceDialog({
     },
   });
 
-  const submit = () => {
-    let manifest: unknown;
-    try {
-      manifest = parseYaml(source);
-    } catch (error) {
-      setInvalid(error instanceof Error ? error.message : String(error));
-      return;
-    }
+  /** The name is the resource's path, so a rename is a new resource and not an edit (MF-11). */
+  const proposeManifest = (manifest: unknown) => {
     const written = (manifest as { metadata?: { name?: unknown } } | null)?.metadata?.name;
     if (written !== name) {
       setInvalid(t("resourceEdit.renamed", { name }));
@@ -87,10 +105,22 @@ export function EditResourceDialog({
     propose.mutate(manifest);
   };
 
+  const submit = () => {
+    let manifest: unknown;
+    try {
+      manifest = parseYaml(source);
+    } catch (error) {
+      setInvalid(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    proposeManifest(manifest);
+  };
+
   // Closing forgets the edit and the answer, so the next opening starts from the stored manifest.
   const close = (next: boolean) => {
     if (!next) {
       setText(null);
+      setEdited(null);
       setInvalid(null);
       setChange(null);
       propose.reset();
@@ -117,6 +147,11 @@ export function EditResourceDialog({
       footer={
         change ? (
           <Button onClick={() => close(false)}>{t("resourceDelete.close")}</Button>
+        ) : form ? (
+          // The form has its own submit, and two would be one too many.
+          <Button variant="secondary" onClick={() => close(false)}>
+            {t("form.cancel")}
+          </Button>
         ) : (
           <>
             <Button variant="secondary" onClick={() => close(false)}>
@@ -138,6 +173,31 @@ export function EditResourceDialog({
               {failure}
             </Alert>
           ) : null}
+          {form ? (
+            current.data ? (
+              <SchemaForm<Record<string, unknown>>
+                schema={form.schema}
+                // The name is where this manifest lives, so it is read here and changed nowhere.
+                uiSchema={{
+                  ...form.uiSchema,
+                  name: {
+                    ...((form.uiSchema?.name as Record<string, unknown> | undefined) ?? {}),
+                    "ui:readonly": true,
+                  },
+                }}
+                formData={edited ?? form.fromManifest(current.data)}
+                submitLabel={t("resourceEdit.propose")}
+                submitting={propose.isPending}
+                onChange={(next) => {
+                  setEdited((next ?? {}) as Record<string, unknown>);
+                  setInvalid(null);
+                }}
+                onSubmit={(next) => proposeManifest(form.toManifest(next))}
+              />
+            ) : (
+              <p className="text-body">{t("app.loading")}</p>
+            )
+          ) : (
           <div className="overflow-hidden rounded-md border border-border">
             {current.data ? (
               <Suspense fallback={<p className="p-3 text-body">{t("models.loadingEditor")}</p>}>
@@ -155,6 +215,7 @@ export function EditResourceDialog({
               <p className="p-3 text-body">{t("app.loading")}</p>
             )}
           </div>
+          )}
         </div>
       )}
     </Dialog>
@@ -166,7 +227,14 @@ export function EditResourceDialog({
  * opened on click, or at once when the page was opened with `?edit=<name>`, on the change the
  * assistant made when it made one.
  */
-export function EditResourceAction({ target }: { target: ResourceTarget }): JSX.Element {
+export function EditResourceAction({
+  target,
+  form,
+}: {
+  target: ResourceTarget;
+  /** The kind's own form, when its page has one to give (T-2278). */
+  form?: EditableForm;
+}): JSX.Element {
   const { t } = useTranslation();
   const mayPropose = usePermissions(target.home ?? target.project).can(target.kind, "propose");
   const [request] = useState(() => takeEditRequest(target.name));
@@ -183,7 +251,13 @@ export function EditResourceAction({ target }: { target: ResourceTarget }): JSX.
         </Button>
       </PermissionGuard>
       {mayPropose ? (
-        <EditResourceDialog target={target} open={open} onOpenChange={setOpen} changed={request?.manifest} />
+        <EditResourceDialog
+          target={target}
+          open={open}
+          onOpenChange={setOpen}
+          changed={request?.manifest}
+          form={form}
+        />
       ) : null}
     </>
   );

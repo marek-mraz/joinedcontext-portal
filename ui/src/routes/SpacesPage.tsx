@@ -276,7 +276,18 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                   >
                     {t("spaces.inside.open")}
                   </Link>
-                  <EditResourceAction target={target} />
+                  {/* The kind's own form, not the manifest as text: the same schema and envelope
+                      the create dialog above uses (T-2278, UI-61). */}
+                  <EditResourceAction
+                    target={target}
+                    form={{
+                      schema: contextSpaceSchema(t),
+                      fromManifest: (manifest) =>
+                        fromEnvelope(manifest, locale) as unknown as Record<string, unknown>,
+                      toManifest: (edited) =>
+                        toEnvelope(project, edited as unknown as SpaceForm),
+                    }}
+                  />
                   <SaveAsResourceAction target={target} />
                   <WorkOnCopyAction project={project} scope={{ kind: "space", name: space.metadata.name }} />
                   <DeleteResourceAction target={target} />
