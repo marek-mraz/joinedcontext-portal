@@ -365,6 +365,13 @@
       "custom": "Custom"
     },
     "publicNotice": "An endpoint with a public audience answers anonymous callers, and an anonymous caller may only read. Writes and subscriptions still need a login, whichever representations are enabled.",
+    "data": {
+      "action": "View data",
+      "title": "What this endpoint answers",
+      "type": "Entity type",
+      "notLive": "This endpoint answers nothing yet; it is served once the change is Live.",
+      "noSchema": "This endpoint publishes no schema yet, so there is no type to read."
+    },
     "projection": {
       "title": "Published attributes",
       "hint": "An endpoint can narrow what the policy grants, never widen it. A hidden attribute is absent from every representation and from the published schema.",

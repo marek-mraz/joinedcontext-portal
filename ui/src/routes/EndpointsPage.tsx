@@ -39,10 +39,12 @@ import { endpointSchema, endpointUiSchema, generateSlug } from "../schemas/kinds
 import type { JsonSchema } from "../components/forms/types";
 import { ModelPicker } from "../pages/endpoints/ModelPicker";
 import type { ModelPickerState } from "../pages/endpoints/ModelPicker";
+import { EndpointDataView } from "../components/entities/EndpointDataView";
 import {
   Alert,
   Badge,
   Button,
+  Dialog,
   EmptyState,
   Icon,
   PageHeader,
@@ -167,6 +169,11 @@ function hiddenOf(endpoint: Manifest): string[] {
   return projection?.hiddenAttributes ?? [];
 }
 
+/** Whether the gateway serves this endpoint yet: only a Live one answers a read (T-1433). */
+function isLive(endpoint: Manifest | null): boolean {
+  return (endpoint?.status?.phase ?? "").toLowerCase() === "live";
+}
+
 function CopyUrlButton({ slug }: { slug: string }): JSX.Element {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -267,6 +274,10 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
     Array.isArray(prefill?.hiddenAttributes)
       ? prefill.hiddenAttributes.filter((a): a is string => typeof a === "string")
       : [],
+  );
+  /** The endpoint whose data a person opened from its row (T-1433). */
+  const [dataView, setDataView] = useState<{ slug: string; name: string; hidden: string[] } | null>(
+    null,
   );
 
   const list = useQuery({
@@ -812,6 +823,26 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
               </TableCell>
               <TableCell align="right">
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {/* What it answers, two clicks from the list (UI-69). Only a Live endpoint
+                      answers at all, and one that is not says so rather than opening an empty
+                      grid. */}
+                  {spec.slug ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={!isLive(endpoint)}
+                      title={isLive(endpoint) ? undefined : t("endpoints.data.notLive")}
+                      onClick={() =>
+                        setDataView({
+                          slug: spec.slug as string,
+                          name: endpoint.metadata.name,
+                          hidden: hiddenOf(endpoint),
+                        })
+                      }
+                    >
+                      {t("endpoints.data.action")}
+                    </Button>
+                  ) : null}
                   {spec.slug ? <CopyUrlButton slug={spec.slug} /> : null}
                   <ExportButton
                     project={project}
@@ -1134,6 +1165,19 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
               </details>
             ) : null}
 
+            {/* Beside what it publishes, what it answers: the fastest check of a projection
+                (T-1433). A draft endpoint answers nothing yet, so it is offered only for Live. */}
+            {!isNew && activeSlug && isLive(base) ? (
+              <details className="rounded border border-border p-3">
+                <summary className="cursor-pointer text-body font-medium text-fg">
+                  {t("endpoints.data.title")}
+                </summary>
+                <div className="mt-3">
+                  <EndpointDataView project={project} slug={activeSlug} hidden={hidden} />
+                </div>
+              </details>
+            ) : null}
+
             {previewManifests && editing?.name ? (
               <details className="rounded border border-border p-3">
                 <summary className="cursor-pointer text-body font-medium text-fg">
@@ -1164,6 +1208,25 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
           <p className="text-xs text-fg-subtle">{t("endpoints.slugHint")}</p>
         </div>
       </ResourceFormDialog>
+
+      {/* The endpoint's own answer, read with this person's session: the Endpoint's Policy decides
+          what is in it, and the Portal adds no right of its own (EP-07). */}
+      <Dialog
+        open={dataView !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDataView(null);
+          }
+        }}
+        size="lg"
+        title={t("endpoints.data.title")}
+        description={dataView?.name ?? ""}
+        closeLabel={t("form.cancel")}
+      >
+        {dataView ? (
+          <EndpointDataView project={project} slug={dataView.slug} hidden={dataView.hidden} />
+        ) : null}
+      </Dialog>
     </div>
   );
 }

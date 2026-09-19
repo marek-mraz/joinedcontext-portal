@@ -68,10 +68,36 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { update: 1 } },
 };
 
-function renderEndpoints(permissions?: unknown) {
-  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+/** The published schema of the endpoint above: one class, and an attribute a steward may hide. */
+const PUBLISHED = {
+  $defs: {
+    AirQualityObserved: { properties: { pm10: {}, sensorSerial: {} } },
+  },
+};
+
+const AIR_ROWS = [
+  {
+    id: "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:radvan-01",
+    type: "AirQualityObserved",
+    pm10: { type: "Property", value: 12, unitCode: "GQ" },
+    sensorSerial: { type: "Property", value: "SN-9" },
+  },
+];
+
+/** One call, whichever way it was made: the app sends a `Request`, the SDK grid a path (T-1433). */
+function callOf(input: unknown, init?: RequestInit): { url: URL; method: string } {
+  const request = input instanceof Request ? input : undefined;
+  const raw = request?.url ?? String(input);
+  return {
+    url: new URL(raw, window.location.origin),
+    method: request?.method ?? init?.method ?? "GET",
+  };
+}
+
+function renderEndpoints(permissions?: unknown, entities?: () => Response) {
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const request = input as Request;
-    const url = new URL(request.url);
+    const { url, method } = callOf(input, init);
     const path = url.pathname;
     const json = (body: unknown, status = 200) =>
       Promise.resolve(
@@ -91,7 +117,24 @@ function renderEndpoints(permissions?: unknown) {
     if (isCheck(request, url)) {
       return greenVerdict(request, { valid: true, lane: "yellow" }).then((body) => json(body));
     }
-    if (request.method !== "GET") {
+    // What the endpoint publishes of its model, and what it answers (T-1433).
+    if (path.endsWith("/schema/index.json")) {
+      return json({ models: [{ name: "bb-air-quality", version: 1 }] });
+    }
+    if (path.endsWith("/schema/v1/json-schema")) {
+      return json(PUBLISHED);
+    }
+    if (path.includes("/ngsi-ld/v1/entities")) {
+      return Promise.resolve(
+        entities
+          ? entities()
+          : new Response(JSON.stringify(AIR_ROWS), {
+              status: 200,
+              headers: { "Content-Type": "application/json", "NGSILD-Results-Count": "1" },
+            }),
+      );
+    }
+    if (method !== "GET") {
       return json(CHANGE, 202);
     }
     if (path.endsWith("/spaces")) {
@@ -117,8 +160,9 @@ function renderEndpoints(permissions?: unknown) {
 
 function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return fetchMock.mock.calls
+    .filter((call) => call[0] instanceof Request)
     .map((call) => call[0] as Request)
-    .filter((request) => request.method !== "GET" && !String((request as Request).url ?? request).includes("/drafts"));
+    .filter((request) => request.method !== "GET" && !request.url.includes("/drafts"));
 }
 
 /** The writes that are not the check's dry run: what the person actually proposed. */
@@ -350,3 +394,148 @@ describe("endpoints view", () => {
     expect(body.spec.slug).toBe(SLUG);
   });
 });
+
+/**
+ * T-1433, UI-69, EP-07: what an endpoint answers is two clicks from the list, read only, with the
+ * person's own session. The published schema decides which types and attributes are offered, so a
+ * hidden attribute is absent from the grid as it is from every representation.
+ */
+describe("what an endpoint answers", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    window.history.pushState({}, "", "/projects/banskabystrica/endpoints");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function openData(entities?: () => Response) {
+    const fetchMock = renderEndpoints(undefined, entities);
+    const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
+    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.data.action }));
+    return { fetchMock, dialog: await screen.findByRole("dialog") };
+  }
+
+  it("opens the grid on the endpoint's first published type, through the endpoint itself", async () => {
+    const { fetchMock, dialog } = await openData();
+
+    expect(within(dialog).getByLabelText(en.endpoints.data.type)).toHaveValue("AirQualityObserved");
+    expect(await within(dialog).findByText("12 GQ")).toBeInTheDocument();
+    const reads = fetchMock.mock.calls
+      .map((call) => callOf(call[0], call[1] as RequestInit | undefined).url)
+      .filter((url) => url.pathname.includes("/ngsi-ld/v1/entities"));
+    expect(reads).not.toHaveLength(0);
+    expect(reads[0].pathname).toBe(`/api/endpoint/${SLUG}/ngsi-ld/v1/entities`);
+    expect(reads[0].searchParams.get("type")).toBe("AirQualityObserved");
+    // Read only: nothing was written to open it.
+    expect(writes(fetchMock)).toHaveLength(0);
+  });
+
+  it("leaves a hidden attribute out of the columns", async () => {
+    const hidden = {
+      ...ENDPOINTS,
+      items: [
+        {
+          ...ENDPOINTS.items[0],
+          spec: { ...ENDPOINTS.items[0].spec, projection: { hiddenAttributes: ["sensorSerial"] } },
+        },
+      ],
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const { url } = callOf(input, init);
+      const json = (body: unknown) =>
+        Promise.resolve(
+          new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }),
+        );
+      if (url.pathname.endsWith("/auth/me")) return json(IDENTITY);
+      if (url.pathname.endsWith("/schema/index.json")) return json({ models: [{ version: 1 }] });
+      if (url.pathname.endsWith("/schema/v1/json-schema")) return json(PUBLISHED);
+      if (url.pathname.includes("/ngsi-ld/v1/entities")) return json(AIR_ROWS);
+      if (url.pathname.endsWith("/endpoints")) return json(hidden);
+      if (url.pathname.endsWith("/spaces")) return json(SPACES);
+      return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <App />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
+    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.data.action }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText("12 GQ");
+    // The attribute the endpoint hides has no column, and its value is nowhere on the page.
+    expect(within(dialog).queryByRole("columnheader", { name: /sensorSerial/ })).toBeNull();
+    expect(within(dialog).queryByText("SN-9")).toBeNull();
+  });
+
+  it("says why an endpoint that is not Live answers nothing, and offers no data view", async () => {
+    const draft = {
+      ...ENDPOINTS,
+      items: [{ ...ENDPOINTS.items[0], status: { phase: "PendingApproval" } }],
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const { url } = callOf(input, init);
+      const json = (body: unknown) =>
+        Promise.resolve(
+          new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }),
+        );
+      if (url.pathname.endsWith("/auth/me")) return json(IDENTITY);
+      if (url.pathname.endsWith("/endpoints")) return json(draft);
+      if (url.pathname.endsWith("/spaces")) return json(SPACES);
+      return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <App />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
+    const button = within(row).getByRole("button", { name: en.endpoints.data.action });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", en.endpoints.data.notLive);
+    // Nothing was read from the gateway for an endpoint that serves nothing.
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        callOf(call[0], call[1] as RequestInit | undefined).url.pathname.includes("/ngsi-ld/v1/"),
+      ),
+    ).toBe(false);
+  });
+
+  it("shows the gateway's own refusal when the person may not read the endpoint", async () => {
+    const { dialog } = await openData(
+      () =>
+        new Response(
+          JSON.stringify({ title: "Forbidden", detail: "no grant lets you read AirQualityObserved here" }),
+          { status: 403, headers: { "Content-Type": "application/problem+json" } },
+        ),
+    );
+
+    expect(
+      await within(dialog).findByText(/no grant lets you read AirQualityObserved here/),
+    ).toBeInTheDocument();
+  });
+
+  it("puts the same grid in the form, under what the endpoint publishes", async () => {
+    renderEndpoints();
+    const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
+    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.edit }));
+
+    const dialog = await screen.findByRole("dialog");
+    // Folded until a person asks for it: the form is long enough already.
+    await userEvent.click(within(dialog).getByText(en.endpoints.data.title));
+    expect(await within(dialog).findByText("12 GQ")).toBeInTheDocument();
+  });
+});
+

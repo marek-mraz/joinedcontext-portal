@@ -365,6 +365,13 @@
       "custom": "Vlastná"
     },
     "publicNotice": "Endpoint s verejným publikom odpovedá anonymnému volajúcemu a ten smie iba čítať. Zápisy a odbery aj naďalej vyžadujú prihlásenie, nech sú zapnuté ktorékoľvek reprezentácie.",
+    "data": {
+      "action": "Zobraziť dáta",
+      "title": "Čo tento endpoint odpovedá",
+      "type": "Typ entity",
+      "notLive": "Tento endpoint ešte nič neodpovedá; slúži až keď je zmena Live.",
+      "noSchema": "Tento endpoint ešte nepublikuje schému, takže nie je čo čítať."
+    },
     "projection": {
       "title": "Zverejnené atribúty",
       "hint": "Endpoint môže to, čo povoľuje politika, iba zúžiť, nikdy rozšíriť. Skrytý atribút chýba v každej reprezentácii aj v zverejnenej schéme.",

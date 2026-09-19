@@ -365,6 +365,13 @@
       "custom": "Vlastní"
     },
     "publicNotice": "Endpoint s veřejným publikem odpovídá anonymnímu volajícímu a ten smí pouze číst. Zápisy a odběry stále vyžadují přihlášení, ať jsou zapnuté kterékoli reprezentace.",
+    "data": {
+      "action": "Zobrazit data",
+      "title": "Co tento endpoint odpovídá",
+      "type": "Typ entity",
+      "notLive": "Tento endpoint ještě nic neodpovídá; slouží až když je změna Live.",
+      "noSchema": "Tento endpoint ještě nepublikuje schéma, takže není co číst."
+    },
     "projection": {
       "title": "Zveřejněné atributy",
       "hint": "Endpoint může to, co povoluje politika, jen zúžit, nikdy rozšířit. Skrytý atribut chybí v každé reprezentaci i ve zveřejněném schématu.",
