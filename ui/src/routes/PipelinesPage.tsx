@@ -9,9 +9,7 @@ import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { ResourceList } from "../components/ResourceList";
-import { DeleteResourceAction } from "../components/DeleteResourceDialog";
-import { SaveAsResourceAction } from "../components/SaveAsDialog";
-import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
+import { ResourceRowActions } from "../components/ResourceRowActions";
 import { PipelineEditorDialog } from "../pages/pipelines/PipelineEditor";
 import type { PipelineForm, toEnvelope } from "../pages/pipelines/PipelineEditor";
 import { takeEditRequest, takePrefill } from "../assistant/state";
@@ -420,29 +418,28 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
               </TableCell>
               <TableCell align="right">
                 <div className="flex items-center justify-end gap-1.5">
-                  <PermissionGuard project={project} kind="Pipeline" verb="propose">
-                    <Button size="sm" onClick={() => openEditor(pipeline)}>
-                      {t("pipelines.edit")}
-                    </Button>
-                  </PermissionGuard>
-                  <SaveAsResourceAction
-                    target={{ project, kind: "Pipeline", plural: "pipelines", name: pipeline.metadata.name }}
-                  />
-                  <WorkOnCopyAction
+                  {/* Running or paused is what a person comes to this row for; the rest is in the
+                      menu at its end (T-2287). */}
+                  <ResourceRowActions
                     project={project}
-                    scope={{ kind: "resources", items: [{ kind: "Pipeline", name: pipeline.metadata.name }] }}
+                    target={{
+                      project,
+                      kind: "Pipeline",
+                      plural: "pipelines",
+                      name: pipeline.metadata.name,
+                    }}
+                    onEdit={() => openEditor(pipeline)}
+                    primary={
+                      <Button
+                        size="sm"
+                        disabled={toggle.isPending}
+                        onClick={() => toggle.mutate({ pipeline, run: !running })}
+                        title={t(running ? "pipelines.pauseHint" : "pipelines.resumeHint")}
+                      >
+                        {t(running ? "pipelines.pause" : "pipelines.resume")}
+                      </Button>
+                    }
                   />
-                  <DeleteResourceAction
-                    target={{ project, kind: "Pipeline", plural: "pipelines", name: pipeline.metadata.name }}
-                  />
-                  <Button
-                    size="sm"
-                    disabled={toggle.isPending}
-                    onClick={() => toggle.mutate({ pipeline, run: !running })}
-                    title={t(running ? "pipelines.pauseHint" : "pipelines.resumeHint")}
-                  >
-                    {t(running ? "pipelines.pause" : "pipelines.resume")}
-                  </Button>
                   {pipeline.status?.sourceUrl ? (
                     <SourceLink href={pipeline.status.sourceUrl} label={t("spaces.field.source")} />
                   ) : null}

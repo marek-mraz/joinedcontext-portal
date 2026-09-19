@@ -28,6 +28,7 @@ export function ResourceRowActions({
   target,
   scope,
   form,
+  onEdit,
   primary,
 }: {
   project: string;
@@ -36,6 +37,8 @@ export function ResourceRowActions({
   scope?: WorkOnCopyScope;
   /** The kind's own form for editing, when its page has one; without it the manifest opens as text. */
   form?: EditableForm;
+  /** A page with its own editor (a pipeline, a data source) handles Edit itself instead. */
+  onEdit?: () => void;
   primary?: ReactNode;
 }): JSX.Element {
   const { t } = useTranslation();
@@ -50,7 +53,7 @@ export function ResourceRowActions({
     {
       key: "edit",
       label: t("resourceEdit.button"),
-      onSelect: () => setOpenAction("edit"),
+      onSelect: onEdit ?? (() => setOpenAction("edit")),
       disabledReason: denied("propose"),
     },
     {
@@ -76,13 +79,15 @@ export function ResourceRowActions({
   return (
     <>
       <RowActions label={target.label ?? target.name} actions={actions} primary={primary} />
-      <EditResourceAction
-        target={target}
-        form={form}
-        trigger={false}
-        open={openAction === "edit"}
-        onOpenChange={opens("edit")}
-      />
+      {onEdit ? null : (
+        <EditResourceAction
+          target={target}
+          form={form}
+          trigger={false}
+          open={openAction === "edit"}
+          onOpenChange={opens("edit")}
+        />
+      )}
       <SaveAsResourceAction
         target={target}
         trigger={false}

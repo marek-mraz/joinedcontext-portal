@@ -328,7 +328,9 @@ describe("data sources view", () => {
     const fetchMock = renderDataSources();
 
     const row = (await screen.findByText("City MQTT broker")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.datasources.edit }));
+    // Edit lives in the row's menu now (T-2287).
+    await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.resourceEdit.button }));
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByLabelText(/Name/)).toHaveValue("mqtt-mesto");

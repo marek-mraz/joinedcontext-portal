@@ -10,7 +10,7 @@ import { asManifests, isChange, localized, plainTitle, prune } from "../../api/m
 import type { Change, Manifest } from "../../api/manifest";
 import type { Verdict } from "../../api/drafts";
 import { ChangeNotice } from "../../components/ChangeNotice";
-import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
+import { ResourceRowActions } from "../../components/ResourceRowActions";
 import {
   Button,
   EmptyState,
@@ -553,16 +553,17 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
                 {used.length > 0 ? used.join(", ") : t("datasources.noSecret")}
               </TableCell>
               <TableCell align="right">
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  <PermissionGuard project={project} kind="DataSource" verb="propose">
-                    <Button size="sm" onClick={() => openEdit(source)}>
-                      {t("datasources.edit")}
-                    </Button>
-                  </PermissionGuard>
-                  <DeleteResourceAction
-                    target={{ project, kind: "DataSource", plural: "datasources", name: source.metadata.name }}
-                  />
-                </div>
+                {/* Edit in the open, the rest in the row's menu (T-2287). */}
+                <ResourceRowActions
+                  project={project}
+                  target={{
+                    project,
+                    kind: "DataSource",
+                    plural: "datasources",
+                    name: source.metadata.name,
+                  }}
+                  onEdit={() => openEdit(source)}
+                />
               </TableCell>
             </TableRow>
           );

@@ -702,11 +702,33 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     expect((firstShape(body.spec).compute as { bloblang: string }).bloblang).toContain("pm10Sum");
   });
 
+  it("keeps running or paused in the open and the rest in the row's menu (T-2287)", async () => {
+    renderPipelines();
+    const row = (await screen.findByText("aq-mqtt-ingest")).closest("tr") as HTMLElement;
+    const cell = row.lastElementChild as HTMLElement;
+
+    // The live control stays out; the menu button is the only other control in the cell.
+    const open = within(cell).getAllByRole("button");
+    expect(open).toHaveLength(2);
+    expect(open[1].textContent).toBe("\u22ef");
+
+    await userEvent.click(open[1]);
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      en.resourceEdit.button,
+      en.saveAs.button,
+      en.workspaces.open.action,
+      en.resourceDelete.button,
+    ]);
+  });
+
   it("edits an existing pipeline at its own path, keeping what the form does not show", async () => {
     const fetchMock = renderPipelines();
 
     const row = (await screen.findByText("aq-mqtt-ingest")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.pipelines.edit }));
+    // Edit lives in the row's menu now (T-2287).
+    await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.resourceEdit.button }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/^Name/)).toHaveValue("aq-mqtt-ingest");
     expect(within(dialog).getByLabelText(/^Name/)).toHaveAttribute("readonly");
@@ -740,7 +762,9 @@ it("tells a feed from a space and reads the attributes of a class from an inline
     const running = { ...EXISTING, spec: { ...EXISTING.spec, enabled: true } };
     const fetchMock = renderPipelines([running]);
     const row = (await screen.findByText("aq-mqtt-ingest")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.pipelines.edit }));
+    // Edit lives in the row's menu now (T-2287).
+    await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.resourceEdit.button }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("tab", { name: "YAML" }));
     const editor = await within(dialog).findByLabelText("YAML");
