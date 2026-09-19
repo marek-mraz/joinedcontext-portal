@@ -89,10 +89,27 @@ const SAMPLES = [
   { id: "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:2", type: "AirQualityObserved", pm10: 9 },
 ];
 
-function renderInside(gateway: { status: number; count?: number }) {
+/** One call, whichever way it was made: the page sends a `Request`, the SDK grid a path (T-1434). */
+function urlOf(input: unknown): URL {
+  const raw = input instanceof Request ? input.url : String(input);
+  return new URL(raw, window.location.origin);
+}
+
+/** The entities of the space surface, as `/cs/{space}/…` answers them for this caller (SP-06). */
+const SPACE_ROWS = [
+  {
+    id: "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:1",
+    type: "AirQualityObserved",
+    pm10: { type: "Property", value: 12, unitCode: "GQ" },
+  },
+];
+
+function renderInside(
+  gateway: { status: number; count?: number },
+  surface: { status: number; rows?: unknown[] } = { status: 200 },
+) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
-    const request = input as Request;
-    const url = new URL(request.url);
+    const url = urlOf(input);
     const path = url.pathname;
     const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
       Promise.resolve(
@@ -113,6 +130,15 @@ function renderInside(gateway: { status: number; count?: number }) {
         return json([SAMPLES[0]], 200, { "NGSILD-Results-Count": String(gateway.count ?? 0) });
       }
       return json(SAMPLES);
+    }
+    // The space's own surface: the whole space, by the caller's grants (T-1434).
+    if (path.startsWith("/cs/ovzdusie/ngsi-ld/v1/entities")) {
+      if (surface.status !== 200) {
+        return json({ title: "Not Found" }, surface.status);
+      }
+      return json(surface.rows ?? SPACE_ROWS, 200, {
+        "NGSILD-Results-Count": String((surface.rows ?? SPACE_ROWS).length),
+      });
     }
     if (path.endsWith("/spaces/ovzdusie")) {
       return json(SPACE);
@@ -212,7 +238,7 @@ describe("space inside view", () => {
     expect(within(row).getByText(SAMPLES[1].id)).toBeInTheDocument();
 
     const gatewayCalls = fetchMock.mock.calls
-      .map((call) => new URL((call[0] as Request).url))
+      .map((call) => urlOf(call[0]))
       .filter((url) => url.pathname.startsWith("/api/endpoint/"));
     expect(gatewayCalls.some((url) => url.searchParams.get("count") === "true" && url.searchParams.get("limit") === "1")).toBe(true);
     expect(gatewayCalls.some((url) => url.searchParams.get("options") === "keyValues" && url.searchParams.get("limit") === "3")).toBe(true);
@@ -244,5 +270,55 @@ describe("space inside view", () => {
     const table = await screen.findByRole("table", { name: en.spaces.inside.types });
     const row = within(table).getByText("AirQualityObserved").closest("tr") as HTMLElement;
     expect(await within(row).findByText(en.spaces.inside.notReadable)).toBeInTheDocument();
+  });
+});
+
+/**
+ * T-1434, SP-04, SP-06: the space itself in the grid, not one endpoint's view of it. The surface
+ * answers by the caller's own grants, and a caller with none gets a 404 that says nothing about
+ * whether the space exists — which is where the page points at the endpoints instead.
+ */
+describe("the space's own data", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    window.history.pushState({}, "", "/projects/banskabystrica/spaces/ovzdusie");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("lists the model's types and reads the space surface, never an endpoint", async () => {
+    const fetchMock = renderInside({ status: 200, count: 1 });
+
+    const chooser = await screen.findByLabelText(en.spaces.inside.dataType);
+    expect(Array.from((chooser as HTMLSelectElement).options).map((option) => option.value)).toEqual([
+      "AirQualityObserved",
+      "AirQualityStation",
+    ]);
+    expect(await screen.findByText("12 GQ")).toBeInTheDocument();
+
+    const reads = fetchMock.mock.calls
+      .map((call) => urlOf(call[0]))
+      .filter((url) => url.pathname.includes("/ngsi-ld/v1/entities"));
+    const surface = reads.filter((url) => url.pathname.startsWith("/cs/ovzdusie/"));
+    expect(surface).not.toHaveLength(0);
+    expect(surface.every((url) => url.searchParams.get("type") === "AirQualityObserved")).toBe(true);
+  });
+
+  it("points at the endpoints when the surface answers this person nothing", async () => {
+    renderInside({ status: 200, count: 1 }, { status: 404 });
+
+    expect(await screen.findByText(en.spaces.inside.dataThroughEndpoints)).toBeInTheDocument();
+    // The endpoints of this space, and not the one of another space.
+    const links = screen.getAllByRole("link", { name: "public-air" });
+    expect(links[0]).toHaveAttribute("href", `${window.location.origin}/api/endpoint/${SLUG}`);
+    expect(screen.queryByText(en.spaces.inside.dataEmpty)).toBeNull();
+  });
+
+  it("says nothing has been written to an empty space", async () => {
+    renderInside({ status: 200, count: 0 }, { status: 200, rows: [] });
+
+    expect(await screen.findByText(en.spaces.inside.dataEmpty)).toBeInTheDocument();
   });
 });

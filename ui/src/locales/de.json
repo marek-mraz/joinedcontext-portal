@@ -243,6 +243,12 @@
     },
     "inside": {
       "open": "Inhalt ansehen",
+      "data": "Daten",
+      "dataLead": "Alles, was dieser Raum hält, soweit Ihre Rechte es zulassen. Ein Endpunkt zeigt dasselbe, durch seine Policy verengt.",
+      "dataType": "Entitätstyp",
+      "dataEmpty": "Noch nichts: keine Pipeline hat in diesen Raum geschrieben.",
+      "dataThroughEndpoints": "Sie können diesen Raum über seine Endpunkte sehen:",
+      "dataNoTypes": "Dieser Raum nennt kein Datenmodell, also gibt es keinen Typ zu lesen.",
       "back": "← Kontexträume",
       "types": "Entitätstypen",
       "type": "Typ",

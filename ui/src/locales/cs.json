@@ -243,6 +243,12 @@
     },
     "inside": {
       "open": "Prohlédnout obsah",
+      "data": "Data",
+      "dataLead": "Vše, co tento prostor drží, nakolik to vaše oprávnění dovolí. Endpoint zobrazuje totéž, zúžené jeho politikou.",
+      "dataType": "Typ entity",
+      "dataEmpty": "Zatím nic: do tohoto prostoru ještě nezapsala žádná pipeline.",
+      "dataThroughEndpoints": "Tento prostor můžete vidět přes jeho endpointy:",
+      "dataNoTypes": "Tento prostor nepojmenovává datový model, takže není co číst.",
       "back": "← Kontextové prostory",
       "types": "Typy entit",
       "type": "Typ",

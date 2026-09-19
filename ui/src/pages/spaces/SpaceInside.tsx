@@ -1,5 +1,7 @@
+import { useMemo, useState } from "react";
 import type { JSX, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { originTransport, parseGridConfig, sourceFor } from "@joinedcontext/sdk";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
@@ -15,6 +17,7 @@ import {
   REPRESENTATION_PATHS,
 } from "../../components/endpoints/links";
 import { SharedWithBadge } from "../../components/endpoints/sharing";
+import { PortalEntityGrid } from "../../components/entities/PortalEntityGrid";
 import {
   Badge,
   Button,
@@ -190,6 +193,115 @@ function useProjectList(project: string, plural: string) {
   });
 }
 
+/**
+ * The whole space in the grid (T-1434; SP-04, SP-06): the space surface answers by the caller's own
+ * grants, so this is what this person may read of the space, not one endpoint's view of it.
+ *
+ * A read is tried for the chosen type before the grid is built, because the surface answers a
+ * caller with no grant with a 404 that says nothing about whether the space exists (SP-06) — and
+ * then the page says where this person can see it instead. View only: a space surface publishes no
+ * grant document (only `/api/endpoint/{slug}/access` does), and a cell that takes a value the
+ * gateway will refuse loses the person's typing (UI-44).
+ */
+function SpaceData({
+  project,
+  space,
+  types,
+  endpoints,
+}: {
+  project: string;
+  space: string;
+  types: string[];
+  endpoints: Manifest[];
+}): JSX.Element {
+  const { t, i18n } = useTranslation();
+  const [chosen, setChosen] = useState("");
+  const type = types.includes(chosen) ? chosen : (types[0] ?? "");
+  const source = useMemo(
+    () => sourceFor({ kind: "space", space }, originTransport(), i18n.language),
+    [space, i18n.language],
+  );
+
+  const probe = useQuery({
+    queryKey: ["space-surface", space, type],
+    enabled: type !== "",
+    retry: false,
+    queryFn: async () => {
+      await source.query({ type }, { offset: 0, limit: 1 });
+      return true;
+    },
+  });
+
+  const config = useMemo(() => {
+    if (type === "") {
+      return null;
+    }
+    return (
+      parseGridConfig({
+        source: { kind: "space", space },
+        type,
+        pageSize: 25,
+        mode: "view",
+        history: { enabled: true },
+      }).config ?? null
+    );
+  }, [space, type]);
+
+  if (types.length === 0) {
+    return <p className="text-sm text-surface-fg/70">{t("spaces.inside.dataNoTypes")}</p>;
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-surface-fg/70">{t("spaces.inside.dataLead")}</p>
+      <label className="flex w-fit items-center gap-2 text-sm">
+        {t("spaces.inside.dataType")}
+        <select
+          aria-label={t("spaces.inside.dataType")}
+          className="focus-ring rounded-md border border-border bg-surface px-2 py-1 text-body text-fg"
+          value={type}
+          onChange={(event) => setChosen(event.target.value)}
+        >
+          {types.map((each) => (
+            <option key={each} value={each}>
+              {each}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {probe.isPending ? <p role="status">{t("app.loading")}</p> : null}
+      {probe.isError ? (
+        <div className="text-sm text-surface-fg/70">
+          <p>{t("spaces.inside.dataThroughEndpoints")}</p>
+          <ul className="mt-1 flex flex-wrap gap-2">
+            {endpoints.map((endpoint) => {
+              const slug = (endpoint.spec as { slug?: string }).slug ?? "";
+              return (
+                <li key={endpoint.metadata.name}>
+                  {slug ? (
+                    <EndpointLink href={endpointUrl(slug, "")}>{endpoint.metadata.name}</EndpointLink>
+                  ) : (
+                    <Badge mono>{endpoint.metadata.name}</Badge>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+      {probe.isSuccess && config ? (
+        <PortalEntityGrid
+          key={`${space}-${type}`}
+          project={project}
+          config={config}
+          source={source}
+          empty={<p className="text-sm text-surface-fg/70">{t("spaces.inside.dataEmpty")}</p>}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
   return (
     <section className="space-y-2">
@@ -316,6 +428,10 @@ export function SpaceInside({ project, name }: { project: string; name: string }
             </Table>
           </>
         )}
+      </Section>
+
+      <Section title={t("spaces.inside.data")}>
+        <SpaceData project={project} space={name} types={types} endpoints={spaceEndpoints} />
       </Section>
 
       <Section title={t("endpoints.title")}>

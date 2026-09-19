@@ -243,6 +243,12 @@
     },
     "inside": {
       "open": "Look inside",
+      "data": "Data",
+      "dataLead": "Everything this space holds, as your grants allow it. What an endpoint shows is this, narrowed by its policy.",
+      "dataType": "Entity type",
+      "dataEmpty": "Nothing here yet: no pipeline has written to this space.",
+      "dataThroughEndpoints": "You can see this space through its endpoints:",
+      "dataNoTypes": "This space names no data model, so there is no type to read.",
       "back": "← Context Spaces",
       "types": "Entity types",
       "type": "Type",

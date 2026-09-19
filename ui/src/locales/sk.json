@@ -243,6 +243,12 @@
     },
     "inside": {
       "open": "Pozrieť obsah",
+      "data": "Dáta",
+      "dataLead": "Všetko, čo tento priestor drží, nakoľko to vaše oprávnenia dovolia. Endpoint zobrazuje to isté, zúžené jeho politikou.",
+      "dataType": "Typ entity",
+      "dataEmpty": "Zatiaľ nič: do tohto priestoru ešte nezapísala žiadna pipeline.",
+      "dataThroughEndpoints": "Tento priestor môžete vidieť cez jeho endpointy:",
+      "dataNoTypes": "Tento priestor nepomenúva dátový model, takže nie je čo čítať.",
       "back": "← Kontextové priestory",
       "types": "Typy entít",
       "type": "Typ",
