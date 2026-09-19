@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap, whilePending } from "../api/client";
 import { asManifests, isChange, localized } from "../api/manifest";
+import { proposeChecked } from "../api/proposal";
 import type { Change, Manifest } from "../api/manifest";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import { ChangeNotice } from "../components/ChangeNotice";
@@ -211,14 +212,10 @@ export function PipelinesPage({ project }: { project: string }): JSX.Element {
         metadata: pipeline.metadata,
         spec: { ...pipeline.spec, enabled: run },
       } as never;
-      return unwrap(
-        await api.PUT("/api/v1/projects/{project}/{plural}/{name}", {
-          params: {
-            path: { project, plural: "pipelines", name: pipeline.metadata.name },
-          },
-          body,
-        }),
-      );
+      // The gate wants a green check for exactly this manifest, whatever door it came through
+      // (PF-57): a click that only wrote was answered with "The manifest has not been checked"
+      // and changed nothing, on every strict installation (T-2264).
+      return proposeChecked(project, "pipelines", body, false);
     },
     onSuccess: (result) => {
       if (isChange(result)) {

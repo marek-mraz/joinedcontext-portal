@@ -56,10 +56,14 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { update: 1 } },
 };
 
+/** What the dry run before a write answers: green unless a test asks for a red check (PF-57). */
+const GREEN = { valid: true, verdict: { ok: true, findings: [] } };
+
 function renderCatalog(
   apps: unknown[],
   writeResponse: { body: unknown; status: number } = { body: CHANGE, status: 202 },
   runs: unknown[] = [],
+  check: unknown = GREEN,
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
@@ -84,7 +88,11 @@ function renderCatalog(
       return json({ items: runs });
     }
     if (request.method !== "GET") {
-      return json(writeResponse.body, writeResponse.status);
+      // A write is checked on the same route and verb first (T-2264); the answer under test
+      // belongs to the real one.
+      return new URL(request.url).searchParams.get("dryRun") === "All"
+        ? json(check)
+        : json(writeResponse.body, writeResponse.status);
     }
     return json({ apiVersion: "joinedcontext.com/v1alpha1", kind: "List", items: [] });
   });
@@ -196,11 +204,15 @@ describe("apps catalog", () => {
 
     await user.click(within(dialog).getByRole("button", { name: en.apps.publish.confirm }));
 
+    // Two: the check the verdict gate wants for this manifest, then the write it lets through
+    // (PF-57, T-2264).
     await waitFor(() => {
-      expect(writes(fetchMock)).toHaveLength(1);
+      expect(writes(fetchMock)).toHaveLength(2);
     });
-    const request = writes(fetchMock)[0];
+    expect(new URL(writes(fetchMock)[0].url).searchParams.get("dryRun")).toBe("All");
+    const request = writes(fetchMock)[1];
     expect(request.method).toBe("PUT");
+    expect(new URL(request.url).searchParams.get("dryRun")).toBe(null);
     expect(new URL(request.url).pathname).toBe(
       "/api/v1/projects/banskabystrica/apps/mapa-ovzdusia",
     );
@@ -344,5 +356,23 @@ describe("apps catalog", () => {
     );
     expect(within(card).getAllByRole("link")).toHaveLength(1);
     expect(within(card).queryByRole("button")).toBeNull();
+  });
+
+  it("publishes nothing when the check is red, and says what it found (PF-57, T-2264)", async () => {
+    const user = userEvent.setup();
+    const fetchMock = renderCatalog([app()], { body: CHANGE, status: 202 }, [], {
+      valid: false,
+      verdict: { ok: false, findings: [{ message: "the endpoint it reads is not public yet" }] },
+    });
+
+    const card = (await screen.findByText("Air quality map")).closest("li") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: en.apps.publishAction }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: en.apps.publish.confirm }));
+
+    expect(await screen.findByText(/the endpoint it reads is not public yet/)).toBeInTheDocument();
+    // The check alone was sent: a red check publishes nothing.
+    expect(writes(fetchMock)).toHaveLength(1);
+    expect(new URL(writes(fetchMock)[0].url).searchParams.get("dryRun")).toBe("All");
   });
 });

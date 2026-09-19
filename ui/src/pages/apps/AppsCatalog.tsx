@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, isChange, localized, refName } from "../../api/manifest";
 import type { Change, Manifest } from "../../api/manifest";
+import { proposeChecked } from "../../api/proposal";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
@@ -185,12 +186,9 @@ export function AppsCatalog({ project }: { project: string }): JSX.Element {
         metadata: app.metadata,
         spec: { ...appSpec(app), lifecycle: "published" },
       } as never;
-      return unwrap(
-        await api.PUT("/api/v1/projects/{project}/{plural}/{name}", {
-          params: { path: { project, plural: "apps", name: app.metadata.name } },
-          body,
-        }),
-      );
+      // Checked first, then written: the verdict gate refuses a manifest nothing checked, so a
+      // click that only wrote was refused with the gate's own sentence (PF-57, T-2264).
+      return proposeChecked(project, "apps", body, false);
     },
     onSuccess: (result) => {
       setConfirming(null);

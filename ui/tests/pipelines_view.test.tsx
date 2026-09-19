@@ -63,10 +63,14 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { update: 1 } },
 };
 
+/** What the dry run before a write answers: green unless a test asks for a red check (PF-57). */
+const GREEN = { valid: true, verdict: { ok: true, findings: [] } };
+
 function renderPipelines(
   metrics: unknown = METRICS,
   metricsStatus = 200,
   pipelines: unknown = PIPELINES,
+  check: unknown = GREEN,
 ) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
@@ -83,7 +87,11 @@ function renderPipelines(
       return json(IDENTITY);
     }
     if (request.method !== "GET") {
-      return json(CHANGE, 202);
+      // A write is checked on the same route and verb first (T-2264); only the real one answers
+      // with the Change.
+      return new URL(request.url).searchParams.get("dryRun") === "All"
+        ? json(check)
+        : json(CHANGE, 202);
     }
     if (path.endsWith("/metrics")) {
       return json(metrics, metricsStatus);
@@ -223,5 +231,45 @@ describe("pipelines view", () => {
     expect(body.spec.enabled).toBe(false);
     expect(body.status).toBeUndefined();
     expect(await screen.findByText(/chg-77aa11bb/)).toBeInTheDocument();
+  });
+
+  it("checks the manifest on the same route before it writes it (PF-57, T-2264)", async () => {
+    const fetchMock = renderPipelines();
+
+    const row = await rowOf("aq-mqtt-ingest");
+    await userEvent.click(within(row).getByRole("button", { name: en.pipelines.pause }));
+
+    // Two requests, in this order: the dry run that records the verdict, then the write. Without
+    // the check the verdict gate refuses the write with "The manifest has not been checked" and
+    // the click does nothing at all.
+    const writes = await waitFor(() => {
+      const requests = fetchMock.mock.calls
+        .map((call) => call[0] as Request)
+        .filter((request) => request.method === "PUT");
+      expect(requests).toHaveLength(2);
+      return requests;
+    });
+    expect(new URL(writes[0].url).searchParams.get("dryRun")).toBe("All");
+    expect(new URL(writes[1].url).searchParams.get("dryRun")).toBe(null);
+    // The same manifest both times: a check of something else proves nothing about what lands.
+    expect(await writes[0].clone().text()).toBe(await writes[1].clone().text());
+    expect(await screen.findByText(/chg-77aa11bb/)).toBeInTheDocument();
+  });
+
+  it("writes nothing when the check is red, and says what it found", async () => {
+    const fetchMock = renderPipelines(METRICS, 200, PIPELINES, {
+      valid: false,
+      verdict: { ok: false, findings: [{ message: "the runner has no room for another stream" }] },
+    });
+
+    const row = await rowOf("aq-mqtt-ingest");
+    await userEvent.click(within(row).getByRole("button", { name: en.pipelines.pause }));
+
+    expect(await screen.findByText(/the runner has no room for another stream/)).toBeInTheDocument();
+    const writes = fetchMock.mock.calls
+      .map((call) => call[0] as Request)
+      .filter((request) => request.method === "PUT");
+    expect(writes).toHaveLength(1);
+    expect(new URL(writes[0].url).searchParams.get("dryRun")).toBe("All");
   });
 });
