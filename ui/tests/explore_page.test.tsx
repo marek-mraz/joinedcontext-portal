@@ -442,3 +442,62 @@ it("opens on the entity the route names", async () => {
     ).toBe(true),
   );
 });
+
+/**
+ * T-1437, UI-59, UI-64: the assistant's `entities` hand-off names the endpoint, the type and the
+ * question's own filter, and no space. The page has to find the space of that endpoint itself and
+ * ask the endpoint for the narrowed page, or the person reads the sentence beside an empty grid.
+ */
+it("opens the grid on the type and the filter the route carries, without a space", async () => {
+  await i18n.changeLanguage("en");
+  const urls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: unknown) => {
+      const url = urlOf(input);
+      urls.push(url);
+      if (url.includes("/entities?")) {
+        return Promise.resolve(
+          new Response(JSON.stringify([ROW]), {
+            status: 200,
+            headers: { "Content-Type": "application/json", "NGSILD-Results-Count": "1" },
+          }),
+        );
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    }),
+  );
+
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(queryKeys.list("helsinki", "endpoints"), ENDPOINTS);
+  client.setQueryData(queryKeys.list("helsinki", "spaces"), SPACES);
+  client.setQueryData(queryKeys.list("helsinki", "datamodels"), MODELS_INLINE);
+  render(
+    <QueryClientProvider client={client}>
+      <I18nextProvider i18n={i18n}>
+        <ExplorePage
+          project="helsinki"
+          initialEndpoint="helsinki-bikes"
+          initialType="BikeHireDockingStation"
+          initialQ="availableBikeNumber==0"
+        />
+      </I18nextProvider>
+    </QueryClientProvider>,
+  );
+
+  // The endpoint's own space is chosen for the person, so the grid has an endpoint to read through.
+  await waitFor(() =>
+    expect(screen.getByLabelText(en.explore.space)).toHaveValue("helsinki"),
+  );
+  expect(await screen.findByRole("button", { name: ROW.id })).toBeInTheDocument();
+  await waitFor(() =>
+    expect(
+      urls.some(
+        (url) =>
+          url.includes("/entities?") &&
+          url.includes(`q=${encodeURIComponent("availableBikeNumber==0")}`) &&
+          url.includes("type=BikeHireDockingStation"),
+      ),
+    ).toBe(true),
+  );
+});

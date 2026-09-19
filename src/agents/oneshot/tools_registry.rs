@@ -1097,21 +1097,25 @@ mod tests {
     }
 
     /// Without a filter the grid opens on the whole type, and the route carries no empty pair:
-    /// `q=` is a filter that matches nothing, not the absence of one.
+    /// `q=` is a filter that matches nothing, not the absence of one. A model that answers `""`
+    /// or a blank means the same as one that leaves it out.
     #[test]
     fn a_grid_without_a_filter_carries_no_empty_query_pair() {
-        let call = NavigateCall {
-            page: "entities".to_owned(),
-            name: None,
-            plural: None,
-            endpoint: Some("air-public".to_owned()),
-            entity_type: Some("AirQualityObserved".to_owned()),
-            q: None,
-        };
-        assert_eq!(
-            route_of("helsinki", &call).expect("a route"),
-            "/projects/helsinki/explore?endpoint=air-public&type=AirQualityObserved"
-        );
+        for q in [None, Some(""), Some("   ")] {
+            let call = NavigateCall {
+                page: "entities".to_owned(),
+                name: None,
+                plural: None,
+                endpoint: Some("air-public".to_owned()),
+                entity_type: Some("AirQualityObserved".to_owned()),
+                q: q.map(str::to_owned),
+            };
+            assert_eq!(
+                route_of("helsinki", &call).expect("a route"),
+                "/projects/helsinki/explore?endpoint=air-public&type=AirQualityObserved",
+                "q = {q:?}"
+            );
+        }
     }
 
     /// A grid without an endpoint or without a type is refused: the explorer would open on
