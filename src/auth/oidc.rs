@@ -302,11 +302,38 @@ pub struct BackChannelLogoutForm {
 }
 
 /// Only same-origin paths are accepted, so an open redirect cannot be smuggled through login.
+///
+/// This says what a target *is* rather than listing what it is not, because the list was short of the
+/// forms a browser accepts (T-2290): a `Location` of `/\evil.example` is scheme-relative once the
+/// browser reads the backslash as a path separator (WHATWG URL, special schemes), and a tab or a
+/// newline between the two separators is stripped before that parse. So: one leading slash, no second
+/// separator of either kind, and no character a URL cannot carry. Anything else silently becomes `/` —
+/// a caller is not told which forms are filtered.
 fn safe_redirect(candidate: Option<String>) -> String {
-    match candidate {
-        Some(path) if path.starts_with('/') && !path.starts_with("//") => path,
-        _ => "/".to_string(),
+    const HOME: &str = "/";
+    let Some(path) = candidate else {
+        return HOME.to_string();
+    };
+    let is_separator = |c: char| c == '/' || c == '\\';
+    let mut characters = path.chars();
+    if !characters.next().is_some_and(is_separator) {
+        return HOME.to_string();
     }
+    // `/\`, `//`, `/ /`, `/\t/`: whatever the second character is, it may not be a separator, and it
+    // may not be whitespace or a control character that a browser drops before parsing — which would
+    // make the character after it the second separator.
+    if characters
+        .next()
+        .is_some_and(|c| is_separator(c) || c.is_whitespace() || c.is_control())
+    {
+        return HOME.to_string();
+    }
+    // A control character anywhere is a header-splitting attempt in a `Location`, and a backslash
+    // anywhere else still normalises to a slash on the way to the browser.
+    if path.chars().any(|c| c.is_control() || c == '\\') {
+        return HOME.to_string();
+    }
+    path
 }
 
 fn oidc(state: &AppState) -> Result<&OidcClient, ApiError> {
@@ -692,6 +719,52 @@ mod tests {
         assert_eq!(safe_redirect(Some("//evil.example".into())), "/");
         assert_eq!(safe_redirect(Some("https://evil.example".into())), "/");
         assert_eq!(safe_redirect(None), "/");
+    }
+
+    #[test]
+    fn nothing_a_browser_would_resolve_to_another_origin_is_a_return_target() {
+        // A browser resolving `Location: /\evil.example` reads the backslash as a path separator
+        // (WHATWG URL, special schemes), so the value is scheme-relative and the person leaves the
+        // Portal after logging in to it. Tabs and newlines are stripped before that parse, which is
+        // why they cannot sit between the two separators either, and a CR/LF in a `Location` is a
+        // header-splitting attempt in its own right (T-2290).
+        for forged in [
+            "//evil.example",
+            "/\\evil.example",
+            "/\\/evil.example",
+            "\\\\evil.example",
+            "\\/evil.example",
+            "/\t/evil.example",
+            "/\n/evil.example",
+            "/\r\nLocation: https://evil.example",
+            "/ /evil.example",
+            "https://evil.example",
+            "http:/evil.example",
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "evil.example",
+            "",
+        ] {
+            assert_eq!(
+                safe_redirect(Some(forged.into())),
+                "/",
+                "{forged:?} was accepted"
+            );
+        }
+
+        // What a person actually comes back to survives untouched, query and all.
+        for allowed in [
+            "/",
+            "/projects/ovzdusie",
+            "/projects/ovzdusie/spaces?page=2&q=pm10%3E30",
+            "/projects/ovzdusie#section",
+        ] {
+            assert_eq!(
+                safe_redirect(Some(allowed.into())),
+                allowed,
+                "{allowed:?} was refused"
+            );
+        }
     }
 
     /// Shaped like `openidconnect::DiscoveryError`: the reason is in the source, not in `Display`.
