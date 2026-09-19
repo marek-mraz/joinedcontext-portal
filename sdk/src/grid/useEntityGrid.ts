@@ -51,6 +51,9 @@ export interface GridLabels {
   sortPage: string;
   /** What the footer calls the endpoint's own count of matching entities. */
   matching: string;
+  /** The entry that opens one attribute's history, and the panel's own labels (T-1431). */
+  history: string;
+  historyLabels?: Partial<import("./EntityHistory").HistoryLabels>;
   /** Edit mode: the cell editor, the pending list and what applying them is called (UI-67). */
   edit: string;
   pending: string;
@@ -100,6 +103,7 @@ export const DEFAULT_LABELS: GridLabels = {
   filterRow: "Filters",
   sortPage: "Sort this page by",
   matching: "matching",
+  history: "History",
   edit: "Edit",
   pending: "not applied yet",
   review: "Review the changes",

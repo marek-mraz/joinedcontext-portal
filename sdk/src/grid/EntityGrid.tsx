@@ -6,6 +6,7 @@ import { opsForKind, valuesNeeded } from "./filters";
 import type { ColumnFilter, FilterColumn } from "./filters";
 import { applyChanges, MAX_ENTITIES } from "./apply";
 import type { Observed, Refusal } from "./apply";
+import { EntityHistory } from "./EntityHistory";
 import "./grid.css";
 
 export interface EntityGridProps extends UseEntityGridOptions {
@@ -60,6 +61,7 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [observed, setObserved] = useState<Observed>("keep");
   const [applying, setApplying] = useState(false);
+  const [history, setHistory] = useState<{ attr: string; id: string } | null>(null);
   const [refused, setRefused] = useState<Refusal[]>([]);
   const refusedOf = useMemo(() => new Map(refused.map((one) => [one.id, one.detail])), [refused]);
   const rowTitle = useCallback(
@@ -243,6 +245,26 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
                   )}
                   {col.attr && !col.meta && openMenu === col.attr && (
                     <div className="jc-grid-meta-menu" ref={menuRef}>
+                      {/* How this attribute got to its value, where its metadata already is: the
+                          entry is absent when the source cannot answer a temporal read or the
+                          config switched history off (T-1431). */}
+                      {hookOptions.source.history && hookOptions.config.history.enabled !== false && (
+                        <button
+                          type="button"
+                          className="jc-grid-meta-item"
+                          onClick={() => {
+                            // The row the person is on, else the first: history belongs to one
+                            // entity, and the panel names which.
+                            setHistory({
+                              attr: col.attr!,
+                              id: (rows[state.activeCell?.row ?? 0] ?? rows[0])?.id ?? "",
+                            });
+                            setOpenMenu(null);
+                          }}
+                        >
+                          {labels.history}
+                        </button>
+                      )}
                       {(["observedAt", "unit", "datasetId", "createdAt", "modifiedAt"] as MetaKey[]).map((meta) => {
                         const checked = (state.shown[col.attr!] ?? []).includes(meta);
                         const metaLabel = meta === "observedAt" ? labels.observedAt : meta === "unit" ? labels.unit : meta === "datasetId" ? labels.datasetId : meta === "createdAt" ? labels.createdAt : labels.modifiedAt;
@@ -317,6 +339,17 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
       {loading && <div className="jc-grid-loading">{labels.loading}</div>}
 
       {error && <div className="jc-grid-error">{labels.error}: {error}</div>}
+
+      {history && (
+        <EntityHistory
+          source={hookOptions.source}
+          id={history.id}
+          attr={history.attr}
+          maxPoints={hookOptions.config.history.maxPoints}
+          labels={hookOptions.labels?.historyLabels}
+          onClose={() => setHistory(null)}
+        />
+      )}
 
       {open && (
         <section className="jc-grid-review" aria-label={labels.review}>
