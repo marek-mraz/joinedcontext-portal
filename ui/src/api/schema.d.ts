@@ -1826,6 +1826,12 @@ export interface components {
              */
             heading: string;
         };
+        /** @description The form the question was asked from, as the browser sends it (API/04 §"Start or Continue"). */
+        FormContextRequest: {
+            field?: string | null;
+            kind?: string | null;
+            name?: string | null;
+        };
         /**
          * @description How a request authenticated: what `GET /api/v1/auth/me` reports so the UI knows whose
          *     logout to call (ADR-N-019 §3.4).
@@ -2508,6 +2514,7 @@ export interface components {
             continues?: string | null;
             /** @description The endpoints the person chose, zero to five, which the assistant may query (AG-75). */
             endpointNames?: string[];
+            formContext?: null | components["schemas"]["FormContextRequest"];
             message: string;
             profile?: string | null;
         };

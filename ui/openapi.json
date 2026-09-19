@@ -7586,6 +7586,31 @@
           }
         }
       },
+      "FormContextRequest": {
+        "type": "object",
+        "description": "The form the question was asked from, as the browser sends it (API/04 §\"Start or Continue\").",
+        "properties": {
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "Front": {
         "type": "string",
         "description": "How a request authenticated: what `GET /api/v1/auth/me` reports so the UI knows whose\nlogout to call (ADR-N-019 §3.4).",
@@ -9537,6 +9562,17 @@
               "type": "string"
             },
             "description": "The endpoints the person chose, zero to five, which the assistant may query (AG-75)."
+          },
+          "formContext": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FormContextRequest",
+                "description": "Where the person is standing when they ask (UI-61, AG-77): the form that is open, the draft\nit edits and the field they were last in. Values never travel here; the assistant reads the\nperson's own draft with `jc_draft_get` under their own grants."
+              }
+            ]
           },
           "message": {
             "type": "string"
