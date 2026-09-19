@@ -113,21 +113,33 @@ fn affordable_tokens(body: &str) -> Option<u32> {
 static LINK: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"https?://\S+").expect("valid regex"));
 
-/// The provider's error message, without links, at most 300 characters.
+/// The provider's error message, without links, at most 400 characters.
+///
+/// A gateway says "Provider returned error" and puts the upstream's own words in
+/// `error.metadata.raw` (OpenRouter, T-2247): without them a refused call tells the person and the
+/// logs nothing they can act on, so both halves are carried, the upstream's first.
 fn provider_said(body: &str) -> String {
-    let message = serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|value| {
-            value
-                .pointer("/error/message")
-                .or_else(|| value.get("message"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| body.to_owned());
-    LINK.replace_all(&message, "(link removed)")
+    let parsed = serde_json::from_str::<Value>(body).ok();
+    let field = |pointer: &str| {
+        parsed
+            .as_ref()
+            .and_then(|value| value.pointer(pointer))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|said| !said.is_empty())
+            .map(str::to_owned)
+    };
+    let message = field("/error/message").or_else(|| field("/message"));
+    let raw = field("/error/metadata/raw").or_else(|| field("/error/metadata/reason"));
+    let said = match (message, raw) {
+        (Some(message), Some(raw)) if !raw.contains(&message) => format!("{message}: {raw}"),
+        (Some(message), None) => message,
+        (_, Some(raw)) => raw,
+        (None, None) => body.to_owned(),
+    };
+    LINK.replace_all(&said, "(link removed)")
         .chars()
-        .take(300)
+        .take(400)
         .collect()
 }
 
@@ -951,6 +963,27 @@ mod tests {
             provider_said("plain <b>body</b> at http://x.test/a"),
             "plain <b>body</b> at (link removed)"
         );
+    }
+
+    /// T-2247: a refused call must say what the upstream refused. The gateway's own sentence is
+    /// the same for every cause ("Provider returned error"), and what a person or a log can act on
+    /// sits in `error.metadata.raw`.
+    #[test]
+    fn a_refused_call_carries_the_upstreams_own_words_and_not_only_the_gateways() {
+        let body = r#"{"error":{"message":"Provider returned error","code":400,"metadata":{"provider_name":"Google","raw":"{\"error\":{\"code\":400,\"message\":\"contents.parts must not be empty\",\"status\":\"INVALID_ARGUMENT\"}}"}}}"#;
+        let said = provider_said(body);
+        assert!(said.starts_with("Provider returned error: "), "{said}");
+        assert!(said.contains("contents.parts must not be empty"), "{said}");
+
+        // A gateway that repeats itself inside `raw` is said once.
+        let doubled =
+            r#"{"error":{"message":"rate limited","metadata":{"raw":"rate limited by Google"}}}"#;
+        assert_eq!(provider_said(doubled), "rate limited by Google");
+
+        // An empty `raw` is no message at all, and the gateway's sentence still arrives.
+        let empty = r#"{"error":{"message":"Provider returned error","metadata":{"raw":"  "}}}"#;
+        assert_eq!(provider_said(empty), "Provider returned error");
+        assert!(provider_said(r#"{"error":{"code":400}}"#).contains("400"));
     }
 
     #[test]
