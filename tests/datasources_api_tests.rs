@@ -294,6 +294,108 @@ async fn a_literal_credential_is_refused_before_anything_is_written() {
     );
 }
 
+/// T-2238, MF-35: the *name* of a secret is checked too. A person who has the token and not the
+/// store pastes it into "Secret name", where nothing looked at it: the check answered green and the
+/// plan wrote the token into the manifest, so an approval would have committed it in the clear.
+#[tokio::test]
+async fn a_token_pasted_into_a_secret_name_is_refused_and_never_echoed() {
+    let config = Config::for_tests();
+    let token = "glpat-not-a-real-token";
+    let response = server::app(AppState::new(config.clone(), None))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/datasources?dryRun=All")
+                .header(header::COOKIE, cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "apiVersion": API_VERSION,
+                        "kind": "DataSource",
+                        "metadata": { "name": "mqtt-mesto", "namespace": "ovzdusie" },
+                        "spec": {
+                            "type": "mqtt",
+                            "mqtt": {
+                                "urls": ["tls://mqtt.banskabystrica.sk:8883"],
+                                "topics": ["sensors/aq/+/reading"],
+                                "passwordRef": { "name": token, "key": "password" }
+                            }
+                        }
+                    }))
+                    .expect("json"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "a dry run that answers green here is a token on its way to Git"
+    );
+    let problem: ProblemDetails = body_of(response).await;
+    let detail = problem.detail.unwrap_or_default();
+    assert!(
+        detail.contains("passwordRef"),
+        "the refusal names the field: {detail}"
+    );
+    assert!(
+        !detail.contains(token),
+        "the refusal repeats the credential: {detail}"
+    );
+}
+
+/// T-2239, MF-24: an OAuth bearer typed into a runner input. Its key is `access_token`, which the
+/// detector did not know, and the runner's catalog did not call the field a secret either — so the
+/// value was accepted, committed and left in Git.
+#[tokio::test]
+async fn an_access_token_in_a_runner_input_is_refused_by_its_key() {
+    let config = Config::for_tests();
+    let response = server::app(AppState::new(config.clone(), None))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects/ovzdusie/datasources?dryRun=All")
+                .header(header::COOKIE, cookies(&config))
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "apiVersion": API_VERSION,
+                        "kind": "DataSource",
+                        "metadata": { "name": "aq-poll", "namespace": "ovzdusie" },
+                        "spec": {
+                            "type": "http_client",
+                            "input": {
+                                "url": "https://opendata.banskabystrica.sk/aq.json",
+                                "oauth": { "enabled": true, "access_token": "not-a-real-bearer" }
+                            }
+                        }
+                    }))
+                    .expect("json"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let detail = body_of::<ProblemDetails>(response)
+        .await
+        .detail
+        .unwrap_or_default();
+    assert!(
+        detail.contains("access_token"),
+        "the refusal names the key so the author knows what to reference: {detail}"
+    );
+    assert!(
+        !detail.contains("not-a-real-bearer"),
+        "the refusal repeats the credential: {detail}"
+    );
+}
+
 #[tokio::test]
 async fn the_kind_is_addressable_by_its_plural_and_scoped_to_a_project() {
     let info = joinedcontext_portal::resource::by_plural("datasources").expect("catalogued");

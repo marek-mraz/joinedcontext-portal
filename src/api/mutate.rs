@@ -31,6 +31,31 @@ pub const SECRET_KEYS: &[&str] = &[
     // a pasted password and is refused the same way (EP-67).
     "apiToken",
     "api_token",
+    // The keys a runner input writes a credential under, which the runner's own catalog did not
+    // call secrets (T-2239). `key` is deliberately absent: a `secretRef` has one, and so does
+    // every map in a manifest — the runner's own rule guards the paths where `key` is a private
+    // key (`tls.client_certs[].key`, `jc_core::kinds::bento_inputs::SECRET_FIELDS`).
+    "access_token",
+    "accessToken",
+    "access_token_secret",
+    "accessTokenSecret",
+    "consumer_secret",
+    "consumerSecret",
+    "auth_secret",
+    "authSecret",
+    "account_key",
+    "accountKey",
+    "bot_token",
+    "botToken",
+    "private_key",
+    "privateKey",
+    "private_key_pass",
+    "privateKeyPass",
+    "passphrase",
+    "user_jwt",
+    "userJwt",
+    "user_nkey_seed",
+    "userNkeySeed",
 ];
 
 /// Detects string-valued literal secrets in manifest payloads (MF-24).

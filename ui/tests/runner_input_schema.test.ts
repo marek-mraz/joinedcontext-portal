@@ -5,6 +5,7 @@ import { runnerInputSchema } from "../src/schemas/kinds";
 import type { CatalogInput } from "../src/schemas/kinds";
 import { toEnvelope, toForm } from "../src/pages/datasources/DataSourcesPage";
 import type { Manifest } from "../src/api/manifest";
+import bentoInputs from "../src/schemas/bento-inputs.json";
 
 const KAFKA_CATALOG_ENTRY: CatalogInput = {
   name: "kafka",
@@ -247,5 +248,52 @@ describe("runnerInputSchema pure function", () => {
     expect(roundTripped.spec.type).toBe("kafka");
     expect(roundTripped.spec.input).toEqual(stored.spec.input);
     expect(roundTripped.spec.secrets).toEqual(stored.spec.secrets);
+  });
+});
+
+/**
+ * T-2239, MF-24: the catalog decides which box a credential gets, so the whole catalog is walked
+ * and not one input. A field the runner's documentation does not flag used to render as a plain
+ * text box — `oauth.access_token` on `http_client`, measured on dev — and a bearer typed there went
+ * into the manifest and into Git. The generator's `ALSO_SECRET` list marks them; these cases fail
+ * if a regeneration drops it.
+ */
+describe("every field the catalog calls a secret renders as a reference (T-2239)", () => {
+  const catalog = bentoInputs.inputs as CatalogInput[];
+
+  it("gives the secretRef widget to every secret field of every input", () => {
+    const missing: string[] = [];
+    for (const input of catalog) {
+      const { uiSchema } = runnerInputSchema(input);
+      for (const field of input.fields.filter((candidate) => candidate.secret)) {
+        const at = field.path.split(".").reduce<Record<string, unknown> | undefined>(
+          (node, segment) => node?.[segment] as Record<string, unknown> | undefined,
+          uiSchema as unknown as Record<string, unknown>,
+        );
+        if (at?.["ui:widget"] !== "secretRef") {
+          missing.push(`${input.name}.${field.path}`);
+        }
+      }
+    }
+    expect(missing, "a secret field with no reference widget is a box for a credential").toEqual([]);
+  });
+
+  it("calls the credentials the runner's own manual leaves unflagged secrets", () => {
+    const shouldBeSecret = [
+      ["http_client", "oauth.access_token"],
+      ["http_client", "digest_auth.password"],
+      ["websocket", "oauth.access_token"],
+      ["kafka", "sasl.access_token"],
+      ["aws_s3", "credentials.token"],
+      ["pulsar", "auth.token.token"],
+      ["twitter_search", "api_key"],
+    ];
+    for (const [name, path] of shouldBeSecret) {
+      const field = catalog
+        .find((input) => input.name === name)
+        ?.fields.find((candidate) => candidate.path === path);
+      expect(field, `${name}.${path} is not in the catalog at all`).toBeDefined();
+      expect(field?.secret, `${name}.${path} is offered as a plain value`).toBe(true);
+    }
   });
 });

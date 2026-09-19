@@ -9,6 +9,25 @@
 // arrays of objects are kept as one field the form edits as YAML.
 import { readFileSync, writeFileSync } from "node:fs";
 
+// Fields the runner's own documentation does not mark `is_secret` and that carry a credential all
+// the same (T-2239, MF-24). Matched by path suffix, so one entry covers every input that has the
+// field. A field this list misses renders as a plain text box in the Data Sources form and escapes
+// the `${VAR}` rule, which is how an OAuth bearer reached a manifest and Git.
+const ALSO_SECRET = [
+  "oauth.access_token", // the bearer itself (http_client, websocket)
+  "digest_auth.password", // a password (http_client)
+  "sasl.access_token", // the bearer itself (kafka)
+  "credentials.token", // an AWS session token (aws_*, sql_*, kafka's sasl.aws)
+  "credentials.id", // an AWS access key id: the other half of a credential pair
+  "auth.token.token", // pulsar's token
+  "api_key", // twitter_search
+];
+
+/** Whether a field path is one this platform calls a secret although the runner does not. */
+function alsoSecret(path) {
+  return ALSO_SECRET.some((suffix) => path === suffix || path.endsWith(`.${suffix}`));
+}
+
 const GROUPS = {
   brokers: ["amqp_0_9", "amqp_1", "beanstalkd", "kafka", "kafka_franz", "mqtt", "nanomsg", "nats", "nats_jetstream", "nats_kv", "nats_object_store", "nats_stream", "nsq", "pulsar", "redis_list", "redis_pubsub", "redis_streams", "zmq4n"],
   files: ["aws_s3", "azure_blob_storage", "csv", "file", "file_tail", "fsevent", "gcp_cloud_storage", "hdfs", "parquet", "sftp"],
@@ -27,7 +46,7 @@ function fields(node, prefix = "") {
       path,
       type: child.type,
       kind: child.kind,
-      secret: Boolean(child.is_secret),
+      secret: Boolean(child.is_secret) || alsoSecret(path),
       advanced: Boolean(child.is_advanced),
       optional: Boolean(child.is_optional),
       default: child.default ?? null,
@@ -89,7 +108,9 @@ if (rustPath) {
     "//! The inputs the pinned runner ships (PL-50): names, the fields Bento marks secret, which",
     "//! inputs end on their own. Generated from `bento list --format json-full` of",
     `//! ghcr.io/warpstreamlabs/bento:${listing.version} by joinedcontext-portal/ui/scripts/bento-inputs.mjs;`,
-    "//! change the pin and rerun the script, never edit by hand.",
+    "//! change the pin and rerun the script, never edit by hand. The script appends its own",
+    "//! `ALSO_SECRET` list to what the runner marks: fields the runner's documentation does not flag",
+    "//! and that are credentials all the same, per input, after the tree walk (T-2239).",
     "",
     "/// The runner release this catalog was generated from.",
     `pub const RUNNER_VERSION: &str = ${JSON.stringify(listing.version)};`,
@@ -103,7 +124,15 @@ if (rustPath) {
     ...listing.inputs
       .filter((input) => names.includes(input.name))
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((input) => `    (${JSON.stringify(input.name)}, &[${secretPaths(input.config).map((path) => JSON.stringify(path)).join(", ")}]),`),
+      // What the runner marks, then this platform's own additions, deduped: the same order the
+      // committed file carries, so a regeneration is a no-op rather than a diff (T-2239).
+      .map((input) => {
+        const marked = secretPaths(input.config);
+        const trimmed = catalog.find((entry) => entry.name === input.name)?.fields ?? [];
+        const added = trimmed.filter((field) => field.secret && !marked.includes(field.path)).map((field) => field.path);
+        const paths = [...new Set([...marked, ...added])];
+        return `    (${JSON.stringify(input.name)}, &[${paths.map((path) => JSON.stringify(path)).join(", ")}]),`;
+      }),
     "];",
     "",
     "/// Inputs that end on their own once they have read what there is (a scheduled pipeline may",
