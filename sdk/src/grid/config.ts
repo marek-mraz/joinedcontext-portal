@@ -36,6 +36,12 @@ export interface EntityGridConfig {
   compareWith?: GridSource;
   density?: Density;
   rowActions?: string[];
+  /**
+   * The map beside the rows (UI-72): a second view of the same page, not a second query. `attr`
+   * names the GeoProperty it shows; without one the grid takes the type's first. A type with no
+   * GeoProperty gets no map however this reads, because there would be nothing to put on it.
+   */
+  map?: { enabled?: boolean; attr?: string; position?: "right" | "bottom" };
 }
 
 export type ResolvedGridConfig = Required<Omit<EntityGridConfig, "compareWith">> & { compareWith?: GridSource };
@@ -249,6 +255,15 @@ export const gridConfigSchema: Record<string, unknown> = {
     },
     density: { type: "string", enum: ["compact", "comfortable"] },
     rowActions: { type: "array", items: { type: "string" } },
+    map: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        enabled: { type: "boolean" },
+        attr: { type: "string", minLength: 1 },
+        position: { enum: ["right", "bottom"] },
+      },
+    },
   },
   required: ["source", "type"],
 };
@@ -262,7 +277,7 @@ export function parseGridConfig(raw: unknown): { config?: ResolvedGridConfig; fi
   }
 
   // unknown top keys
-  const knownTop = new Set(["source", "type", "columns", "entityTimestamps", "filters", "pageSize", "mode", "editableAttrs", "history", "compareWith", "density", "rowActions"]);
+  const knownTop = new Set(["source", "type", "columns", "entityTimestamps", "filters", "pageSize", "mode", "editableAttrs", "history", "compareWith", "density", "rowActions", "map"]);
   for (const k of Object.keys(raw)) {
     if (!knownTop.has(k)) {
       findings.push({ path: `/${k}`, message: "unknown property" });
@@ -404,6 +419,43 @@ export function parseGridConfig(raw: unknown): { config?: ResolvedGridConfig; fi
     }
   }
 
+  const mapRaw = raw.map;
+  let map: { enabled?: boolean; attr?: string; position?: "right" | "bottom" } | undefined;
+  if (mapRaw !== undefined) {
+    if (!isObject(mapRaw)) {
+      findings.push({ path: "/map", message: "must be an object" });
+    } else {
+      const m: NonNullable<typeof map> = {};
+      for (const k of Object.keys(mapRaw)) {
+        if (!["enabled", "attr", "position"].includes(k)) {
+          findings.push({ path: `/map/${k}`, message: "unknown property" });
+        }
+      }
+      if (mapRaw.enabled !== undefined) {
+        if (typeof mapRaw.enabled !== "boolean") {
+          findings.push({ path: "/map/enabled", message: "must be a boolean" });
+        } else {
+          m.enabled = mapRaw.enabled;
+        }
+      }
+      if (mapRaw.attr !== undefined) {
+        if (!isNonEmptyString(mapRaw.attr)) {
+          findings.push({ path: "/map/attr", message: "must be a non-empty string" });
+        } else {
+          m.attr = mapRaw.attr;
+        }
+      }
+      if (mapRaw.position !== undefined) {
+        if (mapRaw.position !== "right" && mapRaw.position !== "bottom") {
+          findings.push({ path: "/map/position", message: 'must be "right" or "bottom"' });
+        } else {
+          m.position = mapRaw.position;
+        }
+      }
+      map = m;
+    }
+  }
+
   if (findings.length > 0) {
     return { findings };
   }
@@ -421,6 +473,9 @@ export function parseGridConfig(raw: unknown): { config?: ResolvedGridConfig; fi
     compareWith: compareWith,
     density: (density as Density) ?? "comfortable",
     rowActions: (rowActions as string[] | undefined) ?? [],
+    // `enabled: false` is the default, so a type with a GeoProperty gets a map only where the
+    // manifest asked for one; `position` defaults beside the rows on a wide page.
+    map: map ?? { enabled: false },
   };
 
   return { config, findings };

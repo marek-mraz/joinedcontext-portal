@@ -8,6 +8,7 @@
  */
 import type { Transport } from "../sdk/transport";
 import { queryString } from "../sdk/query";
+import type { GeoQuery } from "./geoarea";
 import type { RichRow } from "./model";
 import { toRichRow } from "./model";
 
@@ -19,6 +20,8 @@ export interface GridQuery {
   scopeQ?: string;
   /** Exactly these entities, for a side-by-side read of one page (T-1435). */
   ids?: string[];
+  /** The area drawn on the map, as a geo query the endpoint answers (UI-72). */
+  area?: GeoQuery;
 }
 
 export interface GridPage {
@@ -121,6 +124,12 @@ function entitiesQuery(q: GridQuery, offset: number, limit: number): string {
     idPattern: q.idPattern || undefined,
     scopeQ: q.scopeQ || undefined,
     id: q.ids && q.ids.length > 0 ? q.ids.join(",") : undefined,
+    // The four of a geo query travel together or not at all: `georel` without `coordinates` is a
+    // 400, and `coordinates` without `georel` is silently ignored, which reads as an empty area.
+    georel: q.area?.georel,
+    geometry: q.area?.geometry,
+    coordinates: q.area?.coordinates,
+    geoproperty: q.area?.geoproperty,
   });
 }
 

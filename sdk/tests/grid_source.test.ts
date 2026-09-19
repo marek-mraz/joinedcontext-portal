@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JcRequest, JcResponse } from "../src/sdk/transport";
 import { endpointSource, spaceSource, fixtureSource, historyOf, sourceFor, SourceError } from "../src/grid/source";
+import { areaQuery, ringOfBounds } from "../src/grid/geoarea";
 
 function stubTransport(responses: Map<string, (req: JcRequest) => JcResponse>): (req: JcRequest) => Promise<JcResponse> {
   const calls: JcRequest[] = [];
@@ -63,6 +64,34 @@ describe("endpointSource", () => {
     // (T-1429): the grid holds one page and a page cannot be counted into a total.
     expect(call.path).toContain("count=true");
     expect(call.path).not.toContain("id");
+  });
+
+  it("asks the drawn area as a geo query, all four parameters together (UI-72)", async () => {
+    const transport = stubTransport(new Map());
+    const source = endpointSource("demo", transport);
+    const area = areaQuery({
+      geoproperty: "location",
+      geometry: { type: "Polygon", coordinates: [ringOfBounds(24.9, 60.1, 25, 60.2)] } as never,
+    })!;
+    await source.query({ type: "Bike", area }, { offset: 0, limit: 50 }).catch(() => undefined);
+    const call = (transport as unknown as { calls: JcRequest[] }).calls[0];
+    expect(call.path).toContain("georel=within");
+    expect(call.path).toContain("geometry=Polygon");
+    expect(call.path).toContain("geoproperty=location");
+    // Encoded, because the ring is JSON with brackets and commas in it.
+    expect(call.path).toContain(encodeURIComponent(JSON.stringify([ringOfBounds(24.9, 60.1, 25, 60.2)])));
+  });
+
+  it("asks no geo parameter at all when nothing is drawn", async () => {
+    const transport = stubTransport(new Map());
+    const source = endpointSource("demo", transport);
+    await source.query({ type: "Bike" }, { offset: 0, limit: 50 }).catch(() => undefined);
+    const call = (transport as unknown as { calls: JcRequest[] }).calls[0];
+    // `coordinates` without `georel` is ignored by the broker and reads as an empty area, so
+    // neither may be sent alone.
+    expect(call.path).not.toContain("georel");
+    expect(call.path).not.toContain("coordinates");
+    expect(call.path).not.toContain("geoproperty");
   });
 
   it("escapes q parameter correctly", async () => {

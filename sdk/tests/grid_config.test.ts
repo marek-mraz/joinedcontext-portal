@@ -129,6 +129,43 @@ describe("parseGridConfig", () => {
   });
 });
 
+describe("the map beside the rows (UI-72)", () => {
+  const base = { source: { kind: "fixture", name: "x" }, type: "Vehicle" };
+
+  it("is off unless the manifest asks for it", () => {
+    const { config, findings } = parseGridConfig(base);
+    expect(findings).toHaveLength(0);
+    expect(config!.map).toEqual({ enabled: false });
+  });
+
+  it("takes the attribute and the side the manifest names", () => {
+    const { config, findings } = parseGridConfig({
+      ...base,
+      map: { enabled: true, attr: "location", position: "bottom" },
+    });
+    expect(findings).toHaveLength(0);
+    expect(config!.map).toEqual({ enabled: true, attr: "location", position: "bottom" });
+  });
+
+  it("names what is wrong instead of dropping it", () => {
+    expect(parseGridConfig({ ...base, map: "yes" }).findings).toEqual([
+      { path: "/map", message: "must be an object" },
+    ]);
+    expect(parseGridConfig({ ...base, map: { enabled: "true" } }).findings).toEqual([
+      { path: "/map/enabled", message: "must be a boolean" },
+    ]);
+    expect(parseGridConfig({ ...base, map: { attr: "" } }).findings).toEqual([
+      { path: "/map/attr", message: "must be a non-empty string" },
+    ]);
+    expect(parseGridConfig({ ...base, map: { position: "left" } }).findings).toEqual([
+      { path: "/map/position", message: 'must be "right" or "bottom"' },
+    ]);
+    expect(parseGridConfig({ ...base, map: { zoom: 12 } }).findings).toEqual([
+      { path: "/map/zoom", message: "unknown property" },
+    ]);
+  });
+});
+
 describe("gridConfigSchema", () => {
   it("has additionalProperties false at top level", () => {
     expect(gridConfigSchema.additionalProperties).toBe(false);
