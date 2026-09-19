@@ -125,21 +125,90 @@ describe("the UiSchema manifest arranges the form", () => {
     expect(problems).toEqual([]);
   });
 
-  it("says so when the manifest arranges a field the schema does not have", () => {
+  it("says so when the manifest arranges a field inside an object the form does render", () => {
+    const manifest: UiSchemaManifest = {
+      ...MANIFEST,
+      spec: { for: "Endpoint", fields: { "caching.gone": { widget: "text" } } },
+    };
+    const { uiSchema, problems } = arrange(manifest, {
+      properties: ["caching", "caching.maxAgeSeconds"],
+    });
+    expect(uiSchema.caching).toBeUndefined();
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("caching.gone");
+  });
+
+  /**
+   * A data source's form renders one branch of its schema at a time — `mqtt`, `http`,
+   * `webSocket`, `gtfsRt` — and one manifest arranges them all, so the three branches the person
+   * did not pick are absent from this schema and must be passed over without a word. Telling a
+   * person filling in an HTTP source that "the schema has no field `mqtt.topics`" is noise about a
+   * form they are not looking at (T-1613). Only the branches `spec.variants` names are passed over:
+   * anything else missing is a typo, and the form still says so.
+   */
+  it("passes over a branch of the schema the form is not rendering, silently", () => {
     const manifest: UiSchemaManifest = {
       ...MANIFEST,
       spec: {
-        for: "Endpoint",
-        order: ["name", "gone"],
-        fields: { gone: { widget: "text" } },
-        groups: [{ fields: ["gone"] }],
+        for: "DataSource",
+        variants: ["mqtt", "http"],
+        order: ["name", "http", "mqtt"],
+        groups: [{ fields: ["name", "http", "mqtt"] }],
+        fields: { "http.url": { placeholder: "https://www.hel.fi/en/news/rss" }, "mqtt.qos": {} },
       },
     };
-    const { uiSchema, problems } = arrange(manifest, { properties: PROPERTIES });
-    expect(uiSchema.gone).toBeUndefined();
+    const { uiSchema, problems } = arrange(manifest, {
+      properties: ["name", "http", "http.url"],
+    });
+    expect(problems).toEqual([]);
+    expect(uiSchema.http).toEqual({ url: { "ui:placeholder": "https://www.hel.fi/en/news/rss" } });
+    expect(uiSchema.mqtt).toBeUndefined();
+    expect(uiSchema["ui:order"]).toEqual(["name", "http", "*"]);
+  });
+
+  it("arranges a field by its path, into the nested uiSchema RJSF reads", () => {
+    const manifest: UiSchemaManifest = {
+      ...MANIFEST,
+      spec: {
+        for: "Dashboard",
+        fields: {
+          "pages[].widgets[].property": { help: "One attribute of the entity.", columns: 6 },
+        },
+      },
+    };
+    const { uiSchema, problems } = arrange(manifest, {
+      properties: ["pages", "pages[].widgets", "pages[].widgets[].property"],
+    });
+    expect(problems).toEqual([]);
+    expect(uiSchema).toEqual({
+      pages: {
+        items: {
+          widgets: {
+            items: {
+              property: { "ui:help": "One attribute of the entity.", "ui:options": { columns: 6 } },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps a nested path out of the reading order and out of a group, with the reason", () => {
+    const manifest: UiSchemaManifest = {
+      ...MANIFEST,
+      spec: {
+        for: "DataSource",
+        order: ["name", "http.url"],
+        groups: [{ fields: ["name", "http.url"] }],
+      },
+    };
+    const { uiSchema, problems } = arrange(manifest, {
+      properties: ["name", "http", "http.url"],
+    });
     expect(uiSchema["ui:order"]).toEqual(["name", "*"]);
-    expect(uiSchema["ui:options"]).toBeUndefined();
-    expect(problems.every((problem) => problem.includes("gone"))).toBe(true);
+    expect(uiSchema["ui:options"]).toMatchObject({ groups: [{ fields: ["name"] }] });
+    expect(problems).toHaveLength(2);
+    expect(problems.every((problem) => problem.includes("http.url"))).toBe(true);
   });
 
   it("refuses a column count that is not a twelfth of a row", () => {
@@ -285,6 +354,40 @@ describe("the form renders what the manifest arranged", () => {
     expect(screen.getByLabelText(/^Requests per minute/)).toHaveValue(600);
   });
 
+  /**
+   * T-2251: the whole word arrives. The action that fills in an example used to be mounted only
+   * while the field was empty, so the first character moved the input into another parent, React
+   * built a new input, the caret went with the old one and the rest of the word was typed into
+   * nothing. Measured on the endpoint form on 2026-09-19.
+   */
+  it("keeps the caret in a field with an example while a whole word is typed", async () => {
+    const user = userEvent.setup();
+    const schema: JsonSchema = {
+      type: "object",
+      properties: { url: { type: "string", title: "URL" } },
+    };
+    const manifest: UiSchemaManifest = {
+      ...MANIFEST,
+      spec: {
+        for: "DataSource",
+        fields: { url: { placeholder: "https://opendata.example.org/aq.json" } },
+      },
+    };
+    const { uiSchema } = arrange(manifest, { properties: ["url"], locale: "en" });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SchemaForm schema={schema} uiSchema={uiSchema} onSubmit={() => {}} />
+      </I18nextProvider>,
+    );
+
+    const field = screen.getByLabelText(/^URL/);
+    await user.type(field, "https://www.hel.fi/en/news/rss");
+    expect(field).toHaveValue("https://www.hel.fi/en/news/rss");
+    expect(document.activeElement).toBe(field);
+    // And the offer is gone from the page's actions, without having moved the input to do it.
+    expect(screen.queryByRole("button", { name: en.form.useExample })).not.toBeInTheDocument();
+  });
+
   it("renders a form with no manifest at all exactly as before", () => {
     const { container } = form({});
     expect(container.querySelectorAll("fieldset")).toHaveLength(0);
@@ -306,13 +409,41 @@ describe("portal/forms is read as a whole", () => {
       { apiVersion: "joinedcontext.com/v1alpha1", kind: "Endpoint", spec: { for: "x" } },
       { kind: "UiSchema", metadata: { name: "nameless" }, spec: {} },
       null,
-      { kind: "UiSchema", metadata: { name: "second" }, spec: { for: "Endpoint" } },
     ] as unknown[]);
 
     expect(Object.keys(forms)).toEqual(["Endpoint"]);
     expect(forms.Endpoint.metadata?.name).toBe("endpoint");
-    expect(problems).toHaveLength(4);
+    expect(problems).toHaveLength(3);
     expect(problems.some((problem) => problem.includes("nameless"))).toBe(true);
-    expect(problems.some((problem) => problem.includes("two UiSchema manifests"))).toBe(true);
+  });
+
+  /**
+   * UI-02: the arrangement the UI ships meets the one an organization commits to `portal/forms/`.
+   * A whole-file override would throw away the shipped help for every field the organization did
+   * not write about, which is how a form with help ends up with none (T-1612).
+   */
+  it("lets a later manifest change a field without losing the arrangement of the others", () => {
+    const { forms, problems } = index([
+      MANIFEST,
+      {
+        apiVersion: "joinedcontext.com/v1alpha1",
+        kind: "UiSchema",
+        metadata: { name: "endpoint" },
+        spec: {
+          for: "Endpoint",
+          fields: { slug: { help: "Ask the data office before you change one." } },
+        },
+      },
+    ] as unknown[]);
+
+    const fields = forms.Endpoint.spec.fields ?? {};
+    expect(fields.slug?.help).toBe("Ask the data office before you change one.");
+    // The shipped arrangement of the same field survives beside the organization's own help.
+    expect(fields.slug?.placeholder).toBe("26 znakov");
+    expect(fields.slug?.columns).toBe(6);
+    expect(fields.notes?.help).toEqual({ sk: "Voľný text", en: "Free text" });
+    expect(Object.keys(fields).sort()).toEqual(Object.keys(MANIFEST.spec.fields ?? {}).sort());
+    expect(forms.Endpoint.spec.order).toEqual(MANIFEST.spec.order);
+    expect(problems).toEqual([]);
   });
 });

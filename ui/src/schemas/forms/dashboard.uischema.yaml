@@ -1,0 +1,101 @@
+# Default form arrangement for Dashboard (UI-02).
+# Presents map layers and widgets; examples match Helsinki city dashboards.
+apiVersion: joinedcontext.com/v1alpha1
+kind: UiSchema
+metadata:
+  name: dashboard
+spec:
+  for: Dashboard
+  order: [name, title, visibility, pages]
+  groups:
+    - title:
+        en: General information
+        sk: Všeobecné informácie
+        cs: Všeobecné informace
+        de: Allgemeine Informationen
+      description:
+        en: Identifier, title and audience visibility for this dashboard.
+        sk: Identifikátor, titulok a viditeľnosť pre publikum tejto nástenky.
+        cs: Identifikátor, titulek a viditelnost pro publikum této nástěnky.
+        de: Kennung, Titel und Sichtbarkeit für dieses Dashboard.
+      fields: [name, title, visibility]
+    - title:
+        en: Pages and content
+        sk: Stránky a obsah
+        cs: Stránky a obsah
+        de: Seiten und Inhalt
+      description:
+        en: Dashboard pages with layouts, map layers and informational widgets.
+        sk: Stránky nástenky s rozložením, mapovými vrstvami a informačnými prvkami.
+        cs: Stránky nástěnky s rozložením, mapovými vrstvami a informačními prvky.
+        de: Dashboard-Seiten mit Layouts, Kartenebenen und Informations-Widgets.
+      fields: [pages]
+  fields:
+    name:
+      placeholder: city-bikes
+      help:
+        en: The short name in this dashboard's address. Lowercase letters, digits and dashes.
+        sk: Krátky názov v adrese tejto nástenky. Malé písmená, číslice a spojovníky.
+        cs: Krátký název v adrese této nástěnky. Malá písmena, číslice a spojovníky.
+        de: Der kurze Name in der Adresse dieses Dashboards. Kleinbuchstaben, Ziffern und Bindestriche.
+    title:
+      placeholder: Helsinki city bikes
+      help:
+        en: The name shown at the top of the dashboard and in the menu.
+        sk: Názov zobrazený v hlavičke nástenky a v menu.
+        cs: Název zobrazený v hlavičce nástěnky a v menu.
+        de: Der Name über dem Dashboard und im Menü.
+    visibility:
+      help:
+        en: Who can view this dashboard, ranging from private view to public audience.
+        sk: Kto si môže túto nástenku zobraziť, od súkromného náhľadu po verejnosť.
+        cs: Kdo si může tuto nástěnku zobrazit, od soukromého náhledu po veřejnost.
+        de: Wer dieses Dashboard ansehen darf, von privater Ansicht bis zur Öffentlichkeit.
+    pages[].title:
+      placeholder: Stations
+      help:
+        en: Tab title displayed to users for this dashboard page.
+        sk: Názov záložky zobrazený používateľom pre túto stránku nástenky.
+        cs: Název záložky zobrazený uživatelům pro tuto stránku nástěnky.
+        de: Auf der Registerkarte angezeigter Titel für diese Dashboard-Seite.
+    pages[].layout:
+      help:
+        en: Arrangement of visual elements on the page, such as a full map or grid layout.
+        sk: Usporiadanie vizuálnych prvkov na stránke, napríklad celá mapa alebo mriežka.
+        cs: Uspořádání vizuálních prvků na stránce, například celá mapa nebo mřížka.
+        de: Anordnung der visuellen Elemente auf der Seite, etwa Vollbildkarte oder Raster.
+    pages[].layers:
+      widget: checkboxes
+      help:
+        en: Map layers to display together on this page's map view.
+        sk: Mapové vrstvy, ktoré sa majú zobraziť spolu na mape tejto stránky.
+        cs: Mapové vrstvy, které se mají zobrazit společně na mapě této stránky.
+        de: Kartenebenen, die gemeinsam auf der Karte dieser Seite angezeigt werden.
+    pages[].widgets[].widgetType:
+      placeholder: temporalChart
+      help:
+        en: Type of informational component to render, such as a time chart.
+        sk: Typ informačného prvku na zobrazenie, napríklad graf vývoja v čase.
+        cs: Typ informačního prvku k zobrazení, například graf vývoje v čase.
+        de: Typ der anzuzeigenden Komponente, beispielsweise ein Zeitverlaufsdiagramm.
+    pages[].widgets[].endpointRef:
+      placeholder: helsinki-bikes
+      help:
+        en: Endpoint providing the live entities and readings for this widget.
+        sk: Rozhranie poskytujúce živé entity a merania pre tento prvok.
+        cs: Rozhraní poskytující živé entity a měření pro tento prvek.
+        de: Endpunkt, der die aktuellen Entitäten und Messwerte für dieses Widget liefert.
+    pages[].widgets[].entityId:
+      placeholder: "urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:001"
+      help:
+        en: Identifier of the specific entity whose historical values are plotted.
+        sk: Identifikátor konkrétnej entity, ktorej historické hodnoty sa vykresľujú.
+        cs: Identifikátor konkrétní entity, jejíž historické hodnoty se vykreslují.
+        de: Kennung der bestimmten Entität, deren historische Werte dargestellt werden.
+    pages[].widgets[].property:
+      placeholder: availableBikeNumber
+      help:
+        en: Name of the entity property or attribute to display in this widget.
+        sk: Názov vlastnosti alebo atribútu entity, ktorý sa má zobraziť v tomto prvku.
+        cs: Název vlastnosti nebo atributu entity, který se má zobrazit v tomto prvku.
+        de: Name der Entitätseigenschaft, die in diesem Widget dargestellt werden soll.

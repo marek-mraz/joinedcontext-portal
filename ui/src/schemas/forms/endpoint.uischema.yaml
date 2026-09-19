@@ -1,0 +1,116 @@
+# Default form arrangement for Endpoint (UI-02).
+# Publishes context data over HTTP; examples match the Helsinki public endpoints.
+apiVersion: joinedcontext.com/v1alpha1
+kind: UiSchema
+metadata:
+  name: endpoint
+spec:
+  for: Endpoint
+  order:
+    [
+      contextSpaceRef,
+      name,
+      title,
+      audience,
+      allowedProjects,
+      enabledRepresentations,
+      rateLimits,
+      caching,
+    ]
+  groups:
+    - title:
+        en: What it publishes
+        sk: Čo zverejňuje
+        cs: Co zveřejňuje
+        de: Was es veröffentlicht
+      description:
+        en: The context space this endpoint serves and its identifiers.
+        sk: Kontextový priestor, ktorý toto rozhranie obsluhuje, a jeho identifikátory.
+        cs: Kontextový prostor, který toto rozhraní obsluhuje, a jeho identifikátory.
+        de: Der Kontextraum, den dieser Endpunkt bedient, und seine Kennungen.
+      fields: [contextSpaceRef, name, title]
+    - title:
+        en: Who can read it
+        sk: Kto ho môže čítať
+        cs: Kdo jej může číst
+        de: Wer zugreifen darf
+      description:
+        en: Visibility, allowed projects and enabled representations.
+        sk: Viditeľnosť, povolené projekty a zapnuté reprezentácie.
+        cs: Viditelnost, povolené projekty a zapnuté reprezentace.
+        de: Sichtbarkeit, zugelassene Projekte und aktivierte Repräsentationen.
+      fields: [audience, allowedProjects, enabledRepresentations]
+    - title:
+        en: Traffic and caching
+        sk: Prevádzka a vyrovnávacia pamäť
+        cs: Provoz a vyrovnávací paměť
+        de: Datenverkehr und Zwischenspeicher
+      description:
+        en: Request rate limits and response cache duration.
+        sk: Limity požiadaviek a trvanie vyrovnávacej pamäte pre odpovede.
+        cs: Limity požadavků a trvání vyrovnávací paměti pro odpovědi.
+        de: Anfragelimits und Cache-Dauer für Antworten.
+      fields: [rateLimits, caching]
+  fields:
+    name:
+      placeholder: helsinki-parking
+      help:
+        en: Internal identifier for this endpoint; lowercase letters, digits and hyphens only.
+        sk: Interný identifikátor tohto rozhrania; iba malé písmená, číslice a spojovníky.
+        cs: Interní identifikátor tohoto rozhraní; pouze malá písmena, číslice a spojovníky.
+        de: Interne Kennung dieses Endpunkts; nur Kleinbuchstaben, Ziffern und Bindestriche.
+    title:
+      placeholder: Helsinki city bike stations
+      help:
+        en: The name people read in the catalogue when they look for this data.
+        sk: Názov, ktorý ľudia čítajú v katalógu, keď hľadajú tieto údaje.
+        cs: Název, který lidé čtou v katalogu, když hledají tato data.
+        de: Der Name, den Menschen im Katalog lesen, wenn sie diese Daten suchen.
+    contextSpaceRef:
+      help:
+        en: The context space whose entities this endpoint serves.
+        sk: Kontextový priestor, ktorého entity toto rozhranie poskytuje.
+        cs: Kontextový prostor, jehož entity toto rozhraní poskytuje.
+        de: Der Kontextraum, dessen Entitäten dieser Endpunkt bereitstellt.
+    audience:
+      help:
+        en: Who is allowed to connect; public endpoints allow anonymous read access.
+        sk: Kto sa smie pripojiť; verejné rozhrania povoľujú anonymné čítanie.
+        cs: Kdo se smí připojit; veřejná rozhraní povolují anonymní čtení.
+        de: Wer zugreifen darf; öffentliche Endpunkte erlauben anonymen Lesezugriff.
+    enabledRepresentations:
+      widget: checkboxes
+      help:
+        en: Output formats callers can request, such as JSON-LD, GeoJSON, CSV or spreadsheets.
+        sk: Výstupné formáty, ktoré môžu volajúci žiadať, napríklad JSON-LD, GeoJSON, CSV alebo tabuľky.
+        cs: Výstupní formáty, které mohou volající žádat, například JSON-LD, GeoJSON, CSV nebo tabulky.
+        de: Ausgabeformate, die Aufrufer anfordern können, wie JSON-LD, GeoJSON, CSV oder Tabellen.
+    allowedProjects:
+      help:
+        en: Other projects in the organization permitted to read this endpoint when audience is restricted.
+        sk: Ostatné projekty v organizácii s povolením čítať toto rozhranie pri obmedzenom publiku.
+        cs: Ostatní projekty v organizaci s povolením číst toto rozhraní při omezeném publiku.
+        de: Andere Projekte der Organisation, die diesen Endpunkt bei eingeschränkter Zielgruppe lesen dürfen.
+    rateLimits.requestsPerMinute:
+      help:
+        en: Maximum request rate allowed per client to protect the service.
+        sk: Maximálna frekvencia požiadaviek na klienta chrániaca službu pred preťažením.
+        cs: Maximální frekvence požadavků na klienta chránící službu před přetížením.
+        de: Maximale Anfragerate pro Client zum Schutz des Dienstes vor Überlastung.
+    rateLimits.burst:
+      placeholder: 50
+      advanced: true
+      help:
+        en: Number of requests permitted in a brief spike above the normal rate.
+        sk: Počet požiadaviek povolených v krátkej špičke nad bežnú frekvenciu.
+        cs: Počet požadavků povolených v krátké špičce nad běžnou frekvenci.
+        de: Anzahl der Anfragen, die in einer kurzen Spitze über das normale Limit hinaus erlaubt sind.
+    caching.maxAgeSeconds:
+      placeholder: 60
+      widget: range
+      advanced: true
+      help:
+        en: How long gateway caches responses to reduce broker load; zero disables caching.
+        sk: Ako dlho brána uchováva odpovede vo vyrovnávacej pamäti; nula ukladanie vypne.
+        cs: Jak dlouho brána uchovává odpovědi ve vyrovnávací paměti; nula ukládání vypne.
+        de: Wie lange das Gateway Antworten zwischenspeichert; Null schaltet den Cache ab.

@@ -1,0 +1,192 @@
+# Default form arrangement for DataSource (UI-02).
+# Connects to external data sources; examples match Helsinki open data feeds.
+apiVersion: joinedcontext.com/v1alpha1
+kind: UiSchema
+metadata:
+  name: datasource
+spec:
+  for: DataSource
+  # The form shows one connection at a time, the one the person picked; the others are
+  # arranged here all the same and passed over while they are not on the form.
+  variants: [mqtt, http, webSocket, gtfsRt]
+  order: [name, title, mqtt, http, webSocket, gtfsRt, tls]
+  groups:
+    - title:
+        en: Basics
+        sk: Základné údaje
+        cs: Základní údaje
+        de: Basisdaten
+      description:
+        en: Identifier and descriptive title for this data source.
+        sk: Identifikátor a popisný titulok tohto zdroja údajov.
+        cs: Identifikátor a popisný titulek tohoto zdroje dat.
+        de: Kennung und beschreibender Titel dieser Datenquelle.
+      fields: [name, title]
+    - title:
+        en: Where the data comes from
+        sk: Odkiaľ dáta prichádzajú
+        cs: Odkud data přicházejí
+        de: Woher die Daten stammen
+      description:
+        en: Connection settings and remote endpoint configuration for the selected feed type.
+        sk: Nastavenia pripojenia a vzdialeného rozhrania pre vybraný typ zdroja.
+        cs: Nastavení připojení a vzdáleného rozhraní pro vybraný typ zdroje.
+        de: Verbindungseinstellungen und Konfiguration der Gegenstelle für den gewählten Feed-Typ.
+      fields: [mqtt, http, webSocket, gtfsRt]
+    - title:
+        en: TLS certificates
+        sk: Certifikáty TLS
+        cs: Certifikáty TLS
+        de: TLS-Zertifikate
+      description:
+        en: Optional custom certificate authority for secure connections.
+        sk: Voliteľná vlastná certifikačná autorita pre zabezpečené spojenia.
+        cs: Volitelná vlastní certifikační autorita pro zabezpečená spojení.
+        de: Optionale benutzerdefinierte Zertifizierungsstelle für sichere Verbindungen.
+      fields: [tls]
+  fields:
+    name:
+      placeholder: hsl-citybikes-gbfs
+      help:
+        en: Identifier for this data source used by pipelines to refer to it.
+        sk: Identifikátor tohto zdroja údajov, na ktorý sa odkazujú pipelines.
+        cs: Identifikátor tohoto zdroje dat, na který se odkazují pipelines.
+        de: Kennung dieser Datenquelle, auf die Pipelines verweisen.
+    title:
+      placeholder: City bike station status
+      help:
+        en: The name of this feed as people read it in lists and when they build a pipeline.
+        sk: Názov tohto zdroja, ako ho ľudia čítajú v zoznamoch a pri stavbe pipeline.
+        cs: Název tohoto zdroje, jak jej lidé čtou v seznamech a při stavbě pipeline.
+        de: Der Name dieses Feeds in Listen und beim Bauen einer Pipeline.
+    mqtt.urls:
+      placeholder: ["wss://mqtt.hsl.fi:443/"]
+      help:
+        en: Network addresses of the message brokers to connect to.
+        sk: Sieťové adresy brokerov správ, ku ktorým sa má pripojiť.
+        cs: Síťové adresy brokerů zpráv, ke kterým se má připojit.
+        de: Netzwerkadressen der Message-Broker, zu denen verbunden werden soll.
+    mqtt.topics:
+      placeholder: ["/hfp/v2/journey/ongoing/vp/bus/+/+/2510/#"]
+      help:
+        en: Message topics to subscribe to on the broker.
+        sk: Témy správ, ktoré sa majú odoberať na brokeri.
+        cs: Témata zpráv, která se mají odebírat na brokeru.
+        de: Nachrichten-Topics, die auf dem Broker abonniert werden sollen.
+    mqtt.qos:
+      placeholder: 0
+      help:
+        en: Quality of service level for message delivery guarantees.
+        sk: Úroveň kvality služby určujúca záruky doručenia správ.
+        cs: Úroveň kvality služby určující záruky doručení zpráv.
+        de: Quality-of-Service-Stufe für Zustellgarantien von Nachrichten.
+    mqtt.cleanSession:
+      help:
+        en: Discard previous state and start a fresh session on each connection.
+        sk: Zahodiť predchádzajúci stav a začať čistú reláciu pri každom pripojení.
+        cs: Zahodit předchozí stav a začít čistou relaci při každém připojení.
+        de: Vorherigen Zustand verwerfen und bei jeder Verbindung eine neue Sitzung starten.
+    mqtt.username:
+      placeholder: hsl-subscriber
+      help:
+        en: Username used to authenticate with the message broker.
+        sk: Používateľské meno použité na overenie voči brokeru správ.
+        cs: Uživatelské jméno použité pro ověření vůči brokeru zpráv.
+        de: Benutzername zur Authentifizierung beim Message-Broker.
+    mqtt.passwordRef.name:
+      placeholder: hsl-mqtt-credentials
+      help:
+        en: Name of the stored secret holding the broker password.
+        sk: Názov uloženého tajomstva obsahujúceho heslo k brokeru.
+        cs: Název uloženého tajemství obsahujícího heslo k brokeru.
+        de: Name des gespeicherten Secrets mit dem Broker-Passwort.
+    mqtt.passwordRef.key:
+      placeholder: password
+      help:
+        en: Key inside the secret storing the broker password.
+        sk: Kľúč v tajomstve, pod ktorým je uložené heslo k brokeru.
+        cs: Klíč v tajemství, pod kterým je uloženo heslo k brokeru.
+        de: Schlüssel innerhalb des Secrets, unter dem das Broker-Passwort hinterlegt ist.
+    http.url:
+      placeholder: "https://tie.digitraffic.fi/api/weather/v1/stations/data"
+      help:
+        en: Web address of the external JSON, XML, or binary feed to poll.
+        sk: Webová adresa externého JSON, XML alebo binárneho zdroja na načítanie.
+        cs: Webová adresa externího JSON, XML nebo binárního zdroje pro načítání.
+        de: Webadresse des externen JSON-, XML- oder Binär-Feeds zum Abrufen.
+    http.verb:
+      help:
+        en: HTTP request method sent to the remote server, typically GET.
+        sk: Metóda požiadavky HTTP odosielaná na vzdialený server, zvyčajne GET.
+        cs: Metoda požadavku HTTP odesílaná na vzdálený server, obvykle GET.
+        de: An den entfernten Server gesendete HTTP-Anfragemethode, typischerweise GET.
+    http.timeout:
+      placeholder: 30s
+      help:
+        en: How long to wait for the remote server before giving up, such as 30s.
+        sk: Ako dlho sa čaká na odpoveď vzdialeného servera pred zlyhaním, napríklad 30s.
+        cs: Jak dlouho se čeká na odpověď vzdáleného serveru před selháním, například 30s.
+        de: Wie lange auf eine Antwort des entfernten Servers gewartet wird, etwa 30s.
+    http.authorization.scheme:
+      placeholder: Bearer
+      help:
+        en: Authentication prefix sent in the header, defaulting to Bearer when left blank.
+        sk: Prefix overenia v hlavičke, pri prázdnom poli sa použije Bearer.
+        cs: Prefix ověření v hlavičce, při prázdném poli se použije Bearer.
+        de: Authentifizierungs-Präfix im Header, standardmäßig Bearer wenn leer gelassen.
+    http.authorization.headerRef.name:
+      placeholder: digitraffic-credentials
+      help:
+        en: Name of the stored secret holding the API token or credentials.
+        sk: Názov uloženého tajomstva obsahujúceho API token alebo prihlasovacie údaje.
+        cs: Název uloženého tajemství obsahujícího API token nebo přihlašovací údaje.
+        de: Name des gespeicherten Secrets mit dem API-Token oder den Zugangsdaten.
+    http.authorization.headerRef.key:
+      placeholder: token
+      help:
+        en: Property key inside the secret storing the token value.
+        sk: Kľúč vlastnosti v tajomstve, kde je uložená hodnota tokenu.
+        cs: Klíč vlastnosti v tajemství, kde je uložena hodnota tokenu.
+        de: Schlüssel innerhalb des Secrets, unter dem der Token-Wert hinterlegt ist.
+    webSocket.url:
+      placeholder: "wss://mqtt.hsl.fi:443/"
+      help:
+        en: Web address of the WebSocket server to stream messages from.
+        sk: Webová adresa servera WebSocket, z ktorého sa majú prúdiť správy.
+        cs: Webová adresa serveru WebSocket, ze kterého se mají proudit zprávy.
+        de: Webadresse des WebSocket-Servers, von dem Nachrichten gestreamt werden.
+    webSocket.openMessage:
+      placeholder: '{"action":"subscribe","topic":"stations"}'
+      widget: textarea
+      help:
+        en: Initial message sent to the server immediately after connecting.
+        sk: Úvodná správa odoslaná na server bezprostredne po pripojení.
+        cs: Úvodní zpráva odeslaná na server bezprostředně po připojení.
+        de: Erste Nachricht, die unmittelbar nach dem Verbindungsaufbau an den Server gesendet wird.
+    gtfsRt.url:
+      placeholder: "https://api.digitransit.fi/realtime/vehicle-positions/v2/hsl"
+      help:
+        en: Web address of the remote GTFS-realtime protobuf feed.
+        sk: Webová adresa vzdialeného zdroja protobuf vo formáte GTFS-realtime.
+        cs: Webová adresa vzdáleného zdroje protobuf ve formátu GTFS-realtime.
+        de: Webadresse des externen GTFS-Realtime-Protobuf-Feeds.
+    gtfsRt.feed:
+      help:
+        en: Type of real-time transit information contained in the feed.
+        sk: Typ informácií o verejnej doprave v reálnom čase obsiahnutých v zdroji.
+        cs: Typ informací o veřejné dopravě v reálném čase obsažených ve zdroji.
+        de: Art der im Feed enthaltenen Echtzeit-Verkehrsinformationen.
+    tls.caCertRef.name:
+      placeholder: custom-ca-certs
+      help:
+        en: Name of the secret containing a custom certificate authority file.
+        sk: Názov tajomstva obsahujúceho vlastný certifikát certifikačnej autority.
+        cs: Název tajemství obsahujícího vlastní certifikát certifikační autority.
+        de: Name des Secrets, das eine benutzerdefinierte Zertifizierungsstelle enthält.
+    tls.caCertRef.key:
+      placeholder: ca.crt
+      help:
+        en: Key inside the certificate secret containing the PEM certificate.
+        sk: Kľúč v tajomstve s certifikátom obsahujúci formát PEM.
+        cs: Klíč v tajemství s certifikátem obsahující formát PEM.
+        de: Schlüssel im Zertifikats-Secret, der das PEM-Zertifikat enthält.

@@ -64,23 +64,48 @@ export function BaseInputTemplate(props: WidgetProps): React.JSX.Element {
   // that already holds something is an edit nobody asked for.
   const example = typeof props.placeholder === "string" ? props.placeholder.trim() : "";
   const empty = props.value === undefined || props.value === null || props.value === "";
-  if (example === "" || !empty || props.readonly || props.disabled || isRange) {
+  if (example === "" || props.readonly || props.disabled || isRange) {
     return input;
   }
   const numeric = props.schema.type === "number" || props.schema.type === "integer";
   return (
     <div className="flex items-start gap-1.5">
       <div className="min-w-0 flex-1">{input}</div>
-      <UseExample onUse={() => props.onChange(numeric ? Number(example) : example)} />
+      {/*
+        The action stays in the page for as long as the field has an example, and steps out of
+        sight and out of the accessibility tree once the field holds something. Unmounting it
+        instead moved the input into a different parent on the first keystroke, React built a new
+        one, and the person lost the caret after one character — measured on the endpoint form on
+        2026-09-19 (T-2251).
+      */}
+      <UseExample
+        available={empty}
+        onUse={() => props.onChange(numeric ? Number(example) : example)}
+      />
     </div>
   );
 }
 
 /** The one action that writes a field's example into it (T-1604). */
-function UseExample({ onUse }: { onUse: () => void }): React.JSX.Element {
+function UseExample({
+  onUse,
+  available,
+}: {
+  onUse: () => void;
+  available: boolean;
+}): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <Button type="button" variant="secondary" size="sm" onClick={onUse} className="shrink-0">
+    <Button
+      type="button"
+      variant="secondary"
+      size="sm"
+      onClick={onUse}
+      disabled={!available}
+      aria-hidden={available ? undefined : true}
+      tabIndex={available ? undefined : -1}
+      className={clsx("shrink-0", !available && "invisible")}
+    >
       {t("form.useExample")}
     </Button>
   );

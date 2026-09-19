@@ -59,8 +59,8 @@ interface Create {
   sentence: (name: string) => string;
   /** The page the request must land on. */
   route: RegExp;
-  /** What the form must already hold, by the label a person reads. */
-  filled: (name: string) => [RegExp | string, string][];
+  /** Another field the sentence named, by the label a person reads, and what it must hold. */
+  filled?: (name: string) => [RegExp | string, string][];
   /** A value the change's plan must still carry, beyond the name. */
   carries?: string;
   /**
@@ -79,7 +79,6 @@ const CREATES: Create[] = [
     what: "a context space",
     sentence: (name) => `Create a context space called ${name} in the helsinki project`,
     route: /\/projects\/helsinki\/spaces/,
-    filled: (name) => [[/^Name/, name]],
   },
   {
     what: "a data source",
@@ -90,7 +89,6 @@ const CREATES: Create[] = [
     sentence: (name) =>
       `Add an HTTP data source called ${name} that reads https://www.hel.fi/en/news/rss`,
     route: /\/projects\/helsinki\/datasources/,
-    filled: (name) => [["Name", name]],
     carries: "hel.fi/en/news/rss",
   },
   {
@@ -104,14 +102,12 @@ const CREATES: Create[] = [
     sentence: (name) =>
       `Create a pipeline called ${name} that reads the hsl-citybikes-gbfs-info data source every 15 minutes and writes into the helsinki space through the helsinki-all endpoint`,
     route: /\/projects\/helsinki\/pipelines/,
-    filled: (name) => [[/^(Name|Pipeline)/, name]],
     handOver: "the mapping is finished in the editor, with its own test (PF-57)",
   },
   {
     what: "a dashboard",
     sentence: (name) => `Make a dashboard called ${name} showing the bikes of the helsinki space`,
     route: /\/projects\/helsinki\/dashboards/,
-    filled: (name) => [[/^(Name|Title)/, name]],
   },
 ];
 
@@ -136,8 +132,14 @@ for (const create of CREATES) {
       });
 
       // What the sentence said is already in the form: an assistant that navigated and filled
-      // nothing would leave the person to type it all again (AG-45).
-      for (const [label, value] of create.filled(name)) {
+      // nothing would leave the person to type it all again (AG-45). The name is read by its id,
+      // not by its label: each kind labels it differently — a Pipeline's name field is labelled
+      // "Pipeline" — and a label matched loosely found a heading instead of an input (2026-09-19).
+      await expect(form.locator("#root_name"), "the name is filled").toHaveValue(
+        new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+        { timeout: 60_000 },
+      );
+      for (const [label, value] of create.filled?.(name) ?? []) {
         await expect(form.getByLabel(label).first(), `${label} is filled`).toHaveValue(
           new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
           { timeout: 60_000 },

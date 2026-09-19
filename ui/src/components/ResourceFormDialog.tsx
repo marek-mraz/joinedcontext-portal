@@ -7,8 +7,9 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { errorMessageKey, SchemaForm } from "./forms/SchemaForm";
 import type { JsonSchema, UiSchema } from "./forms/types";
 import { portalThemeWidgets } from "./forms/theme";
-import { arrange, index } from "./forms/uischema";
+import { arrange, index, paths } from "./forms/uischema";
 import { portalWidgets } from "./forms/widgets";
+import { shippedForms } from "../schemas/forms";
 import { api, ApiError, queryKeys, unwrap } from "../api/client";
 import { Alert, Badge, Button, Dialog, DialogClose } from "./ui";
 import type { DialogSize } from "./ui";
@@ -175,24 +176,40 @@ export function ResourceFormDialog<T>({
       unwrap(await api.PUT("/api/v1/preferences", { body: { ...(preferences.data ?? {}), advancedMode: next } })),
   });
 
+  // The fields the manifest may arrange, as one string: a page that rebuilds its schema object on
+  // every render would otherwise hand the form a new arrangement on every keystroke, and RJSF
+  // rebuilds the input the person is typing into (endpoint_form.test.tsx typed one character).
+  const arrangeable = paths(schema).join("\u0000");
   const arranged = useMemo(() => {
-    if (!kind || !forms.data) {
+    if (!kind) {
       return undefined;
     }
-    const indexed = index(forms.data.items ?? []);
+    // The arrangements the UI ships first, the configuration repository's after them: an
+    // organization that writes help for one field keeps the shipped help on the others (UI-02).
+    // The shipped ones arrange the form from the first paint, so the fields do not rearrange
+    // themselves under the hands of someone who started typing at once.
+    const indexed = index([...shippedForms, ...(forms.data?.items ?? [])]);
     const manifest = indexed.forms[kind];
+    // What a manifest asked for and this form cannot do is worth saying, but not before the
+    // request has answered: the organization's own manifest is not in hand yet, and a complaint
+    // about a field it arranges would appear and disappear again.
+    const answered = !forms.isPending;
     if (!manifest) {
-      return { uiSchema: undefined, problems: indexed.problems, advancedFields: false };
+      return { uiSchema: undefined, problems: answered ? indexed.problems : [], advancedFields: false };
     }
     const result = arrange(manifest, {
       locale: i18n.language,
-      properties: Object.keys(schema.properties ?? {}),
+      properties: arrangeable ? arrangeable.split("\u0000") : [],
       widgets: [...Object.keys(portalThemeWidgets), ...Object.keys(portalWidgets)],
       advanced,
     });
     const advancedFields = Object.values(manifest.spec.fields ?? {}).some((field) => field.advanced === true);
-    return { uiSchema: result.uiSchema, problems: [...indexed.problems, ...result.problems], advancedFields };
-  }, [kind, forms.data, schema, i18n.language, advanced]);
+    return {
+      uiSchema: result.uiSchema,
+      problems: answered ? [...indexed.problems, ...result.problems] : [],
+      advancedFields,
+    };
+  }, [kind, forms.data, forms.isPending, arrangeable, i18n.language, advanced]);
 
   // The manifest arranges what it names; the caller's literal still covers what a manifest
   // cannot know, such as a name that is read-only once the resource exists.
