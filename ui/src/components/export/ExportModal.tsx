@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import * as Dialog from "@radix-ui/react-dialog";
 import { api, ApiError, unwrap } from "../../api/client";
-import { Button, buttonClass, Select } from "../ui";
+import { Button, Select } from "../ui";
 
 export type ExportFormat = "yaml" | "json" | "zip";
 
@@ -17,8 +17,12 @@ export interface ExportTarget {
 
 /**
  * The download URL of one export. Built here rather than in the page so the modal, the tests and
- * any future caller agree on it; it is a plain `GET`, which is what makes the download a link the
- * browser can follow instead of a fetch the SPA has to buffer.
+ * any future caller agree on it.
+ *
+ * It is fetched rather than followed as a link: a link hands the browser whatever comes back, so a
+ * 403 or a 500 was saved as the export and the dialog closed on top of it (MF-16, T-1487).
+ * ponytail: the archive is buffered in the browser; stream to disk when an export passes about
+ * 100 MB.
  */
 export function exportUrl(
   project: string,
@@ -37,6 +41,22 @@ export function exportUrl(
     query.set("revision", revision);
   }
   return `/api/v1/projects/${encodeURIComponent(project)}/export?${query.toString()}`;
+}
+
+/** The name the server gave the file, or the one this selection would have. */
+function filenameOf(
+  answer: Response,
+  project: string,
+  format: ExportFormat,
+  target: ExportTarget,
+): string {
+  const disposition = answer.headers.get("content-disposition") ?? "";
+  const quoted = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  if (quoted?.[1]) {
+    return decodeURIComponent(quoted[1]);
+  }
+  const extension = format === "zip" ? "zip" : format;
+  return `${target.name ?? target.plural ?? project}.${extension}`;
 }
 
 /**
@@ -63,6 +83,41 @@ export function ExportModal({
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
   const [format, setFormat] = useState<ExportFormat>(target.name ? "yaml" : "zip");
   const [revision, setRevision] = useState<string>("");
+  const [refused, setRefused] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+
+  /** Fetch it, check the answer, then save it: a refusal keeps the dialog open with the reason. */
+  async function download() {
+    setRefused(null);
+    setPreparing(true);
+    try {
+      const url = exportUrl(project, format, target, revision || undefined);
+      const answer = await fetch(url, { credentials: "same-origin" });
+      if (!answer.ok) {
+        let reason = answer.statusText || `HTTP ${answer.status}`;
+        try {
+          const problem = (await answer.json()) as { detail?: string; title?: string };
+          reason = problem.detail ?? problem.title ?? reason;
+        } catch {
+          // Not a problem document: the status is the whole of what the server said.
+        }
+        setRefused(reason);
+        return;
+      }
+      const blob = await answer.blob();
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = filenameOf(answer, project, format, target);
+      link.click();
+      URL.revokeObjectURL(href);
+      onOpenChange(false);
+    } catch (error) {
+      setRefused(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPreparing(false);
+    }
+  }
 
   const revisions = useQuery({
     queryKey: ["revisions", project],
@@ -159,6 +214,11 @@ export function ExportModal({
           ) : null}
 
           <p className="mt-4 text-xs text-surface-fg/60">{t("export.secretsNote")}</p>
+          {refused ? (
+            <p role="alert" className="mt-2 text-caption text-danger">
+              {t("export.refused", { reason: refused })}
+            </p>
+          ) : null}
 
           <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
             <Dialog.Close asChild>
@@ -166,14 +226,15 @@ export function ExportModal({
                 {t("form.cancel")}
               </Button>
             </Dialog.Close>
-            <a
-              href={exportUrl(project, format, target, revision || undefined)}
-              download
-              onClick={() => onOpenChange(false)}
-              className={buttonClass("primary", "md")}
+            <Button
+              size="md"
+              disabled={preparing}
+              onClick={() => {
+                void download();
+              }}
             >
-              {t("export.download")}
-            </a>
+              {preparing ? t("export.preparing") : t("export.download")}
+            </Button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

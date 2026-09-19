@@ -4,7 +4,7 @@ import type { WidgetProps } from "@rjsf/utils";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
-import { api, queryKeys, unwrap } from "../../../api/client";
+import { ApiError, api, queryKeys, unwrap } from "../../../api/client";
 import { asManifests, localized } from "../../../api/manifest";
 
 /**
@@ -45,13 +45,24 @@ export function ResourcePicker(props: WidgetProps): JSX.Element {
     [query.data, i18n.language],
   );
 
+  // A list that could not be asked for is not an empty project (UI-44, T-1486): a 403 or a 500
+  // read as "No results" in every form that picks a resource, so nobody could tell the difference.
+  const failed = query.isError;
+  const reason =
+    query.error instanceof ApiError
+      ? (query.error.problem?.detail ?? query.error.message)
+      : query.error instanceof Error
+        ? query.error.message
+        : "";
   const empty = query.isLoading
     ? t("app.loading")
-    : choices.length === 0
+    : failed
       ? t("form.noResults")
-      : t("form.choose");
+      : choices.length === 0
+        ? t("form.noResults")
+        : t("form.choose");
 
-  return (
+  const select = (
     <select
       id={id}
       required={required}
@@ -75,5 +86,26 @@ export function ResourcePicker(props: WidgetProps): JSX.Element {
         </option>
       ))}
     </select>
+  );
+
+  if (!failed) {
+    return select;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {select}
+      <p id={`${id}-error`} role="alert" className="text-caption text-danger">
+        {t("form.listFailed", { reason })}{" "}
+        <button
+          type="button"
+          className="underline hover:no-underline"
+          onClick={() => {
+            void query.refetch();
+          }}
+        >
+          {t("form.listRetry")}
+        </button>
+      </p>
+    </div>
   );
 }

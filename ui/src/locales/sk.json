@@ -54,6 +54,8 @@
     "choose": "Vyberte…",
     "useExample": "Použiť príklad",
     "noResults": "Žiadne výsledky",
+    "listFailed": "Zoznam sa nepodarilo načítať: {reason}",
+    "listRetry": "Skúsiť znova",
     "errors": "{count, plural, =0 {Bez chýb} one {# chyba} few {# chyby} other {# chýb}}",
     "type": "Nesprávny typ hodnoty",
     "minLength": "Hodnota je príliš krátka",
@@ -946,6 +948,8 @@
     "currentRevision": "Aktuálna",
     "noHistory": "História nie je dostupná; aktuálnu revíziu si stiahnuť môžete.",
     "noForge": "Nie je nastavený repozitár, takže nie je čo stiahnuť.",
+    "refused": "Stiahnutie bolo odmietnuté: {reason}",
+    "preparing": "Pripravuje sa stiahnutie…",
     "secretsNote": "Hodnoty tajomstiev nie sú nikdy súčasťou stiahnutého súboru; odkazy na ne áno.",
     "download": "Stiahnuť"
   },

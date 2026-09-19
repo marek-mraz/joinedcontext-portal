@@ -55,7 +55,12 @@ interface DraftLine {
  * (PF-58), so this is where the work is before anybody decides.
  */
 async function draftInCopy(page: Page): Promise<DraftLine | undefined> {
-  const answer = await page.request.get(`/api/v1/projects/${PROJECT}/drafts`);
+  // The copy's own drafts, which are a different set from the project's: without `?workspace=` the
+  // route answers the drafts outside every copy, and the assistant's work would look missing
+  // (CC-76, T-2267). The UI sends the same parameter through its workspace middleware.
+  const answer = await page.request.get(
+    `/api/v1/projects/${PROJECT}/drafts?workspace=${encodeURIComponent(COPY)}`,
+  );
   expect(answer.ok(), `listing the drafts: ${answer.status()}`).toBe(true);
   const body = (await answer.json()) as { items?: DraftLine[] };
   return (body.items ?? []).find(

@@ -54,6 +54,8 @@
     "choose": "Choose…",
     "useExample": "Use the example",
     "noResults": "No results",
+    "listFailed": "The list could not be loaded: {reason}",
+    "listRetry": "Try again",
     "errors": "{count, plural, =0 {No errors} one {# error} other {# errors}}",
     "type": "Invalid type",
     "minLength": "Value is too short",
@@ -946,6 +948,8 @@
     "currentRevision": "Current",
     "noHistory": "The history is not available; the current revision is still downloadable.",
     "noForge": "No repository is configured, so there is nothing to download.",
+    "refused": "The download was refused: {reason}",
+    "preparing": "Preparing the download…",
     "secretsNote": "Secret values are never part of a download; references to them are.",
     "download": "Download"
   },

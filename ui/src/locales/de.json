@@ -54,6 +54,8 @@
     "choose": "Auswählen…",
     "useExample": "Beispiel übernehmen",
     "noResults": "Keine Ergebnisse",
+    "listFailed": "Die Liste konnte nicht geladen werden: {reason}",
+    "listRetry": "Erneut versuchen",
     "errors": "{count, plural, =0 {Keine Fehler} one {# Fehler} other {# Fehler}}",
     "type": "Ungültiger Typ",
     "minLength": "Der Wert ist zu kurz",
@@ -946,6 +948,8 @@
     "currentRevision": "Aktuell",
     "noHistory": "Die Historie ist nicht verfügbar; die aktuelle Revision können Sie laden.",
     "noForge": "Kein Repository konfiguriert, es gibt nichts herunterzuladen.",
+    "refused": "Der Download wurde abgelehnt: {reason}",
+    "preparing": "Der Download wird vorbereitet…",
     "secretsNote": "Geheimniswerte sind nie Teil eines Downloads, Verweise darauf schon.",
     "download": "Herunterladen"
   },
