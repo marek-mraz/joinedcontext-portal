@@ -170,6 +170,12 @@ function proposals(fetchMock: ReturnType<typeof vi.fn>): Request[] {
   return writes(fetchMock).filter((request) => !new URL(request.url).searchParams.has("dryRun"));
 }
 
+/** The row's actions live behind its one menu now (T-2287): open it and hand back the item. */
+async function rowMenuItem(row: HTMLElement, name: string | RegExp) {
+  await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+  return screen.findByRole("menuitem", { name });
+}
+
 describe("endpoints view", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
@@ -199,14 +205,51 @@ describe("endpoints view", () => {
       grants: [{ role: "viewer", binding: "viewers", rule: { kinds: ["Endpoint"], verbs: ["read"] } }],
     });
 
+    const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: en.endpoints.edit })[0]).toBeDisabled();
+      expect(within(row).getByRole("button", { name: /More actions/ })).toBeInTheDocument();
     });
-    expect(screen.getAllByRole("button", { name: en.endpoints.edit })[0].parentElement).toHaveAttribute(
+    // Disabled with the reason inside the menu: a role too narrow has to be readable, not absent.
+    const edit = await rowMenuItem(row, new RegExp(en.endpoints.edit));
+    expect(edit).toHaveAttribute("aria-disabled", "true");
+    expect(edit).toHaveAttribute(
       "title",
       "Disabled: your role does not permit 'propose' on 'Endpoint' in this project",
     );
-    expect(screen.getAllByRole("button", { name: /Delete/ })[0]).toBeDisabled();
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /Delete/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("keeps one control in the open and the rest in the row's menu (T-2287)", async () => {
+    renderEndpoints();
+
+    const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
+    // What it answers stays out, because that is why a person opens this table; the menu button is
+    // the only other control in the cell.
+    const cell = row.lastElementChild as HTMLElement;
+    const open = within(cell).getAllByRole("button");
+    expect(open.map((button) => button.textContent)).toEqual([en.endpoints.data.action, "\u22ef"]);
+
+    await userEvent.click(within(cell).getByRole("button", { name: /More actions/ }));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      en.endpoints.edit,
+      en.endpoints.copyUrl,
+      en.export.action,
+      en.saveAs.button,
+      en.workspaces.open.action,
+      en.resourceDelete.button,
+    ]);
+
+    // Escape closes it and the focus comes back to the button that opened it.
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+    expect(within(cell).getByRole("button", { name: /More actions/ })).toHaveFocus();
   });
 
   it("shows the audience and every enabled representation of an endpoint", async () => {
@@ -229,10 +272,9 @@ describe("endpoints view", () => {
     renderEndpoints();
 
     const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.copyUrl }));
+    await userEvent.click(await rowMenuItem(row, en.endpoints.copyUrl));
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/api/endpoint/${SLUG}`);
-    expect(await within(row).findByRole("button", { name: en.endpoints.copied })).toBeInTheDocument();
   });
 
   it("shows read-only slug and public URL for a new endpoint", async () => {
@@ -250,7 +292,7 @@ describe("endpoints view", () => {
     const fetchMock = renderEndpoints();
 
     const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.edit }));
+    await userEvent.click(await rowMenuItem(row, en.endpoints.edit));
 
     const dialog = await screen.findByRole("dialog");
     // The person reads what a representation is; the manifest keeps the contract's word.
@@ -373,7 +415,7 @@ describe("endpoints view", () => {
     const fetchMock = renderEndpoints();
 
     const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.edit }));
+    await userEvent.click(await rowMenuItem(row, en.endpoints.edit));
 
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
@@ -530,7 +572,7 @@ describe("what an endpoint answers", () => {
   it("puts the same grid in the form, under what the endpoint publishes", async () => {
     renderEndpoints();
     const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.edit }));
+    await userEvent.click(await rowMenuItem(row, en.endpoints.edit));
 
     const dialog = await screen.findByRole("dialog");
     // Folded until a person asks for it: the form is long enough already.

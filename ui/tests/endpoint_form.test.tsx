@@ -472,7 +472,9 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
 
   it("checks and proposes an existing endpoint alone, with the projection it names and no class ticked (T-0763)", async () => {
     const fetchMock = setupTest(EXISTING);
-    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.edit }));
+    // The row's actions are behind its one menu now (T-2287).
+    await userEvent.click(await screen.findByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.endpoints.edit }));
     const dialog = await screen.findByRole("dialog");
 
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
@@ -494,7 +496,9 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     const stored = EXISTING.items[0];
     const limited = { ...stored, spec: { ...stored.spec, rateLimits: { requestsPerMinute: 600, burst: 50 } } };
     const fetchMock = setupTest({ ...EXISTING, items: [limited] });
-    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.edit }));
+    // The row's actions are behind its one menu now (T-2287).
+    await userEvent.click(await screen.findByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.endpoints.edit }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("tab", { name: "YAML" }));
     const editor = await within(dialog).findByLabelText("YAML");
@@ -523,7 +527,9 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
   it("keeps the minted slug when the YAML view names another one", async () => {
     const stored = EXISTING.items[0];
     const fetchMock = setupTest(EXISTING);
-    await userEvent.click(await screen.findByRole("button", { name: en.endpoints.edit }));
+    // The row's actions are behind its one menu now (T-2287).
+    await userEvent.click(await screen.findByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.endpoints.edit }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("tab", { name: "YAML" }));
     const editor = await within(dialog).findByLabelText("YAML");

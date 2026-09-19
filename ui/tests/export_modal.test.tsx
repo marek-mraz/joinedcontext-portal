@@ -181,7 +181,9 @@ describe("export modal", () => {
     const fetchMock = renderEndpoints();
 
     const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.export.action }));
+    // The row's actions are behind its one menu now (T-2287).
+    await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.export.action }));
 
     expect(await downloaded(fetchMock)).toBe(
       "/api/v1/projects/banskabystrica/export?format=yaml&kinds=endpoints&names=public-air",

@@ -26,6 +26,7 @@ import {
   endpointUrl,
 } from "../../components/endpoints/links";
 import { spaceOf } from "../../components/endpoints/sharing";
+import { CopyUrlButton } from "../../routes/EndpointsPage";
 import { Alert, Badge, Button, Field, Input, PageHeader, SourceLink } from "../../components/ui";
 
 /**
@@ -261,15 +262,9 @@ export function EndpointPage({
             {slug ? (
               <div className="flex flex-wrap items-center gap-2">
                 <code className="break-all font-mono text-caption">{endpointUrl(slug, "")}</code>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    void navigator.clipboard?.writeText(endpointUrl(slug, "")).catch(() => undefined);
-                  }}
-                >
-                  {t("endpoints.copyUrl")}
-                </Button>
+                {/* The one copy control that confirms it copied; the row's menu item cannot, because
+                    the menu closes on select (T-2287). */}
+                <CopyUrlButton slug={slug} />
               </div>
             ) : (
               <Missing />

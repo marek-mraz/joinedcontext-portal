@@ -17,6 +17,10 @@ import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { ResourceList } from "../components/ResourceList";
 import { DeleteResourceAction } from "../components/DeleteResourceDialog";
+import type { ResourceTarget } from "../components/DeleteResourceDialog";
+import { RowActions } from "../components/ui/RowActions";
+import type { RowAction } from "../components/ui/RowActions";
+import { usePermissions } from "../api/permissions";
 import { SaveAsResourceAction } from "../components/SaveAsDialog";
 import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
 import { ExportButton } from "../components/export/ExportButton";
@@ -174,7 +178,7 @@ function isLive(endpoint: Manifest | null): boolean {
   return (endpoint?.status?.phase ?? "").toLowerCase() === "live";
 }
 
-function CopyUrlButton({ slug }: { slug: string }): JSX.Element {
+export function CopyUrlButton({ slug }: { slug: string }): JSX.Element {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const url = endpointUrl(slug, "");
@@ -205,6 +209,120 @@ function withoutAllowedProjects(schema: JsonSchema): JsonSchema {
     Object.entries(schema.properties ?? {}).filter(([key]) => key !== "allowedProjects"),
   );
   return { ...schema, properties };
+}
+
+/**
+ * The actions of one endpoint row (T-2287, UI-26, UI-44).
+ *
+ * The cell used to paint eight controls side by side — explore, copy, export, edit, save as, work on a
+ * copy, delete and the source — which is what the owner counted. What it answers stays in the open,
+ * because that is why a person opens this table; the rest is behind the one `⋯` menu, and every dialog
+ * is rendered beside the menu, never inside it (Radix unmounts the menu's content when it closes).
+ */
+function EndpointRowActions({
+  project,
+  endpoint,
+  label,
+  onEdit,
+  onExplore,
+}: {
+  project: string;
+  endpoint: Manifest;
+  label: string;
+  onEdit: () => void;
+  /** Absent while the endpoint has no slug: there is nothing to read yet. */
+  onExplore?: () => void;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const permissions = usePermissions(project);
+  const [openAction, setOpenAction] = useState<"export" | "saveAs" | "copy" | "delete" | null>(null);
+  const name = endpoint.metadata.name;
+  const slug = (endpoint.spec as { slug?: string }).slug ?? "";
+  const target: ResourceTarget = { project, kind: "Endpoint", plural: "endpoints", name, label };
+  const denied = (verb: "propose" | "delete") =>
+    permissions.can("Endpoint", verb) ? undefined : t("permissions.denied", { verb, kind: "Endpoint" });
+
+  const actions: RowAction[] = [
+    { key: "edit", label: t("endpoints.edit"), onSelect: onEdit, disabledReason: denied("propose") },
+    ...(slug
+      ? [
+          {
+            key: "copyUrl",
+            label: t("endpoints.copyUrl"),
+            onSelect: () => {
+              void navigator.clipboard?.writeText(endpointUrl(slug, "")).catch(() => undefined);
+            },
+          },
+        ]
+      : []),
+    { key: "export", label: t("export.action"), onSelect: () => setOpenAction("export") },
+    {
+      key: "saveAs",
+      label: t("saveAs.button"),
+      onSelect: () => setOpenAction("saveAs"),
+      disabledReason: denied("propose"),
+    },
+    { key: "copy", label: t("workspaces.open.action"), onSelect: () => setOpenAction("copy") },
+    {
+      key: "delete",
+      label: t("resourceDelete.button"),
+      tone: "danger",
+      onSelect: () => setOpenAction("delete"),
+      disabledReason: denied("delete"),
+    },
+  ];
+
+  return (
+    <>
+      <RowActions
+        label={label}
+        actions={actions}
+        primary={
+          onExplore ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!isLive(endpoint)}
+              title={isLive(endpoint) ? undefined : t("endpoints.data.notLive")}
+              onClick={onExplore}
+            >
+              {t("endpoints.data.action")}
+            </Button>
+          ) : undefined
+        }
+      />
+      <ExportButton
+        project={project}
+        target={{ plural: "endpoints", name }}
+        label={t("export.action")}
+        trigger={false}
+        open={openAction === "export"}
+        onOpenChange={(next) => setOpenAction(next ? "export" : null)}
+      />
+      <SaveAsResourceAction
+        target={target}
+        trigger={false}
+        open={openAction === "saveAs"}
+        onOpenChange={(next) => setOpenAction(next ? "saveAs" : null)}
+      />
+      <WorkOnCopyAction
+        project={project}
+        scope={{ kind: "resources", items: [{ kind: "Endpoint", name }] }}
+        trigger={false}
+        open={openAction === "copy"}
+        onOpenChange={(next) => setOpenAction(next ? "copy" : null)}
+      />
+      <DeleteResourceAction
+        target={target}
+        trigger={false}
+        open={openAction === "delete"}
+        onOpenChange={(next) => setOpenAction(next ? "delete" : null)}
+      />
+      {endpoint.status?.sourceUrl ? (
+        <SourceLink href={endpoint.status.sourceUrl} label={t("spaces.field.source")} />
+      ) : null}
+    </>
+  );
 }
 
 /** Endpoints of one project: who may call them, in which representations, and their public URL. */
@@ -868,54 +986,23 @@ export function EndpointsPage({ project, edit }: { project: string; edit?: strin
                 <LifecycleBadge kind="phase" value={endpoint.status?.phase} />
               </TableCell>
               <TableCell align="right">
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  {/* What it answers, two clicks from the list (UI-69). Only a Live endpoint
-                      answers at all, and one that is not says so rather than opening an empty
-                      grid. */}
-                  {spec.slug ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={!isLive(endpoint)}
-                      title={isLive(endpoint) ? undefined : t("endpoints.data.notLive")}
-                      onClick={() =>
-                        setDataView({
-                          slug: spec.slug as string,
-                          name: endpoint.metadata.name,
-                          hidden: hiddenOf(endpoint),
-                          space: spaceOf(endpoint),
-                        })
-                      }
-                    >
-                      {t("endpoints.data.action")}
-                    </Button>
-                  ) : null}
-                  {spec.slug ? <CopyUrlButton slug={spec.slug} /> : null}
-                  <ExportButton
-                    project={project}
-                    target={{ plural: "endpoints", name: endpoint.metadata.name }}
-                    label={t("export.action")}
-                    size="sm"
-                  />
-                  <PermissionGuard project={project} kind="Endpoint" verb="propose">
-                    <Button size="sm" onClick={() => openEditor(endpoint)}>
-                      {t("endpoints.edit")}
-                    </Button>
-                  </PermissionGuard>
-                  <SaveAsResourceAction
-                    target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
-                  />
-                  <WorkOnCopyAction
-                    project={project}
-                    scope={{ kind: "resources", items: [{ kind: "Endpoint", name: endpoint.metadata.name }] }}
-                  />
-                  <DeleteResourceAction
-                    target={{ project, kind: "Endpoint", plural: "endpoints", name: endpoint.metadata.name }}
-                  />
-                  {endpoint.status?.sourceUrl ? (
-                    <SourceLink href={endpoint.status.sourceUrl} label={t("spaces.field.source")} />
-                  ) : null}
-                </div>
+                <EndpointRowActions
+                  project={project}
+                  endpoint={endpoint}
+                  label={localized(endpoint.metadata.title, locale, endpoint.metadata.name)}
+                  onEdit={() => openEditor(endpoint)}
+                  onExplore={
+                    spec.slug
+                      ? () =>
+                          setDataView({
+                            slug: spec.slug as string,
+                            name: endpoint.metadata.name,
+                            hidden: hiddenOf(endpoint),
+                            space: spaceOf(endpoint),
+                          })
+                      : undefined
+                  }
+                />
               </TableCell>
             </TableRow>
           );

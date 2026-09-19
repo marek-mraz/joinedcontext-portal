@@ -154,7 +154,9 @@ function writes(fetchMock: ReturnType<typeof vi.fn>): Request[] {
 
 async function openEditor() {
   const row = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
-  await userEvent.click(within(row).getByRole("button", { name: en.endpoints.edit }));
+  // The row's actions are behind its one menu now (T-2287).
+  await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: en.endpoints.edit }));
   return screen.findByRole("dialog");
 }
 

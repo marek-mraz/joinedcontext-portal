@@ -13,6 +13,9 @@ export function ExportButton({
   className,
   variant = "secondary",
   size = "md",
+  open: openedByRow,
+  onOpenChange,
+  trigger = true,
 }: {
   project: string;
   target: ExportTarget;
@@ -20,13 +23,21 @@ export function ExportButton({
   className?: string;
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /** The row holds the state when the export lives in its menu (T-2279, T-2287). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: boolean;
 }): JSX.Element {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openedByRow ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   return (
     <>
-      <Button variant={variant} size={size} className={className} onClick={() => setOpen(true)}>
-        {label}
-      </Button>
+      {trigger ? (
+        <Button variant={variant} size={size} className={className} onClick={() => setOpen(true)}>
+          {label}
+        </Button>
+      ) : null}
       <ExportModal project={project} target={target} open={open} onOpenChange={setOpen} />
     </>
   );

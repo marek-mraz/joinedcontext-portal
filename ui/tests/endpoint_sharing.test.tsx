@@ -164,7 +164,9 @@ describe("endpoint sharing", () => {
     const fetchMock = renderAt("/projects/helsinki/endpoints");
 
     const row = (await screen.findByText("bikes")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: en.endpoints.edit }));
+    // The row's actions are behind its one menu now (T-2287).
+    await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.endpoints.edit }));
     const dialog = await screen.findByRole("dialog");
 
     // A checkbox per other project, the one the manifest lists already ticked; no free text.
