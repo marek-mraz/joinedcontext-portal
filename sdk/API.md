@@ -164,6 +164,8 @@ function terraDrawEngine(): Promise<DrawEngine>                  // the default,
 const GEOMETRY_TYPES = ["Point","LineString","Polygon","MultiPoint","MultiLineString","MultiPolygon"]
 const MAX_VERTICES = 10000
 const DRAW_MODES: DrawMode[]
+const DEFAULT_GEO_LABELS: GeoLabels   // every visible string, overridden per key via `labels`
+const MAX_GEOJSON_BYTES = 1000000     // a paste or an upload larger than this is refused unparsed
 ```
 `GeoView` draws a geometry, a Feature or a list of them on the kit's base map and fits to it once;
 `selectedId` thickens one shape and `onSelect` reports a click. `GeoEditor` is the same map with a

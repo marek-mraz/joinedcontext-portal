@@ -45,6 +45,54 @@ export const DRAW_MODES: DrawMode[] = [
   { name: "freehand", produces: "Polygon", label: "Freehand" },
 ];
 
+/** Every string this editor puts on screen, so a host translates it without forking the file. */
+export interface GeoLabels {
+  tools: string;
+  select: string;
+  undo: string;
+  redo: string;
+  remove: string;
+  removeShape: string;
+  point: string;
+  longitude: string;
+  latitude: string;
+  noGeometry: string;
+  paste: string;
+  take: string;
+  upload: string;
+  notJson: string;
+  tooLarge: string;
+  modes: Record<string, string>;
+}
+
+/** English, which is what a host that passes no labels gets. */
+export const DEFAULT_GEO_LABELS: GeoLabels = {
+  tools: "Drawing tools",
+  select: "Select",
+  undo: "Undo",
+  redo: "Redo",
+  remove: "Remove",
+  removeShape: "Delete the shape",
+  point: "Point",
+  longitude: "Longitude",
+  latitude: "Latitude",
+  noGeometry: "No geometry",
+  paste: "Paste a geometry, a Feature or a FeatureCollection",
+  take: "Take it",
+  upload: "Upload a GeoJSON file",
+  notJson: "that is not JSON",
+  tooLarge: "that file is larger than 1 MB",
+  modes: { point: "Point", linestring: "Line", polygon: "Area", rectangle: "Rectangle", circle: "Circle", freehand: "Freehand" },
+};
+
+/**
+ * The most GeoJSON this editor will parse (SDK-29 security line). A geometry of `MAX_VERTICES`
+ * positions is about 300 kB of text; a megabyte is a whole country's boundaries pasted in, and
+ * `JSON.parse` of an arbitrarily large string is the one denial of service a person can cause here
+ * by accident. It is parsed as data and never evaluated, and no URL of any kind is read out of it.
+ */
+export const MAX_GEOJSON_BYTES = 1_000_000;
+
 /** The modes a host may offer for a type, which is what the toolbar is built from. */
 export function modesFor(allowed: readonly GeometryType[]): DrawMode[] {
   return DRAW_MODES.filter((mode) => allowed.includes(mode.produces));
@@ -107,8 +155,8 @@ export function withoutPosition(geometry: Geometry, at: number[]): Geometry {
 }
 
 /** The label a row carries, so a screen reader says which point of which ring it reads. */
-export function rowLabel(at: number[]): string {
-  return at.length === 0 ? "Point" : `Point ${at.map((index) => index + 1).join(".")}`;
+export function rowLabel(at: number[], point: string = DEFAULT_GEO_LABELS.point): string {
+  return at.length === 0 ? point : `${point} ${at.map((index) => index + 1).join(".")}`;
 }
 
 interface TerraDrawLike {
@@ -177,6 +225,7 @@ export function GeoEditor({
   snapTo,
   basemap,
   engine,
+  labels,
   label = "Geometry editor",
 }: {
   value: Geometry | null;
@@ -191,6 +240,8 @@ export function GeoEditor({
    * pointer drawing — which is what a test and a server render get.
    */
   engine?: DrawEngine;
+  /** Every visible string, overridden one key at a time; English where a key is left out. */
+  labels?: Partial<GeoLabels>;
   label?: string;
 }): React.JSX.Element {
   const container = useRef<HTMLDivElement>(null);
@@ -203,6 +254,8 @@ export function GeoEditor({
   const modes = useMemo(() => modesFor(allowed), [allowed]);
   const rows = useMemo(() => rowsOf(value), [value]);
   const pasteId = useId();
+  const say = useMemo(() => ({ ...DEFAULT_GEO_LABELS, ...labels, modes: { ...DEFAULT_GEO_LABELS.modes, ...labels?.modes } }), [labels]);
+  const named = (at: number[]): string => rowLabel(at, say.point);
 
   /** One door out of this component: nothing reaches the host unchecked. */
   const emit = (candidate: Geometry | null): void => {
@@ -220,6 +273,8 @@ export function GeoEditor({
 
   const latest = useRef(emit);
   latest.current = emit;
+  const allowedNow = useRef(allowed);
+  allowedNow.current = allowed;
 
   useEffect(() => {
     let gone = false;
@@ -236,6 +291,9 @@ export function GeoEditor({
         canvasContextAttributes: { preserveDrawingBuffer: true },
       });
       map.current = instance;
+      // For a person debugging a screenshot and for the browser check, which needs `project` to
+      // know where a vertex sits on screen: the map instance, as `MapView` also exposes it.
+      (window as unknown as { kitGeoMap?: MapLibreMap }).kitGeoMap = instance;
       instance.on("error", (event) => {
         console.error("kit: map error", event.error?.message ?? event);
       });
@@ -253,8 +311,14 @@ export function GeoEditor({
           drawing.start();
           // A shape finished or moved is a geometry like any other: the same check, the same door.
           const took = (): void => {
-            const snapshot = drawing.getSnapshot();
-            const drawn = snapshot[snapshot.length - 1];
+            // The snapshot is not only the drawn shape: select mode adds a point per vertex and per
+            // midpoint so they can be grabbed, and those are Points whatever is being edited. The
+            // shape is the last feature whose type the host allows — anything else would send a
+            // selection handle to `onChange`, which the check then refuses for the wrong reason.
+            const shapes = drawing
+              .getSnapshot()
+              .filter((feature) => allowedNow.current.includes(feature.geometry?.type));
+            const drawn = shapes[shapes.length - 1];
             if (drawn) {
               latest.current(drawn.geometry);
             }
@@ -303,11 +367,17 @@ export function GeoEditor({
   };
 
   const take = (text: string): void => {
+    // The cap is applied before `JSON.parse`, because the parse is the expensive part: a person who
+    // drops a country's boundaries in gets a sentence, not a frozen tab.
+    if (text.length > MAX_GEOJSON_BYTES) {
+      setFindings([{ path: "", message: say.tooLarge }]);
+      return;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
-      setFindings([{ path: "", message: "that is not JSON" }]);
+      setFindings([{ path: "", message: say.notJson }]);
       return;
     }
     const { geometry, findings: reasons } = geometryOf(parsed, allowed);
@@ -320,7 +390,7 @@ export function GeoEditor({
 
   return (
     <div className="geo-editor">
-      <div className="geo-toolbar" role="toolbar" aria-label="Drawing tools">
+      <div className="geo-toolbar" role="toolbar" aria-label={say.tools}>
         {modes.map((item) => (
           <button
             key={item.name}
@@ -328,17 +398,17 @@ export function GeoEditor({
             aria-pressed={mode === item.name}
             onClick={() => choose(item.name)}
           >
-            {item.label}
+            {say.modes[item.name] ?? item.label}
           </button>
         ))}
         <button type="button" aria-pressed={mode === "select"} onClick={() => choose("select")}>
-          Select
+          {say.select}
         </button>
         <button type="button" onClick={() => draw.current?.undo()}>
-          Undo
+          {say.undo}
         </button>
         <button type="button" onClick={() => draw.current?.redo()}>
-          Redo
+          {say.redo}
         </button>
         <button
           type="button"
@@ -347,7 +417,7 @@ export function GeoEditor({
             emit(null);
           }}
         >
-          Delete the shape
+          {say.removeShape}
         </button>
       </div>
 
@@ -358,27 +428,27 @@ export function GeoEditor({
 
       <table className="geo-coordinates">
         <caption>
-          {value ? `${value.type}, ${rows.length} point${rows.length === 1 ? "" : "s"}` : "No geometry"}
+          {value ? `${value.type}, ${rows.length} × ${say.point}` : say.noGeometry}
         </caption>
         <thead>
           <tr>
-            <th scope="col">Point</th>
-            <th scope="col">Longitude</th>
-            <th scope="col">Latitude</th>
+            <th scope="col">{say.point}</th>
+            <th scope="col">{say.longitude}</th>
+            <th scope="col">{say.latitude}</th>
             <th scope="col">
-              <span className="sr-only">Remove</span>
+              <span className="sr-only">{say.remove}</span>
             </th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={row.at.join(".") || "0"}>
-              <th scope="row">{rowLabel(row.at)}</th>
+              <th scope="row">{named(row.at)}</th>
               <td>
                 <input
                   type="number"
                   step="any"
-                  aria-label={`${rowLabel(row.at)} longitude`}
+                  aria-label={`${named(row.at)} ${say.longitude.toLowerCase()}`}
                   defaultValue={row.position[0]}
                   onBlur={(event) => editPosition(row, 0, event.target.value)}
                 />
@@ -387,7 +457,7 @@ export function GeoEditor({
                 <input
                   type="number"
                   step="any"
-                  aria-label={`${rowLabel(row.at)} latitude`}
+                  aria-label={`${named(row.at)} ${say.latitude.toLowerCase()}`}
                   defaultValue={row.position[1]}
                   onBlur={(event) => editPosition(row, 1, event.target.value)}
                 />
@@ -395,10 +465,10 @@ export function GeoEditor({
               <td>
                 <button
                   type="button"
-                  aria-label={`Remove ${rowLabel(row.at).toLowerCase()}`}
+                  aria-label={`${say.remove} ${named(row.at).toLowerCase()}`}
                   onClick={() => value && emit(withoutPosition(value, row.at))}
                 >
-                  Remove
+                  {say.remove}
                 </button>
               </td>
             </tr>
@@ -406,7 +476,7 @@ export function GeoEditor({
         </tbody>
       </table>
 
-      <label htmlFor={pasteId}>Paste a geometry, a Feature or a FeatureCollection</label>
+      <label htmlFor={pasteId}>{say.paste}</label>
       <textarea
         id={pasteId}
         value={pasted}
@@ -414,16 +484,17 @@ export function GeoEditor({
         rows={3}
       />
       <button type="button" onClick={() => take(pasted)} disabled={pasted.trim() === ""}>
-        Take it
+        {say.take}
       </button>
       <input
         type="file"
         accept=".json,.geojson,application/geo+json,application/json"
-        aria-label="Upload a GeoJSON file"
+        aria-label={say.upload}
         onChange={async (event) => {
           const file = event.target.files?.[0];
           if (file) {
-            take(await file.text());
+            // The same cap before the read, so a huge file is never pulled into memory either.
+            take(file.size > MAX_GEOJSON_BYTES ? " ".repeat(MAX_GEOJSON_BYTES + 1) : await file.text());
           }
         }}
       />

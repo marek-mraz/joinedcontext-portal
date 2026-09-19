@@ -30,7 +30,8 @@ vi.mock("maplibre-gl", () => {
 });
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
 
-const { GeoEditor, modesFor, rowsOf, withPosition, withoutPosition } = await import("../src/geo/GeoEditor");
+const { DEFAULT_GEO_LABELS, GeoEditor, MAX_GEOJSON_BYTES, modesFor, rowsOf, withPosition, withoutPosition } =
+  await import("../src/geo/GeoEditor");
 type Geometry = import("../src/geo/validate").Geometry;
 
 const SQUARE: Geometry = {
@@ -212,6 +213,53 @@ describe("the drawing library", () => {
     expect(drawing.undo).toHaveBeenCalled();
   });
 
+  it("takes the drawn shape and not a selection handle (found by the browser check)", async () => {
+    // Select mode adds a Point per vertex and per midpoint so they can be grabbed. Reading the last
+    // snapshot feature sent one of those to the check, which refused it as "Point is not one of
+    // Polygon here" and dropped every drag on the floor — on the cluster it would look like an
+    // editor that simply does not save.
+    const handlers: Record<string, () => void> = {};
+    const polygon: Geometry = {
+      type: "Polygon",
+      coordinates: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 0],
+        ],
+      ],
+    };
+    const drawing = {
+      start: vi.fn(),
+      stop: vi.fn(),
+      setMode: vi.fn(),
+      addFeatures: vi.fn(),
+      getSnapshot: () => [
+        { geometry: polygon },
+        { geometry: { type: "Point", coordinates: [1, 0] } as Geometry },
+        { geometry: { type: "Point", coordinates: [0.5, 0] } as Geometry },
+      ],
+      clear: vi.fn(),
+      undo: vi.fn(),
+      redo: vi.fn(),
+      on: (event: string, callback: () => void) => {
+        handlers[event] = callback;
+      },
+    };
+    const onChange = vi.fn();
+    render(
+      <GeoEditor value={null} onChange={onChange} allowed={["Polygon"]} engine={{ create: () => drawing }} />,
+    );
+    await waitFor(() => expect(loadHandler).toBeTruthy());
+    loadHandler?.();
+    await waitFor(() => expect(drawing.start).toHaveBeenCalled());
+    handlers.change?.();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect((onChange.mock.calls[0][0] as Geometry).type).toBe("Polygon");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("clears the drawing and the value together when the shape is deleted", async () => {
     const drawing = {
       start: vi.fn(),
@@ -243,5 +291,35 @@ describe("the drawing library", () => {
     fireEvent.change(input, { target: { value: "3" } });
     fireEvent.blur(input);
     expect(onChange).toHaveBeenCalledWith({ type: "Point", coordinates: [3, 2] });
+  });
+});
+
+describe("what a host may change and what it may not", () => {
+  it("puts every visible string through the labels, one key at a time", () => {
+    render(
+      <GeoEditor
+        value={{ type: "Point", coordinates: [1, 2] }}
+        onChange={vi.fn()}
+        allowed={["Point"]}
+        labels={{ tools: "Kresliace nástroje", point: "Bod", longitude: "Zemepisná dĺžka", modes: { point: "Bod" } }}
+      />,
+    );
+    expect(screen.getByRole("toolbar", { name: "Kresliace nástroje" })).toBeTruthy();
+    expect(screen.getByLabelText("Bod zemepisná dĺžka")).toBeTruthy();
+    // A key left out stays English rather than becoming blank.
+    expect(screen.getByRole("button", { name: DEFAULT_GEO_LABELS.undo })).toBeTruthy();
+  });
+
+  it("refuses a paste larger than a megabyte before parsing it (SDK-29)", () => {
+    const onChange = vi.fn();
+    render(<GeoEditor value={null} onChange={onChange} />);
+    const box = screen.getByLabelText(DEFAULT_GEO_LABELS.paste);
+    // Valid JSON, and still refused: the cap is about the size, not the shape.
+    const huge = `{"type":"LineString","coordinates":[${"[1,2],".repeat(MAX_GEOJSON_BYTES / 6)}[1,2]]}`;
+    expect(huge.length).toBeGreaterThan(MAX_GEOJSON_BYTES);
+    fireEvent.change(box, { target: { value: huge } });
+    fireEvent.click(screen.getByRole("button", { name: DEFAULT_GEO_LABELS.take }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(DEFAULT_GEO_LABELS.tooLarge);
   });
 });
