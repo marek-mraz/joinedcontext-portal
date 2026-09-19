@@ -7,6 +7,11 @@ import type { ColumnFilter, FilterColumn } from "./filters";
 import { applyChanges, MAX_ENTITIES } from "./apply";
 import type { Observed, Refusal } from "./apply";
 import { EntityHistory } from "./EntityHistory";
+import { GridMap } from "./GridMap";
+import type { GridMapLabels } from "./GridMap";
+import { mapAttrOf } from "./mapRows";
+import type { DrawEngine, GeoLabels } from "../geo/GeoEditor";
+import type { GeometryType } from "../geo/validate";
 import "./grid.css";
 
 export interface EntityGridProps extends UseEntityGridOptions {
@@ -27,7 +32,19 @@ export interface EntityGridProps extends UseEntityGridOptions {
    * what the other side does not answer (T-1435). Each value is the sentence a person reads on it.
    */
   marks?: { rows?: Record<string, string>; columns?: Record<string, string> };
+  /**
+   * The map beside the rows, where `config.map.enabled` asked for one (UI-72). The drawing library
+   * is injected the way `GeoEditor` takes it, so a host that never draws ships none of it, and the
+   * geometries a type accepts come from the DataModel's range where the space has one.
+   */
+  mapEngine?: DrawEngine;
+  mapAllowed?: readonly GeometryType[];
+  mapLabels?: Partial<GridMapLabels>;
+  geoLabels?: Partial<GeoLabels>;
+  basemap?: string;
   toolbar?: React.ReactNode;
+  /** The bounds the "Draw area" action asks about; the host owns the map's viewport. */
+  mapBounds?: () => [number, number, number, number] | null;
   empty?: React.ReactNode;
   className?: string;
   classNames?: Partial<Record<"root" | "table" | "header" | "row" | "cell" | "pager", string>>;
@@ -40,6 +57,12 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
     onRows,
     marks,
     toolbar,
+    mapEngine,
+    mapAllowed,
+    mapLabels,
+    geoLabels,
+    basemap,
+    mapBounds,
     empty: emptySlot,
     className,
     classNames,
@@ -216,7 +239,14 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
     onRows?.(rows, state.offset);
   }, [rows, state.offset, onRows]);
 
-  const rootClass = `jc-grid${className ? ` ${className}` : ""}${classNames?.root ? ` ${classNames.root}` : ""}`;
+  // The map is a second view of the same page: it is offered only where the config asked for one
+  // AND the rows actually carry a geometry, so a type without one gets no panel and no action.
+  const mapConfig = hookOptions.config.map;
+  const mapAttr = mapConfig?.enabled ? mapAttrOf(rows, mapConfig.attr) : null;
+  const mapPosition = mapConfig?.position ?? "right";
+  const activeRowId = rows[state.activeCell?.row ?? -1]?.id ?? null;
+
+  const rootClass = `jc-grid${className ? ` ${className}` : ""}${classNames?.root ? ` ${classNames.root}` : ""}${mapAttr ? ` jc-grid--map-${mapPosition}` : ""}`;
 
   return (
     <div className={rootClass} data-density={hookOptions.config.density}>
@@ -363,6 +393,34 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
           </tbody>
         </table>
       </div>
+
+      {mapAttr && (
+        <GridMap
+          rows={rows}
+          attr={mapAttr}
+          activeId={activeRowId}
+          onActivate={(id) => {
+            const index = rows.findIndex((row) => row.id === id);
+            if (index >= 0) {
+              // The shape and the row are one selection: clicking a shape moves the grid's active
+              // cell to that row, which is what the keyboard and the screen reader follow.
+              grid.setActive(index, state.activeCell?.col ?? 0);
+            }
+          }}
+          edits={state.edits}
+          onEdit={editing ? setEdit : undefined}
+          mode={editing ? "edit" : "view"}
+          allowed={mapAllowed}
+          area={grid.area}
+          onArea={grid.setArea}
+          boundsNow={mapBounds}
+          labels={mapLabels}
+          basemap={basemap}
+          engine={mapEngine}
+          geoLabels={geoLabels}
+          position={mapPosition}
+        />
+      )}
 
       {!loading && rows.length === 0 && !error && (
         <div className="jc-grid-empty">{emptySlot ?? labels.empty}</div>

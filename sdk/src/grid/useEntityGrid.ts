@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ResolvedGridConfig, GridColumn } from "./config";
+import type { GeoArea } from "./geoarea";
+import { areaQuery } from "./geoarea";
 import type { EntitySource, GridQuery } from "./source";
 import type { RichRow, RichCell } from "./model";
 import { attributesOf, cellText } from "./model";
@@ -156,6 +158,12 @@ export interface EntityGrid {
   pendingChanges: EntityChange[];
   /** The query the filters ask for right now, as the endpoint receives it. */
   askedQuery: { q?: string; idPattern?: string };
+  /** The area drawn on the map, which the filter row cannot hold (UI-72); `null` for none. */
+  area: GeoArea | null;
+  /** Puts the active cell on a row and column outright, for a selection from the map (UI-72). */
+  setActive(row: number, col: number): void;
+  /** Draws the area or removes it; either way the answer starts again at page one. */
+  setArea(area: GeoArea | null): void;
   setOffset(offset: number): void;
   setSort(attr: string): void;
   moveActive(key: string): boolean;
@@ -303,6 +311,9 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
   // Internal state (uncontrolled)
   const [internalOffset, setInternalOffset] = useState(0);
   const [internalActiveCell, setInternalActiveCell] = useState<{ row: number; col: number } | null>(null);
+  // The drawn area is the map's own filter and lives beside the row's: a `GridState` a host stores
+  // holds the typed filters, and an area is a shape a person drew in this session.
+  const [area, setAreaState] = useState<GeoArea | null>(null);
   const [internalSelected] = useState<string[]>([]);
   const [internalShown, setInternalShown] = useState<Record<string, MetaKey[]>>(() => {
     const init: Record<string, MetaKey[]> = {};
@@ -394,7 +405,9 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
           after,
           before: one?.kind === "relationship" ? one.object : one?.value,
           unitCode: one?.unitCode,
-          kind: one?.kind === "relationship" ? "relationship" : "property",
+          // The cell's own kind decides how it is written: a geometry as a GeoProperty, so the
+          // attribute keeps the type the model gave it (UI-72).
+          kind: one?.kind === "relationship" ? "relationship" : one?.kind === "geo" ? "geo" : "property",
         };
       });
       return { id, changes };
@@ -415,6 +428,9 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
       attrs: queryPartial?.attrs ?? config.filters.preset?.attrs,
       idPattern: askedQuery.idPattern ?? queryPartial?.idPattern ?? config.filters.preset?.idPattern,
       scopeQ: queryPartial?.scopeQ ?? config.filters.preset?.scopeQ,
+      // `areaQuery` refuses a shape that is not an area, so a half-drawn one asks for nothing
+      // rather than for everything.
+      area: areaQuery(area) ?? undefined,
     };
 
     source
@@ -430,7 +446,7 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [source, config.type, config.pageSize, config.filters.preset, offset, queryPartial, askedQuery]);
+  }, [source, config.type, config.pageSize, config.filters.preset, offset, queryPartial, askedQuery, area]);
 
   useEffect(() => {
     fetchData();
@@ -535,6 +551,44 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
       }
       if (controlledState?.filters === undefined) {
         setInternalFilters(next);
+      }
+      if (controlledState?.offset === undefined) {
+        setInternalOffset(0);
+      }
+    },
+    [filters, filterText, edits, activeCell, selected, shown, sort, onStateChange, controlledState],
+  );
+
+  /**
+   * Moves the active cell outright, for a selection that came from somewhere other than the keyboard
+   * or a cell click — the map's shapes (UI-72). `moveActive` walks by one key; this puts it where a
+   * caller says, clamped to the page so a stale row index cannot point off it.
+   */
+  const setActive = useCallback(
+    (row: number, col: number) => {
+      const next = {
+        row: Math.max(0, Math.min(row, Math.max(0, sortedRows.length - 1))),
+        col: Math.max(0, Math.min(col, Math.max(0, columns.length - 1))),
+      };
+      if (onStateChange) {
+        onStateChange({ offset, activeCell: next, selected, shown, sort, filters, filterText, edits });
+      }
+      if (controlledState?.activeCell === undefined) {
+        setInternalActiveCell(next);
+      }
+    },
+    [sortedRows.length, columns.length, offset, selected, shown, sort, filters, filterText, edits, onStateChange, controlledState],
+  );
+
+  /**
+   * The drawn area, or `null` to remove it. Like a filter, a new area starts the answer at page one:
+   * the page the person was on is a page of a different question.
+   */
+  const setArea = useCallback(
+    (next: GeoArea | null) => {
+      setAreaState(next);
+      if (onStateChange) {
+        onStateChange({ offset: 0, activeCell, selected, shown, sort, filters, filterText, edits });
       }
       if (controlledState?.offset === undefined) {
         setInternalOffset(0);
@@ -708,6 +762,9 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
     setFilterText,
     filterColumns,
     askedQuery,
+    area,
+    setArea,
+    setActive,
     setEdit,
     clearEdits,
     pendingChanges,

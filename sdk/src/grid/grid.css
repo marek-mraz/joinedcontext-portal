@@ -355,3 +355,61 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* The map beside the rows (UI-72). `right` is a two-column grid on a wide page and one column on a
+   narrow one, so the panel is under the table at 400 px instead of squeezing it to nothing. */
+.jc-grid--map-right {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+  align-items: start;
+}
+
+.jc-grid--map-right > .jc-grid-toolbar,
+.jc-grid--map-right > .jc-grid-pending,
+.jc-grid--map-right > .jc-grid-pager,
+.jc-grid--map-right > .jc-grid-empty,
+.jc-grid--map-right > .jc-grid-loading {
+  grid-column: 1 / -1;
+}
+
+.jc-grid-map {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.jc-grid-map__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.jc-grid-map__title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.jc-grid-map__area,
+.jc-grid-map__summary,
+.jc-grid-map__off,
+.jc-grid-map__note {
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* A map with no height is a map nobody can use; `vh` keeps it usable at zoom 1.5, where a fixed
+   pixel height would push the rows off the screen. */
+.jc-grid-map .maplibregl-map,
+.jc-grid-map [data-jc-map] {
+  min-height: 18rem;
+  height: 40vh;
+}
+
+@media (width <= 900px) {
+  .jc-grid--map-right {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

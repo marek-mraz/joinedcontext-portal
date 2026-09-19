@@ -20,8 +20,13 @@ export interface AttributeChange {
   after: unknown;
   /** What the value is measured in, kept as it was: a number without its unit is another number. */
   unitCode?: string;
-  /** The kind of the attribute, so a Relationship is written as one. */
-  kind?: "property" | "relationship";
+  /**
+   * The kind of the attribute, so a Relationship is written as one — and so a geometry keeps its
+   * own type. Writing an edited geometry as `type: "Property"` would change what the attribute is
+   * at the broker, turning a GeoProperty into a Property holding an object nothing can query with
+   * `georel` (UI-72, CIM 009 §4.5.4).
+   */
+  kind?: "property" | "relationship" | "geo";
 }
 
 export interface EntityChange {
@@ -53,8 +58,9 @@ export function attrsBody(
     const value: Record<string, unknown> =
       change.kind === "relationship"
         ? { type: "Relationship", object: change.after }
-        : { type: "Property", value: change.after };
-    if (change.unitCode !== undefined && change.kind !== "relationship") {
+        : { type: change.kind === "geo" ? "GeoProperty" : "Property", value: change.after };
+    // A geometry has no unit, and a Relationship has no value to measure.
+    if (change.unitCode !== undefined && change.kind !== "relationship" && change.kind !== "geo") {
       value.unitCode = change.unitCode;
     }
     if (observed === "now") {
