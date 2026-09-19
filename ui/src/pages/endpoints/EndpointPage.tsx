@@ -343,7 +343,12 @@ export function EndpointPage({
       <Section title={t("endpoints.page.filtering")} lead={t("endpoints.page.filteringLead")}>
         {projection ? (
           <>
-            <FilterForm project={project} projection={projection} />
+            <FilterForm
+              project={project}
+              projection={projection}
+              slug={slug}
+              live={(manifest.status?.phase ?? "").toLowerCase() === "live"}
+            />
             <p className="text-caption text-fg-muted">
               {t("endpoints.page.filterLivesOn")}{" "}
               <Link
@@ -458,9 +463,14 @@ export function EndpointPage({
 function FilterForm({
   project,
   projection,
+  slug,
+  live,
 }: {
   project: string;
   projection: Manifest;
+  /** The endpoint the counts are read through; both are what it answers itself. */
+  slug: string;
+  live: boolean;
 }): JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -541,6 +551,7 @@ function FilterForm({
           </Field>
         ))}
       </div>
+      <MatchCount slug={slug} type={classesOf(projection)[0]} q={draft.q ?? ""} live={live} />
       <ConditionBuilder
         attributes={slotsOf(projection)}
         onAdd={(term) =>
@@ -553,6 +564,93 @@ function FilterForm({
         </Button>
       </PermissionGuard>
     </form>
+  );
+}
+
+/** The results count header of a counted NGSI-LD read (CIM 009 6.3.13). */
+const RESULTS_COUNT = "NGSILD-Results-Count";
+
+async function countThrough(slug: string, params: URLSearchParams): Promise<number> {
+  const response = await globalThis.fetch(
+    new Request(endpointUrl(slug, `/ngsi-ld/v1/entities?${params.toString()}`), {
+      headers: { Accept: "application/ld+json" },
+    }),
+  );
+  if (!response.ok) {
+    throw new ApiError(response.status, response.statusText || `HTTP ${response.status}`);
+  }
+  const raw = response.headers.get(RESULTS_COUNT);
+  const count = raw === null ? Number.NaN : Number.parseInt(raw.trim(), 10);
+  if (Number.isNaN(count) || count < 0) {
+    throw new ApiError(502, "the endpoint answered no results count");
+  }
+  return count;
+}
+
+/**
+ * How many entities the filter matches, of how many the endpoint answers (T-2283).
+ *
+ * A filter that matches nothing has to be visible before it is proposed — with a million entities in a
+ * space, nobody can tell by reading a query string. Both counts are read **through this endpoint**, so
+ * they are what the endpoint itself answers under the reader's own rights: no privileged path, and a
+ * person who may not read the data sees the refusal, not a number they should not have.
+ *
+ * Only a Live endpoint answers at all, and NGSI-LD refuses a query with no selector, so this needs the
+ * projection's own type; without either, it says so instead of showing a zero that would read as an
+ * empty space.
+ */
+function MatchCount({
+  slug,
+  type,
+  q,
+  live,
+}: {
+  slug: string;
+  type?: string;
+  q: string;
+  live: boolean;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const asked = q.trim();
+  const counted = useQuery({
+    queryKey: ["endpoint", slug, "matches", type ?? "", asked],
+    enabled: live && slug !== "" && type !== undefined,
+    retry: false,
+    queryFn: async () => {
+      const base = { type: type as string, limit: "1", count: "true" };
+      const all = await countThrough(slug, new URLSearchParams(base));
+      const matching = asked === "" ? all : await countThrough(slug, new URLSearchParams({ ...base, q: asked }));
+      return { all, matching };
+    },
+  });
+
+  if (!live || type === undefined) {
+    return <p className="text-caption text-fg-muted">{t("endpoints.count.unavailable")}</p>;
+  }
+  if (counted.isPending) {
+    return (
+      <p role="status" className="text-caption text-fg-muted">
+        {t("endpoints.count.counting")}
+      </p>
+    );
+  }
+  if (counted.isError) {
+    const message =
+      counted.error instanceof ApiError
+        ? (counted.error.problem?.detail ?? counted.error.message)
+        : t("app.error.generic");
+    return (
+      <p role="status" className="text-caption text-fg-muted">
+        {t("endpoints.count.failed", { reason: message })}
+      </p>
+    );
+  }
+  const { all, matching } = counted.data;
+  return (
+    <p role="status" className={matching === 0 ? "text-caption text-danger" : "text-caption text-fg-muted"}>
+      {t("endpoints.count.matches", { matching, all })}
+      {matching === 0 ? ` ${t("endpoints.count.none")}` : ""}
+    </p>
   );
 }
 

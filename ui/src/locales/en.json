@@ -507,6 +507,13 @@
       "needsAttribute": "Pick the attribute the condition is about.",
       "needsValue": "Type the value the condition compares with.",
       "hint": "A condition joins the query with “and”: every condition has to hold, so the query can only narrow."
+    },
+    "count": {
+      "matches": "{matching} of {all} entities match this filter",
+      "none": "Nothing would be published.",
+      "counting": "Counting what the filter matches...",
+      "failed": "The matching entities could not be counted: {reason}",
+      "unavailable": "The count is read through the endpoint, so it is available once the endpoint is Live and publishes a type."
     }
   },
   "datasources": {

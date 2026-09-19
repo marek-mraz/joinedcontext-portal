@@ -507,6 +507,13 @@
       "needsAttribute": "Vyberte atribut, o kterém podmínka hovoří.",
       "needsValue": "Napište hodnotu, s níž se podmínka porovnává.",
       "hint": "Podmínka se připojí k dotazu spojkou „a“: platit musí každá, takže dotaz se může jen zúžit."
+    },
+    "count": {
+      "matches": "filtru odpovídá {matching} z {all} entit",
+      "none": "Nezveřejnilo by se nic.",
+      "counting": "Počítám, čemu filtr odpovídá...",
+      "failed": "Odpovídající entity se nepodařilo spočítat: {reason}",
+      "unavailable": "Počet se čte přes endpoint, takže je dostupný teprve když je endpoint Live a zveřejňuje typ."
     }
   },
   "datasources": {

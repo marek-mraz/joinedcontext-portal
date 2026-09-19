@@ -122,12 +122,15 @@ function renderPage({
   projections = [PROJECTION],
   permissions = PERMITTED,
   check = { ok: true },
+  counts = { all: 3, matching: 1 },
 }: {
   endpoint?: unknown;
   projections?: unknown[];
   permissions?: unknown;
   /** What the mandatory dry run answers (PF-57). */
   check?: { ok: boolean; message?: string };
+  /** What a counted read through the endpoint answers, with and without the filter (T-2283). */
+  counts?: { all: number; matching: number } | null;
 } = {}) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
@@ -142,6 +145,21 @@ function renderPage({
 
     if (path.endsWith("/auth/me")) {
       return json(IDENTITY);
+    }
+    if (path.startsWith(`/api/endpoint/${SLUG}/ngsi-ld/v1/entities`)) {
+      if (counts === null) {
+        return Promise.resolve(new Response("{}", { status: 403 }));
+      }
+      const asked = url.searchParams.get("q");
+      return Promise.resolve(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/ld+json",
+            "NGSILD-Results-Count": String(asked ? counts.matching : counts.all),
+          },
+        }),
+      );
     }
     if (path.endsWith("/permissions/me")) {
       return json(permissions);
@@ -325,6 +343,47 @@ describe("the endpoint's own settings page", () => {
     expect(screen.getByLabelText(en.endpoints.filter.q)).toHaveValue(
       `pm10>30;pm10=="Kamppi \\"1\\""`,
     );
+  });
+
+  it("says how many entities the filter matches, read through the endpoint itself (T-2283)", async () => {
+    const fetchMock = renderPage();
+
+    expect(await screen.findByText("1 of 3 entities match this filter")).toBeInTheDocument();
+    // Both counts go through this endpoint's own URL, under the reader's own rights, and ask for the
+    // projection's type, because NGSI-LD refuses a query with no selector.
+    const reads = fetchMock.mock.calls
+      .map(([input]) => new URL(input instanceof Request ? input.url : String(input), window.location.origin))
+      .filter((url) => url.pathname.startsWith(`/api/endpoint/${SLUG}/ngsi-ld/v1/entities`));
+    expect(reads).toHaveLength(2);
+    expect(reads.every((url) => url.searchParams.get("type") === "AirQualityObserved")).toBe(true);
+    expect(reads.every((url) => url.searchParams.get("count") === "true")).toBe(true);
+    expect(reads.map((url) => url.searchParams.get("q"))).toEqual([null, "pm10>30"]);
+  });
+
+  it("warns before it is proposed that a filter matching nothing publishes nothing", async () => {
+    renderPage({ counts: { all: 3, matching: 0 } });
+
+    const verdict = await screen.findByText(/0 of 3 entities match this filter/);
+    expect(verdict).toHaveTextContent(en.endpoints.count.none);
+  });
+
+  it("counts nothing for an endpoint that is not Live, and says why", async () => {
+    const fetchMock = renderPage({ endpoint: { ...ENDPOINT, status: { phase: "Pending" } } });
+
+    expect(await screen.findByText(en.endpoints.count.unavailable)).toBeInTheDocument();
+    // An endpoint that serves nothing is not read: no number, and no request either.
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        (input instanceof Request ? input.url : String(input)).includes("/ngsi-ld/v1/entities"),
+      ),
+    ).toBe(false);
+  });
+
+  it("says why the count could not be read instead of showing a zero", async () => {
+    renderPage({ counts: null });
+
+    expect(await screen.findByText(/could not be counted/)).toBeInTheDocument();
+    expect(screen.queryByText(/entities match this filter/)).not.toBeInTheDocument();
   });
 
   it("says what a red check found and proposes nothing", async () => {

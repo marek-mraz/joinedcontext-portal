@@ -507,6 +507,13 @@
       "needsAttribute": "Vyberte atribút, o ktorom podmienka hovorí.",
       "needsValue": "Napíšte hodnotu, s ktorou sa podmienka porovnáva.",
       "hint": "Podmienka sa pripojí k dotazu spojkou „a“: platiť musí každá, takže dotaz sa môže iba zúžiť."
+    },
+    "count": {
+      "matches": "filtru odpovedá {matching} z {all} entít",
+      "none": "Nezverejnilo by sa nič.",
+      "counting": "Počítam, čomu filter odpovedá...",
+      "failed": "Odpovedajúce entity sa nepodarilo spočítať: {reason}",
+      "unavailable": "Počet sa číta cez endpoint, takže je dostupný až keď je endpoint Live a zverejňuje typ."
     }
   },
   "datasources": {

@@ -507,6 +507,13 @@
       "needsAttribute": "Wählen Sie das Attribut, um das es geht.",
       "needsValue": "Geben Sie den Wert an, mit dem verglichen wird.",
       "hint": "Eine Bedingung wird mit „und“ an die Abfrage gehängt: jede muss gelten, die Abfrage kann also nur verengen."
+    },
+    "count": {
+      "matches": "{matching} von {all} Entitäten entsprechen diesem Filter",
+      "none": "Es würde nichts veröffentlicht.",
+      "counting": "Es wird gezählt, was der Filter trifft...",
+      "failed": "Die passenden Entitäten konnten nicht gezählt werden: {reason}",
+      "unavailable": "Der Zählwert wird über den Endpunkt gelesen, also erst wenn er Live ist und einen Typ veröffentlicht."
     }
   },
   "datasources": {
