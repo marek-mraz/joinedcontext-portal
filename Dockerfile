@@ -12,7 +12,10 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 WORKDIR /work
 COPY sdk/package.json sdk/pnpm-lock.yaml ./sdk/
 COPY ui/package.json ui/pnpm-lock.yaml ./ui/
-RUN corepack enable && cd ui && pnpm install --frozen-lockfile
+# The SDK's own dependencies first: `link:` symlinks the sibling and installs nothing for it, so
+# without this `tsc -b` finds no `react` types beside the SDK's sources and Vite resolves none of
+# its imports (the red main of 1a7c5b9).
+RUN corepack enable && cd sdk && pnpm install --frozen-lockfile && cd ../ui && pnpm install --frozen-lockfile
 COPY sdk/ ./sdk/
 COPY ui/ ./ui/
 WORKDIR /work/ui

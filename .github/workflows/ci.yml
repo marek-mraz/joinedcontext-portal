@@ -47,15 +47,18 @@ jobs:
       - if: steps.has.outputs.ui == 'yes'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: pnpm, cache-dependency-path: ui/pnpm-lock.yaml }
+      # The SDK before the UI: the UI links the SDK's sources (`link:../sdk`, T-1439), and `link:`
+      # installs nothing for the sibling, so the UI's own typecheck and Vite build need the SDK's
+      # dependencies to be beside its sources already (the red main of 1a7c5b9).
+      - if: steps.has.outputs.ui == 'yes'
+        name: the SDK builds and its screens pass (SDK-01, AP-56)
+        run: cd sdk && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build
       - if: steps.has.outputs.ui == 'yes'
         run: cd ui && pnpm install --frozen-lockfile && pnpm lint && pnpm test -- --run && pnpm build
       - if: steps.has.outputs.ui == 'no'
         run: echo "no ui/package.json yet"
       # The reference apps of AP-34 carry their own bundle; the Rust half is covered by the
       # workspace lanes above, this is its screens.
-      - if: steps.has.outputs.ui == 'yes'
-        name: the SDK builds and its screens pass (SDK-01, AP-56)
-        run: cd sdk && pnpm install --frozen-lockfile && pnpm typecheck && pnpm test && pnpm build
       - if: steps.has.outputs.ui == 'yes'
         name: the reference apps build and their screens pass
         run: |
