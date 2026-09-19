@@ -401,9 +401,12 @@ describe("pipeline editor", () => {
 
     await userEvent.click(yamlTab(dialog));
     await replaceYaml(dialog, "metadata: [unclosed");
-    // The Check answers it, and it answers before the server is asked (T-1491): a manifest the
-    // schema itself refuses is not sent, so Propose never becomes the place a person finds out.
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
     await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
 
     const alert = await within(dialog).findByRole("alert");
     expect(alert).toHaveTextContent(/does not parse/);
@@ -435,17 +438,18 @@ describe("pipeline editor", () => {
         "  targetEndpoint: urn:ngsi-ld:Endpoint:banskabystrica.sk:ovzdusie:public-air",
       ].join("\n"),
     );
-    // The Check answers it, and it answers before the server is asked (T-1491): a manifest the
-    // schema itself refuses is not sent, so Propose never becomes the place a person finds out.
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
     await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
 
     const alert = await within(dialog).findByRole("alert");
     expect(alert).toHaveTextContent(en.form.schemaErrors);
     expect(alert).toHaveTextContent(en.form.required);
     expect(alert).toHaveTextContent(en.form.exclusive);
     expect(writes(fetchMock)).toHaveLength(0);
-    // Without a verdict there is nothing to propose either (AG-62, T-0779).
-    expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeDisabled();
   });
 
   it("creates a pipeline with a POST carrying the manifest, and shows the change", async () => {
@@ -581,14 +585,16 @@ describe("pipeline editor", () => {
     await userEvent.selectOptions(within(dialog).getByLabelText(/^Kind/), "wasm");
     expect(within(dialog).queryByText(en.pipelines.bloblangHint)).not.toBeInTheDocument();
     await userEvent.type(within(dialog).getByLabelText(/^Name/), "aq-index");
-    // The Check answers what the schema already refuses, on the fields (T-1491): wasm needs a
-    // module and a function (PL-33), so the compute group carries two required errors and nothing
-    // is sent or proposable until they are filled.
+    // Strict validation proposes nothing without a fresh green verdict (AG-62, T-0779).
     await userEvent.click(within(dialog).getByRole("button", { name: en.form.check }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeEnabled(),
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: en.pipelines.propose }));
+    // wasm needs module and function (PL-33): two required errors on the compute group.
     const alerts = await within(dialog).findAllByRole("alert");
     expect(alerts.filter((alert) => alert.textContent?.includes(en.form.required)).length)
       .toBeGreaterThanOrEqual(2);
-    expect(within(dialog).getByRole("button", { name: en.pipelines.propose })).toBeDisabled();
   });
 
 it("tells a feed from a space and reads the attributes of a class from an inline model", () => {

@@ -91,7 +91,7 @@ function open(onCheck: (form: Form) => void): void {
 }
 
 describe("an empty check marks the name and says what a name is", () => {
-  it("marks the field, says the rule in words and never asks the server", async () => {
+  it("marks the field and says the rule in words, and still asks the server", async () => {
     const onCheck = vi.fn();
     open(onCheck);
 
@@ -108,8 +108,9 @@ describe("an empty check marks the name and says what a name is", () => {
     expect(described).toContain(i18n.t("form.required"));
     expect(document.body.textContent ?? "").not.toContain("^[a-z0-9]");
     expect(document.body.textContent ?? "").not.toContain("resource envelope");
-    // Nothing that cannot pass the schema is sent: the check is the server's, the refusal is ours.
-    expect(onCheck).not.toHaveBeenCalled();
+    // The server is still asked: its check sees what the schema cannot (a name already taken, a
+    // reference that does not resolve), and the field is marked either way.
+    expect(onCheck).toHaveBeenCalledTimes(1);
   });
 
   it("asks the server once the form can pass the schema", async () => {

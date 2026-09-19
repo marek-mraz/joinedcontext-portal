@@ -677,26 +677,22 @@ export function ResourceFormDialog<T>({
     const check = onCheck ?? ((form: T) => ownCheck.mutate(form));
     if (view === "form") {
       if (formData) {
-        const refused = schemaRefusals(formData);
-        setSchemaErrors(refused?.marked);
-        if (refused) {
-          // Nothing that the schema itself refuses is sent: the field carries the reason instead.
-          return;
-        }
+        // What the browser already knows goes onto the fields at once, in words (T-1491); the
+        // server is still asked, because its check sees what the schema cannot — a reference that
+        // does not resolve, a name already taken, a grant the proposer does not have.
+        setSchemaErrors(schemaRefusals(formData)?.marked);
         check(formData);
       }
       return;
     }
     const form = readYaml();
     if (form !== null) {
+      // The YAML view is checked by the server alone, on purpose: it is where a value the form's
+      // own schema cannot express is typed — a rate limit outside the offered classes, a field the
+      // kind has no control for — and the parent widens the schema only one render later (T-0890).
+      // Refusing it here would refuse what the REST route accepts.
       onChange?.(form);
-      const refused = schemaRefusals(form);
-      setSchemaErrors(refused?.marked);
-      if (refused) {
-        // No field to mark in the YAML view: the same sentences are listed where the document is.
-        setIssues(refused.sentences);
-        return;
-      }
+      setSchemaErrors(undefined);
       setIssues([]);
       check(form);
     }
