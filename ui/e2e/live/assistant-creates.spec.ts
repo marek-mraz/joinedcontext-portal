@@ -17,13 +17,14 @@
  * rejection is also the honest end, because a create the assistant drafted is exactly the change a
  * person is supposed to decide (PF-58).
  *
- * What the first run measured on dev (2026-09-19, portal 4f03b8c): the dashboard case is green; the
- * other three have no create path in the dock's prompt at all (T-2246), so they carry `test.fail()`
- * with that id — they run whole, they are expected to fail, and the run turns red the day they pass.
+ * What the first run measured on dev (2026-09-19, portal 4f03b8c): only the dashboard case was
+ * green. The other three had no create path in the dock at all — it reached for `jc_space_propose`
+ * and filed a Change nobody had read, against AG-77 — which is T-2246; with that fix on dev
+ * (portal c602705) all four are played here with nothing softened.
  */
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { APPROVER, STEWARD, ask, proposedChange, reject, signIn } from "./portal";
+import { APPROVER, STEWARD, ask, proposedChange, reject, signIn, sweepDrafts } from "./portal";
 
 const PROJECT = "helsinki";
 const SUFFIX = new Date().toISOString().slice(11, 19).replace(/:/g, "");
@@ -54,12 +55,6 @@ async function proposeFrom(form: Locator, label = /^Propose/): Promise<void> {
 interface Create {
   /** The kind, for the test name. */
   what: string;
-  /**
-   * The task for the create path the dock does not have yet (T-2246, measured on dev 2026-09-19).
-   * The case runs whole and is expected to fail; when the path lands, the run reports "expected to
-   * fail but passed" and this line goes away with the marker. Nothing in the case is softened.
-   */
-  missing?: string;
   /** What a person types into the dock. */
   sentence: (name: string) => string;
   /** The page the request must land on. */
@@ -68,35 +63,49 @@ interface Create {
   filled: (name: string) => [RegExp | string, string][];
   /** A value the change's plan must still carry, beyond the name. */
   carries?: string;
+  /**
+   * Why this case stops at the filled form instead of proposing from it. A pipeline's mapping is
+   * written in the editor, with the editor's own test beside it: the platform runs the drafted
+   * mapping on one fetch of the source and, when it is not green, opens the form with the finding
+   * and no verdict, so the strict gate refuses a proposal until the person has finished it (PF-57).
+   * Proposing here would measure whether the model guessed Bloblang right, which is not what the
+   * person is promised (AG-45).
+   */
+  handOver?: string;
 }
 
 const CREATES: Create[] = [
   {
     what: "a context space",
-    missing: "T-2246",
     sentence: (name) => `Create a context space called ${name} in the helsinki project`,
     route: /\/projects\/helsinki\/spaces/,
     filled: (name) => [[/^Name/, name]],
   },
   {
     what: "a data source",
-    missing: "T-2246",
+    // A URL the cluster can actually fetch: the platform fetches a new source's address once
+    // before the form opens, and a made-up host is refused with "no such host" — correctly, and
+    // the journey then measured nothing (2026-09-19). The city's own news feed is already read by
+    // `hel-news-rss`, so nothing new is asked of the network.
     sentence: (name) =>
-      `Add an HTTP data source called ${name} that polls https://opendata.example.org/aq.json every 5 minutes`,
+      `Add an HTTP data source called ${name} that reads https://www.hel.fi/en/news/rss`,
     route: /\/projects\/helsinki\/datasources/,
     filled: (name) => [["Name", name]],
-    carries: "opendata.example.org",
+    carries: "hel.fi/en/news/rss",
   },
   {
     what: "a pipeline",
-    missing: "T-2246",
     // Names a data source the project really has: asked for "the helsinki-bikes data source",
     // which is an endpoint and not a source, the assistant rightly asked which source to read
     // and the journey waited for an answer nobody was there to give (measured 2026-09-19).
+    // A JSON source: asked for `hel-news-rss`, which is RSS, the model wrote three JSON mappings
+    // and the platform's own run of each on one fetch refused all three ("invalid character '<'").
+    // The refusals were right; the sentence was wrong (2026-09-19).
     sentence: (name) =>
-      `Create a pipeline called ${name} that reads the hel-news-rss data source every 15 minutes and writes into the helsinki space through the helsinki-all endpoint`,
+      `Create a pipeline called ${name} that reads the hsl-citybikes-gbfs-info data source every 15 minutes and writes into the helsinki space through the helsinki-all endpoint`,
     route: /\/projects\/helsinki\/pipelines/,
     filled: (name) => [[/^(Name|Pipeline)/, name]],
+    handOver: "the mapping is finished in the editor, with its own test (PF-57)",
   },
   {
     what: "a dashboard",
@@ -110,9 +119,6 @@ for (const create of CREATES) {
   test(`the assistant opens the form for ${create.what}, filled from one sentence`, async ({
     browser,
   }) => {
-    if (create.missing) {
-      test.fail(true, `the dock has no create path for ${create.what} yet (${create.missing})`);
-    }
     // Starts away from every route under test: a start page that is already the target would let a
     // case pass on a request the assistant ignored (the space case did, on the first run).
     const steward = await signIn(browser, STEWARD, `/projects/${PROJECT}/activity?lang=en`);
@@ -138,6 +144,12 @@ for (const create of CREATES) {
         );
       }
 
+      if (create.handOver) {
+        // The form is open and filled, which is what the sentence promised; the rest of this
+        // resource is the person's work in the editor.
+        return;
+      }
+
       await proposeFrom(form);
       change = await proposedChange(steward.page);
       expect(change).toMatch(/^chg-/);
@@ -152,6 +164,9 @@ for (const create of CREATES) {
       if (change) {
         await reject(approver.page, PROJECT, change);
       }
+      // Every draft the assistant kept for this journey goes with it: drafts left on dev are what
+      // blew the assistant's own context window once (T-2248, T-2249).
+      await sweepDrafts(steward.context, steward.page, PROJECT, /^t1597-/i);
       await steward.context.close();
       await approver.context.close();
     }

@@ -23,7 +23,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { STEWARD, csrf, signIn } from "./portal";
+import { STEWARD, csrf, signIn, sweepDrafts } from "./portal";
 
 const PROJECT = "helsinki";
 const SUFFIX = new Date().toISOString().slice(11, 19).replace(/:/g, "");
@@ -112,6 +112,8 @@ test("no form offers a field for a secret's value, on any data source type", asy
 
     expect(offending, "a credential box that asks for the value itself, not a reference").toEqual([]);
   } finally {
+    // Every form this journey opened left a draft; dev keeps none of them (T-2249).
+    await sweepDrafts(context, page, PROJECT, /^t1590-/i);
     await context.close();
   }
 });
@@ -183,9 +185,9 @@ test("a secret written into the YAML view is refused by its field, and the value
     }
   } finally {
     await page.keyboard.press("Escape").catch(() => undefined);
-    await page.request
-      .delete(`/api/v1/projects/${PROJECT}/drafts/DataSource/${name}`)
-      .catch(() => undefined);
+    // A DELETE without the CSRF header answers 403 and cleans nothing, which is how this
+    // journey's probe drafts stayed on dev (T-2249): the sweep carries the header and checks.
+    await sweepDrafts(context, page, PROJECT, /^t1590-/i, [{ kind: "DataSource", name }]);
     await context.close();
   }
 });
@@ -244,9 +246,9 @@ test("a token pasted into the secret name is refused by the name of the field", 
 
   } finally {
     await page.keyboard.press("Escape").catch(() => undefined);
-    await page.request
-      .delete(`/api/v1/projects/${PROJECT}/drafts/DataSource/${name}`)
-      .catch(() => undefined);
+    // A DELETE without the CSRF header answers 403 and cleans nothing, which is how this
+    // journey's probe drafts stayed on dev (T-2249): the sweep carries the header and checks.
+    await sweepDrafts(context, page, PROJECT, /^t1590-/i, [{ kind: "DataSource", name }]);
     await context.close();
   }
 });

@@ -129,6 +129,58 @@ export async function proposeDelete(page: Page, project: string, plural: string,
   return (await id.textContent()) ?? "";
 }
 
+/**
+ * Deletes every draft of this journey and proves none is left (AG-61, T-2249).
+ *
+ * A journey that opens forms leaves drafts behind: the Portal keeps what a form holds so the person
+ * can come back to it. Left on dev they are not harmless — 44 of them answered 2.3 MB on the drafts
+ * route and the docked assistant could then answer nothing at all (T-2248). A deletion needs the
+ * CSRF header like every other write, and the check afterwards is the point: without it the sweep
+ * answers 403 and cleans nothing, which is what the first run of `hostile-names` did (T-1591).
+ */
+export async function sweepDrafts(
+  context: BrowserContext,
+  page: Page,
+  project: string,
+  mine: RegExp,
+  also: { kind: string; name: string }[] = [],
+): Promise<void> {
+  const token = await csrf(context);
+  const named = (draft: { name?: string; metadata?: { name?: string } }) =>
+    draft.name ?? draft.metadata?.name ?? "";
+  const left = new Map<string, { kind: string; name: string }>();
+  const listed = await page.request.get(`/api/v1/projects/${project}/drafts`);
+  if (listed.ok()) {
+    for (const draft of ((await listed.json()).items ?? []) as {
+      kind?: string;
+      name?: string;
+      metadata?: { name?: string };
+    }[]) {
+      const name = named(draft);
+      if (mine.test(name)) {
+        left.set(`${draft.kind ?? ""}/${name}`, { kind: draft.kind ?? "ContextSpace", name });
+      }
+    }
+  }
+  for (const one of also) {
+    left.set(`${one.kind}/${one.name}`, one);
+  }
+  for (const { kind, name } of left.values()) {
+    await page.request.delete(
+      `/api/v1/projects/${project}/drafts/${kind}/${encodeURIComponent(name)}`,
+      { headers: { "x-csrf-token": token } },
+    );
+  }
+  const after = await page.request.get(`/api/v1/projects/${project}/drafts`);
+  if (!after.ok()) {
+    return;
+  }
+  const remaining = ((await after.json()).items ?? [])
+    .map(named)
+    .filter((name: string) => mine.test(name));
+  expect(remaining, "a draft of this journey is still in the project").toEqual([]);
+}
+
 /** The names of a project's resources of one kind, as the list route answers them. */
 export async function listedNames(page: Page, project: string, plural: string): Promise<string[]> {
   const answer = await page.request.get(`/api/v1/projects/${project}/${plural}`);

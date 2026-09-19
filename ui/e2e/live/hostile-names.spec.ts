@@ -19,8 +19,8 @@
  * quietly is how residue reaches dev (T-2236).
  */
 import { expect, test } from "@playwright/test";
-import type { BrowserContext, Locator, Page } from "@playwright/test";
-import { STEWARD, csrf, signIn } from "./portal";
+import type { Locator, Page } from "@playwright/test";
+import { STEWARD, signIn, sweepDrafts } from "./portal";
 
 const PROJECT = "helsinki";
 const SUFFIX = new Date().toISOString().slice(11, 19).replace(/:/g, "");
@@ -64,52 +64,6 @@ async function openSpace(page: Page): Promise<Locator> {
 async function refusals(dialog: Locator): Promise<string> {
   const spoken = await dialog.locator("[role=alert], [role=status], [aria-live]").allInnerTexts();
   return spoken.join(" | ");
-}
-
-/**
- * Deletes every draft these names left and checks that none is left behind. The check is the point:
- * a draft holds a name in the project until someone removes it, and a sweep nobody verifies is a
- * sweep that stops working without saying so (T-2236, T-2232).
- */
-async function sweepDrafts(context: BrowserContext, page: Page): Promise<void> {
-  // A write needs the CSRF header, the deletion of a draft included: without it the sweep answers
-  // 403 and cleans nothing, which is exactly what the first run of this journey did.
-  const token = await csrf(context);
-  const left = new Set<string>();
-  const listed = await page.request.get(`/api/v1/projects/${PROJECT}/drafts`);
-  if (listed.ok()) {
-    for (const draft of ((await listed.json()).items ?? []) as {
-      kind?: string;
-      name?: string;
-      metadata?: { name?: string };
-    }[]) {
-      const name = draft.name ?? draft.metadata?.name ?? "";
-      if (/^t1591-/i.test(name)) {
-        left.add(`${draft.kind ?? "ContextSpace"}/${name}`);
-      }
-    }
-  }
-  for (const name of NAMES) {
-    left.add(`ContextSpace/${name.value}`);
-  }
-  for (const path of left) {
-    const [kind, ...rest] = path.split("/");
-    await page.request.delete(
-      `/api/v1/projects/${PROJECT}/drafts/${kind}/${encodeURIComponent(rest.join("/"))}`,
-      { headers: { "x-csrf-token": token } },
-    );
-  }
-  const after = await page.request.get(`/api/v1/projects/${PROJECT}/drafts`);
-  if (!after.ok()) {
-    return;
-  }
-  const remaining = ((await after.json()).items ?? [])
-    .map(
-      (draft: { name?: string; metadata?: { name?: string } }) =>
-        draft.name ?? draft.metadata?.name ?? "",
-    )
-    .filter((name: string) => /^t1591-/i.test(name));
-  expect(remaining, "a draft of this journey is still in the project").toEqual([]);
 }
 
 test("a name is accepted or refused by the rule, and the refusal is tied to the field", async ({
@@ -174,7 +128,13 @@ test("a name is accepted or refused by the rule, and the refusal is tied to the 
       [],
     );
   } finally {
-    await sweepDrafts(context, page);
+    await sweepDrafts(
+      context,
+      page,
+      PROJECT,
+      /^t1591-/i,
+      NAMES.map((one) => ({ kind: "ContextSpace", name: one.value })),
+    );
     await context.close();
   }
 });
@@ -198,7 +158,13 @@ test("the form holds the longest name inside 400 px", async ({ browser }) => {
     expect(pageOverflow, "the page scrolls sideways at 400 px").toBeLessThanOrEqual(1);
     await page.keyboard.press("Escape");
   } finally {
-    await sweepDrafts(context, page);
+    await sweepDrafts(
+      context,
+      page,
+      PROJECT,
+      /^t1591-/i,
+      NAMES.map((one) => ({ kind: "ContextSpace", name: one.value })),
+    );
     await context.close();
   }
 });

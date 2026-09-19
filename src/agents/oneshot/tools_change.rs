@@ -884,6 +884,7 @@ impl Driver {
         } else {
             self.tested(info.kind, &manifest, probe).await
         };
+        let mut half_written = None;
         let tested = match tested {
             Ok(tested) => tested,
             Err((findings, card)) => {
@@ -899,13 +900,25 @@ impl Driver {
                     }),
                 )
                 .await?;
-                return self
-                    .again(
-                        last,
-                        format!("error: the change's test is not green: {findings}; what it ran on: {card}; the changed manifest was {manifest}"),
-                        format!("The change to '{name}' does not pass its test: {findings}"),
-                    )
-                    .await;
+                if opening == Opening::Change || last {
+                    return self
+                        .again(
+                            last,
+                            format!("error: the change's test is not green: {findings}; what it ran on: {card}; the changed manifest was {manifest}"),
+                            format!("The change to '{name}' does not pass its test: {findings}"),
+                        )
+                        .await;
+                }
+                // A new resource whose test is not green still opens its form: a pipeline's
+                // mapping is written in the editor, with the editor's own test beside it, and a
+                // sentence in the chat is not where a person writes Bloblang (AG-45). The draft
+                // is kept without a verdict, so the strict gate refuses a proposal until the
+                // person has checked it there (PF-57), and the finding is what they read first.
+                half_written = Some(findings);
+                Tested {
+                    card: Some(card),
+                    verdict: None,
+                }
             }
         };
         let workspace = self.active_workspace().await;
@@ -927,21 +940,30 @@ impl Driver {
             tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change draft not kept");
         }
         // The draft carries the check it passed, so the form proposes it without a second one
-        // while the person leaves it as it is (AG-77).
-        let verdict = tested
-            .verdict
-            .unwrap_or_else(|| crate::ops::verdict::Verdict::green(&manifest, None));
-        if let Err(err) = self
-            .state
-            .drafts
-            .set_verdict_in(workspace.as_deref(), home, info.kind, name, verdict)
-            .await
-        {
-            tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change verdict not kept");
+        // while the person leaves it as it is (AG-77). A new resource whose test is not green
+        // carries no verdict at all: the strict gate then refuses a proposal until the person has
+        // finished it in the form and checked it there (PF-57), which is the whole point of
+        // opening the form rather than sending the model round again.
+        if half_written.is_none() {
+            let verdict = tested
+                .verdict
+                .unwrap_or_else(|| crate::ops::verdict::Verdict::green(&manifest, None));
+            if let Err(err) = self
+                .state
+                .drafts
+                .set_verdict_in(workspace.as_deref(), home, info.kind, name, verdict)
+                .await
+            {
+                tracing::warn!(run = %self.run_id, kind = %info.kind, error = %err, "change verdict not kept");
+            }
         }
-        let mut output = json!({ "kind": info.kind, "name": name, "checked": true });
+        let mut output =
+            json!({ "kind": info.kind, "name": name, "checked": half_written.is_none() });
         if let Some(card) = tested.card {
             output["test"] = card;
+        }
+        if let Some(findings) = &half_written {
+            output["unfinished"] = json!(findings);
         }
         self.event(
             "tool",
@@ -957,6 +979,12 @@ impl Driver {
         let mut prose = share::prose_of(answer);
         if prose.is_empty() {
             prose = format!("Opened '{name}' with the change; review it and propose it.");
+        }
+        if let Some(findings) = &half_written {
+            // The person reads what is still wrong with it before they read the form (AG-45).
+            prose = format!(
+                "{prose}\n\nIts test is not green yet: {findings}. The form is open on it; finish                  it there and check it before you propose it."
+            );
         }
         self.thought(&prose).await?;
         // A new resource opens the page on its own draft, and the form loads that draft itself:
