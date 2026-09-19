@@ -1056,16 +1056,22 @@ export const WIDGET_TYPES = ["temporal-chart", "grid"] as const;
 
 /**
  * The grid's own configuration as a widget carries it (UI-71, SDK-30, T-1440): the schema the SDK
- * publishes, without the `source` and the `type` that the widget's `endpointRef` and `entityType`
- * decide — so one schema describes the grid in the explorer, in an application and here.
+ * publishes, without the fields that name a source. `source` and `type` are the widget's own
+ * `endpointRef` and `entityType`; `compareWith` names a *second* endpoint or space, which a
+ * dashboard manifest may not do either — and `jc_core::kinds::grid::GridConfig` refuses it with
+ * `deny_unknown_fields`, so a form offering it would draw a manifest the platform rejects.
  */
+const NOT_THE_MANIFESTS_TO_NAME = ["source", "type", "compareWith"];
+
 function gridWidgetSchema(t: (key: string) => string): JsonSchema {
   const published = gridConfigSchema as unknown as {
     properties: Record<string, unknown>;
     additionalProperties?: boolean;
   };
   const kept = Object.fromEntries(
-    Object.entries(published.properties).filter(([name]) => name !== "source" && name !== "type"),
+    Object.entries(published.properties).filter(
+      ([name]) => !NOT_THE_MANIFESTS_TO_NAME.includes(name),
+    ),
   );
   return {
     type: "object",

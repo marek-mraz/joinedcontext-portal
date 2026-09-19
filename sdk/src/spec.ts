@@ -58,7 +58,7 @@ export type View =
    * grant allows one — so `grid` is its configuration and `source`/`type` are never part of it:
    * the app reads through its own endpoint and the view's source names the type.
    */
-  | (Card & { kind: "grid"; grid?: Omit<EntityGridConfig, "source" | "type"> });
+  | (Card & { kind: "grid"; grid?: Omit<EntityGridConfig, "source" | "type" | "compareWith"> });
 
 export interface Spec {
   title: string;
@@ -223,8 +223,11 @@ export function parseSpec(input: unknown): { spec: Spec; errors: [] } | { spec: 
         const config = (v.grid ?? {}) as Record<string, unknown>;
         // The app reads through its own endpoint, whose slug it learns when it runs, and the
         // view's source names the type: a spec that set either could point this grid at another
-        // endpoint's data, so both are refused here rather than quietly overwritten.
-        for (const owned of ["source", "type"]) {
+        // endpoint's data, so both are refused here rather than quietly overwritten. `compareWith`
+        // names a second endpoint or space and is refused for the same reason — and
+        // `jc_core::kinds::grid::GridConfig` carries no such field, so a spec setting it would be
+        // refused by the platform that validates the manifest anyway.
+        for (const owned of ["source", "type", "compareWith"]) {
           if (config[owned] !== undefined) {
             at(`${path}.grid.${owned}`, "is the view's own source; leave it out");
           }
@@ -237,7 +240,7 @@ export function parseSpec(input: unknown): { spec: Spec; errors: [] } | { spec: 
         // One validator for the spec and for the Portal's own grid, so a person writing a spec by
         // hand reads the same findings the editor shows, at the path of their own file.
         findings
-          .filter((finding) => !["/source", "/type"].includes(finding.path))
+          .filter((finding) => !["/source", "/type", "/compareWith"].includes(finding.path))
           .forEach((finding) => at(`${path}.grid${finding.path.replaceAll("/", ".")}`, finding.message));
         break;
       }

@@ -387,6 +387,10 @@ describe("the grid widget of a dashboard", () => {
     expect(Object.keys(grid.properties ?? {})).toContain("pageSize");
     expect(Object.keys(grid.properties ?? {})).not.toContain("source");
     expect(Object.keys(grid.properties ?? {})).not.toContain("type");
+    // Nor the second source of the explorer's comparison: a dashboard manifest names one endpoint,
+    // and jc_core's GridConfig refuses the field outright, so the form would draw a manifest the
+    // platform rejects.
+    expect(Object.keys(grid.properties ?? {})).not.toContain("compareWith");
   });
 
   it("round-trips a configured grid through the manifest unchanged", () => {

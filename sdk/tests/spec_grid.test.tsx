@@ -64,6 +64,18 @@ describe("a grid view of a spec", () => {
     ]);
   });
 
+  it("refuses a grid that names a second source to compare against (T-1440)", () => {
+    // The explorer offers the comparison because a person chose both sides on screen; a spec that
+    // wrote it would read another endpoint from inside the app, and jc_core's GridConfig has no
+    // such field, so the manifest would be refused by the platform anyway.
+    const parsed = parseSpec(
+      spec([{ kind: "grid", grid: { compareWith: { kind: "endpoint", slug: "another" } } } as never]),
+    );
+    expect(parsed.errors).toEqual([
+      "views[0].grid.compareWith: is the view's own source; leave it out",
+    ]);
+  });
+
   it("still parses a spec written before the grid existed", () => {
     const parsed = parseSpec(spec([{ kind: "table", columns: ["a"] }]));
     expect(parsed.errors).toEqual([]);
