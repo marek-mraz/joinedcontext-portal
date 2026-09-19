@@ -1333,4 +1333,75 @@ describe("ResourceFormDialog shared drafts and verdict gates (AG-61, AG-62, UI-4
       en.drafts.proposeReason.red,
     );
   });
+
+  it("renders the findings of a red verdict beside the Check button (T-2234)", async () => {
+    // The other half of T-1424: a check that rejected the manifest is not a refusal of the check.
+    // It answers 200 with a red verdict, so what the person reads is the field to correct — not
+    // "the request failed" in the footer.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      const method = input instanceof Request ? input.method : (init?.method ?? "GET");
+      if (url.includes("/api/v1/branding")) {
+        return new Response(JSON.stringify({ validation: "strict" }), { status: 200 });
+      }
+      if (method === "POST" && url.includes("dryRun=All")) {
+        const body = JSON.parse(await (input as Request).clone().text()) as Record<string, unknown>;
+        const manifest = { ...body };
+        delete manifest.draft;
+        return new Response(
+          JSON.stringify({
+            valid: false,
+            lane: "red",
+            verdict: {
+              ok: false,
+              findings: [
+                {
+                  level: "error",
+                  path: "spec.contextSpaceRef",
+                  message: "no context space named nothing-here in this project",
+                },
+              ],
+              checkedAt: new Date().toISOString(),
+              inputDigest: digestOf(manifest),
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <I18nextProvider i18n={i18n}>
+          <Harness
+            open={true}
+            onOpenChange={() => {}}
+            title="Create Data Source"
+            description="Create draft"
+            project="banskabystrica"
+            draftKind="DataSource"
+            plural="datasources"
+            schema={TEST_SCHEMA}
+            submitLabel="Propose change"
+            source={TEST_SOURCE}
+            onSubmit={() => {}}
+          />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "rejected-feed" } });
+    fireEvent.click(screen.getByRole("button", { name: en.form.check }));
+
+    const findings = await screen.findByTestId("draft-findings");
+    expect(findings).toHaveTextContent("spec.contextSpaceRef");
+    expect(findings).toHaveTextContent("no context space named nothing-here in this project");
+    // A judgement about the manifest, said as one: the chip is red and the footer holds no error.
+    expect(screen.getByTestId("draft-verdict")).toHaveTextContent(
+      en.drafts.verdict.red.split("{age}")[0].trim(),
+    );
+    expect(screen.queryByTestId("footer-error")).toBeNull();
+  });
 });

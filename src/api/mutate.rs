@@ -399,6 +399,27 @@ pub async fn propose(
     }
 }
 
+/// The check this person just ran, kept under the manifest's own kind and name (PF-57): one
+/// place, because a rejected manifest records the same kind of verdict a passing one does.
+async fn record_check_as(
+    user: &CurrentUser,
+    front: Front,
+    state: &AppState,
+    project: &str,
+    manifest: &Value,
+    verdict: &crate::ops::verdict::Verdict,
+) {
+    let caller = crate::ops::Caller {
+        identity: user.0.identity.clone(),
+        via: match front {
+            Front::Portal | Front::Edge => crate::ops::Via::Session,
+            Front::Bearer => crate::ops::Via::Bearer,
+        },
+        access: None,
+    };
+    crate::ops::record_check(&caller, state, project, manifest, verdict).await;
+}
+
 /// The REST doors of a manifest that names no draft (PF-57, owner decision T-0956): its dry run
 /// records a verdict under the manifest's own kind and name, and its proposal needs that verdict,
 /// green and fresh for the same manifest, exactly as the draft door and the operations do. A
@@ -418,7 +439,7 @@ async fn propose_checked(
 ) -> Result<Response, ApiError> {
     let manifest = body_val.clone();
     if dry_run {
-        let outcome = propose_with_identity(
+        let answer = propose_with_identity(
             &user.0.identity,
             state,
             project,
@@ -428,7 +449,25 @@ async fn propose_checked(
             true,
             body_val,
         )
-        .await?;
+        .await;
+        let outcome = match answer {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                // A check that rejects the manifest records the red verdict and answers it, the way
+                // a `DataSource` always has (T-2234): one shape for one outcome. Anything that is
+                // not a judgement about the manifest stays the error it was.
+                let Some(mut refused) = crate::api::dry_run::refused_check(&err, &manifest) else {
+                    return Err(err);
+                };
+                let verdict = refused
+                    .verdict
+                    .clone()
+                    .expect("refused_check sets a verdict");
+                record_check_as(user, front, state, project, &manifest, &verdict).await;
+                refused.verdict = Some(verdict);
+                return Ok((StatusCode::OK, Json(refused)).into_response());
+            }
+        };
         let ProposeOutcome::DryRun(mut result) = outcome else {
             return Err(ApiError::Internal("a dry run proposed a change".into()));
         };
@@ -437,6 +476,9 @@ async fn propose_checked(
                 serde_json::to_value(&result).map_err(|e| ApiError::Internal(e.to_string()))?;
             crate::ops::datasource_verdict(&answer, &manifest)
         } else {
+            // A dry run that got this far answered `valid: true`: every fault of the manifest is a
+            // refusal above, where `refused_check` turns it into the findings (T-2234). So the
+            // empty list here is a green verdict's own, and not a red one with nothing to resolve.
             crate::ops::verdict::Verdict::new(
                 result.valid,
                 Vec::new(),
@@ -444,15 +486,7 @@ async fn propose_checked(
                 &manifest,
             )
         };
-        let caller = crate::ops::Caller {
-            identity: user.0.identity.clone(),
-            via: match front {
-                Front::Portal | Front::Edge => crate::ops::Via::Session,
-                Front::Bearer => crate::ops::Via::Bearer,
-            },
-            access: None,
-        };
-        crate::ops::record_check(&caller, state, project, &manifest, &verdict).await;
+        record_check_as(user, front, state, project, &manifest, &verdict).await;
         result.verdict = Some(verdict);
         return Ok((StatusCode::OK, Json(result)).into_response());
     }

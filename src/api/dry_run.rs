@@ -3,6 +3,7 @@ use utoipa::ToSchema;
 
 use crate::change::Lane;
 use crate::error::ApiError;
+use crate::ops::verdict::{Finding, Level, Verdict};
 use crate::plan::PlanDiff;
 
 #[derive(Debug, Default, Deserialize)]
@@ -51,6 +52,61 @@ pub struct DryRunResult {
     /// manifest into another organization would carry the literal with it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub findings: Vec<String>,
+}
+
+/**
+One shape for one outcome (T-2234; UI-23, PF-57, MF-13): a check that rejects a manifest answers the
+same red verdict every other check answers, with the reasons as its findings, instead of an error the
+caller has to read in a second way. A `DataSource` has always answered like this
+(`ops::datasource_verdict`); every other kind answered a 4xx whose detail the form put beside the
+buttons, so the same mistake met a person on two different pages and the strict gate had to
+understand both.
+
+Only the manifest's own faults become a verdict. A refusal of the caller, a project that is not
+there, a broken forge or anything else is not a judgement about the manifest and stays an error —
+`None` says so, and the caller propagates what it had.
+*/
+pub fn refused_check(err: &ApiError, manifest: &serde_json::Value) -> Option<DryRunResult> {
+    let findings = match err {
+        // One entry per violation (CC-24). A producer that names the path of the violation puts it
+        // there (`references.rs`: `errors: vec![reference.path]`), which is what makes a finding
+        // actionable; one that wrote a sentence instead keeps it as the message.
+        ApiError::Invalid { detail, errors } if !errors.is_empty() => errors
+            .iter()
+            .map(|entry| {
+                if entry.contains(' ') {
+                    Finding {
+                        level: Level::Error,
+                        path: String::new(),
+                        message: entry.clone(),
+                    }
+                } else {
+                    Finding {
+                        level: Level::Error,
+                        path: entry.clone(),
+                        message: detail.clone(),
+                    }
+                }
+            })
+            .collect(),
+        ApiError::Invalid { detail, .. } | ApiError::BadRequest(detail) => vec![Finding {
+            level: Level::Error,
+            path: String::new(),
+            message: detail.clone(),
+        }],
+        _ => return None,
+    };
+    Some(DryRunResult {
+        valid: false,
+        // Nothing may pass, so the lane says the strictest thing rather than the greenest: there is
+        // no change to classify, because the manifest never reached the diff.
+        lane: Lane::Red,
+        plan: PlanDiff::empty(),
+        restarts_stream: false,
+        probe: None,
+        verdict: Some(Verdict::new(false, findings, None, manifest)),
+        findings: Vec::new(),
+    })
 }
 
 /// Every string under `value` that writes `org_domain` out, as a finding naming its JSON
