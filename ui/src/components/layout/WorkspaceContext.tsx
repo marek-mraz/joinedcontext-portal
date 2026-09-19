@@ -24,12 +24,19 @@ export function setActiveWorkspace(name: string | null): void {
 const RESOURCE_PATH_RE =
   /^\/api\/v1\/projects\/[^/]+\/(spaces|endpoints|datasources|pipelines|dashboards|apps|syncsources|datamodels|mappings|policies|subscriptions|csrs|shared|serviceaccounts|layers|uischemas|projections|dataoffers|dataagreements|dataspaceparticipants|ckaninstances|blueprints|agentprofiles|bundles|roles|rolebindings|groups|environments)(\/[^/]+)?$/;
 
+/**
+ * The shared drafts of a copy (T-2267): unproposed work made inside a copy belongs to that copy,
+ * and the API answers it under `?workspace=`. The events stream is the project's own, so it is left
+ * alone — a copy has no stream of its own to subscribe to.
+ */
+const DRAFT_PATH_RE = /^\/api\/v1\/projects\/[^/]+\/drafts(\/(?!events)[^/]+\/[^/]+)?$/;
+
 export const workspaceMiddleware: Middleware = {
   async onRequest({ request }) {
     const name = activeWorkspace();
     if (!name) return request;
     const url = new URL(request.url);
-    if (!RESOURCE_PATH_RE.test(url.pathname)) return request;
+    if (!RESOURCE_PATH_RE.test(url.pathname) && !DRAFT_PATH_RE.test(url.pathname)) return request;
     url.searchParams.set("workspace", name);
     // Copied member by member, not `new Request(url, request)` (T-2265): that form re-uses the
     // original body as a stream, so the write leaves the browser `Transfer-Encoding: chunked`

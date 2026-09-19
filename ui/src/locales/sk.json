@@ -376,7 +376,16 @@
       "title": "Čo tento endpoint odpovedá",
       "type": "Typ entity",
       "notLive": "Tento endpoint ešte nič neodpovedá; slúži až keď je zmena Live.",
-      "noSchema": "Tento endpoint ešte nepublikuje schému, takže nie je čo čítať."
+      "noSchema": "Tento endpoint ešte nepublikuje schému, takže nie je čo čítať.",
+      "compare": "Porovnať s priestorom",
+      "compareClose": "Späť na samotný endpoint",
+      "compareLead": "Tá istá strana entít, prečítaná oboma dverami: priestor tak, ako ho smiete čítať, a tento endpoint.",
+      "spaceSide": "Priestor",
+      "endpointSide": "Tento endpoint",
+      "missingRow": "nie je v tomto endpointe (filter alebo politika)",
+      "hiddenColumn": "skryté projekciou",
+      "same": "Tento endpoint odpovedá túto stranu presne tak, ako ju priestor drží.",
+      "spaceRefused": "Tento endpoint čítať smiete, priestor za ním nie, takže niet s čím porovnávať."
     },
     "projection": {
       "title": "Zverejnené atribúty",

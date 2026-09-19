@@ -10,10 +10,10 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { parseGridConfig } from "@joinedcontext/sdk";
+import { EntityCompare, originTransport, parseGridConfig, sourceFor } from "@joinedcontext/sdk";
 import { fetchJson, publishedTypes } from "../../pages/endpoints/SchemaProjectionPanel";
-import { Field, Select } from "../ui";
-import { PortalEntityGrid } from "./PortalEntityGrid";
+import { Button, Field, Select } from "../ui";
+import { gridLabels, PortalEntityGrid } from "./PortalEntityGrid";
 
 interface SchemaIndex {
   models?: { name?: string; version?: number }[];
@@ -25,11 +25,22 @@ export interface EndpointDataViewProps {
   slug: string;
   /** `spec.projection.hiddenAttributes`, including what the open form has ticked but not saved. */
   hidden?: string[];
+  /**
+   * The space this endpoint serves (`spec.contextSpaceRef`), for the comparison of T-1435. Without
+   * one there is nothing to compare against and the button is absent.
+   */
+  space?: string;
 }
 
-export function EndpointDataView({ project, slug, hidden = [] }: EndpointDataViewProps): JSX.Element {
-  const { t } = useTranslation();
+export function EndpointDataView({
+  project,
+  slug,
+  hidden = [],
+  space,
+}: EndpointDataViewProps): JSX.Element {
+  const { t, i18n } = useTranslation();
   const [chosen, setChosen] = useState<string>("");
+  const [comparing, setComparing] = useState(false);
   const base = `${window.location.origin}/api/endpoint/${slug}/schema`;
 
   const index = useQuery({
@@ -69,6 +80,25 @@ export function EndpointDataView({ project, slug, hidden = [] }: EndpointDataVie
     );
   }, [slug, type, hidden]);
 
+  const compareLabels = useMemo(
+    () => ({
+      left: t("endpoints.data.spaceSide"),
+      right: t("endpoints.data.endpointSide"),
+      missingRow: t("endpoints.data.missingRow"),
+      hiddenColumn: t("endpoints.data.hiddenColumn"),
+      lead: t("endpoints.data.compareLead"),
+      same: t("endpoints.data.same"),
+      loading: t("app.loading"),
+      error: t("app.error.generic"),
+      leftRefused: t("endpoints.data.spaceRefused"),
+      previous: t("entityGrid.previous"),
+      next: t("entityGrid.next"),
+      page: t("entityGrid.page"),
+    }),
+    [t],
+  );
+  const labels = useMemo(() => gridLabels(t), [t]);
+
   if (index.isPending || schema.isPending) {
     return <p role="status">{t("endpoints.projection.loading")}</p>;
   }
@@ -91,7 +121,26 @@ export function EndpointDataView({ project, slug, hidden = [] }: EndpointDataVie
           ))}
         </Select>
       </Field>
-      <PortalEntityGrid key={`${slug}-${type.name}`} project={project} config={config} />
+      {/* Two doors on the same page of entities: what this endpoint's filter and projection leave
+          out is marked on the space's side (T-1435). */}
+      {space ? (
+        <Button size="sm" variant="secondary" onClick={() => setComparing((each) => !each)}>
+          {comparing ? t("endpoints.data.compareClose") : t("endpoints.data.compare")}
+        </Button>
+      ) : null}
+
+      {comparing && space ? (
+        <EntityCompare
+          key={`${slug}-${type.name}-${space}`}
+          config={config}
+          left={sourceFor({ kind: "space", space }, originTransport(), i18n.language)}
+          right={sourceFor({ kind: "endpoint", slug }, originTransport(), i18n.language)}
+          labels={compareLabels}
+          gridLabels={labels}
+        />
+      ) : (
+        <PortalEntityGrid key={`${slug}-${type.name}`} project={project} config={config} />
+      )}
     </div>
   );
 }

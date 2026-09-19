@@ -22,6 +22,11 @@ export interface EntityGridProps extends UseEntityGridOptions {
    * exports or counts what is shown.
    */
   onRows?: (rows: RichRow[], offset: number) => void;
+  /**
+   * What is different about a row or a column, and why, in the host's own words: a comparison marks
+   * what the other side does not answer (T-1435). Each value is the sentence a person reads on it.
+   */
+  marks?: { rows?: Record<string, string>; columns?: Record<string, string> };
   toolbar?: React.ReactNode;
   empty?: React.ReactNode;
   className?: string;
@@ -33,6 +38,7 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
     renderers,
     onOpenRelationship,
     onRows,
+    marks,
     toolbar,
     empty: emptySlot,
     className,
@@ -334,7 +340,8 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
                 // A refused update stays visible on its own row, not only in the panel the person
                 // may have closed: the value there is still theirs and still unapplied.
                 data-refused={refusedOf.has(row.id) ? "true" : undefined}
-                title={rowTitle(row.id)}
+                data-mark={marks?.rows?.[row.id] ? "row" : undefined}
+                title={marks?.rows?.[row.id] ?? rowTitle(row.id)}
                 {...getRowProps(row, rowIndex)}
               >
                 {columns.map((col, colIndex) => (
@@ -342,7 +349,11 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
                     key={`${row.id}-${col.key}`}
                     className={`jc-grid-td${col.pinned ? " jc-grid-pinned" : ""}${classNames?.cell ? ` ${classNames.cell}` : ""}`}
                     {...getCellProps(row, rowIndex, col, colIndex)}
-                    title={col.pinned ? cellOf(row, col).text : undefined}
+                    data-mark={col.attr && marks?.columns?.[col.attr] ? "column" : undefined}
+                    title={
+                      (col.attr ? marks?.columns?.[col.attr] : undefined) ??
+                      (col.pinned ? cellOf(row, col).text : undefined)
+                    }
                   >
                     {renderCellContent(row, col)}
                   </td>

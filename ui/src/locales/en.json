@@ -376,7 +376,16 @@
       "title": "What this endpoint answers",
       "type": "Entity type",
       "notLive": "This endpoint answers nothing yet; it is served once the change is Live.",
-      "noSchema": "This endpoint publishes no schema yet, so there is no type to read."
+      "noSchema": "This endpoint publishes no schema yet, so there is no type to read.",
+      "compare": "Compare with the space",
+      "compareClose": "Back to this endpoint alone",
+      "compareLead": "The same page of entities, read through both doors: the space as you may read it, and this endpoint.",
+      "spaceSide": "The space",
+      "endpointSide": "This endpoint",
+      "missingRow": "not in this endpoint (filter or policy)",
+      "hiddenColumn": "hidden by the projection",
+      "same": "This endpoint answers this page exactly as the space holds it.",
+      "spaceRefused": "You may read this endpoint but not the space behind it, so there is nothing to compare it with."
     },
     "projection": {
       "title": "Published attributes",

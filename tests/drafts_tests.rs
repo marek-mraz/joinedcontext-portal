@@ -857,3 +857,153 @@ async fn draft_without_workspace_still_works_and_serializes_without_one() {
         .get("workspace")
         .is_none());
 }
+
+/// T-2267, CC-76: a draft made inside a copy is that copy's. It is listed, read and dropped there,
+/// and the project's own draft of the same kind and name is a different draft that nothing here
+/// touches. Before this, everything but the write ignored the copy, so the work was unreachable:
+/// the assistant's checked change inside a copy existed and no client could list it.
+#[tokio::test]
+async fn a_draft_of_a_copy_lives_in_that_copy() {
+    let config = Config::for_tests();
+    let state = AppState::new(config.clone(), None).with_mirror(Arc::new(Mirror::new()));
+    let app = server::app(state);
+    let cookie = session_cookie(
+        &config,
+        "steward.user",
+        Some("steward@banskabystrica.sk"),
+        vec!["portal-approver"],
+        vec![],
+    );
+
+    let manifest = |enabled: bool| {
+        json!({
+            "manifest": {
+                "apiVersion": API_VERSION,
+                "kind": "Pipeline",
+                "metadata": { "name": "air-feed" },
+                "spec": { "class": "auto", "enabled": enabled }
+            }
+        })
+    };
+    let put = |uri: &'static str, body: Value, cookie: String| {
+        let app = app.clone();
+        async move {
+            app.oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(uri)
+                    .header(header::COOKIE, cookie)
+                    .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let get = |uri: &'static str, cookie: String| {
+        let app = app.clone();
+        async move {
+            app.oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(uri)
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let body_of = |response: axum::response::Response| async move {
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice::<Value>(&bytes).unwrap()
+    };
+
+    // The project's own draft, and a different one inside the copy.
+    let project = put(
+        "/api/v1/projects/ovzdusie/drafts/Pipeline/air-feed",
+        manifest(true),
+        cookie.clone(),
+    )
+    .await;
+    assert_eq!(project.status(), StatusCode::OK);
+    let inside = put(
+        "/api/v1/projects/ovzdusie/drafts/Pipeline/air-feed?workspace=air-v2",
+        manifest(false),
+        cookie.clone(),
+    )
+    .await;
+    assert_eq!(inside.status(), StatusCode::OK);
+    // A first write in the copy, not a second version of the project's draft.
+    assert_eq!(body_of(inside).await["version"], 1);
+
+    // Each side lists its own, and only its own.
+    let of_project = body_of(get("/api/v1/projects/ovzdusie/drafts", cookie.clone()).await).await;
+    let of_copy = body_of(
+        get(
+            "/api/v1/projects/ovzdusie/drafts?workspace=air-v2",
+            cookie.clone(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(of_project["items"].as_array().unwrap().len(), 1);
+    assert_eq!(of_copy["items"].as_array().unwrap().len(), 1);
+    assert_eq!(of_copy["items"][0]["workspace"], "air-v2");
+    assert!(of_project["items"][0]["workspace"].is_null());
+
+    // Read back: the copy's manifest is the copy's, the project's is untouched.
+    let read_copy = body_of(
+        get(
+            "/api/v1/projects/ovzdusie/drafts/Pipeline/air-feed?workspace=air-v2",
+            cookie.clone(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(read_copy["manifest"]["spec"]["enabled"], false);
+    let read_project = body_of(
+        get(
+            "/api/v1/projects/ovzdusie/drafts/Pipeline/air-feed",
+            cookie.clone(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(read_project["manifest"]["spec"]["enabled"], true);
+
+    // A copy nobody drafted in has nothing, and says so rather than answering the project's.
+    let elsewhere = get(
+        "/api/v1/projects/ovzdusie/drafts/Pipeline/air-feed?workspace=other",
+        cookie.clone(),
+    )
+    .await;
+    assert_eq!(elsewhere.status(), StatusCode::NOT_FOUND);
+
+    // Dropping it in the copy leaves the project's alone.
+    let dropped = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/projects/ovzdusie/drafts/Pipeline/air-feed?workspace=air-v2")
+                .header(header::COOKIE, cookie.clone())
+                .header(CSRF_HEADER, TEST_CSRF_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(dropped.status(), StatusCode::OK);
+    let left = body_of(get("/api/v1/projects/ovzdusie/drafts", cookie.clone()).await).await;
+    assert_eq!(left["items"].as_array().unwrap().len(), 1);
+    let gone = get(
+        "/api/v1/projects/ovzdusie/drafts/Pipeline/air-feed?workspace=air-v2",
+        cookie,
+    )
+    .await;
+    assert_eq!(gone.status(), StatusCode::NOT_FOUND);
+}

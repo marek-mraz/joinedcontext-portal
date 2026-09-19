@@ -276,9 +276,12 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
       : [],
   );
   /** The endpoint whose data a person opened from its row (T-1433). */
-  const [dataView, setDataView] = useState<{ slug: string; name: string; hidden: string[] } | null>(
-    null,
-  );
+  const [dataView, setDataView] = useState<{
+    slug: string;
+    name: string;
+    hidden: string[];
+    space?: string;
+  } | null>(null);
 
   const list = useQuery({
     queryKey: queryKeys.list(project, "endpoints"),
@@ -837,6 +840,7 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                           slug: spec.slug as string,
                           name: endpoint.metadata.name,
                           hidden: hiddenOf(endpoint),
+                          space: spaceOf(endpoint),
                         })
                       }
                     >
@@ -1173,7 +1177,12 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
                   {t("endpoints.data.title")}
                 </summary>
                 <div className="mt-3">
-                  <EndpointDataView project={project} slug={activeSlug} hidden={hidden} />
+                  <EndpointDataView
+                    project={project}
+                    slug={activeSlug}
+                    hidden={hidden}
+                    space={editing?.contextSpaceRef || undefined}
+                  />
                 </div>
               </details>
             ) : null}
@@ -1224,7 +1233,12 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
         closeLabel={t("form.cancel")}
       >
         {dataView ? (
-          <EndpointDataView project={project} slug={dataView.slug} hidden={dataView.hidden} />
+          <EndpointDataView
+            project={project}
+            slug={dataView.slug}
+            hidden={dataView.hidden}
+            space={dataView.space}
+          />
         ) : null}
       </Dialog>
     </div>

@@ -17,6 +17,8 @@ export interface GridQuery {
   attrs?: string[];
   idPattern?: string;
   scopeQ?: string;
+  /** Exactly these entities, for a side-by-side read of one page (T-1435). */
+  ids?: string[];
 }
 
 export interface GridPage {
@@ -68,6 +70,31 @@ function resultsCount(headers: Record<string, string> | undefined): number | und
   return Number.isInteger(count) && count >= 0 ? count : undefined;
 }
 
+/**
+ * The URL a query of this many ids would carry, split so no query string grows past `maxChars`.
+ * A gateway, a proxy and nginx all have a line length of their own; 4 000 characters is under
+ * every default, and a page of 25 urns fits in one read (T-1435).
+ */
+export function idChunks(ids: string[], maxChars = 3_500): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let length = 0;
+  for (const id of ids) {
+    const cost = encodeURIComponent(id).length + 3;
+    if (current.length > 0 && length + cost > maxChars) {
+      chunks.push(current);
+      current = [];
+      length = 0;
+    }
+    current.push(id);
+    length += cost;
+  }
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+  return chunks;
+}
+
 /** The problem document's own sentence, or `fallback`. */
 function detailOf(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null) {
@@ -93,6 +120,7 @@ function entitiesQuery(q: GridQuery, offset: number, limit: number): string {
     attrs: attrs.length > 0 ? attrs.join(",") : undefined,
     idPattern: q.idPattern || undefined,
     scopeQ: q.scopeQ || undefined,
+    id: q.ids && q.ids.length > 0 ? q.ids.join(",") : undefined,
   });
 }
 
@@ -191,7 +219,12 @@ export function fixtureSource(entities: Record<string, unknown>[], language = "e
   return {
     async query(q, page) {
       const pattern = q.idPattern ? new RegExp(q.idPattern) : null;
-      const matching = rows.filter((row) => row.type === q.type && (!pattern || pattern.test(row.id)));
+      const matching = rows.filter(
+        (row) =>
+          row.type === q.type &&
+          (!pattern || pattern.test(row.id)) &&
+          (!q.ids || q.ids.includes(row.id)),
+      );
       return { rows: matching.slice(page.offset, page.offset + page.limit), total: matching.length };
     },
     async get(id) {

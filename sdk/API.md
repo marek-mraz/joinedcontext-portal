@@ -114,15 +114,23 @@ const MAX_ENTITIES = 50
 function EntityHistory(props: EntityHistoryProps): JSX.Element
 function asCsv(points: HistoryPoint[], attr: string): string
 const MAX_POINTS = 1000
+
+// The space beside an endpoint (T-1435): the same page of ids through both doors
+function EntityCompare(props: EntityCompareProps): JSX.Element
+function pageSource(rows: RichRow[]): EntitySource
+const DEFAULT_COMPARE_LABELS: CompareLabels
 ```
 One spreadsheet-like grid of one entity type: an id column pinned, a value with its unit per attribute, and per attribute a menu that adds `observedAt`, unit, `datasetId`, `createdAt`, `modifiedAt` columns. Arrow keys, Home/End and PageUp/PageDown move the active cell (`role="grid"`). The config is data (`{ source, type, columns, entityTimestamps, filters, pageSize, mode, editableAttrs, history, compareWith, density, rowActions }`); `parseGridConfig` refuses unknown keys with JSON paths and fills defaults. Props: `config`, `source`, `labels` (every visible string; English defaults), `state` + `onStateChange` (controlled per key, else uncontrolled), `renderers` by attribute name, cell kind or `id` for the pinned identifier column, `onOpenRelationship`, `onRows` (the page of rows and the offset it starts at, for a host that exports what is shown), `toolbar`, `empty`, `classNames`. `useEntityGrid` is the same behaviour without markup. Values render as text; sorting orders the loaded page only, which the header says.
 
 The header's second row filters at the endpoint (UI-66, EP-07): per column the operators its content allows (contains/is/is not/is empty/has a value for text, comparisons and between for numbers and dates, the id by pattern, a metadata column on `attr.observedAt`), composed into one `q` joined by `;` with every value quoted and every pattern's metacharacters escaped, shown under the grid with a copy button and an "edit as text" switch for a `q` the rows cannot show. The footer carries the endpoint's own `NGSILD-Results-Count`, and nothing when a narrowed answer carried none (R22). In `mode: "edit"` the columns of `editableAttrs` take a typed value — the value itself, not the text, so a unit is kept — which is marked, counted, reviewed as a batch with one `observedAt` choice, and applied one `PATCH …/attrs` per entity through the source's `patch`; a refused entity keeps its cell and the endpoint's own sentence. A source without `patch` has no edit mode and one without `history` offers no history, which is how a read-only surface switches both off.
+
+`EntityCompare` puts a space and an endpoint side by side (UI-69, EP-61): the left side is read first and the right side is asked for exactly those ids (`id=`, split by `idChunks` so no query string passes 3 500 characters), so the two pages hold the same entities. `marks` paints what the right side does not answer on the left — a row it leaves out is struck through, an attribute it does not carry is shaded — and nothing is ever drawn on the right about a value it withheld. Both sides are view mode, both read with the person's own session, and a space the person may not read leaves the endpoint side alone with the reason. Under 900 px the two stack.
 ```ts
 function endpointSource(slug: string, transport: Transport, language?: string): EntitySource
 function spaceSource(space: string, transport: Transport, language?: string): EntitySource
 function sourceFor(source: { kind: "endpoint"; slug } | { kind: "space"; space }, transport: Transport, language?: string): EntitySource
 function fixtureSource(entities: object[], language?: string): EntitySource
+function idChunks(ids: string[], maxChars?: number): string[][]
 function transportFor(config: JcConfig): Transport // e.g. transportFor(jc().config)
 function originTransport(fetchImpl?: typeof fetch, doc?: Document): Transport // a host page's own: same origin, the person's session and CSRF header
 class SourceError extends Error { status: number }

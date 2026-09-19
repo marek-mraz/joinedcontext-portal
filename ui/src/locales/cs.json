@@ -376,7 +376,16 @@
       "title": "Co tento endpoint odpovídá",
       "type": "Typ entity",
       "notLive": "Tento endpoint ještě nic neodpovídá; slouží až když je změna Live.",
-      "noSchema": "Tento endpoint ještě nepublikuje schéma, takže není co číst."
+      "noSchema": "Tento endpoint ještě nepublikuje schéma, takže není co číst.",
+      "compare": "Porovnat s prostorem",
+      "compareClose": "Zpět na samotný endpoint",
+      "compareLead": "Tatáž strana entit, přečtená oběma dveřmi: prostor tak, jak jej smíte číst, a tento endpoint.",
+      "spaceSide": "Prostor",
+      "endpointSide": "Tento endpoint",
+      "missingRow": "není v tomto endpointu (filtr nebo politika)",
+      "hiddenColumn": "skryto projekcí",
+      "same": "Tento endpoint odpovídá tuto stranu přesně tak, jak ji prostor drží.",
+      "spaceRefused": "Tento endpoint číst smíte, prostor za ním ne, takže není s čím porovnávat."
     },
     "projection": {
       "title": "Zveřejněné atributy",

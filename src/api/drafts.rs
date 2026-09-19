@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -28,6 +28,14 @@ use crate::ops::drafts::{Draft, DraftEvent};
 use crate::ops::{self, Caller, Via};
 use crate::resource::is_dns1123;
 use crate::state::AppState;
+
+/// Which copy a draft belongs to, exactly as every resource route names one (CC-76, T-2267).
+/// Absent is the project's own draft, which is what every client that knows nothing of copies sends.
+#[derive(Debug, Default, Deserialize)]
+pub struct WorkspaceQuery {
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
 
 /// Input payload for saving or updating a draft manifest.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -77,6 +85,7 @@ fn sse_draft_event(event: &DraftEvent) -> Event {
     tag = "drafts",
     params(
         ("project" = String, Path, description = "Project name"),
+        ("workspace" = Option<String>, Query, description = "The copy the draft belongs to (CC-76)"),
     ),
     responses(
         (status = 200, description = "List of drafts in the project", body = DraftList),
@@ -90,6 +99,7 @@ pub async fn list_drafts(
     front: Front,
     State(state): State<AppState>,
     Path(project): Path<String>,
+    Query(query): Query<WorkspaceQuery>,
 ) -> Result<Response, ApiError> {
     if !is_dns1123(&project) {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
@@ -100,7 +110,11 @@ pub async fn list_drafts(
         ));
     };
     let caller = caller_of(user, front);
-    match ops::call(op, &caller, &state, &project, json!({})).await {
+    let input = match query.workspace.as_deref() {
+        Some(name) => json!({ "workspace": name }),
+        None => json!({}),
+    };
+    match ops::call(op, &caller, &state, &project, input).await {
         Ok(output) => Ok((StatusCode::OK, Json(output)).into_response()),
         Err(err) => Ok(err.into_response()),
     }
@@ -114,6 +128,7 @@ pub async fn list_drafts(
         ("project" = String, Path, description = "Project name"),
         ("kind" = String, Path, description = "Manifest kind"),
         ("name" = String, Path, description = "Draft name"),
+        ("workspace" = Option<String>, Query, description = "The copy the draft belongs to (CC-76)"),
     ),
     responses(
         (status = 200, description = "The draft", body = Draft),
@@ -127,6 +142,7 @@ pub async fn get_draft(
     front: Front,
     State(state): State<AppState>,
     Path((project, kind, name)): Path<(String, String, String)>,
+    Query(query): Query<WorkspaceQuery>,
 ) -> Result<Response, ApiError> {
     if !is_dns1123(&project) {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
@@ -137,10 +153,13 @@ pub async fn get_draft(
         ));
     };
     let caller = caller_of(user, front);
-    let input = json!({
+    let mut input = json!({
         "kind": kind,
         "name": name,
     });
+    if let Some(name) = query.workspace {
+        input["workspace"] = Value::String(name);
+    }
     match ops::call(op, &caller, &state, &project, input).await {
         Ok(output) => Ok((StatusCode::OK, Json(output)).into_response()),
         Err(err) => Ok(err.into_response()),
@@ -155,6 +174,7 @@ pub async fn get_draft(
         ("project" = String, Path, description = "Project name"),
         ("kind" = String, Path, description = "Manifest kind"),
         ("name" = String, Path, description = "Draft name"),
+        ("workspace" = Option<String>, Query, description = "The copy the draft belongs to (CC-76)"),
     ),
     request_body = PutDraftRequest,
     responses(
@@ -172,6 +192,7 @@ pub async fn put_draft(
     front: Front,
     State(state): State<AppState>,
     Path((project, kind, name)): Path<(String, String, String)>,
+    Query(query): Query<WorkspaceQuery>,
     Json(req): Json<PutDraftRequest>,
 ) -> Result<Response, ApiError> {
     if !is_dns1123(&project) {
@@ -190,6 +211,9 @@ pub async fn put_draft(
     if let Some(expected) = req.expected_version {
         input.insert("expectedVersion".to_string(), json!(expected));
     }
+    if let Some(name) = query.workspace {
+        input.insert("workspace".to_string(), Value::String(name));
+    }
     match ops::call(op, &caller, &state, &project, Value::Object(input)).await {
         Ok(output) => Ok((StatusCode::OK, Json(output)).into_response()),
         Err(err) => Ok(err.into_response()),
@@ -204,6 +228,7 @@ pub async fn put_draft(
         ("project" = String, Path, description = "Project name"),
         ("kind" = String, Path, description = "Manifest kind"),
         ("name" = String, Path, description = "Draft name"),
+        ("workspace" = Option<String>, Query, description = "The copy the draft belongs to (CC-76)"),
     ),
     responses(
         (status = 200, description = "Draft dropped result", body = DropDraftResponse),
@@ -217,6 +242,7 @@ pub async fn drop_draft(
     front: Front,
     State(state): State<AppState>,
     Path((project, kind, name)): Path<(String, String, String)>,
+    Query(query): Query<WorkspaceQuery>,
 ) -> Result<Response, ApiError> {
     if !is_dns1123(&project) {
         return Err(ApiError::NotFound(format!("project '{project}' not found")));
@@ -227,10 +253,13 @@ pub async fn drop_draft(
         ));
     };
     let caller = caller_of(user, front);
-    let input = json!({
+    let mut input = json!({
         "kind": kind,
         "name": name,
     });
+    if let Some(name) = query.workspace {
+        input["workspace"] = Value::String(name);
+    }
     match ops::call(op, &caller, &state, &project, input).await {
         Ok(output) => Ok((StatusCode::OK, Json(output)).into_response()),
         Err(err) => Ok(err.into_response()),

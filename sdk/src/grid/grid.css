@@ -321,3 +321,37 @@
   font-size: 0.875em;
   opacity: 0.8;
 }
+
+/* What the other side of a comparison does not answer (T-1435): the row it leaves out, and the
+   column it does not carry. The mark is on the side that has more, never a guess about the other. */
+.jc-grid-tr[data-mark="row"] {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+.jc-grid-td[data-mark="column"] {
+  background: repeating-linear-gradient(
+    45deg,
+    rgb(0 0 0 / 4%),
+    rgb(0 0 0 / 4%) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.jc-compare {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr 1fr;
+}
+
+.jc-compare-side {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+@media (width <= 900px) {
+  .jc-compare {
+    grid-template-columns: 1fr;
+  }
+}

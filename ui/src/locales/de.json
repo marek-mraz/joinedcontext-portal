@@ -357,7 +357,16 @@
       "title": "Was dieser Endpunkt antwortet",
       "type": "Entitätstyp",
       "notLive": "Dieser Endpunkt antwortet noch nichts; er wird bedient, sobald die Änderung Live ist.",
-      "noSchema": "Dieser Endpunkt veröffentlicht noch kein Schema, also gibt es keinen Typ zu lesen."
+      "noSchema": "Dieser Endpunkt veröffentlicht noch kein Schema, also gibt es keinen Typ zu lesen.",
+      "compare": "Mit dem Raum vergleichen",
+      "compareClose": "Zurück zum Endpunkt allein",
+      "compareLead": "Dieselbe Seite von Entitäten durch beide Türen gelesen: der Raum, soweit Sie ihn lesen dürfen, und dieser Endpunkt.",
+      "spaceSide": "Der Raum",
+      "endpointSide": "Dieser Endpunkt",
+      "missingRow": "nicht in diesem Endpunkt (Filter oder Policy)",
+      "hiddenColumn": "durch die Projektion verborgen",
+      "same": "Dieser Endpunkt antwortet diese Seite genau so, wie der Raum sie hält.",
+      "spaceRefused": "Sie dürfen diesen Endpunkt lesen, aber nicht den Raum dahinter, also gibt es nichts zu vergleichen."
     },
     "projection": {
       "title": "Veröffentlichte Attribute",

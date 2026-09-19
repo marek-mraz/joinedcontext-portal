@@ -486,6 +486,9 @@ pub struct DraftPutInput {
     pub manifest: Value,
     #[serde(default)]
     pub expected_version: Option<i64>,
+    /// The copy this draft belongs to; `None` is the project's own draft (CC-76, T-2267).
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -493,6 +496,9 @@ pub struct DraftPutInput {
 pub struct DraftGetInput {
     pub kind: String,
     pub name: String,
+    /// The copy to read it in; `None` is the project's own draft (CC-76, T-2267).
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -500,6 +506,17 @@ pub struct DraftGetInput {
 pub struct DraftDropInput {
     pub kind: String,
     pub name: String,
+    /// The copy to drop it in; `None` is the project's own draft (CC-76, T-2267).
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
+/// Which drafts to list: those of one copy, or the project's own (CC-76, T-2267).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftListInput {
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -625,7 +642,9 @@ fn draft_put_input_schema() -> Value {
             "kind": { "type": "string" },
             "name": { "type": "string" },
             "manifest": { "type": "object" },
-            "expectedVersion": { "type": "integer" }
+            "expectedVersion": { "type": "integer" },
+            // The copy this draft belongs to; absent means the project's own (CC-76, T-2267).
+            "workspace": { "type": "string" }
         },
         "required": ["kind", "name", "manifest"],
         "additionalProperties": false
@@ -637,9 +656,20 @@ fn draft_get_input_schema() -> Value {
         "type": "object",
         "properties": {
             "kind": { "type": "string" },
-            "name": { "type": "string" }
+            "name": { "type": "string" },
+            "workspace": { "type": "string" }
         },
         "required": ["kind", "name"],
+        "additionalProperties": false
+    })
+}
+
+fn draft_list_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "workspace": { "type": "string" }
+        },
         "additionalProperties": false
     })
 }
@@ -1977,7 +2007,8 @@ fn core_operations() -> Vec<Operation> {
                     crate::permissions::for_request(state, &caller.identity, project)
                         .check(&input.kind, Verb::Propose, None)?;
                     let draft = draft_store(state)
-                        .put(
+                        .put_in(
+                            input.workspace.as_deref(),
                             project,
                             &input.kind,
                             &input.name,
@@ -2006,13 +2037,13 @@ fn core_operations() -> Vec<Operation> {
             kind: "*",
             verb: None,
             lane: Lane::Green,
-            validate: |val| parse_input::<DraftRef>(val.clone()).map(|_| ()),
+            validate: |val| parse_input::<DraftGetInput>(val.clone()).map(|_| ()),
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    let d: DraftRef = parse_input(val)?;
+                    let d: DraftGetInput = parse_input(val)?;
                     let effective = crate::permissions::for_request(state, &caller.identity, project);
                     let draft = draft_store(state)
-                        .get(project, &d.kind, &d.name)
+                        .get_in(d.workspace.as_deref(), project, &d.kind, &d.name)
                         .await
                         .map_err(draft_error)?
                         // Not readable is not there (PF-59, R20, T-1455).
@@ -2030,8 +2061,8 @@ fn core_operations() -> Vec<Operation> {
         Operation {
             name: "jc_draft_list",
             title: "List Drafts",
-            description: "Lists the shared drafts of a project (AG-61)",
-            input: || json!({ "type": "object", "additionalProperties": false }),
+            description: "Lists the shared drafts of a project, or of one copy of it (AG-61, CC-76)",
+            input: draft_list_input_schema,
             output: draft_list_output_schema,
             annotations: OperationAnnotations {
                 read_only_hint: true,
@@ -2041,24 +2072,16 @@ fn core_operations() -> Vec<Operation> {
             kind: "*",
             verb: None,
             lane: Lane::Green,
-            validate: |val| {
-                if val.as_object().is_some_and(|o| o.is_empty()) || val.is_null() {
-                    Ok(())
-                } else {
-                    Err(OpError::InvalidInput {
-                        path: String::new(),
-                        message: "no input is accepted".into(),
-                    })
-                }
-            },
-            run: |caller, state, project, _val| {
+            validate: |val| parse_input::<DraftListInput>(val.clone()).map(|_| ()),
+            run: |caller, state, project, val| {
                 Box::pin(async move {
+                    let asked: DraftListInput = parse_input(val)?;
                     // A draft is readable exactly where its manifest would be (PF-59, T-1455).
                     let effective = crate::permissions::for_request(state, &caller.identity, project);
                     // A line per draft, never the manifest and never the verdict's trace
                     // (T-2248): the manifest is read one at a time with jc_draft_get.
                     let items: Vec<crate::ops::drafts::DraftLine> = draft_store(state)
-                        .list(project)
+                        .list_in(asked.workspace.as_deref(), project)
                         .await
                         .map_err(draft_error)?
                         .iter()
@@ -2083,14 +2106,14 @@ fn core_operations() -> Vec<Operation> {
             kind: "*",
             verb: None,
             lane: Lane::Green,
-            validate: |val| parse_input::<DraftRef>(val.clone()).map(|_| ()),
+            validate: |val| parse_input::<DraftDropInput>(val.clone()).map(|_| ()),
             run: |caller, state, project, val| {
                 Box::pin(async move {
-                    let d: DraftRef = parse_input(val)?;
+                    let d: DraftDropInput = parse_input(val)?;
                     crate::permissions::for_request(state, &caller.identity, project)
                         .check(&d.kind, Verb::Propose, None)?;
                     let dropped = draft_store(state)
-                        .drop(project, &d.kind, &d.name)
+                        .drop_in(d.workspace.as_deref(), project, &d.kind, &d.name)
                         .await
                         .map_err(draft_error)?;
                     Ok(json!({ "dropped": dropped }))

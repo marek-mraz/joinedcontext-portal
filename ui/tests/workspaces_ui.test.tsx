@@ -152,6 +152,16 @@ describe("the copy's bar and query parameter", () => {
     expect(await through("/api/v1/projects/helsinki/changes")).toBe("");
   });
 
+  // T-2267: unproposed work made inside a copy is that copy's, and the API answers it under the
+  // same parameter. Without this the form in a copy read and overwrote the project's draft.
+  it("takes the shared drafts of a copy into that copy, but not the project's own stream", async () => {
+    setActiveWorkspace("air-v2");
+    expect(await through("/api/v1/projects/helsinki/drafts")).toBe("?workspace=air-v2");
+    expect(await through("/api/v1/projects/helsinki/drafts/Pipeline/bikes")).toBe("?workspace=air-v2");
+    // One stream per project, so the subscription is the project's.
+    expect(await through("/api/v1/projects/helsinki/drafts/events")).toBe("");
+  });
+
   it("carries a write into the copy whole: its method, its headers and its body (T-2265)", async () => {
     setActiveWorkspace("air-v2");
     const manifest = JSON.stringify({ kind: "Pipeline", metadata: { name: "bikes" }, spec: { enabled: false } });
