@@ -4,7 +4,7 @@ import { I18nextProvider } from "react-i18next";
 import { describe, expect, it } from "vitest";
 import i18n from "../src/i18n";
 import { SchemaForm } from "../src/components/forms/SchemaForm";
-import { arrange, index, localized, paths } from "../src/components/forms/uischema";
+import { arrange, index, localized, paths, requiredProgress } from "../src/components/forms/uischema";
 import type { UiSchemaManifest } from "../src/components/forms/uischema";
 import type { JsonSchema } from "../src/components/forms/types";
 import en from "../src/locales/en.json";
@@ -418,6 +418,94 @@ describe("the form renders what the manifest arranged", () => {
     expect(document.activeElement).toBe(field);
     // And the offer is gone from the page's actions, without having moved the input to do it.
     expect(screen.queryByRole("button", { name: en.form.useExample })).not.toBeInTheDocument();
+  });
+
+  /**
+   * T-1607: a long form shows what matters and folds the rest. A group the manifest folds opens on a
+   * click and is in the page all along, so a person searching the form with the keyboard finds it.
+   */
+  it("folds the group the manifest folds and keeps a group with a required field open", () => {
+    const manifest: UiSchemaManifest = {
+      ...MANIFEST,
+      spec: {
+        for: "Endpoint",
+        groups: [
+          { title: "Basics", fields: ["name"] },
+          { title: "Limits", description: "Rate and cache", folded: true, fields: ["notes"] },
+          { title: "Access", folded: true, fields: ["audience"] },
+        ],
+      },
+    };
+    const { uiSchema } = arrange(manifest, {
+      properties: PROPERTIES,
+      locale: "en",
+      required: ["audience"],
+    });
+    const groups = (uiSchema["ui:options"] as { groups: { title?: string; folded?: boolean }[] })
+      .groups;
+    expect(groups.map((group) => [group.title, group.folded === true])).toEqual([
+      ["Basics", false],
+      ["Limits", true],
+      // A group that holds a required field is never folded, whatever the manifest asks.
+      ["Access", false],
+    ]);
+
+    const { container } = form(uiSchema);
+    const folded = container.querySelector("details") as HTMLDetailsElement;
+    expect(folded).not.toBeNull();
+    expect(folded.open).toBe(false);
+    expect(folded.querySelector("summary")?.textContent).toContain("Limits");
+    // The field is in the page, folded or not: nothing is removed from the form to tidy it.
+    expect(screen.getByLabelText(/^Notes/)).toBeInTheDocument();
+  });
+
+  /** T-1607: the footer counts what the form still wants, so a folded group hides no reason. */
+  it("counts the required fields the form still wants", async () => {
+    const user = userEvent.setup();
+    const schema: JsonSchema = {
+      type: "object",
+      required: ["name", "url", "tls"],
+      properties: {
+        name: { type: "string", title: "Name" },
+        url: { type: "string", title: "URL" },
+        // An object that requires something of its own: not asked for until it holds anything.
+        tls: {
+          type: "object",
+          required: ["caCert"],
+          properties: { caCert: { type: "string", title: "CA certificate" } },
+        },
+      },
+    };
+    expect(requiredProgress(schema, {})).toEqual({ filled: 0, total: 3 });
+    expect(requiredProgress(schema, { name: "a", url: "" })).toEqual({ filled: 1, total: 3 });
+    expect(requiredProgress(schema, { name: "a", url: "b", tls: {} })).toEqual({
+      filled: 2,
+      total: 3,
+    });
+    // An optional object is not counted at all, whatever it requires of its own.
+    expect(
+      requiredProgress(
+        { properties: { tls: schema.properties!.tls as object }, required: [] },
+        {},
+      ),
+    ).toEqual({ filled: 0, total: 0 });
+    expect(requiredProgress(schema, { name: "a", url: "b", tls: { caCert: "c" } })).toEqual({
+      filled: 3,
+      total: 3,
+    });
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SchemaForm schema={schema} onSubmit={() => {}} />
+      </I18nextProvider>,
+    );
+    expect(screen.getByTestId("required-count").textContent).toBe(
+      "0 of 3 required fields filled",
+    );
+    await user.type(screen.getByLabelText(/^Name/), "helsinki-parking");
+    expect(screen.getByTestId("required-count").textContent).toBe(
+      "1 of 3 required fields filled",
+    );
   });
 
   it("renders a form with no manifest at all exactly as before", () => {

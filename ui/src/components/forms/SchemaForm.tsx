@@ -4,8 +4,14 @@ import Form from "@rjsf/core";
 import validator from "./validator";
 import type { RJSFValidationError } from "@rjsf/utils";
 import { useTranslation } from "react-i18next";
+import { requiredProgress } from "./uischema";
 import type { JsonSchema, UiSchema } from "./types";
-import { FormActionsContext, FormAfterFieldsContext, portalTemplates, portalThemeWidgets } from "./theme";
+import {
+  FormActionsContext,
+  FormAfterFieldsContext,
+  portalTemplates,
+  portalThemeWidgets,
+} from "./theme";
 import { portalWidgets } from "./widgets";
 import { DNS1123, ENTITY_TYPE_PATTERN } from "../../schemas/kinds";
 
@@ -50,7 +56,10 @@ const ajvErrorKeyMap: Record<string, string> = {
  * are made of say what they want instead (T-0960, PF-09), keyed on the pattern rather than on
  * the field, because the same rule governs `name`, a reference and an entity type.
  */
-export function errorMessageKey(error: RJSFValidationError, schema?: JsonSchema): string {
+export function errorMessageKey(
+  error: RJSFValidationError,
+  schema?: JsonSchema,
+): string {
   if (error.name === "pattern") {
     switch (patternOf(error, schema)) {
       case DNS1123:
@@ -61,7 +70,9 @@ export function errorMessageKey(error: RJSFValidationError, schema?: JsonSchema)
         break;
     }
   }
-  return error.name && ajvErrorKeyMap[error.name] ? ajvErrorKeyMap[error.name] : "form.invalid";
+  return error.name && ajvErrorKeyMap[error.name]
+    ? ajvErrorKeyMap[error.name]
+    : "form.invalid";
 }
 
 /**
@@ -71,7 +82,10 @@ export function errorMessageKey(error: RJSFValidationError, schema?: JsonSchema)
  * error; `schemaPath` is (`#/properties/name/pattern`). A path that leads through a `$ref` or
  * anywhere else this walk cannot follow answers `undefined`, and the generic message stands.
  */
-function patternOf(error: RJSFValidationError, schema?: JsonSchema): string | undefined {
+function patternOf(
+  error: RJSFValidationError,
+  schema?: JsonSchema,
+): string | undefined {
   if (!schema || typeof error.schemaPath !== "string") {
     return undefined;
   }
@@ -91,22 +105,43 @@ function patternOf(error: RJSFValidationError, schema?: JsonSchema): string | un
  * validation with translated messages, and no error list (each field carries its own).
  */
 export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
-  const { schema, uiSchema, formData, disabled, submitLabel, submitDisabledReason, submitting, actions, afterFields, onSubmit, onChange } =
-    props;
+  const {
+    schema,
+    uiSchema,
+    formData,
+    disabled,
+    submitLabel,
+    submitDisabledReason,
+    submitting,
+    actions,
+    afterFields,
+    onSubmit,
+    onChange,
+  } = props;
   const { t } = useTranslation();
+  // What the form still wants, beside its buttons (T-1607): a long form with a folded group has to
+  // say how much of the required work is done, or folding it away hides the reason Propose is off.
+  const [held, setHeld] = React.useState<unknown>(formData);
+  const progress = requiredProgress(
+    schema as Parameters<typeof requiredProgress>[0],
+    held ?? formData,
+  );
 
   const effectiveUiSchema = React.useMemo(
     () => ({
       ...uiSchema,
       "ui:submitButtonOptions": {
-        ...(uiSchema?.["ui:submitButtonOptions"] as Record<string, unknown> | undefined),
+        ...(uiSchema?.["ui:submitButtonOptions"] as
+          Record<string, unknown> | undefined),
         // rjsf's own default is the untranslated word "Submit".
         submitText: submitLabel ?? t("form.submit"),
         ...(submitDisabledReason || submitting
           ? {
               props: {
                 disabled: Boolean(submitDisabledReason) || Boolean(submitting),
-                ...(submitDisabledReason ? { title: submitDisabledReason } : {}),
+                ...(submitDisabledReason
+                  ? { title: submitDisabledReason }
+                  : {}),
                 ...(submitting ? { loading: true } : {}),
               },
             }
@@ -118,13 +153,35 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
 
   const transformErrors = React.useCallback(
     (errors: RJSFValidationError[]): RJSFValidationError[] => {
-      return errors.map((error) => ({ ...error, message: t(errorMessageKey(error, schema)) }));
+      return errors.map((error) => ({
+        ...error,
+        message: t(errorMessageKey(error, schema)),
+      }));
     },
     [t, schema],
   );
 
   return (
-    <FormActionsContext.Provider value={actions ?? null}>
+    <FormActionsContext.Provider
+      value={
+        actions || progress.total > 0 ? (
+          <>
+            {progress.total > 0 ? (
+              <span
+                data-testid="required-count"
+                className="text-caption text-fg-muted"
+              >
+                {t("form.requiredCount", {
+                  filled: progress.filled,
+                  total: progress.total,
+                })}
+              </span>
+            ) : null}
+            {actions}
+          </>
+        ) : null
+      }
+    >
       <FormAfterFieldsContext.Provider value={afterFields ?? null}>
         <Form<T>
           validator={validator}
@@ -142,6 +199,7 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
             onSubmit(data.formData as T);
           }}
           onChange={(data) => {
+            setHeld(data.formData);
             onChange?.(data.formData as T | undefined);
           }}
         />

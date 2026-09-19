@@ -57,6 +57,7 @@ spec:
         sk: Filtre podľa dopytu, rozsahu a polohy obmedzujúce viditeľné entity.
         cs: Filtry podle dotazu, rozsahu a polohy omezující viditelné entity.
         de: Abfrage-, Bereichs- und Geofilter zur Einschränkung sichtbarer Entitäten.
+      folded: true
       fields: [filter]
     - title:
         en: Encodings and popups
@@ -68,6 +69,7 @@ spec:
         sk: Farebné palety, škálovanie veľkosti a atribúty zobrazené po kliknutí na entitu.
         cs: Barevné palety, škálování velikosti a atributy zobrazené po kliknutí na entitu.
         de: Farbpaletten, Größenskalierung und beim Klick auf eine Entität gezeigte Attribute.
+      folded: true
       fields: [colorBy, sizeBy, popupProperties]
   fields:
     name:

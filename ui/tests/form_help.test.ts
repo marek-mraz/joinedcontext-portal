@@ -239,6 +239,25 @@ describe("the help and the example beside every form field", () => {
         expect(refused, "examples the field itself would refuse").toEqual([]);
       });
 
+      it("shows what a first-time person needs and folds what they do not (T-1607)", () => {
+        const manifest = manifestFor(kind);
+        const groups = manifest.spec.groups ?? [];
+        // The first group is never folded: a form that opens with nothing on it explains nothing.
+        expect(groups[0]?.folded ?? false, `${kind}'s first group is open`).toBe(false);
+        for (const group of groups.filter((one) => one.folded === true)) {
+          // A folded group holds no required field, so nothing the form insists on is out of sight.
+          const required = new Set(branches.flatMap((schema) => schema.required ?? []));
+          expect(
+            group.fields.filter((field) => required.has(field)),
+            `${kind}: the folded group "${localized(group.title, "en")}" hides a required field`,
+          ).toEqual([]);
+          expect(
+            localized(group.title, "en"),
+            `${kind}: a folded group needs a title to open it by`,
+          ).toBeTruthy();
+        }
+      });
+
       it("reads in groups that hold every field of the form once", () => {
         const manifest = manifestFor(kind);
         const grouped = (manifest.spec.groups ?? []).flatMap(

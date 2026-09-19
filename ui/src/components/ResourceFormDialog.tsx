@@ -205,6 +205,7 @@ export function ResourceFormDialog<T>({
     const result = arrange(manifest, {
       locale: i18n.language,
       properties: arrangeable ? arrangeable.split("\u0000") : [],
+      required: schema.required,
       widgets: [...Object.keys(portalThemeWidgets), ...Object.keys(portalWidgets)],
       advanced,
     });

@@ -55,6 +55,13 @@ export interface FieldArrangement {
 export interface Group {
   title?: LanguageMap;
   description?: LanguageMap;
+  /**
+   * Folded shut when the form opens, with its title and its one-line description as the handle
+   * (Architecture/09 section 2). A long form otherwise puts the three fields that matter and the
+   * twenty-seven that do not on one screen, in schema order (T-1607). A group holding a required
+   * field is never folded: the form would ask for something the person cannot see.
+   */
+  folded?: boolean;
   fields: string[];
 }
 
@@ -97,6 +104,8 @@ export interface ArrangeOptions {
   advanced?: boolean;
   /** Widget names the Portal has registered beyond RJSF's own. */
   widgets?: string[];
+  /** The fields the schema requires: one of them in a group keeps that group unfolded (T-1607). */
+  required?: string[];
 }
 
 /** What one arrangement produced, and what it could not use. */
@@ -157,6 +166,48 @@ export function paths(schema: { properties?: Record<string, unknown> } | undefin
 }
 
 /**
+ * How much of what the form must have is in it: the required fields it still wants, counted from the
+ * schema and the data in hand (T-1607).
+ *
+ * What counts is what the form asks for on screen: the required fields of the object itself and of
+ * every required object inside it, whose inputs the form renders straight away. An optional object
+ * is not walked at all — a data source's TLS block requires a secret name only once somebody opens
+ * it. A person who reads "2 of 7" and cannot find the seventh field has been lied to.
+ */
+export function requiredProgress(
+  schema: { properties?: Record<string, unknown>; required?: string[] } | undefined,
+  data: unknown,
+): { filled: number; total: number } {
+  let filled = 0;
+  let total = 0;
+  const walk = (node: typeof schema, value: unknown): void => {
+    const properties = node?.properties ?? {};
+    for (const name of node?.required ?? []) {
+      const definition = properties[name] as
+        | { properties?: Record<string, unknown>; required?: string[]; type?: string }
+        | undefined;
+      const held = (value as Record<string, unknown> | undefined)?.[name];
+      if (definition?.properties) {
+        // A required object: the form renders its fields at once, so they are being asked for.
+        walk(definition, held);
+        continue;
+      }
+      total += 1;
+      const empty =
+        held === undefined ||
+        held === null ||
+        held === "" ||
+        (Array.isArray(held) && held.length === 0);
+      if (!empty) {
+        filled += 1;
+      }
+    }
+  };
+  walk(schema, data);
+  return { filled, total };
+}
+
+/**
  * Writes one field's arrangement into the RJSF `uiSchema` at the path the manifest named: a dot
  * enters an object, `[]` enters an array's `items`, which is where RJSF looks for the arrangement
  * of every element of a list.
@@ -190,6 +241,7 @@ export function arrange(manifest: UiSchemaManifest, options: ArrangeOptions = {}
   // manifest arranges, and take it back a moment later. Nothing is checked, as with no set at all.
   const known = options.properties?.length ? options.properties : undefined;
   const widgets = new Set<string>([...BUILT_IN_WIDGETS, ...(options.widgets ?? [])]);
+  const required = new Set(options.required ?? []);
 
   const declared = (field: string): boolean => {
     if (!known || known.includes(field)) {
@@ -273,6 +325,9 @@ export function arrange(manifest: UiSchemaManifest, options: ArrangeOptions = {}
     .map((group) => ({
       title: localized(group.title, options.locale),
       description: localized(group.description, options.locale),
+      // A group with a required field in it stays open whatever the manifest says: a form that
+      // asks for something behind a fold asks for something nobody can see.
+      folded: group.folded === true && !(group.fields ?? []).some((field) => required.has(field)),
       fields: (group.fields ?? []).filter((field) => topLevel(field, "a group")),
     }))
     .filter((group) => group.fields.length > 0);

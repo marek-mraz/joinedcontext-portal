@@ -48,6 +48,7 @@ spec:
         sk: Dočasný testovací priestor s automatickým vypršaním platnosti.
         cs: Dočasný testovací prostor s automatickým vypršením platnosti.
         de: Kurzlebiger Testraum mit automatischem Ablauf.
+      folded: true
       fields: [isSandbox, ttlDays]
   fields:
     name:

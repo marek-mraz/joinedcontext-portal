@@ -67,6 +67,7 @@ spec:
         sk: Limity požiadaviek a trvanie vyrovnávacej pamäte pre odpovede.
         cs: Limity požadavků a trvání vyrovnávací paměti pro odpovědi.
         de: Anfragelimits und Cache-Dauer für Antworten.
+      folded: true
       fields: [rateLimits, caching]
   fields:
     name:

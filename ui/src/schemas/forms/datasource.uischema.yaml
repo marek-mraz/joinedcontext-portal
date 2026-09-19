@@ -61,6 +61,7 @@ spec:
         sk: Voliteľná vlastná certifikačná autorita pre zabezpečené spojenia.
         cs: Volitelná vlastní certifikační autorita pro zabezpečená spojení.
         de: Optionale benutzerdefinierte Zertifizierungsstelle für sichere Verbindungen.
+      folded: true
       fields: [tls]
   fields:
     name:

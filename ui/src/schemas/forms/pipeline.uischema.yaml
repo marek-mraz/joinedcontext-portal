@@ -73,6 +73,7 @@ spec:
         sk: Povolenia spätnej väzby, prihlasovacie údaje runnera a alokácie zdrojov.
         cs: Povolení zpětné vazby, přihlašovací údaje runneru a alokace zdrojů.
         de: Feedback-Berechtigungen, Runner-Zugangsdaten und Ressourcenzuteilungen.
+      folded: true
       fields: [allowFeedback, secretRefs, quotas]
   fields:
     name:

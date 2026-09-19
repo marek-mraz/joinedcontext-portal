@@ -165,6 +165,8 @@ export function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
 interface RenderedGroup {
   title?: string;
   description?: string;
+  /** Shut when the form opens; the title and the description are the handle (T-1607). */
+  folded?: boolean;
   fields: string[];
 }
 
@@ -218,14 +220,31 @@ function scalar(
 function Fieldset({
   title,
   description,
+  folded,
   children,
 }: {
   title?: ReactNode;
   description?: ReactNode;
+  /** Folded shut until the person opens it: `<details>` does the work, keyboard included. */
+  folded?: boolean;
   children: ReactNode;
 }): React.JSX.Element {
+  const box = "flex flex-col gap-4 rounded-lg border border-border bg-surface-subtle/60 p-4";
+  if (folded && title) {
+    return (
+      <details className={box}>
+        <summary className="cursor-pointer text-body font-semibold text-fg marker:text-fg-muted">
+          {title}
+          {description ? (
+            <span className="ml-2 font-normal text-caption text-fg-muted">{description}</span>
+          ) : null}
+        </summary>
+        {children}
+      </details>
+    );
+  }
   return (
-    <fieldset className="flex flex-col gap-4 rounded-lg border border-border bg-surface-subtle/60 p-4">
+    <fieldset className={box}>
       {title ? <legend className="px-1.5 text-body font-semibold text-fg">{title}</legend> : null}
       {description ? <p className="-mt-1 text-caption text-fg-muted">{description}</p> : null}
       {children}
@@ -248,7 +267,12 @@ export function ObjectFieldTemplate(props: ObjectFieldTemplateProps): React.JSX.
         {title ? <h2 className="text-title font-semibold text-fg">{title}</h2> : null}
         {description ? <p className="text-body text-fg-muted">{description}</p> : null}
         {groups.map((group, at) => (
-          <Fieldset key={group.title ?? at} title={group.title} description={group.description}>
+          <Fieldset
+            key={group.title ?? at}
+            title={group.title}
+            description={group.description}
+            folded={group.folded}
+          >
             <Cells
               properties={properties.filter((prop) => group.fields.includes(prop.name))}
               schema={props.schema}
