@@ -188,6 +188,45 @@ mod tests {
         assert!(agent.may_run(op("jc_workspace_propose")).is_err());
     }
 
+    /// Every verbless operation must be reachable by a profile that names it (T-1475, AG-70).
+    ///
+    /// `names` reads `read` off `access.kinds[op.kind]`, and jc-core refuses a kind in that block
+    /// that is not a manifest kind of the catalogue (MF-40). So a verbless operation whose kind is
+    /// neither `*` nor a manifest kind can be listed in a profile and never offered — which is how
+    /// the assistant was left saying "jc_change_list is unavailable" on dev while the profile named
+    /// it. A verbless operation's kind plays no part in `permitted`, so `*` is the honest value.
+    #[test]
+    fn every_verbless_operation_names_a_kind_a_profile_can_grant() {
+        let unreachable: Vec<&str> = ops::registry()
+            .iter()
+            .filter(|op| op.verb.is_none())
+            .filter(|op| op.kind != "*" && crate::resource::by_kind(op.kind).is_none())
+            .map(|op| op.name)
+            .collect();
+        assert!(
+            unreachable.is_empty(),
+            "no profile could ever be offered these: {unreachable:?}"
+        );
+    }
+
+    /// The reads of the approval queue, which is the question T-1475 was filed for.
+    #[test]
+    fn a_profile_that_names_the_change_reads_is_offered_them() {
+        let access = Access::from_spec(&json!({ "access": {
+            "operations": ["jc_change_list", "jc_change_get", "jc_change_approve"],
+            "kinds": [{ "kind": "Pipeline", "verbs": ["read", "propose"] }]
+        }}));
+        assert!(
+            access.names(op("jc_change_list")),
+            "the approval queue is readable without naming a kind no profile may name"
+        );
+        assert!(access.names(op("jc_change_get")));
+        assert!(
+            !access.names(op("jc_change_approve")),
+            "deciding stays the person's, named or not (AG-11)"
+        );
+    }
+
     #[test]
     fn a_kind_named_at_the_call_needs_the_operation_and_propose_on_that_kind() {
         let access = Access::from_spec(&json!({ "access": {

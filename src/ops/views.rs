@@ -525,7 +525,9 @@ pub fn operations() -> Vec<Operation> {
                 destructive_hint: false,
                 idempotent_hint: true,
             },
-            kind: "Change",
+            // As `jc_change_list`: a Change is no manifest kind a profile may grant, and a verbless
+            // read is judged by whether the caller may read the project (T-1475, MF-40).
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| parse_input::<IdInput>(val.clone()).map(|_| ()),

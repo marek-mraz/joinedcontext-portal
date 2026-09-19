@@ -1766,7 +1766,10 @@ fn core_operations() -> Vec<Operation> {
                 destructive_hint: false,
                 idempotent_hint: true,
             },
-            kind: "Change",
+            // A Change is no manifest kind, so `access.kinds` cannot name it (MF-40) and a profile
+            // could never be offered this read. Verbless, so the kind plays no part in `permitted`
+            // either: the function checks that the caller may read the project (T-1475, AG-70).
+            kind: "*",
             verb: None,
             lane: Lane::Green,
             validate: |val| {
