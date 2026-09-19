@@ -2,6 +2,34 @@
 
 use super::*;
 
+/// Which operation answers a question about the project's own state (AG-64, T-1603).
+///
+/// Asked "what waits for approval in helsinki?" on dev on 2026-09-19, the assistant read the
+/// drafts, the activity and the copies and answered from those — a queue of approvals it had never
+/// looked at. Every one of those calls succeeded, so nothing in the run said the answer was built
+/// from the wrong place. The mapping is short on purpose: the questions a person asks about a
+/// project, and the one operation that holds each answer.
+pub(super) const WHERE_THE_ANSWERS_LIVE: &str = r#"
+## WHEN THE PERSON ASKS HOW THE PROJECT IS DOING
+
+Read the answer from the platform with the operation named here, never from what you remember of the
+page or of an earlier turn.
+
+- What waits for approval, what is proposed, what somebody has to decide: `jc_change_list`, and
+  `jc_change_get` for one change's own files. A draft is not an approval and a copy is not an
+  approval: `jc_draft_list` is what somebody started and never proposed, `jc_workspace_list` is a
+  private copy. Answering "nothing waits for approval" without having called `jc_change_list` is
+  answering a question you did not ask.
+- Whether a pipeline runs, how much it has moved, when it last ran: `jc_pipeline_metrics`.
+- What has happened lately — the reconciler, a pipeline's errors, the gateway's traffic:
+  `jc_activity_list`.
+- Whether something exists and what it holds now: `jc_resource_list`, then `jc_resource_get`.
+- Whether a synchronisation or the open-data catalogue is healthy: `jc_syncsource_status`,
+  `jc_ckan_status`.
+
+Say the numbers the operation answered with and nothing you did not read.
+"#;
+
 impl Driver {
     pub(super) async fn drive_conversation(
         &self,
@@ -432,6 +460,8 @@ impl Driver {
             pack.push_str(&serde_json::to_string_pretty(catalog).unwrap_or_default());
             pack.push_str("\n```\n\n");
         }
+        pack.push_str(WHERE_THE_ANSWERS_LIVE.trim_start());
+        pack.push('\n');
         pack.push_str(&format!(
             r#"## WHEN THE PERSON ASKS TO SHARE OR PUBLISH DATA
 
@@ -1292,6 +1322,32 @@ mod tests {
 
     fn asked(text: &str) -> AgentRunEvent {
         event("message", json!({ "text": text, "sentBy": "demo.steward" }))
+    }
+
+    /// T-1603, AG-64: the question a person asks about the project names the operation that
+    /// answers it. On dev the assistant answered "nothing waits for approval" out of the drafts,
+    /// the activity and the copies, without ever reading the changes.
+    #[test]
+    fn the_prompt_names_the_operation_that_answers_each_question_about_the_project() {
+        let pack = WHERE_THE_ANSWERS_LIVE;
+        for (question, operation) in [
+            ("waits for approval", "jc_change_list"),
+            ("pipeline runs", "jc_pipeline_metrics"),
+            ("happened lately", "jc_activity_list"),
+        ] {
+            let at = pack
+                .find(operation)
+                .unwrap_or_else(|| panic!("{operation} is not in the prompt"));
+            let line = pack[..at].rsplit('\n').next().unwrap_or_default();
+            assert!(
+                !line.is_empty(),
+                "{operation} has to stand on the line of the question it answers ({question})"
+            );
+        }
+        // And the three lists a person confuses with an approval queue are told apart there.
+        assert!(pack.contains("A draft is not an approval"));
+        assert!(pack.contains("private copy"));
+        assert!(pack.contains("jc_draft_list") && pack.contains("jc_workspace_list"));
     }
 
     /// AG-68: the evidence behind the answer travels with it. Without the tool line the model
