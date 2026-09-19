@@ -40,6 +40,56 @@ pub struct Draft {
     pub updated_at: DateTime<Utc>,
 }
 
+/// One line of a draft list (AG-61, API/01 §Drafts): what a caller needs to pick one, and never
+/// the manifest or the verdict's trace. A project with 44 drafts answered 2.3 MB of manifests and
+/// traces, which is more than one model call can carry, so the assistant answered nothing at all
+/// while they existed (T-2248). A caller that needs the manifest reads it with `jc_draft_get`.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftLine {
+    pub kind: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    pub touched_by: String,
+    pub touched_kind: String,
+    pub version: i64,
+    #[schema(value_type = String, format = DateTime)]
+    pub updated_at: DateTime<Utc>,
+    /// The draft's own check, as a line: whether it passed and how much it found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<VerdictLine>,
+}
+
+/// A verdict as a line: the answer and the size of the report behind it.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VerdictLine {
+    pub ok: bool,
+    pub findings: usize,
+    #[schema(value_type = String, format = DateTime)]
+    pub checked_at: DateTime<Utc>,
+}
+
+impl From<&Draft> for DraftLine {
+    fn from(draft: &Draft) -> Self {
+        Self {
+            kind: draft.kind.clone(),
+            name: draft.name.clone(),
+            workspace: draft.workspace.clone(),
+            touched_by: draft.touched_by.clone(),
+            touched_kind: draft.touched_kind.clone(),
+            version: draft.version,
+            updated_at: draft.updated_at,
+            verdict: draft.verdict.as_ref().map(|verdict| VerdictLine {
+                ok: verdict.ok,
+                findings: verdict.findings.len(),
+                checked_at: verdict.checked_at,
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftEvent {

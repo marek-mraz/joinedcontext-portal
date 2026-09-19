@@ -331,6 +331,22 @@ async fn rest_api_draft_crud_roundtrip() {
     let items = list_val["items"].as_array().expect("items list");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["name"], "feed-1");
+    // AG-61, T-2248: a line per draft, never the manifest and never the verdict's trace. This
+    // route and `jc_draft_list` are one function, and 44 drafts of manifests and traces answered
+    // 2.3 MB on dev, more than one model call carries — the assistant then answered nothing.
+    assert_eq!(items[0]["kind"], "DataSource");
+    assert_eq!(items[0]["version"], 1);
+    assert!(items[0]["updatedAt"].is_string(), "{:?}", items[0]);
+    assert!(
+        items[0].get("manifest").is_none(),
+        "the line carries a manifest: {:?}",
+        items[0]
+    );
+    assert!(
+        items[0]["verdict"].get("trace").is_none(),
+        "the line carries a verdict trace: {:?}",
+        items[0]
+    );
 
     let put_conflict = json!({
         "manifest": {

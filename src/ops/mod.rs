@@ -689,7 +689,30 @@ fn draft_list_output_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "items": { "type": "array", "items": { "type": "object" } }
+            "items": {
+                "type": "array",
+                "description": "A line per draft; the manifest is read with jc_draft_get (T-2248)",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": { "type": "string" },
+                        "name": { "type": "string" },
+                        "workspace": { "type": "string" },
+                        "touchedBy": { "type": "string" },
+                        "touchedKind": { "type": "string" },
+                        "version": { "type": "integer" },
+                        "updatedAt": { "type": "string", "format": "date-time" },
+                        "verdict": {
+                            "type": "object",
+                            "properties": {
+                                "ok": { "type": "boolean" },
+                                "findings": { "type": "integer" },
+                                "checkedAt": { "type": "string", "format": "date-time" }
+                            }
+                        }
+                    }
+                }
+            }
         }
     })
 }
@@ -2026,12 +2049,15 @@ fn core_operations() -> Vec<Operation> {
                 Box::pin(async move {
                     // A draft is readable exactly where its manifest would be (PF-59, T-1455).
                     let effective = crate::permissions::for_request(state, &caller.identity, project);
-                    let items: Vec<_> = draft_store(state)
+                    // A line per draft, never the manifest and never the verdict's trace
+                    // (T-2248): the manifest is read one at a time with jc_draft_get.
+                    let items: Vec<crate::ops::drafts::DraftLine> = draft_store(state)
                         .list(project)
                         .await
                         .map_err(draft_error)?
-                        .into_iter()
+                        .iter()
                         .filter(|draft| effective.may_read_manifest(&draft.kind, &draft.manifest))
+                        .map(crate::ops::drafts::DraftLine::from)
                         .collect();
                     Ok(json!({ "items": items }))
                 })
