@@ -2,6 +2,8 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import type { RichRow, RichCell } from "./model";
 import type { MetaKey, UseEntityGridOptions, VisibleColumn } from "./useEntityGrid";
 import { useEntityGrid } from "./useEntityGrid";
+import { opsForKind, valuesNeeded } from "./filters";
+import type { ColumnFilter, FilterColumn } from "./filters";
 import "./grid.css";
 
 export interface EntityGridProps extends UseEntityGridOptions {
@@ -25,7 +27,22 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
   } = props;
 
   const grid = useEntityGrid(hookOptions);
-  const { rows, columns, loading, error, labels, state, cellOf, toggleMeta, setOffset, getGridProps, getHeaderProps, getRowProps, getCellProps } = grid;
+  const { rows, columns, loading, error, labels, state, cellOf, toggleMeta, setOffset, setSort, setFilter, setFilterText, filterColumns, askedQuery, getGridProps, getHeaderProps, getRowProps, getCellProps } = grid;
+
+  // A column offers a filter when it holds something `q` can ask about and the config allows it:
+  // `filters.allowed` is the list a dashboard narrows its grid to.
+  const allowed = hookOptions.config.filters?.allowed;
+  const filterable = useMemo(() => {
+    const byKey = new Map<string, FilterColumn>();
+    for (const column of filterColumns) {
+      if (allowed && column.attr !== null && !allowed.includes(column.attr)) {
+        continue;
+      }
+      byKey.set(column.key, column);
+    }
+    return byKey;
+  }, [filterColumns, allowed]);
+  const asText = state.filterText !== null;
 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -114,7 +131,18 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
                   style={col.attr && hookOptions.config.columns?.find((c) => c.attr === col.attr)?.width ? { width: hookOptions.config.columns.find((c) => c.attr === col.attr)!.width } : undefined}
                   {...getHeaderProps(col, i)}
                 >
-                  <span>{col.label}</span>
+                  <button
+                    type="button"
+                    className="jc-grid-sort-btn"
+                    // The order is of the loaded page: the endpoint decides which rows are on it,
+                    // so the label says "this page" and never promises the whole set (UI-66).
+                    title={`${labels.sortPage} ${col.label}`}
+                    aria-label={`${labels.sortPage} ${col.label}`}
+                    onClick={() => setSort(col.attr ?? col.key)}
+                  >
+                    {col.label}
+                    {state.sort?.attr === (col.attr ?? col.key) ? (state.sort.dir === "asc" ? " ↑" : " ↓") : ""}
+                  </button>
                   {col.attr && !col.meta && (
                     <button
                       type="button"
@@ -146,6 +174,26 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
                 </th>
               ))}
             </tr>
+            {filterable.size > 0 && (
+              <tr className="jc-grid-filter-row" aria-label={labels.filterRow}>
+                {columns.map((col) => {
+                  const column = filterable.get(col.key);
+                  return (
+                    <th key={`filter-${col.key}`} className={`jc-grid-filter${col.pinned ? " jc-grid-pinned" : ""}`}>
+                      {column && !asText ? (
+                        <FilterCell
+                          column={column}
+                          label={col.label}
+                          labels={labels}
+                          filter={state.filters[col.key]}
+                          onChange={(next) => setFilter(col.key, next)}
+                        />
+                      ) : null}
+                    </th>
+                  );
+                })}
+              </tr>
+            )}
           </thead>
           <tbody className={`jc-grid-tbody${classNames?.row ? ` ${classNames.row}` : ""}`}>
             {rows.map((row, rowIndex) => (
@@ -174,6 +222,41 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
 
       {error && <div className="jc-grid-error">{labels.error}: {error}</div>}
 
+      {filterable.size > 0 && (
+        <div className="jc-grid-query">
+          <label className="jc-grid-query-text">
+            <span>{labels.query}</span>
+            {asText ? (
+              // The person owns the query from here: the row cannot show every `q` NGSI-LD allows
+              // (a `|`, a bracket), so taking it over is how those are written at all.
+              <input
+                className="jc-grid-query-input"
+                value={state.filterText ?? ""}
+                onChange={(e) => setFilterText(e.target.value)}
+              />
+            ) : (
+              <output className="jc-grid-query-value">{queryText(askedQuery)}</output>
+            )}
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(queryText(askedQuery));
+            }}
+          >
+            {labels.copyQuery}
+          </button>
+          <label className="jc-grid-query-switch">
+            <input
+              type="checkbox"
+              checked={asText}
+              onChange={(e) => setFilterText(e.target.checked ? (askedQuery.q ?? "") : null)}
+            />
+            {labels.editAsText}
+          </label>
+        </div>
+      )}
+
       <div className={`jc-grid-pager${classNames?.pager ? ` ${classNames.pager}` : ""}`}>
         <button
           type="button"
@@ -184,6 +267,11 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
         </button>
         <span className="jc-grid-page-info">{`${labels.page} ${currentPage}`}</span>
         {totalPages !== undefined && <span className="jc-grid-page-count">{`/ ${totalPages}`}</span>}
+        {/* The endpoint's own count, not the page's: an answer the gateway narrowed carries none,
+            and then the footer says nothing rather than a number it guessed (R22). */}
+        {grid.total !== undefined && (
+          <span className="jc-grid-total">{`${grid.total} ${labels.matching}`}</span>
+        )}
         <button
           type="button"
           disabled={totalPages !== undefined ? currentPage >= totalPages : rows.length < hookOptions.config.pageSize}
@@ -192,6 +280,80 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
           {labels.next}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** The query as a person reads and copies it: the `q`, and the id pattern when one is asked. */
+function queryText(asked: { q?: string; idPattern?: string }): string {
+  const parts: string[] = [];
+  if (asked.q) {
+    parts.push(`q=${asked.q}`);
+  }
+  if (asked.idPattern) {
+    parts.push(`idPattern=${asked.idPattern}`);
+  }
+  return parts.join("&");
+}
+
+/**
+ * One column's filter: the operators its content allows, and the value(s) the chosen one needs.
+ * A filter is sent only once it is complete, so nothing narrows while it is being typed.
+ */
+function FilterCell({
+  column,
+  label,
+  labels,
+  filter,
+  onChange,
+}: {
+  column: FilterColumn;
+  label: string;
+  labels: { filter: string; value: string; upperValue: string; ops: Record<string, string> };
+  filter: ColumnFilter | undefined;
+  onChange: (next: ColumnFilter | undefined) => void;
+}): React.JSX.Element {
+  const ops = opsForKind(column.kind);
+  const op = filter?.op ?? ops[0];
+  const needed = valuesNeeded(op);
+  const type = column.kind === "number" ? "number" : column.kind === "date" ? "date" : "text";
+  return (
+    <div className="jc-grid-filter-cell">
+      <select
+        aria-label={`${labels.filter}: ${label}`}
+        value={filter ? op : ""}
+        onChange={(e) => {
+          const next = e.target.value as ColumnFilter["op"] | "";
+          if (next === "") {
+            onChange(undefined);
+            return;
+          }
+          onChange({ op: next, value: filter?.value ?? "", value2: filter?.value2 });
+        }}
+      >
+        <option value="">—</option>
+        {ops.map((each) => (
+          <option key={each} value={each}>
+            {labels.ops[each] ?? each}
+          </option>
+        ))}
+      </select>
+      {filter && needed >= 1 && (
+        <input
+          aria-label={`${labels.value}: ${label}`}
+          type={type}
+          value={filter.value}
+          onChange={(e) => onChange({ ...filter, value: e.target.value })}
+        />
+      )}
+      {filter && needed === 2 && (
+        <input
+          aria-label={`${labels.upperValue}: ${label}`}
+          type={type}
+          value={filter.value2 ?? ""}
+          onChange={(e) => onChange({ ...filter, value2: e.target.value })}
+        />
+      )}
     </div>
   );
 }

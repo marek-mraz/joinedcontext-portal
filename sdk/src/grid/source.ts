@@ -54,6 +54,20 @@ export class SourceError extends Error {
   }
 }
 
+/**
+ * `NGSILD-Results-Count`, when the answer carries one. An answer the gateway narrowed carries
+ * none on purpose (R22): the count would say how many entities were withheld, so the grid pages
+ * by whether a page came back full instead of showing a total it was not told.
+ */
+function resultsCount(headers: Record<string, string> | undefined): number | undefined {
+  const raw = headers?.["ngsild-results-count"]?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const count = Number(raw);
+  return Number.isInteger(count) && count >= 0 ? count : undefined;
+}
+
 /** The problem document's own sentence, or `fallback`. */
 function detailOf(body: unknown, fallback: string): string {
   if (typeof body === "object" && body !== null) {
@@ -70,6 +84,9 @@ function entitiesQuery(q: GridQuery, offset: number, limit: number): string {
   return queryString({
     type: q.type,
     options: "sysAttrs",
+    // How many entities the query matches, for the footer: the broker counts, the grid never does
+    // (a page cannot be counted into a total).
+    count: "true",
     limit: String(limit),
     offset: offset > 0 ? String(offset) : undefined,
     q: q.q || undefined,
@@ -122,13 +139,16 @@ function ngsiSource(base: string, transport: Transport, language: string, hidden
 
   return {
     async query(q, page) {
-      const { status, body } = await transport({
+      const { status, body, headers } = await transport({
         method: "GET",
         path: `${base}/entities?${entitiesQuery(q, page.offset, page.limit)}`,
       });
       if (!ok(status)) refuse(status, body, "the read was refused");
       if (!Array.isArray(body)) throw new SourceError(status, "the answer is not a list of entities");
-      return { rows: body.map((item) => toRichRow(item as Record<string, unknown>, language)) };
+      return {
+        rows: body.map((item) => toRichRow(item as Record<string, unknown>, language)),
+        total: resultsCount(headers),
+      };
     },
     async get(id) {
       const { status, body } = await transport({ method: "GET", path: `${entity(id)}?options=sysAttrs` });

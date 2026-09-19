@@ -210,6 +210,28 @@ describe("EntityGrid", () => {
       page: "Strana",
       showMetadata: "Zobraziť metadáta pre",
       error: "Chyba",
+      filter: "Filter",
+      ops: {
+        contains: "obsahuje",
+        equals: "je",
+        notEquals: "nie je",
+        gt: ">",
+        gte: "≥",
+        lt: "<",
+        lte: "≤",
+        between: "medzi",
+        empty: "je prázdne",
+        present: "má hodnotu",
+        pattern: "vyhovuje",
+      },
+      value: "Hodnota",
+      upperValue: "Horná hodnota",
+      query: "Čo sa pýta",
+      copyQuery: "Kopírovať dotaz",
+      editAsText: "Upraviť ako text",
+      filterRow: "Filtre",
+      sortPage: "Zoradiť túto stranu podľa",
+      matching: "vyhovujúcich",
     };
     render(
       <EntityGrid
@@ -224,8 +246,16 @@ describe("EntityGrid", () => {
     fireEvent.click(screen.getByLabelText("Zobraziť metadáta pre availableBikeNumber"));
     // Every visible string is the host's: none of the English defaults that differ from Slovak shows.
     const text = document.body.textContent ?? "";
-    for (const [key, english] of Object.entries(DEFAULT_LABELS)) {
-      if (english !== slovakLabels[key as keyof typeof slovakLabels]) {
+    const pairs: [string, string][] = Object.entries(DEFAULT_LABELS).flatMap(([key, english]) =>
+      typeof english === "string"
+        ? [[key, english] as [string, string]]
+        : Object.entries(english).map(([op, name]) => [`${key}.${op}`, name] as [string, string]),
+    );
+    for (const [key, english] of pairs) {
+      const host = key.startsWith("ops.")
+        ? slovakLabels.ops[key.slice(4) as keyof typeof slovakLabels.ops]
+        : slovakLabels[key as keyof typeof slovakLabels];
+      if (english !== host) {
         expect(text, key).not.toContain(english);
       }
     }
@@ -251,6 +281,159 @@ describe("EntityGrid", () => {
       const cell = screen.getByText("<b>x</b>");
       expect(cell).toBeInTheDocument();
       expect(cell.querySelector("b")).toBeNull();
+    });
+  });
+
+  /**
+   * The filter row asks the endpoint, never the loaded page (T-1429, UI-66): each case reads the
+   * query the source was given, because that is the only thing that decides what a person sees.
+   */
+  describe("the filter row", () => {
+    /** A source that records every query the grid sends it. */
+    function recordingSource(entities: Record<string, unknown>[]) {
+      const asked: { q?: string; idPattern?: string; offset: number }[] = [];
+      const inner = fixtureSource(entities);
+      return {
+        asked,
+        source: {
+          query: async (q: Parameters<typeof inner.query>[0], page: Parameters<typeof inner.query>[1]) => {
+            asked.push({ q: q.q, idPattern: q.idPattern, offset: page.offset });
+            return inner.query(q, page);
+          },
+          get: inner.get,
+        },
+      };
+    }
+
+    it("sends the query the chosen operator and value compose", async () => {
+      const { asked, source } = recordingSource(bikeEntities);
+      render(<EntityGrid config={config} source={source} />);
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+
+      fireEvent.change(screen.getByLabelText("Filter: Bikes"), { target: { value: "gt" } });
+      fireEvent.change(screen.getByLabelText("Value: Bikes"), { target: { value: "4" } });
+
+      await waitFor(() => {
+        expect(asked.at(-1)?.q).toBe("availableBikeNumber>4");
+      });
+      // And it says so under the grid, where a person can copy it.
+      expect(screen.getByText("q=availableBikeNumber>4")).toBeInTheDocument();
+    });
+
+    it("asks nothing until the filter is complete, and starts again at the first page", async () => {
+      const { asked, source } = recordingSource(bikeEntities);
+      render(<EntityGrid config={onePerPage} source={source} />);
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByText(DEFAULT_LABELS.next));
+      await waitFor(() => expect(asked.at(-1)?.offset).toBe(1));
+
+      // The operator alone narrows nothing: the value is still missing.
+      fireEvent.change(screen.getByLabelText("Filter: Bikes"), { target: { value: "gt" } });
+      await waitFor(() => expect(asked.at(-1)?.q).toBeUndefined());
+
+      fireEvent.change(screen.getByLabelText("Value: Bikes"), { target: { value: "4" } });
+      await waitFor(() => {
+        expect(asked.at(-1)?.q).toBe("availableBikeNumber>4");
+        // Page one, because page two of the narrowed answer may not exist.
+        expect(asked.at(-1)?.offset).toBe(0);
+      });
+    });
+
+    it("asks the id column by pattern rather than by a term of the query", async () => {
+      const { asked, source } = recordingSource(bikeEntities);
+      render(<EntityGrid config={config} source={source} />);
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+
+      fireEvent.change(screen.getByLabelText("Filter: ID"), { target: { value: "pattern" } });
+      fireEvent.change(screen.getByLabelText("Value: ID"), { target: { value: "helsinki:002" } });
+
+      await waitFor(() => {
+        expect(asked.at(-1)?.idPattern).toBe("helsinki:002");
+        expect(asked.at(-1)?.q).toBeUndefined();
+      });
+      // The endpoint answered about the set, and the grid shows what came back.
+      await waitFor(() => expect(screen.queryByText("Kamppi")).toBeNull());
+      expect(screen.getByText("Kallio")).toBeInTheDocument();
+    });
+
+    it("hands the query over as text, and sends what the person typed", async () => {
+      const { asked, source } = recordingSource(bikeEntities);
+      render(<EntityGrid config={config} source={source} />);
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+
+      fireEvent.change(screen.getByLabelText("Filter: Bikes"), { target: { value: "gt" } });
+      fireEvent.change(screen.getByLabelText("Value: Bikes"), { target: { value: "4" } });
+      await waitFor(() => expect(asked.at(-1)?.q).toBe("availableBikeNumber>4"));
+
+      // The switch starts from what the row built, so nothing is lost by taking it over.
+      fireEvent.click(screen.getByLabelText(DEFAULT_LABELS.editAsText));
+      const field = screen.getByLabelText(DEFAULT_LABELS.query);
+      expect(field).toHaveValue("availableBikeNumber>4");
+
+      // And a `q` the row cannot show is exactly what the text field is for.
+      fireEvent.change(field, { target: { value: 'availableBikeNumber>4|name=="Kallio"' } });
+      await waitFor(() => expect(asked.at(-1)?.q).toBe('availableBikeNumber>4|name=="Kallio"'));
+      // With the query in the person's hands the row's controls are gone, so the two cannot
+      // disagree about what is being asked.
+      expect(screen.queryByLabelText("Filter: Bikes")).toBeNull();
+    });
+
+    it("keeps a preset and a filter both true, and offers only the allowed columns", async () => {
+      const { asked, source } = recordingSource(bikeEntities);
+      render(
+        <EntityGrid
+          config={{
+            ...config,
+            filters: { allowed: ["availableBikeNumber"], preset: { q: 'name=="Kamppi"' } },
+          }}
+          source={source}
+        />,
+      );
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+      // Only the allowed column has a filter: a grid narrowed by its dashboard stays narrowed.
+      expect(screen.queryByLabelText("Filter: Name")).toBeNull();
+
+      fireEvent.change(screen.getByLabelText("Filter: Bikes"), { target: { value: "gt" } });
+      fireEvent.change(screen.getByLabelText("Value: Bikes"), { target: { value: "4" } });
+      await waitFor(() => expect(asked.at(-1)?.q).toBe('name=="Kamppi";availableBikeNumber>4'));
+    });
+
+    it("shows the endpoint's own count in the footer, and nothing when it sent none", async () => {
+      const counted = {
+        query: async () => ({ rows: [], total: 41 }),
+        get: async () => null,
+      };
+      const { unmount } = render(<EntityGrid config={config} source={counted} />);
+      expect(await screen.findByText(`41 ${DEFAULT_LABELS.matching}`)).toBeInTheDocument();
+      unmount();
+
+      // A narrowed answer carries no count (R22): the footer then pages without claiming a total.
+      const uncounted = { query: async () => ({ rows: [] }), get: async () => null };
+      render(<EntityGrid config={config} source={uncounted} />);
+      await waitFor(() => expect(screen.getByText(DEFAULT_LABELS.empty)).toBeInTheDocument());
+      expect(screen.queryByText(new RegExp(DEFAULT_LABELS.matching))).toBeNull();
+    });
+
+    it("offers no filter for a geometry, and none for a column of entity timestamps", async () => {
+      render(<EntityGrid config={{ ...config, entityTimestamps: true }} source={fixtureSource(bikeEntities)} />);
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+
+      expect(screen.queryByLabelText("Filter: Location")).toBeNull();
+      expect(screen.queryByLabelText(`Filter: ${DEFAULT_LABELS.createdAt}`)).toBeNull();
+      expect(screen.getByLabelText("Filter: Bikes")).toBeInTheDocument();
+    });
+
+    it("says that sorting orders the loaded page", async () => {
+      render(<EntityGrid config={config} source={fixtureSource(bikeEntities)} />);
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+
+      const sort = screen.getByRole("button", { name: `${DEFAULT_LABELS.sortPage} Bikes` });
+      fireEvent.click(sort);
+      // Ascending by the page's own values: 3 before 5, and the header says which way it went.
+      const cells = screen.getAllByRole("gridcell").map((cell) => cell.textContent);
+      expect(cells.indexOf("3 C62")).toBeLessThan(cells.indexOf("5 C62"));
+      expect(screen.getByRole("button", { name: `${DEFAULT_LABELS.sortPage} Bikes` }).textContent).toContain("↑");
     });
   });
 });

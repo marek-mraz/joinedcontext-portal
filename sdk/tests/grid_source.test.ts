@@ -49,7 +49,7 @@ const sampleEntity2: Record<string, unknown> = {
 describe("endpointSource", () => {
   it("builds query URL with options=sysAttrs, type, limit, and no id in attrs", async () => {
     const transport = stubTransport(new Map([
-      ["GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&limit=50", () => ({ status: 200, body: [sampleEntity] })],
+      ["GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&count=true&limit=50", () => ({ status: 200, body: [sampleEntity] })],
     ]));
     const source = endpointSource("demo", transport);
     const result = await source.query({ type: "Bike" }, { offset: 0, limit: 50 });
@@ -59,13 +59,15 @@ describe("endpointSource", () => {
     expect(call.path).toContain("options=sysAttrs");
     expect(call.path).toContain("type=Bike");
     expect(call.path).toContain("limit=50");
-    expect(call.path).not.toContain("count=");
+    // The footer shows how many entities the query matches, and only the broker can say
+    // (T-1429): the grid holds one page and a page cannot be counted into a total.
+    expect(call.path).toContain("count=true");
     expect(call.path).not.toContain("id");
   });
 
   it("escapes q parameter correctly", async () => {
     const transport = stubTransport(new Map([
-      ["GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&limit=50&q=speed%3E10%3Bbrand%3D%3D%22a%26b%22", () => ({ status: 200, body: [sampleEntity] })],
+      ["GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&count=true&limit=50&q=speed%3E10%3Bbrand%3D%3D%22a%26b%22", () => ({ status: 200, body: [sampleEntity] })],
     ]));
     const source = endpointSource("demo", transport);
     await source.query({ type: "Bike", q: 'speed>10;brand=="a&b"' }, { offset: 0, limit: 50 });
@@ -89,7 +91,7 @@ describe("endpointSource", () => {
 
   it("throws SourceError with detail from problem body on 403", async () => {
     const transport = stubTransport(new Map([
-      ["GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&limit=50", () => ({
+      ["GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&count=true&limit=50", () => ({
         status: 403,
         body: { type: "about:blank", title: "Forbidden", detail: "You are not allowed to read this type" },
       })],
@@ -112,7 +114,7 @@ describe("endpointSource", () => {
 describe("spaceSource", () => {
   it("uses /cs/{space}/ngsi-ld/v1/entities path", async () => {
     const transport = stubTransport(new Map([
-      ["GET /cs/helsinki-bikes/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&limit=50", () => ({ status: 200, body: [sampleEntity] })],
+      ["GET /cs/helsinki-bikes/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&count=true&limit=50", () => ({ status: 200, body: [sampleEntity] })],
     ]));
     const source = spaceSource("helsinki-bikes", transport);
     const result = await source.query({ type: "Bike" }, { offset: 0, limit: 50 });
@@ -123,7 +125,7 @@ describe("spaceSource", () => {
 
   it("throws SourceError with message 'no grant on this space' on 404", async () => {
     const transport = stubTransport(new Map([
-      ["GET /cs/helsinki-bikes/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&limit=50", () => ({ status: 404, body: null })],
+      ["GET /cs/helsinki-bikes/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&count=true&limit=50", () => ({ status: 404, body: null })],
     ]));
     const source = spaceSource("helsinki-bikes", transport);
     await expect(source.query({ type: "Bike" }, { offset: 0, limit: 50 })).rejects.toThrow(SourceError);
@@ -219,5 +221,44 @@ describe("history", () => {
       status: 404,
       message: "no grant on this space",
     });
+  });
+});
+
+describe("the count the footer shows (T-1429, R22)", () => {
+  it("is the endpoint's own NGSILD-Results-Count", async () => {
+    const transport = stubTransport(new Map([
+      [
+        "GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&count=true&limit=50",
+        () => ({ status: 200, body: [sampleEntity], headers: { "ngsild-results-count": "412" } }),
+      ],
+    ]));
+    const page = await endpointSource("demo", transport).query({ type: "Bike" }, { offset: 0, limit: 50 });
+    expect(page.total).toBe(412);
+  });
+
+  it("is absent when the answer carries none, or carries something that is not a count", async () => {
+    // A narrowed answer has its count removed on purpose: the difference between the count and
+    // the rows is the number of entities the policy withheld (R22).
+    const without = stubTransport(new Map([
+      [
+        "GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&count=true&limit=50",
+        () => ({ status: 200, body: [sampleEntity] }),
+      ],
+    ]));
+    expect((await endpointSource("demo", without).query({ type: "Bike" }, { offset: 0, limit: 50 })).total)
+      .toBeUndefined();
+
+    for (const raw of ["", "many", "-1", "1.5"]) {
+      const odd = stubTransport(new Map([
+        [
+          "GET /api/endpoint/demo/ngsi-ld/v1/entities?type=Bike&options=sysAttrs&count=true&limit=50",
+          () => ({ status: 200, body: [sampleEntity], headers: { "ngsild-results-count": raw } }),
+        ],
+      ]));
+      expect(
+        (await endpointSource("demo", odd).query({ type: "Bike" }, { offset: 0, limit: 50 })).total,
+        raw,
+      ).toBeUndefined();
+    }
   });
 });

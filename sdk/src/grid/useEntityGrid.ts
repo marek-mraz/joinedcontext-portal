@@ -3,6 +3,8 @@ import type { ResolvedGridConfig, GridColumn } from "./config";
 import type { EntitySource, GridQuery } from "./source";
 import type { RichRow, RichCell } from "./model";
 import { attributesOf, cellText } from "./model";
+import { andQ, opsForKind, queryFromFilters } from "./filters";
+import type { ColumnFilter, FilterColumn, FilterKind, FilterOp } from "./filters";
 
 export type MetaKey = "observedAt" | "unit" | "datasetId" | "createdAt" | "modifiedAt";
 
@@ -12,6 +14,10 @@ export interface GridState {
   selected: string[];
   shown: Record<string, MetaKey[]>;
   sort: { attr: string; dir: "asc" | "desc" } | null;
+  /** One filter per column key, as the filter row holds them (UI-66). */
+  filters: Record<string, ColumnFilter>;
+  /** The `q` typed by hand instead of the row; `null` while the row is what asks. */
+  filterText: string | null;
 }
 
 export interface GridLabels {
@@ -29,6 +35,19 @@ export interface GridLabels {
   page: string;
   showMetadata: string;
   error: string;
+  /** The filter row: the operators, by name, and what the query under the grid is called. */
+  filter: string;
+  ops: Record<FilterOp, string>;
+  value: string;
+  upperValue: string;
+  query: string;
+  copyQuery: string;
+  editAsText: string;
+  filterRow: string;
+  /** Said on a sortable header, because the order is of the loaded page only (UI-66). */
+  sortPage: string;
+  /** What the footer calls the endpoint's own count of matching entities. */
+  matching: string;
 }
 
 export const DEFAULT_LABELS: GridLabels = {
@@ -46,6 +65,28 @@ export const DEFAULT_LABELS: GridLabels = {
   page: "Page",
   showMetadata: "Show metadata for",
   error: "Error",
+  filter: "Filter",
+  ops: {
+    contains: "contains",
+    equals: "is",
+    notEquals: "is not",
+    gt: ">",
+    gte: "≥",
+    lt: "<",
+    lte: "≤",
+    between: "between",
+    empty: "is empty",
+    present: "has a value",
+    pattern: "matches",
+  },
+  value: "Value",
+  upperValue: "Upper value",
+  query: "The query this asks",
+  copyQuery: "Copy the query",
+  editAsText: "Edit as text",
+  filterRow: "Filters",
+  sortPage: "Sort this page by",
+  matching: "matching",
 };
 
 export interface VisibleColumn {
@@ -75,6 +116,14 @@ export interface EntityGrid {
   labels: GridLabels;
   cellOf(row: RichRow, column: VisibleColumn): { text: string; cell?: RichCell | RichCell[] };
   toggleMeta(attr: string, meta: MetaKey): void;
+  /** The filter of one column, or `undefined` to drop it; the answer starts again at page one. */
+  setFilter(key: string, filter: ColumnFilter | undefined): void;
+  /** Hands the query to the person as text, or gives the row back (`null`). */
+  setFilterText(text: string | null): void;
+  /** Every column the filter row can ask about, with what it holds. */
+  filterColumns: FilterColumn[];
+  /** The query the filters ask for right now, as the endpoint receives it. */
+  askedQuery: { q?: string; idPattern?: string };
   setOffset(offset: number): void;
   setSort(attr: string): void;
   moveActive(key: string): boolean;
@@ -87,11 +136,9 @@ export interface EntityGrid {
 
 function mergeLabels(base: GridLabels, partial?: Partial<GridLabels>): GridLabels {
   if (!partial) return base;
-  const merged = { ...base };
-  for (const key of Object.keys(partial) as (keyof GridLabels)[]) {
-    if (partial[key] !== undefined) merged[key] = partial[key]!;
-  }
-  return merged;
+  // The operator names are a group of their own: a caller that translates two of them keeps the
+  // rest, instead of leaving the row with holes where a label used to be.
+  return { ...base, ...partial, ops: { ...base.ops, ...partial.ops } };
 }
 
 const META_LABEL: Record<MetaKey, keyof GridLabels> = {
@@ -153,6 +200,70 @@ function cellTextWithUnit(cell: RichCell | RichCell[] | undefined, column: Visib
   return text;
 }
 
+const META_KIND: Record<MetaKey, FilterKind> = {
+  observedAt: "date",
+  createdAt: "date",
+  modifiedAt: "date",
+  unit: "text",
+  datasetId: "text",
+};
+
+const DATE_VALUE = /^\d{4}-\d{2}-\d{2}([T ]|$)/;
+
+/**
+ * What a column holds, as far as a filter cares: the configured format when the config names one,
+ * else what the loaded rows show. Without a row and without a format a column is text, which is
+ * the only guess that cannot refuse a value the endpoint would have accepted.
+ */
+export function filterKindOf(
+  column: VisibleColumn,
+  config: ResolvedGridConfig,
+  rows: RichRow[],
+): FilterKind {
+  if (column.key === "id") {
+    return "id";
+  }
+  if (column.attr === null) {
+    // The entity's own timestamps are not part of `q`; NGSI-LD filters them with its own
+    // temporal parameters, which the grid does not send.
+    return "none";
+  }
+  if (column.meta) {
+    return META_KIND[column.meta];
+  }
+  const format = config.columns.find((c) => c.attr === column.attr)?.format;
+  if (format === "number") {
+    return "number";
+  }
+  if (format === "date") {
+    return "date";
+  }
+  if (format === "text" || format === "link") {
+    return "text";
+  }
+  for (const row of rows) {
+    const cell = row.cells[column.attr];
+    const one = Array.isArray(cell) ? cell[0] : cell;
+    if (!one) {
+      continue;
+    }
+    if (one.kind === "relationship") {
+      return "relationship";
+    }
+    if (one.kind === "geo") {
+      return "geo";
+    }
+    if (typeof one.value === "number") {
+      return "number";
+    }
+    if (typeof one.value === "string" && DATE_VALUE.test(one.value)) {
+      return "date";
+    }
+    return "text";
+  }
+  return "text";
+}
+
 export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
   const { config, source, labels: labelsPartial, state: controlledState, onStateChange, query: queryPartial } = options;
   const labels = useMemo(() => mergeLabels(DEFAULT_LABELS, labelsPartial), [labelsPartial]);
@@ -177,6 +288,8 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
     return init;
   });
   const [internalSort, setInternalSort] = useState<{ attr: string; dir: "asc" | "desc" } | null>(null);
+  const [internalFilters, setInternalFilters] = useState<Record<string, ColumnFilter>>({});
+  const [internalFilterText, setInternalFilterText] = useState<string | null>(null);
 
   // Controlled state: use controlled values when key present
   const offset = controlledState?.offset !== undefined ? controlledState.offset : internalOffset;
@@ -184,6 +297,9 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
   const selected = controlledState?.selected !== undefined ? controlledState.selected : internalSelected;
   const shown = controlledState?.shown !== undefined ? controlledState.shown : internalShown;
   const sort = controlledState?.sort !== undefined ? controlledState.sort : internalSort;
+  const filters = controlledState?.filters !== undefined ? controlledState.filters : internalFilters;
+  const filterText =
+    controlledState?.filterText !== undefined ? controlledState.filterText : internalFilterText;
 
   const [rows, setRows] = useState<RichRow[]>([]);
   const [total, setTotal] = useState<number | undefined>(undefined);
@@ -208,6 +324,25 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
     });
   }, [rows, sort]);
 
+  const filterColumns = useMemo(
+    (): FilterColumn[] =>
+      columns
+        .map((column) => ({
+          key: column.key,
+          attr: column.attr,
+          meta: column.meta,
+          kind: filterKindOf(column, config, rows),
+        }))
+        .filter((column) => opsForKind(column.kind).length > 0),
+    [columns, config, rows],
+  );
+
+  // What the endpoint is asked for: the typed query when the person took it over, else the row's.
+  const askedQuery = useMemo(() => {
+    const built = queryFromFilters(filterColumns, filters);
+    return filterText === null ? built : { q: filterText.trim() || undefined, idPattern: built.idPattern };
+  }, [filterColumns, filters, filterText]);
+
   const fetchData = useCallback(() => {
     const nonce = ++nonceRef.current;
     cancelledRef.current = false;
@@ -216,9 +351,11 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
 
     const gridQuery: GridQuery = {
       type: config.type,
-      q: queryPartial?.q ?? config.filters.preset?.q,
+      // The caller's query and the filter row are both true: `;` is how NGSI-LD says "and", so a
+      // preset that narrows the grid to one district cannot be widened by a filter (EP-07).
+      q: andQ(queryPartial?.q ?? config.filters.preset?.q, askedQuery.q),
       attrs: queryPartial?.attrs ?? config.filters.preset?.attrs,
-      idPattern: queryPartial?.idPattern ?? config.filters.preset?.idPattern,
+      idPattern: askedQuery.idPattern ?? queryPartial?.idPattern ?? config.filters.preset?.idPattern,
       scopeQ: queryPartial?.scopeQ ?? config.filters.preset?.scopeQ,
     };
 
@@ -235,7 +372,7 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [source, config.type, config.pageSize, config.filters.preset, offset, queryPartial]);
+  }, [source, config.type, config.pageSize, config.filters.preset, offset, queryPartial, askedQuery]);
 
   useEffect(() => {
     fetchData();
@@ -289,38 +426,79 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
         next[attr] = [...current, meta];
       }
       if (onStateChange) {
-        onStateChange({ offset, activeCell, selected, shown: next, sort });
+        onStateChange({ offset, activeCell, selected, shown: next, sort, filters, filterText });
       }
       if (controlledState?.shown === undefined) {
         setInternalShown(next);
       }
     },
-    [shown, offset, activeCell, selected, sort, onStateChange, controlledState],
+    [shown, offset, activeCell, selected, sort, filters, filterText, onStateChange, controlledState],
   );
 
   const setOffset = useCallback(
     (newOffset: number) => {
       if (onStateChange) {
-        onStateChange({ offset: newOffset, activeCell, selected, shown, sort });
+        onStateChange({ offset: newOffset, activeCell, selected, shown, sort, filters, filterText });
       }
       if (controlledState?.offset === undefined) {
         setInternalOffset(newOffset);
       }
     },
-    [offset, activeCell, selected, shown, sort, onStateChange, controlledState],
+    [activeCell, selected, shown, sort, filters, filterText, onStateChange, controlledState],
   );
 
   const setSort = useCallback(
     (attr: string) => {
       const next = sort?.attr === attr && sort.dir === "asc" ? { attr, dir: "desc" as const } : { attr, dir: "asc" as const };
       if (onStateChange) {
-        onStateChange({ offset, activeCell, selected, shown, sort: next });
+        onStateChange({ offset, activeCell, selected, shown, sort: next, filters, filterText });
       }
       if (controlledState?.sort === undefined) {
         setInternalSort(next);
       }
     },
     [sort, offset, activeCell, selected, shown, onStateChange, controlledState],
+  );
+
+  /**
+   * One column's filter. The answer starts again at the first page: a filter applied on page
+   * three would otherwise show an empty page of a set that does have matches.
+   */
+  const setFilter = useCallback(
+    (key: string, filter: ColumnFilter | undefined) => {
+      const next = { ...filters };
+      if (filter === undefined) {
+        delete next[key];
+      } else {
+        next[key] = filter;
+      }
+      if (onStateChange) {
+        onStateChange({ offset: 0, activeCell, selected, shown, sort, filters: next, filterText });
+      }
+      if (controlledState?.filters === undefined) {
+        setInternalFilters(next);
+      }
+      if (controlledState?.offset === undefined) {
+        setInternalOffset(0);
+      }
+    },
+    [filters, filterText, activeCell, selected, shown, sort, onStateChange, controlledState],
+  );
+
+  /** The query as text: the rows compose the first version, and the person owns it from then on. */
+  const setFilterText = useCallback(
+    (text: string | null) => {
+      if (onStateChange) {
+        onStateChange({ offset: 0, activeCell, selected, shown, sort, filters, filterText: text });
+      }
+      if (controlledState?.filterText === undefined) {
+        setInternalFilterText(text);
+      }
+      if (controlledState?.offset === undefined) {
+        setInternalOffset(0);
+      }
+    },
+    [filters, activeCell, selected, shown, sort, onStateChange, controlledState],
   );
 
   const moveActive = useCallback(
@@ -364,14 +542,14 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
 
       const next = { row, col };
       if (onStateChange) {
-        onStateChange({ offset, activeCell: next, selected, shown, sort });
+        onStateChange({ offset, activeCell: next, selected, shown, sort, filters, filterText });
       }
       if (controlledState?.activeCell === undefined) {
         setInternalActiveCell(next);
       }
       return true;
     },
-    [activeCell, sortedRows.length, columns.length, offset, selected, shown, sort, onStateChange, controlledState],
+    [activeCell, sortedRows.length, columns.length, offset, selected, shown, sort, filters, filterText, onStateChange, controlledState],
   );
 
   const getGridProps = useCallback((): Record<string, unknown> => {
@@ -427,10 +605,14 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
     total,
     loading,
     error,
-    state: { offset, activeCell, selected, shown, sort },
+    state: { offset, activeCell, selected, shown, sort, filters, filterText },
     labels,
     cellOf,
     toggleMeta,
+    setFilter,
+    setFilterText,
+    filterColumns,
+    askedQuery,
     setOffset,
     setSort,
     moveActive,

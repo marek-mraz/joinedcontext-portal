@@ -11,6 +11,13 @@ export interface JcRequest {
 export interface JcResponse {
   status: number;
   body: unknown;
+  /**
+   * The answer's headers, by lowercase name, where the transport has them. A caller that needs one
+   * has to survive its absence: a bridged request carries none, and the gateway removes
+   * `NGSILD-Results-Count` from an answer it narrowed, because the difference between the count
+   * and the rows is the number of entities withheld (R22).
+   */
+  headers?: Record<string, string>;
 }
 
 export type Transport = (request: JcRequest) => Promise<JcResponse>;
@@ -52,8 +59,13 @@ export function originTransport(fetchImpl?: typeof fetch, doc?: Document): Trans
         body: request.body !== undefined && request.method !== "GET" ? JSON.stringify(request.body) : undefined,
       });
 
+      const answered: Record<string, string> = {};
+      response.headers.forEach((value, name) => {
+        answered[name.toLowerCase()] = value;
+      });
+
       if (response.status === 204) {
-        return { status: 204, body: null };
+        return { status: 204, body: null, headers: answered };
       }
 
       const contentType = response.headers.get("content-type") ?? "";
@@ -64,7 +76,7 @@ export function originTransport(fetchImpl?: typeof fetch, doc?: Document): Trans
         const text = await response.text().catch(() => "");
         body = text === "" ? null : text;
       }
-      return { status: response.status, body };
+      return { status: response.status, body, headers: answered };
     } catch (err) {
       return {
         status: 0,
