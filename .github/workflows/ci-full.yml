@@ -62,6 +62,11 @@ jobs:
       - if: steps.has.outputs.ui == 'yes'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22 }
+      # The SDK before the UI, for the same reason the fast lane does it (T-1439): the UI links the
+      # SDK's sources and `link:` installs nothing for the sibling, so the Vite build behind these
+      # journeys cannot resolve the SDK's own dependencies — `maplibre-gl` is the one that failed.
+      - if: steps.has.outputs.ui == 'yes'
+        run: cd sdk && pnpm install --frozen-lockfile
       - if: steps.has.outputs.ui == 'yes'
         run: cd ui && pnpm install --frozen-lockfile && pnpm exec playwright install --with-deps chromium && pnpm e2e
       - if: steps.has.outputs.ui == 'no'
