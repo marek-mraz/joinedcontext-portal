@@ -52,6 +52,7 @@
     "required": "Toto pole je povinné",
     "invalid": "Neplatná hodnota",
     "choose": "Vyberte…",
+    "useExample": "Použiť príklad",
     "noResults": "Žiadne výsledky",
     "errors": "{count, plural, =0 {Bez chýb} one {# chyba} few {# chyby} other {# chýb}}",
     "type": "Nesprávny typ hodnoty",

@@ -52,6 +52,7 @@
     "required": "This field is required",
     "invalid": "Invalid value",
     "choose": "Choose…",
+    "useExample": "Use the example",
     "noResults": "No results",
     "errors": "{count, plural, =0 {No errors} one {# error} other {# errors}}",
     "type": "Invalid type",

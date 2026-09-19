@@ -34,6 +34,7 @@ import type {
   WidgetProps,
 } from "@rjsf/utils";
 import { clsx } from "clsx";
+import { useTranslation } from "react-i18next";
 import { Button, CONTROL, Field, Icon, Select, Textarea } from "../ui";
 
 /** What the form renders beside its submit: a cancel, a secondary action. */
@@ -57,9 +58,42 @@ const DefaultBaseInput = getDefaultRegistry().templates.BaseInputTemplate;
 export function BaseInputTemplate(props: WidgetProps): React.JSX.Element {
   const hasErrors = Boolean(props.rawErrors && props.rawErrors.length > 0);
   const isRange = props.type === "range";
+  const input = <Input {...props} hasErrors={hasErrors} isRange={isRange} />;
+  // The placeholder is an example the field accepts (Architecture/09 §2, T-1604), so the person
+  // may take it instead of retyping it. Offered only while the field is empty: filling a field
+  // that already holds something is an edit nobody asked for.
+  const example = typeof props.placeholder === "string" ? props.placeholder.trim() : "";
+  const empty = props.value === undefined || props.value === null || props.value === "";
+  if (example === "" || !empty || props.readonly || props.disabled || isRange) {
+    return input;
+  }
+  const numeric = props.schema.type === "number" || props.schema.type === "integer";
+  return (
+    <div className="flex items-start gap-1.5">
+      <div className="min-w-0 flex-1">{input}</div>
+      <UseExample onUse={() => props.onChange(numeric ? Number(example) : example)} />
+    </div>
+  );
+}
+
+/** The one action that writes a field's example into it (T-1604). */
+function UseExample({ onUse }: { onUse: () => void }): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <Button type="button" variant="secondary" size="sm" onClick={onUse} className="shrink-0">
+      {t("form.useExample")}
+    </Button>
+  );
+}
+
+function Input(
+  props: WidgetProps & { hasErrors: boolean; isRange: boolean },
+): React.JSX.Element {
+  const { hasErrors, isRange, ...rest } = props;
+  const forwarded = rest as WidgetProps;
   return (
     <DefaultBaseInput
-      {...props}
+      {...forwarded}
       className={
         isRange
           ? "focus-ring h-9 w-full cursor-pointer accent-[var(--portal-primary)]"
@@ -81,7 +115,11 @@ export function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
   const showLabel = displayLabel !== false && Boolean(label);
   // An array or an object template writes its own heading and description; once is enough.
   const ownHeading = schema.type === "array" || schema.type === "object";
-  const descText = ownHeading ? undefined : description || rawDescription;
+  // What a person reads under the label is written for them: the UiSchema's `help`, in their own
+  // language. The schema's description is the field's rustdoc — carried into the API and MCP for
+  // engineers — so it is the fallback, never the first thing shown (T-1604, Architecture/09 §2).
+  const forPeople = typeof rawHelp === "string" && rawHelp.trim() !== "" ? rawHelp : undefined;
+  const descText = ownHeading ? undefined : forPeople ?? description ?? rawDescription;
 
   return (
     <Field
@@ -90,7 +128,7 @@ export function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
       hideLabel={!showLabel}
       required={required}
       description={descText}
-      help={rawHelp}
+      help={forPeople === undefined || ownHeading ? rawHelp : undefined}
       errors={rawErrors}
     >
       {children}

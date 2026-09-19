@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { describe, expect, it } from "vitest";
 import i18n from "../src/i18n";
@@ -6,6 +7,7 @@ import { SchemaForm } from "../src/components/forms/SchemaForm";
 import { arrange, index, localized } from "../src/components/forms/uischema";
 import type { UiSchemaManifest } from "../src/components/forms/uischema";
 import type { JsonSchema } from "../src/components/forms/types";
+import en from "../src/locales/en.json";
 
 /**
  * T-0202: the `kind: UiSchema` manifest arranges a form — order, widgets, help and grouping —
@@ -193,6 +195,94 @@ describe("the form renders what the manifest arranged", () => {
     expect(screen.getByLabelText(/^Notes/).tagName).toBe("TEXTAREA");
     expect(screen.getByText("Free text")).toBeInTheDocument();
     expect(screen.getByLabelText(/^Slug/)).toHaveAttribute("placeholder", "26 znakov");
+  });
+
+  /**
+   * T-1604, UI-02: the help is written for the person who fills the form; the schema's
+   * description is the field's rustdoc, carried into the API and MCP for engineers. A form that
+   * answers "the reconciler renders it as the last `mapping` processor of the generated
+   * bento.yaml" has answered a question nobody asked, so help comes first and the description is
+   * the fallback.
+   */
+  it("shows a field's help in the person's language, and the schema's description only without it", async () => {
+    const schema: JsonSchema = {
+      type: "object",
+      properties: {
+        mapping: {
+          type: "string",
+          title: "Mapping",
+          description: "The inline mapping of a `bloblang` step (PL-41): the reconciler renders it",
+        },
+        plain: { type: "string", title: "Plain", description: "What the engineer wrote" },
+      },
+    };
+    const manifest: UiSchemaManifest = {
+      kind: "UiSchema",
+      metadata: { name: "pipeline" },
+      spec: {
+        for: "Pipeline",
+        fields: { mapping: { help: { sk: "Ako sa záznam prepíše na entitu", en: "How one record becomes one entity" } } },
+      },
+    };
+    for (const [locale, said] of [
+      ["en", "How one record becomes one entity"],
+      ["sk", "Ako sa záznam prepíše na entitu"],
+    ] as const) {
+      await i18n.changeLanguage(locale);
+      const { uiSchema } = arrange(manifest, { properties: ["mapping", "plain"], locale });
+      const { unmount } = render(
+        <I18nextProvider i18n={i18n}>
+          <SchemaForm schema={schema} uiSchema={uiSchema} onSubmit={() => {}} />
+        </I18nextProvider>,
+      );
+      expect(screen.getByText(said)).toBeInTheDocument();
+      // The rustdoc is not shown beside it: one sentence, the person's.
+      expect(screen.queryByText(/bloblang. step .PL-41/)).toBeNull();
+      // A field the manifest says nothing about keeps the description it always had.
+      expect(screen.getByText("What the engineer wrote")).toBeInTheDocument();
+      unmount();
+    }
+    await i18n.changeLanguage("en");
+  });
+
+  /** T-1604: the example is a value the field accepts, and one action puts it there. */
+  it("fills the field from its example, and offers the action only while the field is empty", async () => {
+    const user = userEvent.setup();
+    const schema: JsonSchema = {
+      type: "object",
+      properties: {
+        url: { type: "string", title: "URL" },
+        perMinute: { type: "integer", title: "Requests per minute" },
+      },
+    };
+    const manifest: UiSchemaManifest = {
+      kind: "UiSchema",
+      metadata: { name: "datasource" },
+      spec: {
+        for: "DataSource",
+        fields: {
+          url: { placeholder: "https://opendata.example.org/aq.json" },
+          perMinute: { placeholder: "600" },
+        },
+      },
+    };
+    const { uiSchema } = arrange(manifest, { properties: ["url", "perMinute"], locale: "en" });
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SchemaForm schema={schema} uiSchema={uiSchema} onSubmit={() => {}} />
+      </I18nextProvider>,
+    );
+
+    const actions = screen.getAllByRole("button", { name: en.form.useExample });
+    expect(actions).toHaveLength(2);
+    await user.click(actions[0]);
+    expect(screen.getByLabelText(/^URL/)).toHaveValue("https://opendata.example.org/aq.json");
+    // A field that holds something is not offered an overwrite nobody asked for.
+    expect(screen.getAllByRole("button", { name: en.form.useExample })).toHaveLength(1);
+
+    // A number example reaches the field as a number, not as the string "600".
+    await user.click(screen.getByRole("button", { name: en.form.useExample }));
+    expect(screen.getByLabelText(/^Requests per minute/)).toHaveValue(600);
   });
 
   it("renders a form with no manifest at all exactly as before", () => {
