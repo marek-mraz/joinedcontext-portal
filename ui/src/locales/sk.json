@@ -333,7 +333,7 @@
       "drawNew": "Draw a new one",
       "sharedBy": "Shared by: {endpoints}",
       "detach": "Detach and copy",
-      "nothingTicked": "Tick at least one class to expose through the endpoint.",
+      "nothingTicked": "Zaškrtnite aspoň jednu triedu, ktorú má endpoint sprístupniť.",
       "projectionName": "Projection name",
       "preview": "Generated manifests"
     },

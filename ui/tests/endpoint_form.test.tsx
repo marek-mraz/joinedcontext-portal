@@ -337,9 +337,13 @@ describe("endpoint form with ModelPicker (T-0564)", () => {
     // The bundle the check sends is the one that needs a class, so the check is what refuses.
     await userEvent.click(within(dialog).getByRole("button", { name: en.endpoints.check }));
 
-    expect(await within(dialog).findByText(en.endpoints.picker.nothingTicked)).toBeInTheDocument();
-    // Beside the buttons that were pressed, not a screen above them (T-1424).
+    // Beside the buttons that were pressed, not a screen above them (T-1424) — and the picker
+    // itself says the same thing before any check, with the one action that settles it (T-2258),
+    // so the sentence is on the screen twice and the footer is the one this case is about.
     expect(within(dialog).getByTestId("footer-error")).toHaveTextContent(en.endpoints.picker.nothingTicked);
+    expect(
+      within(within(dialog).getByRole("note")).getByRole("button", { name: en.form.useExample }),
+    ).toBeInTheDocument();
   });
 
   it("proposes a projection the space already holds as an update, so the second share is checkable (MF-23, T-1227)", async () => {

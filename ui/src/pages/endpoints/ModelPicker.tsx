@@ -170,6 +170,11 @@ export function ModelPicker({
 
   const isReadOnly = Boolean(value.selectedProjectionRef && !isDetached);
 
+  /** The first class of the model, which is the one an example ticks (T-2258). */
+  const firstClass = parsedModel?.classes?.[0];
+  const nothingTicked =
+    firstClass !== undefined && !Object.values(value.classes).some((config) => config.ticked);
+
   const handleSelectProjection = (projName: string) => {
     if (!projName) {
       // Draw new
@@ -338,6 +343,35 @@ export function ModelPicker({
           </div>
         )}
       </div>
+
+      {/*
+        What the endpoint publishes is a choice nobody can make for the person, and until it is
+        made the check refuses the whole form. Saying so here, beside the ticks, is where the
+        person is looking — before T-2258 the sentence arrived only after Check, under the button,
+        and a form filled entirely from its own examples still could not be checked. The example
+        ticks the first class, exactly as a hand-off does (T-0895), and never more than one.
+      */}
+      {nothingTicked ? (
+        <div
+          role="note"
+          className="flex flex-wrap items-center gap-2 rounded border border-border bg-surface px-2.5 py-2 text-caption text-fg"
+        >
+          <span className="min-w-0 flex-1">{t("endpoints.picker.nothingTicked")}</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={disabled || isReadOnly}
+            onClick={() =>
+              toggleClass(
+                firstClass.name,
+                firstClass.slots.filter((slot) => !IDENTITY_SLOTS.includes(slot)),
+              )
+            }
+          >
+            {t("form.useExample")}
+          </Button>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-3 divide-y divide-border">
         {(parsedModel?.classes ?? []).map((cls) => {

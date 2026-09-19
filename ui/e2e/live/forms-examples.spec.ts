@@ -68,7 +68,10 @@ async function takeTheExamples(dialog: Locator): Promise<number> {
           "input, select, textarea",
         ) as HTMLInputElement | null;
         if (!field) {
-          return false;
+          // An offer with no input beside it belongs to a choice the form makes elsewhere — the
+          // endpoint's class picker, which the check refuses to go on without (T-2258). It is
+          // taken like any other required example, and it disappears once the choice is made.
+          return button.closest("[role=note]") !== null;
         }
         const empty = field.value === "";
         return (
