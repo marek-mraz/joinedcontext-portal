@@ -225,6 +225,35 @@ describe("the UiSchema manifest arranges the form", () => {
     });
   });
 
+  it("puts a list's example on its items, where the person types (T-2257)", () => {
+    const manifest: UiSchemaManifest = {
+      ...MANIFEST,
+      spec: {
+        for: "DataSource",
+        fields: {
+          "mqtt.urls": {
+            help: "Network addresses of the message brokers.",
+            placeholder: ["wss://mqtt.hsl.fi:443/", "wss://second.example/"],
+          },
+        },
+      },
+    };
+    const { uiSchema, problems } = arrange(manifest, {
+      properties: ["mqtt", "mqtt.urls"],
+    });
+    expect(problems).toEqual([]);
+    expect(uiSchema).toEqual({
+      mqtt: {
+        urls: {
+          "ui:help": "Network addresses of the message brokers.",
+          // The list keeps no example of its own: the control that takes one is the item, and a
+          // list written there reads as "Invalid type".
+          items: { "ui:placeholder": "wss://mqtt.hsl.fi:443/" },
+        },
+      },
+    });
+  });
+
   it("keeps a nested path out of the reading order and out of a group, with the reason", () => {
     const manifest: UiSchemaManifest = {
       ...MANIFEST,

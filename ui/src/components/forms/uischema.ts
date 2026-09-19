@@ -43,7 +43,12 @@ export type LanguageMap = string | Record<string, string>;
 export interface FieldArrangement {
   widget?: string;
   help?: LanguageMap;
-  placeholder?: string;
+  /**
+   * An example the field accepts. A list is an example of the field's *items*: the control a
+   * person types into is the item, so a list written at the array itself reaches a control that
+   * holds a list and reads as "Invalid type" (T-2257).
+   */
+  placeholder?: string | (string | number)[];
   /** A twelfth of the row, so `6` is half. */
   columns?: number;
   readOnly?: boolean;
@@ -292,7 +297,14 @@ export function arrange(manifest: UiSchemaManifest, options: ArrangeOptions = {}
     if (help !== undefined) {
       entry["ui:help"] = help;
     }
-    if (arrangement.placeholder !== undefined) {
+    if (Array.isArray(arrangement.placeholder)) {
+      // The example of one item, on the item: filling the first empty one is what the person
+      // wants, and an array whose items each carry the example needs no example of its own.
+      const [first] = arrangement.placeholder;
+      if (first !== undefined) {
+        at(uiSchema, `${field}[]`, { "ui:placeholder": String(first) });
+      }
+    } else if (arrangement.placeholder !== undefined) {
       entry["ui:placeholder"] = arrangement.placeholder;
     }
     if (arrangement.readOnly !== undefined) {

@@ -212,7 +212,11 @@ describe("the help and the example beside every form field", () => {
         const missing: string[] = [];
         const refused: string[] = [];
         for (const { path, definition } of allLeaves) {
-          const example = entryAt(uiSchema as Record<string, unknown>, path)[
+          // A list's example belongs to its items: the control a person types into is the item,
+          // and an example written at the array reads as "Invalid type" (T-2257).
+          const where =
+            definition.type === "array" ? `${path}[]` : path;
+          const example = entryAt(uiSchema as Record<string, unknown>, where)[
             "ui:placeholder"
           ];
           if (showsItsOwnValue(definition)) {
