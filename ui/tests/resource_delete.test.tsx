@@ -92,20 +92,23 @@ describe("removing a resource from its list", () => {
     vi.restoreAllMocks();
   });
 
+/** The row's actions live behind its one menu now (T-2287): open it and hand back the item. */
+async function rowMenuItem(name: string | RegExp) {
+  await userEvent.click(await screen.findByRole("button", { name: /More actions/ }));
+  return screen.findByRole("menuitem", { name });
+}
+
   it("keeps Delete disabled with the reason for a person whose role may not delete the kind (UI-44)", async () => {
     renderList({ verbs: ["propose"] });
     expect(await screen.findByText("Zvolen air quality")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Delete Zvolen air quality" })).toBeDisabled();
-    });
-    expect(screen.getByRole("button", { name: "Delete Zvolen air quality" }).closest("[title]")?.getAttribute("title")).toMatch(
-      /delete/,
-    );
+    const remove = await rowMenuItem(new RegExp(en.resourceDelete.button));
+    expect(remove).toHaveAttribute("aria-disabled", "true");
+    expect(remove.getAttribute("title")).toMatch(/delete/);
   });
 
   it("proposes the removal only once the name is typed back, and shows the change", async () => {
     const fetchMock = renderList({ verbs: ["propose", "delete"] });
-    await userEvent.click(await screen.findByRole("button", { name: "Delete Zvolen air quality" }));
+    await userEvent.click(await rowMenuItem(new RegExp(en.resourceDelete.button)));
 
     const dialog = await screen.findByRole("dialog");
     const propose = within(dialog).getByRole("button", { name: en.resourceDelete.propose });
@@ -128,7 +131,7 @@ describe("removing a resource from its list", () => {
   /// T-1054: the dialog exists to have a name typed into it, so that is where the caret goes.
   it("opens with the caret in the field the dialog is for", async () => {
     renderList({ verbs: ["propose", "delete"] });
-    await userEvent.click(await screen.findByRole("button", { name: "Delete Zvolen air quality" }));
+    await userEvent.click(await rowMenuItem(new RegExp(en.resourceDelete.button)));
 
     const dialog = await screen.findByRole("dialog");
     const field = within(dialog).getByLabelText(`Type ${NAME} to confirm`);
@@ -139,7 +142,7 @@ describe("removing a resource from its list", () => {
 
   it("names what still references the resource when the removal is refused", async () => {
     renderList({ verbs: ["delete"], answer: "referenced" });
-    await userEvent.click(await screen.findByRole("button", { name: "Delete Zvolen air quality" }));
+    await userEvent.click(await rowMenuItem(new RegExp(en.resourceDelete.button)));
     const dialog = await screen.findByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText(`Type ${NAME} to confirm`), NAME);
     await userEvent.click(within(dialog).getByRole("button", { name: en.resourceDelete.propose }));

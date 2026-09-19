@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
@@ -86,8 +86,14 @@ function renderList(options: { verbs: string[]; answer?: "change" | "invalid" })
 const puts = (fetchMock: ReturnType<typeof vi.fn>) =>
   fetchMock.mock.calls.map((call) => call[0] as Request).filter((request) => request.method === "PUT");
 
+/** The row's actions live behind its one menu now (T-2287): open it and hand back the item. */
+async function rowMenuItem(name: string | RegExp) {
+  await userEvent.click(await screen.findByRole("button", { name: /More actions/ }));
+  return screen.findByRole("menuitem", { name });
+}
+
 async function openEditor() {
-  await userEvent.click(await screen.findByRole("button", { name: "Edit Zvolen air quality" }));
+  await userEvent.click(await rowMenuItem(new RegExp(en.resourceEdit.button)));
   const dialog = await screen.findByRole("dialog");
   const yaml = await within(dialog).findByRole("textbox", { name: "YAML" });
   return { dialog, yaml: yaml as HTMLTextAreaElement };
@@ -107,12 +113,10 @@ describe("editing a resource from its list", () => {
   it("keeps Edit disabled with the reason for a person whose role may not propose the kind (UI-44)", async () => {
     renderList({ verbs: ["delete"] });
     expect(await screen.findByText("Zvolen air quality")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Edit Zvolen air quality" })).toBeDisabled();
-    });
-    expect(screen.getByRole("button", { name: "Edit Zvolen air quality" }).closest("[title]")?.getAttribute("title")).toMatch(
-      /propose/,
-    );
+    // Listed in the menu, disabled, with the reason: a narrow role has to be readable (UI-44).
+    const edit = await rowMenuItem(new RegExp(en.resourceEdit.button));
+    expect(edit).toHaveAttribute("aria-disabled", "true");
+    expect(edit.getAttribute("title")).toMatch(/propose/);
   });
 
   it("opens the stored manifest without its status and proposes the edit once", async () => {

@@ -13,14 +13,8 @@ import { ResourceFormDialog } from "../components/ResourceFormDialog";
 import { ResourceList } from "../components/ResourceList";
 import { ChangeNotice } from "../components/ChangeNotice";
 import { ProjectQuota, useProjectUsage } from "../components/ProjectQuota";
-import { DeleteResourceAction } from "../components/DeleteResourceDialog";
-import { EditResourceAction } from "../components/EditResourceDialog";
-import { SaveAsResourceAction } from "../components/SaveAsDialog";
-import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
 import type { ResourceTarget } from "../components/DeleteResourceDialog";
-import { usePermissions } from "../api/permissions";
-import { RowActions } from "../components/ui/RowActions";
-import type { RowAction } from "../components/ui/RowActions";
+import { ResourceRowActions } from "../components/ResourceRowActions";
 import { contextSpaceSchema } from "../schemas/kinds";
 import {
   Alert,
@@ -108,92 +102,28 @@ function SpaceRowActions({
   locale: string;
 }): JSX.Element {
   const { t } = useTranslation();
-  const permissions = usePermissions(target.home ?? project);
-  const [openAction, setOpenAction] = useState<"edit" | "saveAs" | "copy" | "delete" | null>(null);
-  const opens = (action: "edit" | "saveAs" | "copy" | "delete") => (open: boolean) =>
-    setOpenAction(open ? action : null);
-
-  // Every action is listed, and one a role cannot take carries the reason instead of vanishing: that
-  // is what the permission guard did for the buttons, and UI-44 does not stop at a menu's edge.
-  const denied = (verb: "propose" | "delete") =>
-    permissions.can(target.kind, verb)
-      ? undefined
-      : t("permissions.denied", { verb, kind: target.kind });
-  const actions: RowAction[] = [
-    {
-      key: "edit",
-      label: t("resourceEdit.button"),
-      onSelect: () => setOpenAction("edit"),
-      disabledReason: denied("propose"),
-    },
-    {
-      key: "saveAs",
-      label: t("saveAs.button"),
-      onSelect: () => setOpenAction("saveAs"),
-      disabledReason: denied("propose"),
-    },
-    {
-      key: "copy",
-      label: t("workspaces.open.action"),
-      onSelect: () => setOpenAction("copy"),
-    },
-    {
-      key: "delete",
-      label: t("resourceDelete.button"),
-      tone: "danger",
-      onSelect: () => setOpenAction("delete"),
-      disabledReason: denied("delete"),
-    },
-  ];
-
   return (
-    <>
-      <RowActions
-        label={target.label ?? name}
-        actions={actions}
-        primary={
-          <Link
-            to="/projects/$project/spaces/$name"
-            params={{ project, name }}
-            className={buttonClass("secondary", "sm")}
-          >
-            {t("spaces.inside.open")}
-          </Link>
-        }
-      />
-      {/* The kind's own form, not the manifest as text: the same schema and envelope the create
-          dialog uses (T-2278, UI-61). */}
-      <EditResourceAction
-        target={target}
-        trigger={false}
-        open={openAction === "edit"}
-        onOpenChange={opens("edit")}
-        form={{
-          schema: contextSpaceSchema(t),
-          fromManifest: (manifest) => fromEnvelope(manifest, locale) as unknown as Record<string, unknown>,
-          toManifest: (edited) => toEnvelope(project, edited as unknown as SpaceForm),
-        }}
-      />
-      <SaveAsResourceAction
-        target={target}
-        trigger={false}
-        open={openAction === "saveAs"}
-        onOpenChange={opens("saveAs")}
-      />
-      <WorkOnCopyAction
-        project={project}
-        scope={{ kind: "space", name }}
-        trigger={false}
-        open={openAction === "copy"}
-        onOpenChange={opens("copy")}
-      />
-      <DeleteResourceAction
-        target={target}
-        trigger={false}
-        open={openAction === "delete"}
-        onOpenChange={opens("delete")}
-      />
-    </>
+    <ResourceRowActions
+      project={project}
+      target={target}
+      scope={{ kind: "space", name }}
+      // The kind's own form, not the manifest as text: the same schema and envelope the create
+      // dialog uses (T-2278, UI-61).
+      form={{
+        schema: contextSpaceSchema(t),
+        fromManifest: (manifest) => fromEnvelope(manifest, locale) as unknown as Record<string, unknown>,
+        toManifest: (edited) => toEnvelope(project, edited as unknown as SpaceForm),
+      }}
+      primary={
+        <Link
+          to="/projects/$project/spaces/$name"
+          params={{ project, name }}
+          className={buttonClass("secondary", "sm")}
+        >
+          {t("spaces.inside.open")}
+        </Link>
+      }
+    />
   );
 }
 

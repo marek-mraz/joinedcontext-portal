@@ -250,8 +250,14 @@ export function EditResourceAction({
   const mayPropose = usePermissions(target.home ?? target.project).can(target.kind, "propose");
   const [request] = useState(() => takeEditRequest(target.name));
   const [ownOpen, setOwnOpen] = useState(request !== null);
-  const open = openedByRow ?? ownOpen;
-  const setOpen = onOpenChange ?? setOwnOpen;
+  // The row may open this, and so may the URL (`?edit=`/`?delete=`) or the assistant's hand-off: both
+  // are honoured, and closing clears both, so a page opened on one resource still opens its dialog
+  // when the row owns the trigger (T-2287).
+  const open = ownOpen || (openedByRow ?? false);
+  const setOpen = (next: boolean) => {
+    setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   return (
     <>
       {trigger ? (

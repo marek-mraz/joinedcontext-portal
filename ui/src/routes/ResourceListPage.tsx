@@ -4,10 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap, whilePending } from "../api/client";
 import { asManifests, localized } from "../api/manifest";
-import { DeleteResourceAction } from "../components/DeleteResourceDialog";
-import { EditResourceAction } from "../components/EditResourceDialog";
-import { SaveAsResourceAction } from "../components/SaveAsDialog";
-import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
+import { ResourceRowActions } from "../components/ResourceRowActions";
 import { LifecycleBadge } from "../components/status/LifecycleBadge";
 import {
   EmptyState,
@@ -117,15 +114,8 @@ function GenericListPage({
                 <LifecycleBadge kind="phase" value={item.status?.phase} />
               </TableCell>
               <TableCell align="right">
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  <EditResourceAction target={target} />
-                  <SaveAsResourceAction target={target} />
-                  <WorkOnCopyAction
-                    project={project}
-                    scope={{ kind: "resources", items: [{ kind: target.kind, name: target.name }] }}
-                  />
-                  <DeleteResourceAction target={target} />
-                </div>
+                {/* One menu at the end of the row, for every kind that falls through here (T-2287). */}
+                <ResourceRowActions project={project} target={target} />
               </TableCell>
             </TableRow>
           );
