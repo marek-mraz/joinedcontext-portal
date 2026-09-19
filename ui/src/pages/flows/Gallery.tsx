@@ -138,7 +138,8 @@ export function FlowGallery({ project }: { project: string }): JSX.Element {
         </div>
       )}
 
-      {blueprints.length === 0 && <EmptyState title={t("flows.empty")} />}
+      {blueprints.length === 0 && <EmptyState title={t("flows.empty")}
+              description={t("flows.emptyHint")} />}
       {blueprints.length > 0 && shown.length === 0 && (
         <EmptyState title={t("flows.emptyFiltered")} />
       )}

@@ -130,7 +130,8 @@
     "filterAll": "Alle",
     "noneMatch": "Keine Änderung passt zu diesen Filtern.",
     "workspace": "Aus einer Kopie",
-    "fromWorkspace": "Aus der Kopie {name} von {author}, zurückgebracht am {date}: getrennt vom Live-Projekt bearbeitet und vor dem Vorschlag erneut geprüft."
+    "fromWorkspace": "Aus der Kopie {name} von {author}, zurückgebracht am {date}: getrennt vom Live-Projekt bearbeitet und vor dem Vorschlag erneut geprüft.",
+    "emptyHint": "Jede Änderung an diesem Projekt wartet hier darauf, dass eine Person sie liest und entscheidet. Gerade wartet nichts; schlagen Sie eine Änderung vor, und sie erscheint in dieser Liste."
   },
   "lane": {
     "green": "Grün",
@@ -214,7 +215,8 @@
   "resourceList": {
     "name": "Name",
     "phase": "Zustand",
-    "empty": "Hier ist noch nichts."
+    "empty": "Hier ist noch nichts.",
+    "emptyHint": "Von dieser Art ist noch nichts im Projekt. Legen Sie das erste an, oder bitten Sie die Assistentin darum und entscheiden Sie über ihren Vorschlag."
   },
   "spaces": {
     "lead": "Die benannten Sammlungen von Kontextdaten dieses Projekts; jede Entität liegt in genau einer.",
@@ -373,7 +375,8 @@
       "referenced": "Referenziert",
       "alias": "Alias",
       "gone": "Endpunkt nicht mehr geteilt",
-      "goneSource": "Quelle nicht verfügbar"
+      "goneSource": "Quelle nicht verfügbar",
+      "emptyHint": "Ein anderes Projekt kann diesem erlauben, seinen Endpunkt zu lesen, ohne die Daten zu kopieren. Mit diesem Projekt wird noch nichts geteilt."
     },
     "slugHint": "The address is created for you and never changes, even when the endpoint is renamed.",
     "picker": {
@@ -490,7 +493,8 @@
       "name": "Secret-Name",
       "key": "Schlüssel",
       "known": "Bekannte Secrets"
-    }
+    },
+    "emptyHint": "Eine Datenquelle ist der Ort, von dem die Plattform abruft: ein Feed, ein Broker, eine API. Fügen Sie eine hinzu, und eine Pipeline kann sie in einen Kontextraum lesen."
   },
   "pipelines": {
     "lead": "Was Daten hereinbringt: jede Pipeline liest eine Quelle, wandelt sie um und schreibt über einen Endpunkt.",
@@ -727,7 +731,8 @@
       "noHistory": "Keine Historie zum Zeichnen.",
       "latest": "Letzter Wert {property}: {value} ({count} Messungen)",
       "chartLabel": "{property} von {entity} im Zeitverlauf"
-    }
+    },
+    "emptyHint": "Ein Dashboard ist eine Seite aus Karten und Zahlen, gebaut aus Endpunkten, die dieses Projekt lesen kann. Erstellen Sie eines, oder bitten Sie die Assistentin um ein Dashboard aus dem, was Sie schon veröffentlichen."
   },
   "access": {
     "title": "Zugriff",
@@ -757,7 +762,8 @@
       "chooseRole": "Rolle wählen",
       "whereLabel": "Wo sie gilt",
       "untilLabel": "Bis (optional)",
-      "propose": "Vergabe vorschlagen"
+      "propose": "Vergabe vorschlagen",
+      "emptyHint": "Eine Rollenbindung sagt, wer in diesem Projekt was darf. Solange es keine gibt, kann hier nur eine Administratorin der Organisation etwas ändern."
     },
     "projectRoles": {
       "title": "Rollen",
@@ -772,7 +778,8 @@
       "newTitle": "Neue Rolle",
       "newLead": "Eine Rolle des Projekts {project}. Sie darf nur die Arten dieses Projekts nennen und nur die Verben, die Sie hier selbst halten; die Änderung genehmigt jemand anderes.",
       "sourceLabel": "Das Rollenmanifest",
-      "propose": "Rolle vorschlagen"
+      "propose": "Rolle vorschlagen",
+      "emptyHint": "Eine Rolle ist eine Menge von Verben auf einer Menge von Arten — einen Endpunkt vorschlagen, eine Änderung genehmigen, einen Raum lesen. Die Rollen der Plattform gelten überall; eine hier erklärte Rolle gilt in diesem Projekt."
     },
     "accounts": {
       "title": "Dienstkonten",
@@ -859,7 +866,8 @@
         "DriftCorrected": "Korrigiert",
         "MemberUnknown": "Wartet auf erste Anmeldung",
         "RealmRefused": "Nicht geschrieben"
-      }
+      },
+      "emptyHint": "Eine Gruppe ist ein Name für mehrere Personen, damit eine Rolle einmal vergeben wird statt Person für Person. Gruppen kommen vom Identitätsanbieter oder werden hier erklärt."
     },
     "nameFirst": "Dies ist ein Beispiel. Geben Sie ihm einen Namen (Kleinbuchstaben, Ziffern und Bindestriche) und passen Sie den Rest an; dann kann es vorgeschlagen werden."
   },
@@ -887,7 +895,8 @@
       "hint": "Beim Speichern wird eine Änderung vorgeschlagen; sie wirkt nach der Freigabe.",
       "noSchema": "Diese Vorlage hat keine Parameter.",
       "failed": "Die Parameter wurden nicht akzeptiert. Korrigieren Sie die markierten Felder und erstellen Sie erneut."
-    }
+    },
+    "emptyHint": "Ein Blueprint richtet einen ganzen Anwendungsfall in einem Schritt ein: den Raum, die Quelle, die Pipeline und den Endpunkt zusammen. In diesem Projekt steht Ihnen noch keiner zur Verfügung."
   },
   "export": {
     "title": "Konfiguration herunterladen",
@@ -1293,7 +1302,8 @@
       "conflictPolicy": "Wenn eine Ressource schon da ist",
       "prune": "Löschen, was die Quelle entfernt hat",
       "autoMerge": "Sauberen Lauf ohne Review mergen"
-    }
+    },
+    "emptyHint": "Eine Synchronisationsquelle hält dieses Projekt mit einem Git-Repository, einem veröffentlichten Bundle oder einer anderen Instanz im Gleichschritt. Fügen Sie eine hinzu, und was sie bringt, kommt als Änderungen, über die jemand entscheidet."
   },
   "allEndpoints": {
     "title": "Alle Endpunkte",
@@ -1302,7 +1312,8 @@
     "field": {
       "project": "Projekt",
       "space": "Kontextraum"
-    }
+    },
+    "emptyHint": "Dies sind alle Endpunkte der Organisation, unabhängig davon, welches Projekt sie veröffentlicht. Veröffentlichen Sie einen aus einem Kontextraum, und er steht hier für die Projekte, die Sie zulassen."
   },
   "projects": {
     "loading": "Projekte werden geladen…",
@@ -1764,7 +1775,8 @@
       "requests": "Requests served",
       "forwards": "Forwards",
       "denials": "Refusals"
-    }
+    },
+    "emptyHint": "Alles, was die Plattform hier tut, landet in dieser Liste: eine angewandte Änderung, der Durchsatz einer Pipeline, eine abgelehnte Anfrage. Laden Sie eine Datenquelle oder genehmigen Sie eine Änderung, und die ersten Zeilen erscheinen."
   },
   "import": {
     "title": "Konfiguration importieren",
@@ -1976,6 +1988,7 @@
       "copyHint": "Höchstens {limit} Entitäten je Typ, mit Ihren eigenen Rechten gelesen und geschrieben.",
       "copied": "{count, plural, =0 {Nichts kopiert} one {# Entität kopiert} other {# Entitäten kopiert}}.",
       "copyStopped": "Gestoppt: {reason}"
-    }
+    },
+    "emptyHint": "Eine Kopie hält mehrere Änderungen zusammen — eine Pipeline auf einen neuen Feed umstellen, testen, alles auf einmal zurückbringen — und nichts darin ist live, bevor Sie das tun."
   }
 }

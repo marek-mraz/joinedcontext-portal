@@ -95,7 +95,9 @@ function GenericListPage({
       }
       columns={3}
       count={items.length}
-      empty={<EmptyState bare title={t("resourceList.empty")} />}
+      empty={<EmptyState bare
+            title={t("resourceList.empty")}
+            description={t("resourceList.emptyHint")} />}
     >
       {items.map((item) => {
           const title = localized(item.metadata.title, locale, item.metadata.name);

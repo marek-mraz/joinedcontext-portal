@@ -887,7 +887,10 @@ export function EndpointsPage({ project }: { project: string }): JSX.Element {
           <TableBody>
             {shared.length === 0 && orphaned.length === 0 ? (
               <TableEmpty columns={SHARED_COLUMNS}>
-                <EmptyState bare icon="globe" title={t("endpoints.shared.empty")} />
+                <EmptyState bare
+                  icon="globe"
+                  title={t("endpoints.shared.empty")}
+                  description={t("endpoints.shared.emptyHint")} />
               </TableEmpty>
             ) : (
               shared.map(({ source, endpoint }) => {

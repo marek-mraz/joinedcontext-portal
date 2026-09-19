@@ -172,7 +172,8 @@ export function SyncSourcesPage({ project }: { project: string }): JSX.Element {
       ) : null}
 
       {!list.isPending && !list.isError && items.length === 0 ? (
-        <EmptyState title={t("syncSources.empty")} />
+        <EmptyState title={t("syncSources.empty")}
+          description={t("syncSources.emptyHint")} />
       ) : null}
 
       <ul className="space-y-4">

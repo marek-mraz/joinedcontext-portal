@@ -522,7 +522,10 @@ export function DataSourcesPage({ project }: { project: string }): JSX.Element {
         }
         columns={5}
         count={sources.length}
-        empty={<EmptyState bare title={t("datasources.empty")} action={addButton} />}
+        empty={<EmptyState bare
+            title={t("datasources.empty")}
+            description={t("datasources.emptyHint")}
+            action={addButton} />}
       >
         {sources.map((source) => {
           const used = knownSecretNames([source]);

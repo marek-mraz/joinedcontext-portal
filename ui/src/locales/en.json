@@ -130,7 +130,8 @@
     "filterAll": "All",
     "noneMatch": "No change matches these filters.",
     "workspace": "From a copy",
-    "fromWorkspace": "From the copy {name} by {author}, brought back on {date}: worked on apart from the live project, checked again before it was proposed."
+    "fromWorkspace": "From the copy {name} by {author}, brought back on {date}: worked on apart from the live project, checked again before it was proposed.",
+    "emptyHint": "Every change to this project waits here for a person to read it and decide. Nothing waits right now; propose a change and it appears in this list."
   },
   "lane": {
     "green": "Green",
@@ -214,7 +215,8 @@
   "resourceList": {
     "name": "Name",
     "phase": "State",
-    "empty": "Nothing here yet."
+    "empty": "Nothing here yet.",
+    "emptyHint": "Nothing of this kind is in the project yet. Add the first one, or ask the assistant for it and decide what it proposes."
   },
   "spaces": {
     "lead": "The named collections of context data this project holds; every entity lives in exactly one.",
@@ -392,7 +394,8 @@
       "referenced": "Referenced",
       "alias": "alias",
       "gone": "Endpoint no longer shared",
-      "goneSource": "Source unavailable"
+      "goneSource": "Source unavailable",
+      "emptyHint": "Another project can let this one read its endpoint without copying the data. Nothing is shared with this project yet."
     },
     "audienceOption": {
       "project-list": "Selected projects: only the projects you tick",
@@ -490,7 +493,8 @@
       "title": "One fetch of the feed",
       "records": "{records} records, {bytes} bytes",
       "skipped": "Not fetched: {reason}"
-    }
+    },
+    "emptyHint": "A data source is where the platform fetches from: a feed, a broker, an API. Add one and a pipeline can read it into a context space."
   },
   "pipelines": {
     "lead": "What brings data in: each pipeline reads a source, transforms it and writes through an endpoint.",
@@ -727,7 +731,8 @@
       "noHistory": "No history to draw.",
       "latest": "Latest {property}: {value} ({count} readings)",
       "chartLabel": "{property} of {entity} over time"
-    }
+    },
+    "emptyHint": "A dashboard is a page of maps and numbers built from endpoints this project can read. Make one, or ask the assistant for a dashboard of what you already publish."
   },
   "access": {
     "title": "Access",
@@ -757,7 +762,8 @@
       "chooseRole": "Choose a role",
       "whereLabel": "Where it applies",
       "untilLabel": "Until (optional)",
-      "propose": "Propose grant"
+      "propose": "Propose grant",
+      "emptyHint": "A role binding says who may do what in this project. Until one exists, only an administrator of the organization can change anything here."
     },
     "projectRoles": {
       "title": "Roles",
@@ -772,7 +778,8 @@
       "newTitle": "New role",
       "newLead": "A role of project {project}. It may name the project's own kinds, and only the verbs you hold here yourself; the change is approved by someone else.",
       "sourceLabel": "The role manifest",
-      "propose": "Propose the role"
+      "propose": "Propose the role",
+      "emptyHint": "A role is a set of verbs on a set of kinds — propose an endpoint, approve a change, read a space. The platform's own roles work everywhere; a role declared here works in this project."
     },
     "accounts": {
       "title": "Service accounts",
@@ -859,7 +866,8 @@
         "DriftCorrected": "Corrected",
         "MemberUnknown": "Waiting for a first login",
         "RealmRefused": "Not written"
-      }
+      },
+      "emptyHint": "A group is a name for several people, so a role is given once instead of person by person. Groups come from the identity provider or are declared here."
     },
     "nameFirst": "This is an example. Give it a name (lowercase letters, digits and hyphens) and make the rest yours; then it can be proposed."
   },
@@ -887,7 +895,8 @@
       "hint": "Saving proposes a change; it takes effect once the change is approved.",
       "noSchema": "This blueprint declares no parameters.",
       "failed": "The parameters were not accepted. Correct the marked fields and create again."
-    }
+    },
+    "emptyHint": "A blueprint sets up a whole use case in one step: the space, the source, the pipeline and the endpoint together. None is available to you in this project yet."
   },
   "export": {
     "title": "Download configuration",
@@ -1293,7 +1302,8 @@
       "conflictPolicy": "When a resource already exists",
       "prune": "Delete what the source dropped",
       "autoMerge": "Merge a clean run without review"
-    }
+    },
+    "emptyHint": "A sync source keeps this project in step with a Git repository, a published bundle or another instance. Add one and what it brings arrives as changes somebody decides."
   },
   "allEndpoints": {
     "title": "All endpoints",
@@ -1302,7 +1312,8 @@
     "field": {
       "project": "Project",
       "space": "Context Space"
-    }
+    },
+    "emptyHint": "This is every endpoint of the organization, whatever project publishes it. Publish one from a context space and it is listed here for the projects you allow."
   },
   "projects": {
     "loading": "Loading projects…",
@@ -1764,7 +1775,8 @@
       "requests": "Requests served",
       "forwards": "Forwards",
       "denials": "Refusals"
-    }
+    },
+    "emptyHint": "Everything the platform does here lands in this list: a change applied, a pipeline's throughput, a refused request. Load a data source or approve a change and the first lines appear."
   },
   "import": {
     "title": "Import configuration",
@@ -1976,6 +1988,7 @@
       "copyHint": "Up to {limit} entities per type, read and written with your own rights.",
       "copied": "{count, plural, =0 {Nothing copied} one {# entity copied} other {# entities copied}}.",
       "copyStopped": "Stopped: {reason}"
-    }
+    },
+    "emptyHint": "A copy holds several changes together — switch a pipeline to a new feed, test it, bring it all back at once — and nothing in it is live until you do."
   }
 }

@@ -130,7 +130,8 @@
     "filterAll": "Všetky",
     "noneMatch": "Týmto filtrom nezodpovedá žiadna zmena.",
     "workspace": "Z kópie",
-    "fromWorkspace": "Z kópie {name}, ktorú pripravil(a) {author}, vrátené {date}: upravené mimo živého projektu a pred návrhom znova skontrolované."
+    "fromWorkspace": "Z kópie {name}, ktorú pripravil(a) {author}, vrátené {date}: upravené mimo živého projektu a pred návrhom znova skontrolované.",
+    "emptyHint": "Každá zmena tohto projektu tu čaká, kým ju človek prečíta a rozhodne. Teraz nič nečaká; podajte zmenu a objaví sa v tomto zozname."
   },
   "lane": {
     "green": "Zelená",
@@ -214,7 +215,8 @@
   "resourceList": {
     "name": "Názov",
     "phase": "Stav",
-    "empty": "Zatiaľ tu nič nie je."
+    "empty": "Zatiaľ tu nič nie je.",
+    "emptyHint": "V projekte zatiaľ nič takého druhu nie je. Pridajte prvé alebo požiadajte asistenta a rozhodnite o tom, čo podá."
   },
   "spaces": {
     "lead": "Pomenované kolekcie kontextových dát tohto projektu; každá entita patrí práve do jednej.",
@@ -392,7 +394,8 @@
       "referenced": "Odkazované",
       "alias": "alias",
       "gone": "Endpoint už nie je zdieľaný",
-      "goneSource": "Zdroj nedostupný"
+      "goneSource": "Zdroj nedostupný",
+      "emptyHint": "Iný projekt môže tomuto dovoliť čítať svoj endpoint bez kopírovania údajov. S tímto projektom zatiaľ nikto nič nezdieľa."
     },
     "audienceOption": {
       "project-list": "Selected projects: only the projects you tick",
@@ -490,7 +493,8 @@
       "name": "Názov tajomstva",
       "key": "Kľúč",
       "known": "Známe tajomstvá"
-    }
+    },
+    "emptyHint": "Dátový zdroj je miesto, odkiaľ platforma číta: kanál, broker, API. Pridajte jeden a pipeline ho môže načítať do kontextového priestoru."
   },
   "pipelines": {
     "lead": "Čo prináša dáta: každá pipeline číta zdroj, transformuje ho a zapisuje cez endpoint.",
@@ -727,7 +731,8 @@
       "noHistory": "Niet histórie na vykreslenie.",
       "latest": "Posledná hodnota {property}: {value} ({count} meraní)",
       "chartLabel": "{property} entity {entity} v čase"
-    }
+    },
+    "emptyHint": "Nástenka je stránka s mapami a číslami, postavená z endpointov, ktoré tento projekt vie čítať. Vytvorte jednu alebo požiadajte asistenta o nástenku z toho, čo už zverejňujete."
   },
   "access": {
     "title": "Prístup",
@@ -757,7 +762,8 @@
       "chooseRole": "Vyberte rolu",
       "whereLabel": "Kde platí",
       "untilLabel": "Do (nepovinné)",
-      "propose": "Navrhnúť pridelenie"
+      "propose": "Navrhnúť pridelenie",
+      "emptyHint": "Viazanie roly hovorí, kto smie v tomto projekte čo robiť. Kým žiadne nie je, môže tu niečo meniť len správca organizácie."
     },
     "projectRoles": {
       "title": "Role",
@@ -772,7 +778,8 @@
       "newTitle": "Nová rola",
       "newLead": "Rola projektu {project}. Môže menovať iba druhy tohto projektu a iba slovesá, ktoré tu sami máte; zmenu schvaľuje niekto iný.",
       "sourceLabel": "Manifest roly",
-      "propose": "Navrhnúť rolu"
+      "propose": "Navrhnúť rolu",
+      "emptyHint": "Rola je množina činností nad množinou druhov — podať endpoint, schváliť zmenu, čítať priestor. Roly platformy fungujú všade; rola deklarovaná tu funguje v tomto projekte."
     },
     "accounts": {
       "title": "Servisné účty",
@@ -859,7 +866,8 @@
         "DriftCorrected": "Opravené",
         "MemberUnknown": "Čaká na prvé prihlásenie",
         "RealmRefused": "Nezapísané"
-      }
+      },
+      "emptyHint": "Skupina je názov pre viac ľudí, takže rolu dáte raz namiesto človeka po človeku. Skupiny prichádzajú z poskytovateľa identity alebo sa deklarujú tu."
     },
     "nameFirst": "Toto je príklad. Dajte mu názov (malé písmená, číslice a spojovníky) a upravte zvyšok; potom ho možno navrhnúť."
   },
@@ -887,7 +895,8 @@
       "hint": "Uložením navrhnete zmenu; prejaví sa po jej schválení.",
       "noSchema": "Táto šablóna nemá žiadne parametre.",
       "failed": "Parametre neboli prijaté. Opravte označené polia a vytvorte znova."
-    }
+    },
+    "emptyHint": "Blueprint pripraví celý prípad použitia jedným krokom: priestor, zdroj, pipeline a endpoint spolu. V tomto projekte vám zatiaľ žiadny nie je dostupný."
   },
   "export": {
     "title": "Stiahnuť konfiguráciu",
@@ -1293,7 +1302,8 @@
       "conflictPolicy": "Keď zdroj už existuje",
       "prune": "Zmazať to, čo zdroj odstránil",
       "autoMerge": "Zlúčiť čistý beh bez revízie"
-    }
+    },
+    "emptyHint": "Zdroj synchronizácie drží tento projekt v súlade s Git repozitárom, zverejneným balíkom alebo inou instanciou. Pridajte jeden a to, čo prinesie, príde ako zmeny, o ktorých niekto rozhodne."
   },
   "allEndpoints": {
     "title": "Všetky koncové body",
@@ -1302,7 +1312,8 @@
     "field": {
       "project": "Projekt",
       "space": "Kontextový priestor"
-    }
+    },
+    "emptyHint": "Toto sú všetky endpointy organizácie, bez ohľadu na to, ktorý projekt ich zverejňuje. Zverejnite jeden z kontextového priestoru a objaví sa tu pre projekty, ktoré povolíte."
   },
   "projects": {
     "loading": "Načítavam projekty…",
@@ -1764,7 +1775,8 @@
       "requests": "Requests served",
       "forwards": "Forwards",
       "denials": "Refusals"
-    }
+    },
+    "emptyHint": "Všetko, čo tu platforma urobí, sa objaví v tomto zozname: použitá zmena, priepustnosť pipeline, odmietnutá požiadavka. Načítajte dátový zdroj alebo schváľte zmenu a prídu prvé riadky."
   },
   "import": {
     "title": "Import konfigurácie",
@@ -1976,6 +1988,7 @@
       "copyHint": "Najviac {limit} entít na typ, čítané a zapísané s vašimi právami.",
       "copied": "{count, plural, =0 {Nič sa neskopírovalo} one {Skopírovaná # entita} few {Skopírované # entity} other {Skopírovaných # entít}}.",
       "copyStopped": "Zastavené: {reason}"
-    }
+    },
+    "emptyHint": "Kópia drží viac zmien spolu — prepnite pipeline na nový kanál, otestujte ju, vráťte všetko naraz — a nič v nej nie je živé, kým to neurobíte."
   }
 }

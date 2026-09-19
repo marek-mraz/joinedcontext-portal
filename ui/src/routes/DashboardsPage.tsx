@@ -441,6 +441,7 @@ export function DashboardsPage({ project }: { project: string }): JSX.Element {
         <EmptyState
           icon="dashboards"
           title={t("dashboards.empty")}
+              description={t("dashboards.emptyHint")}
           action={<div className="flex flex-wrap justify-center gap-2">{newButtons}</div>}
         />
         {editors}

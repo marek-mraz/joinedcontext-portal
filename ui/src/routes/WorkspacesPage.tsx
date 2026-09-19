@@ -86,7 +86,8 @@ export function WorkspacesPage({ project }: { project: string }): JSX.Element {
       ) : null}
 
       {!list.isPending && !list.isError && items.length === 0 ? (
-        <EmptyState title={t("workspaces.empty")} />
+        <EmptyState title={t("workspaces.empty")}
+          description={t("workspaces.emptyHint")} />
       ) : (
         <div className="space-y-8">
           {mine.length > 0 ? (

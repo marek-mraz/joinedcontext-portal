@@ -237,6 +237,7 @@ export function ActivityFeed({
         <EmptyState
           icon="refresh"
           title={compact ? t("activity.panelEmpty") : t("activity.empty")}
+          description={compact ? undefined : t("activity.emptyHint")}
         />
       ) : (
         <Table caption={t("activity.title")}>

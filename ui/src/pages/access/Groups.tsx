@@ -256,7 +256,9 @@ export function Groups({ project }: { project: string }): JSX.Element {
             <TableBody>
               {rows.length === 0 ? (
                 <TableEmpty columns={4}>
-                  <EmptyState bare title={t("access.groups.empty")} />
+                  <EmptyState bare
+                    title={t("access.groups.empty")}
+                    description={t("access.groups.emptyHint")} />
                 </TableEmpty>
               ) : (
                 rows.map((row) => (

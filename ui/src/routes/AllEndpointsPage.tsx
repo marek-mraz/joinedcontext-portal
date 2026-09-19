@@ -112,7 +112,10 @@ export function AllEndpointsPage(): JSX.Element {
         <TableBody>
           {rows.length === 0 ? (
             <TableEmpty columns={COLUMNS}>
-              <EmptyState bare icon="endpoints" title={t("allEndpoints.empty")} />
+              <EmptyState bare
+            icon="endpoints"
+            title={t("allEndpoints.empty")}
+            description={t("allEndpoints.emptyHint")} />
             </TableEmpty>
           ) : (
             rows.map(({ project, endpoint }) => {

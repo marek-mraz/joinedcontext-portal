@@ -259,7 +259,9 @@ export function Roles({ project }: { project: string }): JSX.Element {
             <TableBody>
               {rows.length === 0 ? (
                 <TableEmpty columns={4}>
-                  <EmptyState bare title={t("access.projectRoles.empty")} />
+                  <EmptyState bare
+                    title={t("access.projectRoles.empty")}
+                    description={t("access.projectRoles.emptyHint")} />
                 </TableEmpty>
               ) : (
                 rows.map((row) => (

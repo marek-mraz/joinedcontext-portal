@@ -103,6 +103,7 @@ export function ApprovalsPage({ project }: { project: string }): JSX.Element {
               bare
               icon="approvals"
               title={t("approvals.empty")}
+              description={t("approvals.emptyHint")}
               action={
                 <Link to="/projects/$project/assistant" params={{ project }} className={buttonClass("primary", "md")}>
                   {t("approvals.emptyAction")}

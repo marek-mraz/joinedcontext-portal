@@ -342,7 +342,9 @@ export function RoleBindings({ project }: { project: string }): JSX.Element {
             <TableBody>
               {here.length === 0 ? (
                 <TableEmpty columns={5}>
-                  <EmptyState bare title={t("access.roles.empty")} />
+                  <EmptyState bare
+                    title={t("access.roles.empty")}
+                    description={t("access.roles.emptyHint")} />
                 </TableEmpty>
               ) : (
                 here.map((binding) => {
