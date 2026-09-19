@@ -119,3 +119,59 @@ async fn forge_deleting(name: &str, server: MockServer) -> MockServer {
         .await;
     server
 }
+
+/// CC-81: a branch the forge no longer has is not an error — a discard that raced the reaper, or a
+/// hand deleting it in the forge, leaves a record whose expiry still has to finish.
+#[tokio::test]
+async fn a_branch_that_is_already_gone_still_finishes_the_expiry() {
+    // No DELETE mock at all: the forge answers 404, which is what a missing branch is.
+    let server = forge().await;
+    let state = state_on(&server);
+    state
+        .workspaces
+        .create(Opening {
+            name: "ghost",
+            title: None,
+            project: PROJECT,
+            owner: "jana@hel.fi",
+            base_revision: "base1",
+            scope: Scope::Project {},
+            ttl_hours: 1,
+        })
+        .await
+        .expect("the workspace opens");
+    let reaped = reap_expired_at(&state, Utc::now() + Duration::hours(2)).await;
+    assert_eq!(reaped, 1, "a record waits for a branch that does not exist");
+    assert!(state.workspaces.get("ghost").await.unwrap().is_none());
+}
+
+/// One pass takes every expired workspace, not the first: a Portal that was down for a day comes
+/// back to a dozen of them.
+#[tokio::test]
+async fn one_pass_reaps_every_expired_workspace() {
+    let server = forge().await;
+    let state = state_on(&server);
+    for name in ["one", "two", "three"] {
+        Mock::given(method("DELETE"))
+            .and(path(format!("{REPO}/branches/workspace/{name}")))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+        state
+            .workspaces
+            .create(Opening {
+                name,
+                title: None,
+                project: PROJECT,
+                owner: "jana@hel.fi",
+                base_revision: "base1",
+                scope: Scope::Project {},
+                ttl_hours: 1,
+            })
+            .await
+            .expect("the workspace opens");
+    }
+    let reaped = reap_expired_at(&state, Utc::now() + Duration::hours(2)).await;
+    assert_eq!(reaped, 3, "the pass stopped early");
+    assert!(state.workspaces.list(PROJECT).await.unwrap().is_empty());
+}

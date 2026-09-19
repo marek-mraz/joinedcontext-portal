@@ -521,6 +521,35 @@ async fn an_agent_or_an_mcp_client_never_throws_a_workspace_away() {
     assert_eq!(answer.status, StatusCode::NO_CONTENT, "{}", answer.text);
 }
 
+/// AG-82: neither way out of a workspace is offered to an agent at all — the listing an agent
+/// reads is what it believes it can do, and a tool it is told about and then refused teaches it
+/// that the platform is unreliable rather than that the decision is a person's.
+#[tokio::test]
+async fn the_listing_an_agent_reads_offers_the_work_and_neither_way_out() {
+    let (_server, state) = world().await;
+    let offered: Vec<String> = ops::listing(&Caller::new(steward(), Via::Agent), &state, PROJECT)
+        .into_iter()
+        .map(|op| op.name)
+        .collect();
+    for refused in ["jc_workspace_propose", "jc_workspace_discard"] {
+        assert!(
+            !offered.contains(&refused.to_owned()),
+            "{refused} is offered to an agent"
+        );
+    }
+    for allowed in [
+        "jc_workspace_open",
+        "jc_workspace_compare",
+        "jc_workspace_update_from_main",
+        "jc_workspace_preview_start",
+    ] {
+        assert!(
+            offered.contains(&allowed.to_owned()),
+            "{allowed} is the work itself and is not offered"
+        );
+    }
+}
+
 #[tokio::test]
 async fn discarding_removes_the_branch_and_the_record() {
     let (server, state) = world().await;
