@@ -2223,3 +2223,70 @@ async fn an_entity_change_is_previewed_with_the_persons_grants_and_never_written
         "no write tool is called"
     );
 }
+
+/// UI-59, UI-64, UI-67: the grid the assistant opens carries the question's own filter, so the
+/// person reads the rows that answer it instead of filtering by hand. The filter reaches the route
+/// encoded, and nothing of the data itself travels with it — only the query.
+#[tokio::test]
+async fn the_grid_opens_narrowed_by_the_question_and_a_call_without_an_endpoint_opens_nothing() {
+    let answer = "Here are the docks that are empty.\n\n```json\n{\"tool\":\"jc_ui_navigate\",\"arguments\":{\"page\":\"entities\",\"endpoint\":\"helsinki-all\",\"type\":\"BikeHireDockingStation\",\"q\":\"availableBikeNumber==0\"}}\n```\n";
+    let (_, events, _) = converse_with(
+        Some(pipeline_access()),
+        person("reader@hel.fi", &[]),
+        Conversation {
+            answer,
+            message: "Which docking stations have no bikes?",
+            tool: "jc_ui_navigate",
+            seeded: bikes_space(),
+        },
+    )
+    .await;
+
+    assert_eq!(events[0].payload["status"], "ok", "{}", events[0].payload);
+    let navigate = events
+        .iter()
+        .find(|e| e.kind == "navigate")
+        .expect("the grid opens");
+    assert_eq!(
+        navigate.payload,
+        json!({ "route": "/projects/helsinki/explore?endpoint=helsinki-all&type=BikeHireDockingStation&q=availableBikeNumber%3D%3D0" })
+    );
+
+    // A grid with no endpoint to read would open on an empty page while the sentence beside it
+    // claims rows: it is refused before any `navigate` event exists.
+    let nameless = "Here they are.\n\n```json\n{\"tool\":\"jc_ui_navigate\",\"arguments\":{\"page\":\"entities\",\"type\":\"BikeHireDockingStation\"}}\n```\n";
+    let (_, events, _) = converse_with(
+        Some(pipeline_access()),
+        person("reader@hel.fi", &[]),
+        Conversation {
+            answer: nameless,
+            message: "Which docking stations have no bikes?",
+            tool: "jc_ui_navigate",
+            seeded: bikes_space(),
+        },
+    )
+    .await;
+    let tool = &events[0].payload;
+    assert_eq!(tool["status"], "failed", "{tool}");
+    assert!(
+        tool["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("the endpoint")),
+        "{tool}"
+    );
+    assert!(events.iter().all(|e| e.kind != "navigate"));
+    // And the run ends: the refusal counts as one of the corrections a message may make, so a
+    // model repeating the same broken call cannot ask the proxy again without end.
+    let tried = events
+        .iter()
+        .filter(|e| e.kind == "tool" && e.payload["tool"] == "jc_ui_navigate")
+        .count();
+    assert!(tried <= 3, "the refused call was retried {tried} times");
+    assert!(
+        events.iter().any(|e| e.kind == "thought"
+            && e.payload["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("could not be opened"))),
+        "the person reads why no page opened: {events:#?}"
+    );
+}

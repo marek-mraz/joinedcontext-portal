@@ -352,6 +352,18 @@ impl Driver {
                     self.thought(&prose).await?;
                     return Ok(prose);
                 }
+                // A refused page is a correction like every other one, and it is counted: a model
+                // that keeps answering the same broken call asked the proxy again without end,
+                // because this branch alone left `drafts` where it was (T-1437).
+                if last {
+                    let prose = format!(
+                        "The page could not be opened: {}. Ask again, naming what to open.",
+                        text.trim_start_matches("error: ")
+                    );
+                    self.thought(&prose).await?;
+                    return Ok(prose);
+                }
+                drafts += 1;
                 results.push((drafted("jc_ui_navigate", None), text));
                 continue;
             }

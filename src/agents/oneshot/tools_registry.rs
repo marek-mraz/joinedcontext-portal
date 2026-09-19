@@ -107,6 +107,14 @@ sees what you mean — the page is one of `spaces`, `space`, `models`, `model`, 
 {{ "tool": "jc_ui_navigate", "arguments": {{ "page": "space", "name": "helsinki" }} }}
 ```
 
+To show the data itself, open `entities` with the endpoint and the entity type, and a `q` when the
+person asked for a subset — the grid opens already narrowed, so nobody filters by hand what the
+question already said:
+
+```json
+{{ "tool": "jc_ui_navigate", "arguments": {{ "page": "entities", "endpoint": "bikes-public", "type": "BikeHireDockingStation", "q": "availableBikeNumber==0" }} }}
+```
+
 And ask, rather than guess, whenever a choice is the person's — which space, which base model,
 which unit. When more than one resource fits the ask, ask; never take the first. To choose among
 the project's resources, name the kind in `pick` (`endpoints`, `spaces`, `datamodels`,
@@ -274,7 +282,7 @@ impl Driver {
 
 /// The pages the assistant may open, and what each one needs (UI-59). The route is built here,
 /// so a page the enum does not name cannot be reached however the model spells it.
-const PAGES: [(&str, &str); 18] = [
+const PAGES: [(&str, &str); 19] = [
     ("spaces", "/projects/{project}/spaces"),
     ("space", "/projects/{project}/spaces/{name}"),
     ("models", "/projects/{project}/models"),
@@ -293,6 +301,13 @@ const PAGES: [(&str, &str); 18] = [
     // One entity of the explorer, opened on its detail (T-1017): "show me this one" opens the
     // row already selected instead of the list the person then searches by hand.
     ("entity", "/projects/{project}/explore?entityId={name}"),
+    // One endpoint's grid, already narrowed (UI-64, UI-67): a person who asked a question wants
+    // the rows that answer it, not the list to filter by hand. `q` is the only optional part —
+    // without it the grid opens on the whole type.
+    (
+        "entities",
+        "/projects/{project}/explore?endpoint={endpoint}&type={type}&q={q}",
+    ),
     ("ckan", "/projects/{project}/ckan"),
     ("assistant", "/projects/{project}/assistant"),
     ("app", "/projects/{project}/apps/{name}"),
@@ -306,6 +321,11 @@ pub(super) struct NavigateCall {
     pub page: String,
     pub name: Option<String>,
     pub plural: Option<String>,
+    /// The endpoint whose data the `entities` grid shows.
+    pub endpoint: Option<String>,
+    /// The entity type of that grid, and the NGSI-LD filter it opens narrowed by.
+    pub entity_type: Option<String>,
+    pub q: Option<String>,
 }
 
 /// One option of a question: the value the answer carries and what the person reads.
@@ -357,17 +377,75 @@ pub(super) fn navigate_call(answer: &str) -> Option<Result<NavigateCall, String>
             PAGES.map(|(name, _)| name).join(", ")
         )));
     }
+    let text = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
     Some(Ok(NavigateCall {
         page: page.to_owned(),
-        name: arguments
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        plural: arguments
-            .get("plural")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
+        name: text("name"),
+        plural: text("plural"),
+        endpoint: text("endpoint"),
+        entity_type: text("type"),
+        q: text("q"),
     }))
+}
+
+/// The route a call opens, or the reason it opens none (UI-59). Every placeholder the template
+/// names has to be filled, so a route cannot reach a page with a hole in it; `q` alone is
+/// optional, because a question without a filter is the whole grid.
+fn route_of(project: &str, call: &NavigateCall) -> Result<String, String> {
+    let template = PAGES
+        .iter()
+        .find(|(name, _)| *name == call.page)
+        .map(|(_, template)| *template)
+        .ok_or_else(|| format!("'{}' is not a page of the Portal", call.page))?;
+    let filled = [
+        ("project", Some(project)),
+        ("name", call.name.as_deref()),
+        ("plural", call.plural.as_deref().or(Some("models"))),
+        ("endpoint", call.endpoint.as_deref()),
+        ("type", call.entity_type.as_deref()),
+        ("q", call.q.as_deref()),
+    ];
+    let mut route = template.to_owned();
+    for (placeholder, value) in filled {
+        let hole = format!("{{{placeholder}}}");
+        if !route.contains(&hole) {
+            continue;
+        }
+        let value = value.unwrap_or_default().trim();
+        if value.is_empty() && placeholder != "q" {
+            let what = match placeholder {
+                "name" => "the name of what to open",
+                "endpoint" => "the endpoint whose data to open",
+                "type" => "the entity type to show",
+                other => other,
+            };
+            return Err(format!("the page '{}' needs {what}", call.page));
+        }
+        route = route.replace(&hole, &urlencoding(value));
+    }
+    Ok(without_empty_pairs(&route))
+}
+
+/// Drops the query pairs nothing filled: an optional placeholder left `q=` behind, and an empty
+/// filter is not the request the person asking meant.
+fn without_empty_pairs(route: &str) -> String {
+    let Some((path, query)) = route.split_once('?') else {
+        return route.to_owned();
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|pair| !pair.ends_with('='))
+        .collect();
+    if kept.is_empty() {
+        path.to_owned()
+    } else {
+        format!("{path}?{}", kept.join("&"))
+    }
 }
 
 pub(super) fn ask_call(answer: &str) -> Option<Result<AskCall, String>> {
@@ -609,40 +687,32 @@ impl Driver {
     /// Opens a page for the person (UI-59). The route is this table's, never the model's text.
     pub(super) async fn open_page(&self, call: &NavigateCall) -> Result<String, String> {
         let started = std::time::Instant::now();
-        let template = PAGES
-            .iter()
-            .find(|(name, _)| *name == call.page)
-            .map(|(_, template)| *template)
-            .ok_or_else(|| format!("'{}' is not a page of the Portal", call.page))?;
-        let name = call.name.clone().unwrap_or_default();
-        if template.contains("{name}") && name.trim().is_empty() {
-            let reason = format!("the page '{}' needs the name of what to open", call.page);
-            self.event(
-                "tool",
-                failed_step(
-                    "jc_ui_navigate",
-                    started,
-                    &json!({ "page": call.page }),
-                    &reason,
-                ),
-            )
-            .await?;
-            return Ok(format!("error: {reason}"));
-        }
-        let route = template
-            .replace("{project}", &urlencoding(&self.project))
-            .replace(
-                "{plural}",
-                &urlencoding(call.plural.as_deref().unwrap_or("models")),
-            )
-            .replace("{name}", &urlencoding(&name));
+        let route = match route_of(&self.project, call) {
+            Ok(route) => route,
+            Err(reason) => {
+                self.event(
+                    "tool",
+                    failed_step(
+                        "jc_ui_navigate",
+                        started,
+                        &json!({ "page": call.page }),
+                        &reason,
+                    ),
+                )
+                .await?;
+                return Ok(format!("error: {reason}"));
+            }
+        };
         self.event(
             "tool",
             json!({
                 "tool": "jc_ui_navigate",
                 "status": "ok",
                 "durationMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                "input": { "page": call.page, "name": call.name, "plural": call.plural },
+                "input": {
+                    "page": call.page, "name": call.name, "plural": call.plural,
+                    "endpoint": call.endpoint, "type": call.entity_type, "q": call.q,
+                },
                 "output": { "route": route },
             }),
         )
@@ -754,6 +824,9 @@ mod tests {
                 page: "space".to_owned(),
                 name: Some("helsinki".to_owned()),
                 plural: None,
+                endpoint: None,
+                entity_type: None,
+                q: None,
             }
         );
     }
@@ -963,6 +1036,7 @@ mod tests {
             "assistant",
             "app",
             "resource",
+            "entities",
         ] {
             assert!(
                 PAGES.iter().any(|(name, _)| *name == page),
@@ -974,7 +1048,7 @@ mod tests {
     /// Every template names only the placeholders the call can fill, so a route cannot be built
     /// with a hole in it.
     #[test]
-    fn a_page_template_names_only_project_name_and_plural() {
+    fn a_page_template_names_only_the_placeholders_a_call_fills() {
         for (page, template) in PAGES {
             let mut rest = template;
             while let Some(start) = rest.find('{') {
@@ -984,7 +1058,10 @@ mod tests {
                     .unwrap_or_else(|| panic!("{page}: unclosed placeholder in {template}"));
                 let placeholder = &rest[start + 1..end];
                 assert!(
-                    matches!(placeholder, "project" | "name" | "plural"),
+                    matches!(
+                        placeholder,
+                        "project" | "name" | "plural" | "endpoint" | "type" | "q"
+                    ),
                     "{page}: {template} names {placeholder}, which no call fills"
                 );
                 rest = &rest[end + 1..];
@@ -999,5 +1076,63 @@ mod tests {
         let call = navigate_call(answer).expect("a call").expect("a page");
         assert_eq!(call.page, "approval");
         assert_eq!(call.name.as_deref(), Some("chg-0000beef"));
+    }
+
+    /// The grid opens on the filter the question carried, and the filter reaches the route encoded
+    /// (UI-64, UI-67): `==` and the space of a two-word value are not query syntax of their own.
+    #[test]
+    fn the_entities_page_opens_the_grid_narrowed_by_the_question() {
+        let answer = r#"```json
+{ "tool": "jc_ui_navigate", "arguments": { "page": "entities", "endpoint": "bikes-public",
+  "type": "BikeHireDockingStation", "q": "availableBikeNumber==0;name~=\"Rautatientori\"" } }
+```"#;
+        let call = navigate_call(answer).expect("a call").expect("a page");
+        assert_eq!(call.endpoint.as_deref(), Some("bikes-public"));
+        assert_eq!(call.entity_type.as_deref(), Some("BikeHireDockingStation"));
+        assert_eq!(
+            route_of("helsinki", &call).expect("a route"),
+            "/projects/helsinki/explore?endpoint=bikes-public&type=BikeHireDockingStation\
+             &q=availableBikeNumber%3D%3D0%3Bname~%3D%22Rautatientori%22"
+        );
+    }
+
+    /// Without a filter the grid opens on the whole type, and the route carries no empty pair:
+    /// `q=` is a filter that matches nothing, not the absence of one.
+    #[test]
+    fn a_grid_without_a_filter_carries_no_empty_query_pair() {
+        let call = NavigateCall {
+            page: "entities".to_owned(),
+            name: None,
+            plural: None,
+            endpoint: Some("air-public".to_owned()),
+            entity_type: Some("AirQualityObserved".to_owned()),
+            q: None,
+        };
+        assert_eq!(
+            route_of("helsinki", &call).expect("a route"),
+            "/projects/helsinki/explore?endpoint=air-public&type=AirQualityObserved"
+        );
+    }
+
+    /// A grid without an endpoint or without a type is refused: the explorer would open on
+    /// nothing and the person would read the assistant's sentence as if it had.
+    #[test]
+    fn a_grid_missing_its_endpoint_or_its_type_is_refused() {
+        for (endpoint, entity_type, needed) in [
+            (None, Some("AirQualityObserved"), "the endpoint"),
+            (Some("air-public"), None, "the entity type"),
+            (Some("air-public"), Some("   "), "the entity type"),
+        ] {
+            let call = NavigateCall {
+                page: "entities".to_owned(),
+                name: None,
+                plural: None,
+                endpoint: endpoint.map(str::to_owned),
+                entity_type: entity_type.map(str::to_owned),
+                q: Some("availableBikeNumber==0".to_owned()),
+            };
+            let err = route_of("helsinki", &call).expect_err("no route");
+            assert!(err.contains(needed), "{err}");
+        }
     }
 }

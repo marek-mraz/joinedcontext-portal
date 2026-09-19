@@ -251,17 +251,26 @@ const exploreRoute = createRoute({
   path: "/projects/$project/explore",
   // The assistant opens the explorer on what it found (UI-46): a space and an endpoint by name,
   // and one entity of them by id (T-1017), so "show me this one" opens the row already selected
-  // instead of the list the person then searches by hand.
+  // instead of the list the person then searches by hand. `type` and `q` open the grid already
+  // narrowed by the question that was asked (UI-64, UI-67, T-1437).
   validateSearch: (
     search: Record<string, unknown>,
-  ): { space?: string; endpoint?: string; entityId?: string } => ({
+  ): {
+    space?: string;
+    endpoint?: string;
+    entityId?: string;
+    type?: string;
+    q?: string;
+  } => ({
     space: typeof search.space === "string" ? search.space : undefined,
     endpoint: typeof search.endpoint === "string" ? search.endpoint : undefined,
     entityId: typeof search.entityId === "string" ? search.entityId : undefined,
+    type: typeof search.type === "string" ? search.type : undefined,
+    q: typeof search.q === "string" ? search.q : undefined,
   }),
   component: function ExploreRoute() {
     const { project } = exploreRoute.useParams();
-    const { space, endpoint, entityId } = exploreRoute.useSearch();
+    const { space, endpoint, entityId, type, q } = exploreRoute.useSearch();
     return (
       <Shell project={project}>
         {/*
@@ -274,6 +283,8 @@ const exploreRoute = createRoute({
             initialSpace={space}
             initialEndpoint={endpoint}
             initialEntityId={entityId}
+            initialType={type}
+            initialQ={q}
           />
         </HandOff>
       </Shell>

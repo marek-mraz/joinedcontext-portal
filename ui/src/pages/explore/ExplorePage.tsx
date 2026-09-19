@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -46,6 +46,8 @@ export function ExplorePage({
   initialSpace,
   initialEndpoint,
   initialEntityId,
+  initialType,
+  initialQ,
 }: {
   project: string;
   /** Chosen on arrival, the way a catalog card opens the page (UI-46). */
@@ -53,6 +55,12 @@ export function ExplorePage({
   initialEndpoint?: string;
   /** One entity of the endpoint, opened on its detail as the page mounts (UI-46, T-1017). */
   initialEntityId?: string;
+  /**
+   * The type and the filter the grid opens narrowed by (UI-64, UI-67): the assistant's `entities`
+   * hand-off carries the question's own filter, so nobody types it again.
+   */
+  initialType?: string;
+  initialQ?: string;
 }): JSX.Element {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
@@ -62,7 +70,9 @@ export function ExplorePage({
 
   const [space, setSpace] = useState<string>(initialSpace ?? "");
   const [endpointChoice, setEndpointChoice] = useState<string>(initialEndpoint ?? "");
-  const [query, setQuery] = useState<EntityQuery>({});
+  const [query, setQuery] = useState<EntityQuery>(
+    initialType ? { type: initialType, q: initialQ } : {},
+  );
   const [selected, setSelected] = useState<string | null>(initialEntityId ?? null);
   const [removing, setRemoving] = useState(false);
   /** The page the grid holds right now, for the export: the rows on screen and where they start. */
@@ -72,6 +82,22 @@ export function ExplorePage({
   const queryClient = useQueryClient();
 
   const spaceEndpoints = (endpoints.data ?? []).filter((e) => spaceOf(e) === space);
+  /**
+   * The `entities` hand-off names the endpoint and not its space (UI-59), and the page reads the
+   * endpoint only inside a space: without this the grid would open on nothing. The space is known
+   * once the endpoints have loaded, and only while the hand-off's endpoint is still the chosen one
+   * — a person who clears the space keeps it cleared.
+   */
+  useEffect(() => {
+    if (space || !initialEndpoint || endpointChoice !== initialEndpoint) {
+      return;
+    }
+    const handed = (endpoints.data ?? []).find((e) => e.metadata.name === initialEndpoint);
+    const its = handed ? spaceOf(handed) : undefined;
+    if (its) {
+      setSpace(its);
+    }
+  }, [space, endpointChoice, initialEndpoint, endpoints.data]);
   const endpoint =
     spaceEndpoints.find((e) => e.metadata.name === endpointChoice) ??
     pickReadEndpoint(spaceEndpoints);
