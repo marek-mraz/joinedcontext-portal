@@ -607,3 +607,63 @@ async fn delete_branch_drops_a_branch_and_ignores_one_already_gone() {
     let err = client.delete_branch("protected").await.unwrap_err();
     assert!(matches!(err, GitError::Api { status: 403, .. }), "{err:?}");
 }
+
+/// T-2266: a workspace branch is `workspace/{name}`, and Gitea's `git/trees/{ref}` answers 404 for
+/// a name with a slash — encoded or not. The client therefore resolves such a name to its head
+/// commit first and reads the tree by sha; the mock serves only what real Gitea serves, so a
+/// client that asked `git/trees/workspace/air-v2` fails this test as it failed on the cluster,
+/// where every read of a copy came back "not found" and the copy showed the project instead.
+#[tokio::test]
+async fn a_branch_with_a_slash_is_resolved_before_its_tree_is_read() {
+    let server = MockServer::start().await;
+    let client = GiteaClient::new(
+        server.uri().parse().unwrap(),
+        "test-owner",
+        "test-repo",
+        "secret-token",
+    )
+    .unwrap();
+
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v1/repos/test-owner/test-repo/branches/workspace/air-v2",
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "name": "workspace/air-v2", "commit": { "id": "head99" } })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/git/trees/head99"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tree": [{ "path": "projects/p/spaces/air/space.yaml", "type": "blob", "sha": "blob1" }],
+            "truncated": false,
+        })))
+        .mount(&server)
+        .await;
+
+    let blobs = client.list_tree_blobs("workspace/air-v2").await.unwrap();
+    assert_eq!(
+        blobs,
+        vec![(
+            "projects/p/spaces/air/space.yaml".to_string(),
+            "blob1".to_string()
+        )]
+    );
+
+    // A branch that does not exist yet is still "not found", which is what a copy with no commit
+    // of its own is: the caller then shows the project's own files (CC-76).
+    let missing = client.list_tree_blobs("workspace/gone").await;
+    assert!(matches!(missing, Err(GitError::NotFound)), "{missing:?}");
+
+    // A sha or a plain branch name is read directly, with no extra round trip.
+    Mock::given(method("GET"))
+        .and(path("/api/v1/repos/test-owner/test-repo/git/trees/main"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "tree": [], "truncated": false })),
+        )
+        .mount(&server)
+        .await;
+    assert!(client.list_tree_blobs("main").await.unwrap().is_empty());
+}

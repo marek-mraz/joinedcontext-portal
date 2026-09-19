@@ -558,7 +558,18 @@ impl GiteaClient {
     }
 
     /// The tree's files with their blob ids, so two trees compare without reading a file.
+    ///
+    /// A branch whose name carries a slash — every workspace branch, `workspace/{name}` (CC-76) —
+    /// is resolved to its head commit first: Gitea's `git/trees/{ref}` answers `404` for such a
+    /// name, encoded or not, so every read of a copy's tree came back "not found" and the copy
+    /// showed the project instead of itself (T-2266).
     pub async fn list_tree_blobs(&self, git_ref: &str) -> Result<Vec<(String, String)>, GitError> {
+        let resolved = if git_ref.contains('/') {
+            self.branch_head(git_ref).await?
+        } else {
+            git_ref.to_owned()
+        };
+        let git_ref = resolved.as_str();
         let mut url = self.repo_url(&format!("git/trees/{git_ref}"))?;
         url.query_pairs_mut()
             .append_pair("recursive", "true")
