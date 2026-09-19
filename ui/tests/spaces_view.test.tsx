@@ -474,14 +474,24 @@ describe("a viewer on the spaces list", () => {
       "title",
       "Disabled: your role does not permit 'propose' on 'ContextSpace' in this project",
     );
-    expect(within(row).getByRole("button", { name: /Delete/ })).toBeDisabled();
+    // Delete lives in the row's menu now (T-2279); it is listed there, disabled, with the reason,
+    // because a role that is too narrow has to be readable and not merely absent (UI-44).
+    await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+    const denied = await screen.findByRole("menuitem", { name: /Delete/ });
+    expect(denied).toHaveAttribute("aria-disabled", "true");
+    expect(denied).toHaveAttribute(
+      "title",
+      "Disabled: your role does not permit 'delete' on 'ContextSpace' in this project",
+    );
   });
 
   it("edits a space in the kind's own form, not as a manifest (T-2278)", async () => {
     const fetchMock = renderSpaces({});
 
     const row = (await screen.findByText("ovzdusie")).closest("tr") as HTMLElement;
-    await userEvent.click(within(row).getByRole("button", { name: /Edit/ }));
+    // One control in the open (Open) and the rest behind the row's menu (T-2279).
+    await userEvent.click(within(row).getByRole("button", { name: /More actions/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: en.resourceEdit.button }));
     const dialog = await screen.findByRole("dialog");
 
     // The fields of a context space, filled in from the stored manifest — and the name, which is the
@@ -502,5 +512,31 @@ describe("a viewer on the spaces list", () => {
           .some((request) => request.method === "PUT" && request.url.includes("/spaces/ovzdusie")),
       ).toBe(true),
     );
+  });
+
+  it("keeps one control in the open and the rest in the row's menu (T-2279)", async () => {
+    renderSpaces({});
+
+    const row = (await screen.findByText("ovzdusie")).closest("tr") as HTMLElement;
+    // Open is the one thing a person came for; everything else is one menu, not four buttons.
+    expect(within(row).getByRole("link", { name: en.spaces.inside.open })).toBeInTheDocument();
+    const buttons = within(row).getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+
+    await userEvent.click(buttons[0]);
+    const menu = await screen.findByRole("menu");
+    const items = within(menu)
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent);
+    expect(items).toEqual([
+      en.resourceEdit.button,
+      en.saveAs.button,
+      en.workspaces.open.action,
+      en.resourceDelete.button,
+    ]);
+
+    // Escape closes it and the row is where it was: the keyboard is the menu's own (UI-46).
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 });

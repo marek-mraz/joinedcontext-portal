@@ -2111,5 +2111,8 @@
       "copyStopped": "Stopped: {reason}"
     },
     "emptyHint": "A copy holds several changes together — switch a pipeline to a new feed, test it, bring it all back at once — and nothing in it is live until you do."
+  },
+  "rowActions": {
+    "more": "More actions for {name}"
   }
 }

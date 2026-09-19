@@ -2111,5 +2111,8 @@
       "copyStopped": "Gestoppt: {reason}"
     },
     "emptyHint": "Eine Kopie hält mehrere Änderungen zusammen — eine Pipeline auf einen neuen Feed umstellen, testen, alles auf einmal zurückbringen — und nichts darin ist live, bevor Sie das tun."
+  },
+  "rowActions": {
+    "more": "Weitere Aktionen für {name}"
   }
 }

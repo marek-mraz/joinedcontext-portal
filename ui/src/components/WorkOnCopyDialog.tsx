@@ -183,19 +183,30 @@ export function WorkOnCopyAction({
   scope,
   label,
   variant = "secondary",
+  open: openedByRow,
+  onOpenChange,
+  trigger = true,
 }: {
   project: string;
   scope: WorkOnCopyScope;
   label?: string;
   variant?: "primary" | "secondary";
+  /** The row holds the state when the action lives in its menu (T-2279). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: boolean;
 }): JSX.Element {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openedByRow ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   return (
     <>
-      <Button variant={variant} size="sm" onClick={() => setOpen(true)}>
-        {label ?? t("workspaces.open.action")}
-      </Button>
+      {trigger ? (
+        <Button variant={variant} size="sm" onClick={() => setOpen(true)}>
+          {label ?? t("workspaces.open.action")}
+        </Button>
+      ) : null}
       {open ? (
         <WorkOnCopyDialog
           project={project}

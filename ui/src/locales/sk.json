@@ -2111,5 +2111,8 @@
       "copyStopped": "Zastavené: {reason}"
     },
     "emptyHint": "Kópia drží viac zmien spolu — prepnite pipeline na nový kanál, otestujte ju, vráťte všetko naraz — a nič v nej nie je živé, kým to neurobíte."
+  },
+  "rowActions": {
+    "more": "Ďalšie akcie pre {name}"
   }
 }

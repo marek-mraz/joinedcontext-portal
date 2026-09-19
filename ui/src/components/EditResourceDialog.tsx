@@ -230,17 +230,31 @@ export function EditResourceDialog({
 export function EditResourceAction({
   target,
   form,
+  open: openedByRow,
+  onOpenChange,
+  trigger = true,
 }: {
   target: ResourceTarget;
   /** The kind's own form, when its page has one to give (T-2278). */
   form?: EditableForm;
+  /**
+   * The row holds the state instead, because a dialog opened from a menu cannot live inside it: the
+   * menu unmounts when it closes and would take the dialog with it (T-2279). With `trigger={false}`
+   * this renders the dialog alone and the row's menu item opens it.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: boolean;
 }): JSX.Element {
   const { t } = useTranslation();
   const mayPropose = usePermissions(target.home ?? target.project).can(target.kind, "propose");
   const [request] = useState(() => takeEditRequest(target.name));
-  const [open, setOpen] = useState(request !== null);
+  const [ownOpen, setOwnOpen] = useState(request !== null);
+  const open = openedByRow ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   return (
     <>
+      {trigger ? (
       <PermissionGuard project={target.home ?? target.project} kind={target.kind} verb="propose">
         <Button
           size="sm"
@@ -250,6 +264,7 @@ export function EditResourceAction({
           {t("resourceEdit.button")}
         </Button>
       </PermissionGuard>
+      ) : null}
       {mayPropose ? (
         <EditResourceDialog
           target={target}

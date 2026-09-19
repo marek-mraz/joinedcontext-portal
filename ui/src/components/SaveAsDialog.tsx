@@ -448,13 +448,23 @@ export function SaveAsDialog({
 /** The Save as action of one row, for a person who may propose the kind (UI-61). */
 export function SaveAsResourceAction({
   target,
+  open: openedByRow,
+  onOpenChange,
+  trigger = true,
 }: {
   target: ResourceTarget;
+  /** The row holds the state when the action lives in its menu (T-2279). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: boolean;
 }): JSX.Element {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openedByRow ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   return (
     <>
+      {trigger ? (
       <PermissionGuard
         project={target.home ?? target.project}
         kind={target.kind}
@@ -468,6 +478,7 @@ export function SaveAsResourceAction({
           {t("saveAs.button")}
         </Button>
       </PermissionGuard>
+      ) : null}
       {open ? (
         <SaveAsDialog target={target} open={open} onOpenChange={setOpen} />
       ) : null}

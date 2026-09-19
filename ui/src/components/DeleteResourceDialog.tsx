@@ -136,16 +136,30 @@ export function DeleteResourceDialog({
  * The Delete action of one row: shown only to a person whose role may delete the kind, the
  * dialog opened on click, or at once when the page was opened with `?delete=<name>`.
  */
-export function DeleteResourceAction({ target }: { target: ResourceTarget }): JSX.Element {
+export function DeleteResourceAction({
+  target,
+  open: openedByRow,
+  onOpenChange,
+  trigger = true,
+}: {
+  target: ResourceTarget;
+  /** The row holds the state when the action lives in its menu (T-2279). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: boolean;
+}): JSX.Element {
   const { t } = useTranslation();
   const mayDelete = usePermissions(target.home ?? target.project).can(target.kind, "delete");
-  const [open, setOpen] = useState(
+  const [ownOpen, setOwnOpen] = useState(
     () =>
       typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).get("delete") === target.name,
   );
+  const open = openedByRow ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   return (
     <>
+      {trigger ? (
       <PermissionGuard project={target.home ?? target.project} kind={target.kind} verb="delete">
         <Button
           size="sm"
@@ -155,6 +169,7 @@ export function DeleteResourceAction({ target }: { target: ResourceTarget }): JS
           {t("resourceDelete.button")}
         </Button>
       </PermissionGuard>
+      ) : null}
       {mayDelete ? <DeleteResourceDialog target={target} open={open} onOpenChange={setOpen} /> : null}
     </>
   );

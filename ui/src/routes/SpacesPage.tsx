@@ -17,6 +17,10 @@ import { DeleteResourceAction } from "../components/DeleteResourceDialog";
 import { EditResourceAction } from "../components/EditResourceDialog";
 import { SaveAsResourceAction } from "../components/SaveAsDialog";
 import { WorkOnCopyAction } from "../components/WorkOnCopyDialog";
+import type { ResourceTarget } from "../components/DeleteResourceDialog";
+import { usePermissions } from "../api/permissions";
+import { RowActions } from "../components/ui/RowActions";
+import type { RowAction } from "../components/ui/RowActions";
 import { contextSpaceSchema } from "../schemas/kinds";
 import {
   Alert,
@@ -84,6 +88,115 @@ function fromEnvelope(manifest: unknown, locale = "en"): SpaceForm {
 const COLUMNS = 5;
 
 /** Context Spaces of one project: what exists, what it costs against the quota, where it lives. */
+/**
+ * What a person can do with one space: Open in the row, the rest behind its menu (T-2279, UI-26).
+ *
+ * The dialogs are rendered here and not inside the menu, because a menu unmounts when it closes and
+ * would take an open dialog with it; each action component is asked for its dialog alone
+ * (`trigger={false}`) and the row says when it is open. An action the person's role cannot take is
+ * not listed at all, the way the permission guard used to hide its button.
+ */
+function SpaceRowActions({
+  project,
+  name,
+  target,
+  locale,
+}: {
+  project: string;
+  name: string;
+  target: ResourceTarget;
+  locale: string;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const permissions = usePermissions(target.home ?? project);
+  const [openAction, setOpenAction] = useState<"edit" | "saveAs" | "copy" | "delete" | null>(null);
+  const opens = (action: "edit" | "saveAs" | "copy" | "delete") => (open: boolean) =>
+    setOpenAction(open ? action : null);
+
+  // Every action is listed, and one a role cannot take carries the reason instead of vanishing: that
+  // is what the permission guard did for the buttons, and UI-44 does not stop at a menu's edge.
+  const denied = (verb: "propose" | "delete") =>
+    permissions.can(target.kind, verb)
+      ? undefined
+      : t("permissions.denied", { verb, kind: target.kind });
+  const actions: RowAction[] = [
+    {
+      key: "edit",
+      label: t("resourceEdit.button"),
+      onSelect: () => setOpenAction("edit"),
+      disabledReason: denied("propose"),
+    },
+    {
+      key: "saveAs",
+      label: t("saveAs.button"),
+      onSelect: () => setOpenAction("saveAs"),
+      disabledReason: denied("propose"),
+    },
+    {
+      key: "copy",
+      label: t("workspaces.open.action"),
+      onSelect: () => setOpenAction("copy"),
+    },
+    {
+      key: "delete",
+      label: t("resourceDelete.button"),
+      tone: "danger",
+      onSelect: () => setOpenAction("delete"),
+      disabledReason: denied("delete"),
+    },
+  ];
+
+  return (
+    <>
+      <RowActions
+        label={target.label ?? name}
+        actions={actions}
+        primary={
+          <Link
+            to="/projects/$project/spaces/$name"
+            params={{ project, name }}
+            className={buttonClass("secondary", "sm")}
+          >
+            {t("spaces.inside.open")}
+          </Link>
+        }
+      />
+      {/* The kind's own form, not the manifest as text: the same schema and envelope the create
+          dialog uses (T-2278, UI-61). */}
+      <EditResourceAction
+        target={target}
+        trigger={false}
+        open={openAction === "edit"}
+        onOpenChange={opens("edit")}
+        form={{
+          schema: contextSpaceSchema(t),
+          fromManifest: (manifest) => fromEnvelope(manifest, locale) as unknown as Record<string, unknown>,
+          toManifest: (edited) => toEnvelope(project, edited as unknown as SpaceForm),
+        }}
+      />
+      <SaveAsResourceAction
+        target={target}
+        trigger={false}
+        open={openAction === "saveAs"}
+        onOpenChange={opens("saveAs")}
+      />
+      <WorkOnCopyAction
+        project={project}
+        scope={{ kind: "space", name }}
+        trigger={false}
+        open={openAction === "copy"}
+        onOpenChange={opens("copy")}
+      />
+      <DeleteResourceAction
+        target={target}
+        trigger={false}
+        open={openAction === "delete"}
+        onOpenChange={opens("delete")}
+      />
+    </>
+  );
+}
+
 export function SpacesPage({ project }: { project: string }): JSX.Element {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -268,30 +381,12 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
                 <LifecycleBadge kind="phase" value={space.status?.phase} />
               </TableCell>
               <TableCell align="right">
-                <div className="flex items-center justify-end gap-1.5">
-                  <Link
-                    to="/projects/$project/spaces/$name"
-                    params={{ project, name: space.metadata.name }}
-                    className={buttonClass("secondary", "sm")}
-                  >
-                    {t("spaces.inside.open")}
-                  </Link>
-                  {/* The kind's own form, not the manifest as text: the same schema and envelope
-                      the create dialog above uses (T-2278, UI-61). */}
-                  <EditResourceAction
-                    target={target}
-                    form={{
-                      schema: contextSpaceSchema(t),
-                      fromManifest: (manifest) =>
-                        fromEnvelope(manifest, locale) as unknown as Record<string, unknown>,
-                      toManifest: (edited) =>
-                        toEnvelope(project, edited as unknown as SpaceForm),
-                    }}
-                  />
-                  <SaveAsResourceAction target={target} />
-                  <WorkOnCopyAction project={project} scope={{ kind: "space", name: space.metadata.name }} />
-                  <DeleteResourceAction target={target} />
-                </div>
+                <SpaceRowActions
+                  project={project}
+                  name={space.metadata.name}
+                  target={target}
+                  locale={locale}
+                />
               </TableCell>
               <TableCell align="right" secondary>
                 {space.status?.sourceUrl ? (
