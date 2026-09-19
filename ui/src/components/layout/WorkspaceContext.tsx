@@ -25,13 +25,28 @@ const RESOURCE_PATH_RE =
   /^\/api\/v1\/projects\/[^/]+\/(spaces|endpoints|datasources|pipelines|dashboards|apps|syncsources|datamodels|mappings|policies|subscriptions|csrs|shared|serviceaccounts|layers|uischemas|projections|dataoffers|dataagreements|dataspaceparticipants|ckaninstances|blueprints|agentprofiles|bundles|roles|rolebindings|groups|environments)(\/[^/]+)?$/;
 
 export const workspaceMiddleware: Middleware = {
-  onRequest({ request }) {
+  async onRequest({ request }) {
     const name = activeWorkspace();
     if (!name) return request;
     const url = new URL(request.url);
     if (!RESOURCE_PATH_RE.test(url.pathname)) return request;
     url.searchParams.set("workspace", name);
-    return new Request(url.toString(), request);
+    // Copied member by member, not `new Request(url, request)` (T-2265): that form re-uses the
+    // original body as a stream, so the write leaves the browser `Transfer-Encoding: chunked`
+    // with no length — which the edge refused with 413 (T-2263) — and under jsdom it loses the
+    // method as well, so no test could see a write inside a copy at all. The bodies this touches
+    // are manifests, so reading them into bytes costs nothing and gives the request a length.
+    const body =
+      request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
+    return new Request(url.toString(), {
+      method: request.method,
+      headers: request.headers,
+      body,
+      credentials: request.credentials,
+      mode: request.mode,
+      referrer: request.referrer,
+      redirect: request.redirect,
+    });
   },
 };
 

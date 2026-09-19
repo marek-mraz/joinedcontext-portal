@@ -272,4 +272,25 @@ describe("pipelines view", () => {
     expect(writes).toHaveLength(1);
     expect(new URL(writes[0].url).searchParams.get("dryRun")).toBe("All");
   });
+
+  it("checks and writes inside the copy a person is working on, never in the project", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/pipelines?workspace=trial");
+    const fetchMock = renderPipelines();
+
+    const row = await rowOf("aq-mqtt-ingest");
+    await userEvent.click(within(row).getByRole("button", { name: en.pipelines.pause }));
+
+    const writes = await waitFor(() => {
+      const requests = fetchMock.mock.calls
+        .map((call) => call[0] as Request)
+        .filter((request) => request.method === "PUT");
+      expect(requests).toHaveLength(2);
+      return requests;
+    });
+    // Both of them: a check recorded against the project would be a verdict for another manifest,
+    // and the gate would refuse the write it was supposed to let through (CC-76).
+    for (const request of writes) {
+      expect(new URL(request.url).searchParams.get("workspace")).toBe("trial");
+    }
+  });
 });

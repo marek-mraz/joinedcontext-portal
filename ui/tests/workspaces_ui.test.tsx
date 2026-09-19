@@ -152,6 +152,31 @@ describe("the copy's bar and query parameter", () => {
     expect(await through("/api/v1/projects/helsinki/changes")).toBe("");
   });
 
+  it("carries a write into the copy whole: its method, its headers and its body (T-2265)", async () => {
+    setActiveWorkspace("air-v2");
+    const manifest = JSON.stringify({ kind: "Pipeline", metadata: { name: "bikes" }, spec: { enabled: false } });
+    const request = new Request("http://localhost/api/v1/projects/helsinki/pipelines/bikes?dryRun=All", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-csrf-token": "csrf-token-value" },
+      body: manifest,
+    });
+    const out = (await workspaceMiddleware.onRequest!({ request } as never)) as Request;
+
+    expect(out.method).toBe("PUT");
+    expect(new URL(out.url).search).toBe("?dryRun=All&workspace=air-v2");
+    expect(out.headers.get("x-csrf-token")).toBe("csrf-token-value");
+    expect(out.headers.get("content-type")).toBe("application/json");
+    // Byte for byte, and as bytes rather than as a stream: a streamed body goes out chunked with
+    // no length, which is what the edge refused with 413 (T-2263).
+    expect(await out.text()).toBe(manifest);
+
+    // A read carries nothing but the parameter.
+    const read = new Request("http://localhost/api/v1/projects/helsinki/pipelines");
+    const passed = (await workspaceMiddleware.onRequest!({ request: read } as never)) as Request;
+    expect(passed.method).toBe("GET");
+    expect(passed.body).toBeNull();
+  });
+
   it("says nothing outside a copy, and what the copy is inside one", async () => {
     const { container } = show(<WorkspaceBar project="helsinki" />);
     expect(container).toBeEmptyDOMElement();
