@@ -464,7 +464,11 @@
       "geoQ": "Gebiet",
       "geoQHelp": "Das Gebiet, in dem Entitäten liegen müssen; auf der Karte gezeichnet reist es als georel, geometry und coordinates zusammen.",
       "temporalQ": "Zeitraum",
-      "temporalQHelp": "Welcher Teil der Geschichte einer Entität veröffentlicht wird; ohne ihn liest ein Aufrufer den aktuellen Stand."
+      "temporalQHelp": "Welcher Teil der Geschichte einer Entität veröffentlicht wird; ohne ihn liest ein Aufrufer den aktuellen Stand.",
+      "fault": {
+        "scopePath": "Ein Bereich ist ein Pfad, der mit / beginnt, etwa /Helsinki/Kamppi.",
+        "geoParts": "Ein Gebiet braucht georel, geometry und coordinates zusammen, mit ; verbunden."
+      }
     },
     "page": {
       "back": "Alle Endpunkte",

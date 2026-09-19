@@ -464,7 +464,11 @@
       "geoQ": "Územie",
       "geoQHelp": "Územie, v ktorom entity musia ležať; nakreslené na mape putuje ako georel, geometry a coordinates spolu.",
       "temporalQ": "Časový rozsah",
-      "temporalQHelp": "Ktorá časť histórie entity sa zverejní; bez neho čitateľ vidí aktuálny stav."
+      "temporalQHelp": "Ktorá časť histórie entity sa zverejní; bez neho čitateľ vidí aktuálny stav.",
+      "fault": {
+        "scopePath": "Rozsah je cesta, ktorá začína /, napríklad /Helsinki/Kamppi.",
+        "geoParts": "Územie potrebuje georel, geometry a coordinates spolu, spojené ;."
+      }
     },
     "page": {
       "back": "Všetky endpointy",

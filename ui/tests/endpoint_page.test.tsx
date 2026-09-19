@@ -386,6 +386,29 @@ describe("the endpoint's own settings page", () => {
     expect(screen.queryByText(/entities match this filter/)).not.toBeInTheDocument();
   });
 
+  it("refuses a scope that is not a path and an area missing a part, at the field (T-2283, UI-45)", async () => {
+    const fetchMock = renderPage();
+    const user = userEvent.setup();
+
+    const scope = await screen.findByLabelText(en.endpoints.filter.scopeQ);
+    await user.clear(scope);
+    await user.type(scope, "Kamppi");
+    expect(await screen.findByText(en.endpoints.filter.fault.scopePath)).toBeInTheDocument();
+    expect(scope).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: en.endpoints.page.filterPropose })).toBeDisabled();
+
+    await user.clear(scope);
+    await user.type(scope, "/Helsinki/Kamppi");
+    expect(screen.queryByText(en.endpoints.filter.fault.scopePath)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.endpoints.page.filterPropose })).toBeEnabled();
+
+    // An area without its three parts cannot be read by the gateway, so it is not sent either.
+    await user.type(await screen.findByLabelText(en.endpoints.filter.geoQ), "georel=near");
+    expect(await screen.findByText(en.endpoints.filter.fault.geoParts)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.endpoints.page.filterPropose })).toBeDisabled();
+    expect(await sentTo(fetchMock, "/projections/ovzdusie-open")).toHaveLength(0);
+  });
+
   it("says what a red check found and proposes nothing", async () => {
     const fetchMock = renderPage({ check: { ok: false, message: "scopeQ is not a scope path" } });
     const user = userEvent.setup();

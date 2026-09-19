@@ -509,6 +509,10 @@ function FilterForm({
     },
   });
 
+  const faults = Object.fromEntries(
+    FILTER_KEYS.map((key) => [key, filterFault(key, draft[key] ?? "")]),
+  ) as Record<string, string | undefined>;
+  const faulty = Object.values(faults).some(Boolean);
   const untouched = FILTER_KEYS.every((key) => (draft[key]?.trim() ?? "") === (stored[key] ?? ""));
   const failure =
     propose.error instanceof ApiError
@@ -541,11 +545,13 @@ function FilterForm({
             id={`filter-${key}`}
             label={t(`endpoints.filter.${key}`)}
             help={t(`endpoints.filter.${key}Help`)}
+            errors={faults[key] ? [t(`endpoints.filter.fault.${faults[key] as string}`)] : undefined}
           >
             <Input
               id={`filter-${key}`}
               value={draft[key] ?? ""}
               placeholder={t("endpoints.page.filterEmpty")}
+              aria-invalid={faults[key] ? true : undefined}
               onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
             />
           </Field>
@@ -559,7 +565,7 @@ function FilterForm({
         }
       />
       <PermissionGuard project={project} kind="ModelProjection" verb="propose">
-        <Button type="submit" disabled={untouched || propose.isPending}>
+        <Button type="submit" disabled={untouched || faulty || propose.isPending}>
           {t("endpoints.page.filterPropose")}
         </Button>
       </PermissionGuard>
@@ -652,6 +658,40 @@ function MatchCount({
       {matching === 0 ? ` ${t("endpoints.count.none")}` : ""}
     </p>
   );
+}
+
+/**
+ * What is wrong with one condition of the filter, in a sentence, or `undefined` (T-2283, UI-45).
+ *
+ * The server checks the manifest too, and it is the authority; this only spares a person a round trip on
+ * the two mistakes the format makes easy. A scope is a path (`/Helsinki/Kamppi`, CIM 009 4.19), not free
+ * text, and a `geoQ` carries `georel`, `geometry` and `coordinates` together or the gateway cannot read
+ * any of it.
+ */
+export function filterFault(key: string, value: string): "scopePath" | "geoParts" | undefined {
+  const written = value.trim();
+  if (written === "") {
+    return undefined;
+  }
+  if (key === "scopeQ") {
+    // A scope path's segments may hold spaces ("/Banska Bystrica/Centrum"); what it may not do is start
+    // without a slash or carry an empty segment, which is the mistake free text makes.
+    const paths = written
+      .split(/[;,|]/)
+      .map((part) => part.trim())
+      .filter((part) => part !== "");
+    return paths.every((path) => /^\/[^/]+(\/[^/]+)*$/.test(path)) ? undefined : "scopePath";
+  }
+  if (key === "geoQ") {
+    const parts = new Set(
+      written
+        .split(";")
+        .map((part) => part.split("=")[0]?.trim())
+        .filter((part): part is string => Boolean(part)),
+    );
+    return ["georel", "geometry", "coordinates"].every((part) => parts.has(part)) ? undefined : "geoParts";
+  }
+  return undefined;
 }
 
 /** The operators a condition row offers, in the order a person reaches for them. */

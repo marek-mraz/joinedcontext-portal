@@ -464,7 +464,11 @@
       "geoQ": "Area",
       "geoQHelp": "The area entities have to lie in; drawn on a map, it travels as georel, geometry and coordinates together.",
       "temporalQ": "Time range",
-      "temporalQHelp": "Which part of an entity's history is published; without it a caller reads the current state."
+      "temporalQHelp": "Which part of an entity's history is published; without it a caller reads the current state.",
+      "fault": {
+        "scopePath": "A scope is a path that starts with /, for example /Helsinki/Kamppi.",
+        "geoParts": "An area needs georel, geometry and coordinates together, joined with ;."
+      }
     },
     "page": {
       "back": "All endpoints",
