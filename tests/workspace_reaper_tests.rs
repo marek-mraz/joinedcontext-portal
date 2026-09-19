@@ -175,3 +175,66 @@ async fn one_pass_reaps_every_expired_workspace() {
     assert_eq!(reaped, 3, "the pass stopped early");
     assert!(state.workspaces.list(PROJECT).await.unwrap().is_empty());
 }
+
+/// CC-76: a copy's name is taken while the copy is, and free once it is not — the name is the
+/// branch and the preview prefix, so a name that stays taken after the TTL is the residue the
+/// reaper exists to remove (T-2232).
+#[tokio::test]
+async fn a_reaped_copys_name_is_free_again() {
+    let (_server, state) = world("again", 204).await;
+    let taken = state
+        .workspaces
+        .create(Opening {
+            name: "again",
+            title: None,
+            project: PROJECT,
+            owner: "jana@hel.fi",
+            base_revision: "base1",
+            scope: Scope::Project {},
+            ttl_hours: 1,
+        })
+        .await;
+    assert!(taken.is_err(), "the name was free while the copy lived");
+
+    reap_expired_at(&state, Utc::now() + Duration::hours(2)).await;
+    state
+        .workspaces
+        .create(Opening {
+            name: "again",
+            title: None,
+            project: PROJECT,
+            owner: "petra@hel.fi",
+            base_revision: "base2",
+            scope: Scope::Project {},
+            ttl_hours: 1,
+        })
+        .await
+        .expect("the name is free after the reap");
+}
+
+/// PF-83, T-1593: a copy whose preview runs is reaped like any other, and the node's slot goes with
+/// it — the slot is counted from the copies whose preview runs, so a record left behind holds one.
+#[tokio::test]
+async fn a_copy_whose_preview_is_running_is_reaped_too_and_its_slot_freed() {
+    let (_server, state) = world("shown", 204).await;
+    state
+        .workspaces
+        .set_preview_state(
+            "shown",
+            joinedcontext_portal::ops::workspaces::PreviewState::Running,
+        )
+        .await
+        .expect("the preview runs");
+    assert_eq!(
+        state.workspaces.previewing().await.unwrap().len(),
+        1,
+        "the slot is held while the copy lives"
+    );
+
+    let reaped = reap_expired_at(&state, Utc::now() + Duration::hours(2)).await;
+    assert_eq!(reaped, 1, "a copy with a running preview was skipped");
+    assert!(
+        state.workspaces.previewing().await.unwrap().is_empty(),
+        "the node's slot is still held by a copy that no longer exists"
+    );
+}
