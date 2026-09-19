@@ -5,6 +5,13 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // `@joinedcontext/sdk` is linked from this repository (T-1439) and carries its own `react` in
+  // `sdk/node_modules`. Without deduping, a component from it renders against a second copy of
+  // React whose hook dispatcher is null — every hook inside the grid throws "invalid hook call"
+  // (measured: `Cannot read properties of null (reading 'useMemo')`).
+  resolve: {
+    dedupe: ["react", "react-dom", "react/jsx-runtime"],
+  },
   build: {
     outDir: "dist",
   },

@@ -99,14 +99,32 @@ function parseGridConfig(raw: unknown): { config?: ResolvedGridConfig; findings:
 const gridConfigSchema: JSONSchema // published as grid.config.schema.json
 const DEFAULT_PAGE_SIZE = 50, MAX_PAGE_SIZE = 1000
 const DEFAULT_LABELS: GridLabels
+
+// The filter row as a query (T-1429): the endpoint filters, never the browser
+function queryFromFilters(columns: FilterColumn[], filters: Record<string, ColumnFilter>): { q?: string; idPattern?: string }
+function opsForKind(kind: FilterKind): FilterOp[]
+function andQ(...parts: (string | undefined)[]): string | undefined
+
+// Cells corrected by hand, applied through the source's own `patch` (T-1430; UI-67, AG-78)
+function applyChanges(options: { source, entities, observed?, fallback?, now? }): Promise<ApplyResult>
+function attrsBody(changes: AttributeChange[], observed: Observed, now?: () => string): Record<string, unknown>
+const MAX_ENTITIES = 50
+
+// One attribute's history (T-1431): the temporal read as a table and a line
+function EntityHistory(props: EntityHistoryProps): JSX.Element
+function asCsv(points: HistoryPoint[], attr: string): string
+const MAX_POINTS = 1000
 ```
-One spreadsheet-like grid of one entity type: an id column pinned, a value with its unit per attribute, and per attribute a menu that adds `observedAt`, unit, `datasetId`, `createdAt`, `modifiedAt` columns. Arrow keys, Home/End and PageUp/PageDown move the active cell (`role="grid"`). The config is data (`{ source, type, columns, entityTimestamps, filters, pageSize, mode, editableAttrs, history, compareWith, density, rowActions }`); `parseGridConfig` refuses unknown keys with JSON paths and fills defaults. Props: `config`, `source`, `labels` (every visible string; English defaults), `state` + `onStateChange` (controlled per key, else uncontrolled), `renderers` by attribute name or cell kind, `onOpenRelationship`, `toolbar`, `empty`, `classNames`. `useEntityGrid` is the same behaviour without markup. Values render as text; sorting orders the loaded page only.
+One spreadsheet-like grid of one entity type: an id column pinned, a value with its unit per attribute, and per attribute a menu that adds `observedAt`, unit, `datasetId`, `createdAt`, `modifiedAt` columns. Arrow keys, Home/End and PageUp/PageDown move the active cell (`role="grid"`). The config is data (`{ source, type, columns, entityTimestamps, filters, pageSize, mode, editableAttrs, history, compareWith, density, rowActions }`); `parseGridConfig` refuses unknown keys with JSON paths and fills defaults. Props: `config`, `source`, `labels` (every visible string; English defaults), `state` + `onStateChange` (controlled per key, else uncontrolled), `renderers` by attribute name or cell kind, `onOpenRelationship`, `toolbar`, `empty`, `classNames`. `useEntityGrid` is the same behaviour without markup. Values render as text; sorting orders the loaded page only, which the header says.
+
+The header's second row filters at the endpoint (UI-66, EP-07): per column the operators its content allows (contains/is/is not/is empty/has a value for text, comparisons and between for numbers and dates, the id by pattern, a metadata column on `attr.observedAt`), composed into one `q` joined by `;` with every value quoted and every pattern's metacharacters escaped, shown under the grid with a copy button and an "edit as text" switch for a `q` the rows cannot show. The footer carries the endpoint's own `NGSILD-Results-Count`, and nothing when a narrowed answer carried none (R22). In `mode: "edit"` the columns of `editableAttrs` take a typed value — the value itself, not the text, so a unit is kept — which is marked, counted, reviewed as a batch with one `observedAt` choice, and applied one `PATCH …/attrs` per entity through the source's `patch`; a refused entity keeps its cell and the endpoint's own sentence. A source without `patch` has no edit mode and one without `history` offers no history, which is how a read-only surface switches both off.
 ```ts
 function endpointSource(slug: string, transport: Transport, language?: string): EntitySource
 function spaceSource(space: string, transport: Transport, language?: string): EntitySource
 function sourceFor(source: { kind: "endpoint"; slug } | { kind: "space"; space }, transport: Transport, language?: string): EntitySource
 function fixtureSource(entities: object[], language?: string): EntitySource
 function transportFor(config: JcConfig): Transport // e.g. transportFor(jc().config)
+function originTransport(fetchImpl?: typeof fetch, doc?: Document): Transport // a host page's own: same origin, the person's session and CSRF header
 class SourceError extends Error { status: number }
 function historyOf(body: unknown, attr: string): HistoryPoint[]
 ```

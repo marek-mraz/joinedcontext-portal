@@ -6,10 +6,16 @@
 # view of DEMO.md is unreachable on the deployed platform (T-0369).
 FROM node:24-slim AS ui
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-WORKDIR /ui
-COPY ui/package.json ui/pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
-COPY ui/ ./
+# Both halves of the build context: `ui` depends on `@joinedcontext/sdk` as `link:../sdk` (T-1439,
+# UI-71 — one grid, linked and never copied), so the sibling has to be beside it before
+# `pnpm install` can resolve it, and its sources have to be there before Vite compiles them.
+WORKDIR /work
+COPY sdk/package.json sdk/pnpm-lock.yaml ./sdk/
+COPY ui/package.json ui/pnpm-lock.yaml ./ui/
+RUN corepack enable && cd ui && pnpm install --frozen-lockfile
+COPY sdk/ ./sdk/
+COPY ui/ ./ui/
+WORKDIR /work/ui
 # An empty dist embeds as nothing and the placeholder page comes back silently, so the
 # image build is where that is caught, not the demo.
 RUN pnpm build && test -s dist/index.html && ls dist/assets/*.js >/dev/null
@@ -41,7 +47,7 @@ COPY migrations ./migrations
 # `failed to load manifest for workspace member /src/apps/*`. Their sources are needed too:
 # a member's manifest is only valid if the targets it names exist.
 COPY apps ./apps
-COPY --from=ui /ui/dist ./ui/dist
+COPY --from=ui /work/ui/dist ./ui/dist
 COPY --from=sdk /sdk/dist ./sdk/dist
 # The template every code run starts from is compiled into the binary too (src/agents/preview.rs).
 COPY sdk/template ./sdk/template

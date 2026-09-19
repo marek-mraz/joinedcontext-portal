@@ -44,7 +44,14 @@ export { endpointSource, fixtureSource, historyOf, SourceError, sourceFor, space
 export type { EntitySource, GridPage, GridQuery, HistoryPoint, HistoryWindow } from "../grid/source";
 export { attributesOf, cellText, projectRow, toRichCell, toRichRow } from "../grid/model";
 export type { CellKind, RichCell, RichRow } from "../grid/model";
-export { transportFor } from "./transport";
+export { andQ, opsForKind, queryFromFilters } from "../grid/filters";
+export type { ColumnFilter, FilterKind, FilterOp } from "../grid/filters";
+export { applyChanges, attrsBody, MAX_ENTITIES } from "../grid/apply";
+export type { ApplyResult, AttributeChange, EntityChange, Observed } from "../grid/apply";
+export { asCsv, EntityHistory, MAX_POINTS } from "../grid/EntityHistory";
+export type { HistoryLabels } from "../grid/EntityHistory";
+// The host's own transport, for a page that renders the grid itself (T-1439).
+export { originTransport, transportFor } from "./transport";
 
 // Tables, maps, exports: what the template's components stand on
 export { compare } from "../views/Table";

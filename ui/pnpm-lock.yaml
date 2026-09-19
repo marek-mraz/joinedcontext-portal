@@ -23,6 +23,9 @@ importers:
       '@deck.gl/mapbox':
         specifier: ^9.4.0
         version: 9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.0(@luma.gl/core@9.4.0)(@luma.gl/shadertools@9.4.0(@luma.gl/core@9.4.0))))(@luma.gl/core@9.4.0)(@math.gl/web-mercator@4.1.0)
+      '@joinedcontext/sdk':
+        specifier: link:../sdk
+        version: link:../sdk
       '@monaco-editor/react':
         specifier: ^4.7.0
         version: 4.7.0(monaco-editor@0.56.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
