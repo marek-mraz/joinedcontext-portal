@@ -14,11 +14,12 @@
  * it. The same names are then sent at the door, where a refusal must be a 400 naming the field and
  * never a 500.
  *
- * Nothing is proposed: the only button pressed inside a form is Check, and the drafts it saves are
- * deleted at the end, so dev keeps what it had.
+ * Nothing is proposed: the only button pressed inside a form is Check. A check does save a draft,
+ * so every draft these names left is deleted and the deletion is *checked* — a cleanup that fails
+ * quietly is how residue reaches dev (T-2236).
  */
 import { expect, test } from "@playwright/test";
-import type { Locator, Page } from "@playwright/test";
+import type { BrowserContext, Locator, Page } from "@playwright/test";
 import { STEWARD, csrf, signIn } from "./portal";
 
 const PROJECT = "helsinki";
@@ -65,6 +66,52 @@ async function refusals(dialog: Locator): Promise<string> {
   return spoken.join(" | ");
 }
 
+/**
+ * Deletes every draft these names left and checks that none is left behind. The check is the point:
+ * a draft holds a name in the project until someone removes it, and a sweep nobody verifies is a
+ * sweep that stops working without saying so (T-2236, T-2232).
+ */
+async function sweepDrafts(context: BrowserContext, page: Page): Promise<void> {
+  // A write needs the CSRF header, the deletion of a draft included: without it the sweep answers
+  // 403 and cleans nothing, which is exactly what the first run of this journey did.
+  const token = await csrf(context);
+  const left = new Set<string>();
+  const listed = await page.request.get(`/api/v1/projects/${PROJECT}/drafts`);
+  if (listed.ok()) {
+    for (const draft of ((await listed.json()).items ?? []) as {
+      kind?: string;
+      name?: string;
+      metadata?: { name?: string };
+    }[]) {
+      const name = draft.name ?? draft.metadata?.name ?? "";
+      if (/^t1591-/i.test(name)) {
+        left.add(`${draft.kind ?? "ContextSpace"}/${name}`);
+      }
+    }
+  }
+  for (const name of NAMES) {
+    left.add(`ContextSpace/${name.value}`);
+  }
+  for (const path of left) {
+    const [kind, ...rest] = path.split("/");
+    await page.request.delete(
+      `/api/v1/projects/${PROJECT}/drafts/${kind}/${encodeURIComponent(rest.join("/"))}`,
+      { headers: { "x-csrf-token": token } },
+    );
+  }
+  const after = await page.request.get(`/api/v1/projects/${PROJECT}/drafts`);
+  if (!after.ok()) {
+    return;
+  }
+  const remaining = ((await after.json()).items ?? [])
+    .map(
+      (draft: { name?: string; metadata?: { name?: string } }) =>
+        draft.name ?? draft.metadata?.name ?? "",
+    )
+    .filter((name: string) => /^t1591-/i.test(name));
+  expect(remaining, "a draft of this journey is still in the project").toEqual([]);
+}
+
 test("a name is accepted or refused by the rule, and the refusal is tied to the field", async ({
   browser,
 }) => {
@@ -80,7 +127,13 @@ test("a name is accepted or refused by the rule, and the refusal is tied to the 
   try {
     for (const name of NAMES) {
       const dialog = await openSpace(page);
-      await dialog.getByLabel(/^Name/).fill(name.value);
+      const field = dialog.getByLabel(/^Name/);
+      await field.fill(name.value);
+      // The value really reached the form: a fill that silently did nothing would let every case
+      // below pass on an empty form, which is the way a survey like this becomes decoration.
+      expect(await field.inputValue(), `${name.what}: the form did not take the name`).toBe(
+        name.value,
+      );
       await dialog.locator("#root_dataModelRef").fill("helsinki").catch(() => undefined);
       const check = dialog.getByRole("button", { name: "Check", exact: true });
       await check.click();
@@ -89,9 +142,14 @@ test("a name is accepted or refused by the rule, and the refusal is tied to the 
       const said = await refusals(dialog);
       const invalid = await dialog.locator("[aria-invalid=true]").count();
       if (name.accepted) {
-        // Accepted means the rule let it through: no field is marked wrong about its name.
+        // Accepted means the rule let it through, and the check says so: a name at the limit is a
+        // name, and a form that refused it would have made every case below meaningless.
         if (invalid > 0 && RULE.test(said)) {
           wrong.push(`${name.what}: refused although it is a name (${said.slice(0, 160)})`);
+        }
+        const verdict = dialog.getByTestId("draft-verdict");
+        if ((await verdict.count()) > 0 && !/Checked/i.test((await verdict.innerText()) ?? "")) {
+          wrong.push(`${name.what}: the check did not pass it (${await verdict.innerText()})`);
         }
       } else {
         if (invalid === 0) {
@@ -116,6 +174,7 @@ test("a name is accepted or refused by the rule, and the refusal is tied to the 
       [],
     );
   } finally {
+    await sweepDrafts(context, page);
     await context.close();
   }
 });
@@ -133,12 +192,13 @@ test("the form holds the longest name inside 400 px", async ({ browser }) => {
     // The refusal of a 64-character name is the longest thing the dialog ever has to fit.
     const overflow = await dialog.evaluate((element) => element.scrollWidth - element.clientWidth);
     expect(overflow, "the dialog overflows sideways with a long name and its refusal").toBeLessThanOrEqual(1);
-    const page_overflow = await page.evaluate(
+    const pageOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
-    expect(page_overflow, "the page scrolls sideways at 400 px").toBeLessThanOrEqual(1);
+    expect(pageOverflow, "the page scrolls sideways at 400 px").toBeLessThanOrEqual(1);
     await page.keyboard.press("Escape");
   } finally {
+    await sweepDrafts(context, page);
     await context.close();
   }
 });

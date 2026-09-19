@@ -127,25 +127,32 @@ test("a secret written into the YAML view is refused by its field, and the value
     await dialog.getByRole("tab", { name: "YAML", exact: true }).click();
     const editor = dialog.locator(".monaco-editor").first();
     await expect(editor).toBeVisible({ timeout: 60_000 });
-    await editor.click();
-    await page.keyboard.press("ControlOrMeta+a");
-    // `insertText` rather than `type`: the editor's auto-indent would rewrite typed YAML.
-    // One flow-style line: valid YAML, and the editor's auto-indent has nothing to re-indent
-    // (a block mapping typed line by line came back as "nested mappings in a compact mapping").
-    await page.keyboard.insertText(
-      JSON.stringify({
-        apiVersion: "joinedcontext.com/v1alpha1",
-        kind: "DataSource",
-        metadata: { name, namespace: PROJECT },
-        spec: {
-          type: "http_client",
-          input: {
-            url: "https://example.org/feed.json",
-            basic_auth: { enabled: true, username: "reader", password: VALUE },
+    // Pasted, not typed: the editor closes brackets and quotes as it goes, and a typed document
+    // came back as YAML that does not parse — which made the test about the editor and not about
+    // the refusal. A paste is also what a person does with a manifest.
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(
+      (text) => navigator.clipboard.writeText(text),
+      JSON.stringify(
+        {
+          apiVersion: "joinedcontext.com/v1alpha1",
+          kind: "DataSource",
+          metadata: { name, namespace: PROJECT },
+          spec: {
+            type: "http_client",
+            input: {
+              url: "https://example.org/feed.json",
+              basic_auth: { enabled: true, username: "reader", password: VALUE },
+            },
           },
         },
-      }),
+        null,
+        1,
+      ),
     );
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.press("ControlOrMeta+v");
 
     // The refusal comes from the server, whichever road runs first — the draft the dialog saves
     // (`literal_secret_refused_at_put`) or the check the person presses.
