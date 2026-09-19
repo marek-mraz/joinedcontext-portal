@@ -414,24 +414,32 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
     });
   }, [edits, rows]);
 
+  // The question the source is asked, written out as a string, because the fetch must depend on the
+  // question and not on the identity of the objects it is built from. `askedQuery` comes from the
+  // columns, whose kinds are read off the rows, so every answer produced a new one: the effect asked
+  // again, and again, 20 000 times in a second and a half, and a trusted click that started it froze
+  // the page because React flushes such an update synchronously (T-2276). A host passing
+  // `query={{ q: "…" }}` inline had the same effect.
+  const gridQueryKey = JSON.stringify({
+    type: config.type,
+    // The caller's query and the filter row are both true: `;` is how NGSI-LD says "and", so a
+    // preset that narrows the grid to one district cannot be widened by a filter (EP-07).
+    q: andQ(queryPartial?.q ?? config.filters.preset?.q, askedQuery.q),
+    attrs: queryPartial?.attrs ?? config.filters.preset?.attrs,
+    idPattern: askedQuery.idPattern ?? queryPartial?.idPattern ?? config.filters.preset?.idPattern,
+    scopeQ: queryPartial?.scopeQ ?? config.filters.preset?.scopeQ,
+    // `areaQuery` refuses a shape that is not an area, so a half-drawn one asks for nothing
+    // rather than for everything.
+    area: areaQuery(area) ?? undefined,
+  });
+
   const fetchData = useCallback(() => {
     const nonce = ++nonceRef.current;
     cancelledRef.current = false;
     setLoading(true);
     setError(null);
 
-    const gridQuery: GridQuery = {
-      type: config.type,
-      // The caller's query and the filter row are both true: `;` is how NGSI-LD says "and", so a
-      // preset that narrows the grid to one district cannot be widened by a filter (EP-07).
-      q: andQ(queryPartial?.q ?? config.filters.preset?.q, askedQuery.q),
-      attrs: queryPartial?.attrs ?? config.filters.preset?.attrs,
-      idPattern: askedQuery.idPattern ?? queryPartial?.idPattern ?? config.filters.preset?.idPattern,
-      scopeQ: queryPartial?.scopeQ ?? config.filters.preset?.scopeQ,
-      // `areaQuery` refuses a shape that is not an area, so a half-drawn one asks for nothing
-      // rather than for everything.
-      area: areaQuery(area) ?? undefined,
-    };
+    const gridQuery = JSON.parse(gridQueryKey) as GridQuery;
 
     source
       .query(gridQuery, { offset, limit: config.pageSize })
@@ -446,7 +454,7 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [source, config.type, config.pageSize, config.filters.preset, offset, queryPartial, askedQuery, area]);
+  }, [source, config.pageSize, offset, gridQueryKey]);
 
   useEffect(() => {
     fetchData();

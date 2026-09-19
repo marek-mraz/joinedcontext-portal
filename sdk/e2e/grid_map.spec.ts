@@ -11,11 +11,13 @@ import { build } from "vite";
  * This page is the grid with `map.enabled`, built from the sources with vite and served from memory —
  * no basemap, so no tile leaves the browser and the check is offline.
  *
- * What this leg does NOT yet cover, and T-1443 leaves open: clicking a shape to activate its row and
+ * The drawn area is checked here with a real trusted click, because that is what found T-2276: the
+ * answer re-derived the question, so one click started a query that never stopped and the page
+ * stopped answering. A programmatic click passes either way and proves nothing.
+ *
+ * What this leg does NOT cover, and T-1443 leaves open: clicking a shape to activate its row and
  * dragging a point in the panel. `GeoView` publishes no map handle (only `GeoEditor` does), so a
- * shape cannot be located from the test, and the "Draw area" click hangs Playwright's actionability
- * wait — a refetch that does not settle, which is a finding of its own and not something to paper
- * over with `force: true`.
+ * shape cannot be located from the test.
  */
 const PAGE = "http://gridmap.test/";
 
@@ -146,6 +148,13 @@ test("the panel mounts a real map beside the rows, with the page's shapes on it"
   // A real MapLibre canvas, with the two stations that have a geometry on it.
   await expect(page.locator(".jc-grid-map .maplibregl-map")).toBeVisible();
   await expect(page.getByText("2 shapes")).toBeVisible();
+
+  // The drawn area, by a real click, and the page still answers afterwards (T-2276).
+  await page.getByRole("button", { name: "Draw area" }).click();
+  await expect(page.getByText("Filtered to the drawn area")).toBeVisible();
+  await page.getByRole("button", { name: "Clear area" }).click();
+  await expect(page.getByText("Filtered to the drawn area")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: /name/ }).first()).toHaveValue("Kamppi");
 
   expect(problems).toEqual([]);
 });
