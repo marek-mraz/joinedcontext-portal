@@ -178,7 +178,10 @@ function at(uiSchema: UiSchema, path: string, entry: Record<string, unknown>): v
 export function arrange(manifest: UiSchemaManifest, options: ArrangeOptions = {}): Arranged {
   const problems: string[] = [];
   const spec = manifest.spec;
-  const known = options.properties;
+  // An empty path set is a schema that has not arrived, not a schema without fields: a dialog that
+  // opens while its lists are still loading would otherwise show a complaint about every field the
+  // manifest arranges, and take it back a moment later. Nothing is checked, as with no set at all.
+  const known = options.properties?.length ? options.properties : undefined;
   const widgets = new Set<string>([...BUILT_IN_WIDGETS, ...(options.widgets ?? [])]);
 
   const declared = (field: string): boolean => {

@@ -4,7 +4,7 @@ import { I18nextProvider } from "react-i18next";
 import { describe, expect, it } from "vitest";
 import i18n from "../src/i18n";
 import { SchemaForm } from "../src/components/forms/SchemaForm";
-import { arrange, index, localized } from "../src/components/forms/uischema";
+import { arrange, index, localized, paths } from "../src/components/forms/uischema";
 import type { UiSchemaManifest } from "../src/components/forms/uischema";
 import type { JsonSchema } from "../src/components/forms/types";
 import en from "../src/locales/en.json";
@@ -164,6 +164,38 @@ describe("the UiSchema manifest arranges the form", () => {
     expect(uiSchema.http).toEqual({ url: { "ui:placeholder": "https://www.hel.fi/en/news/rss" } });
     expect(uiSchema.mqtt).toBeUndefined();
     expect(uiSchema["ui:order"]).toEqual(["name", "http", "*"]);
+  });
+
+  it("says nothing about a form whose schema has not arrived yet", () => {
+    // A dialog opens while the lists its enums come from are still loading; the manifest is not
+    // wrong because the schema is not there yet.
+    const { uiSchema, problems } = arrange(MANIFEST, { properties: [] });
+    expect(problems).toEqual([]);
+    expect(uiSchema["ui:order"]).toEqual(["audience", "name", "slug", "*"]);
+  });
+
+  it("reads every field of a schema by its path, arrays and objects alike", () => {
+    expect(
+      paths({
+        properties: {
+          name: { type: "string" },
+          caching: { type: "object", properties: { maxAgeSeconds: { type: "integer" } } },
+          representations: { type: "array", items: { type: "string" } },
+          pages: {
+            type: "array",
+            items: { type: "object", properties: { layers: { type: "array", items: { type: "string" } } } },
+          },
+        },
+      }),
+    ).toEqual([
+      "name",
+      "caching",
+      "caching.maxAgeSeconds",
+      // An array of plain strings is one field, not a field with children.
+      "representations",
+      "pages",
+      "pages[].layers",
+    ]);
   });
 
   it("arranges a field by its path, into the nested uiSchema RJSF reads", () => {
