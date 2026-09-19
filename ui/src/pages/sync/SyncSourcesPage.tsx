@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ListFailed, reasonOf } from "../../components/forms/widgets/ListFailed";
 import { useTranslation } from "react-i18next";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { prune } from "../../api/manifest";
@@ -268,6 +269,14 @@ function SyncSourceCard({
           <DeleteResourceAction target={{ project, kind: "SyncSource", plural: "syncsources", name }} />
         </span>
       </header>
+
+      {status.isError ? (
+        <ListFailed
+          what={t("syncSources.status")}
+          reason={reasonOf(status.error, t("form.invalid"))}
+          onRetry={refresh}
+        />
+      ) : null}
 
       <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
         <dt className="font-medium">{t("syncSources.origin")}</dt>

@@ -1294,6 +1294,7 @@
     "empty": "Dieses Projekt synchronisiert noch von nirgendwo.",
     "origin": "Herkunft",
     "revision": "Revision der Quelle",
+    "status": "Status",
     "mergeRequest": "Offener Merge Request",
     "review": "Prüfen",
     "lastError": "Letzter Fehler",

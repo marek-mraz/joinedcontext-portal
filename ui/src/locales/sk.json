@@ -1294,6 +1294,7 @@
     "empty": "Tento projekt zatiaľ nesynchronizuje odnikiaľ.",
     "origin": "Pôvod",
     "revision": "Revízia zdroja",
+    "status": "Stav",
     "mergeRequest": "Otvorená žiadosť o zlúčenie",
     "review": "Posúdiť",
     "lastError": "Posledná chyba",

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ListFailed, reasonOf } from "../../components/forms/widgets/ListFailed";
 import { useTranslation } from "react-i18next";
 import { parseGridConfig } from "@joinedcontext/sdk";
 import type { ResolvedGridConfig, RichRow } from "@joinedcontext/sdk";
@@ -257,7 +258,11 @@ export function ExplorePage({
         <Field
           id="explore-endpoint"
           label={t("explore.endpoint")}
-          description={space && spaceEndpoints.length === 0 ? t("explore.noEndpoint") : undefined}
+          description={
+            space && spaceEndpoints.length === 0 && !endpoints.isError
+              ? t("explore.noEndpoint")
+              : undefined
+          }
         >
           <Select
             id="explore-endpoint"
@@ -275,6 +280,13 @@ export function ExplorePage({
               </option>
             ))}
           </Select>
+          {endpoints.isError ? (
+            <ListFailed
+              what={t("nav.endpoints")}
+              reason={reasonOf(endpoints.error, t("explore.loadFailed"))}
+              onRetry={() => void endpoints.refetch()}
+            />
+          ) : null}
         </Field>
       </div>
 

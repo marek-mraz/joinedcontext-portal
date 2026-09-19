@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ListFailed, reasonOf } from "../../components/forms/widgets/ListFailed";
 import { useTranslation } from "react-i18next";
 import { api, queryKeys, unwrap } from "../../api/client";
 import { asManifests, overlay, plainTitle, prune, refName } from "../../api/manifest";
@@ -378,6 +379,20 @@ export function PipelineEditorDialog({
       onChange={(form) => setDraft(completeOutput(form))}
       onSubmit={(form, draftRef) => onSubmit(toEnvelope(project, form, base), draftRef)}
     >
+      {dataSources.isError ? (
+        <ListFailed
+          what={t("nav.datasources")}
+          reason={reasonOf(dataSources.error, t("form.invalid"))}
+          onRetry={() => void dataSources.refetch()}
+        />
+      ) : null}
+      {endpoints.isError ? (
+        <ListFailed
+          what={t("nav.endpoints")}
+          reason={reasonOf(endpoints.error, t("form.invalid"))}
+          onRetry={() => void endpoints.refetch()}
+        />
+      ) : null}
       <PipelineStudio
         project={project}
         draft={draft}

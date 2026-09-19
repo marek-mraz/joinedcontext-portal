@@ -1294,6 +1294,7 @@
     "empty": "This project syncs from nothing yet.",
     "origin": "Origin",
     "revision": "Source revision",
+    "status": "Status",
     "mergeRequest": "Open merge request",
     "review": "Review it",
     "lastError": "Last error",
