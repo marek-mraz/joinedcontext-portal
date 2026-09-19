@@ -409,6 +409,38 @@ describe("the endpoint's own settings page", () => {
     expect(await sentTo(fetchMock, "/projections/ovzdusie-open")).toHaveLength(0);
   });
 
+  it("sets the area from four corners, through the SDK's own geo query (T-2283, UI-72)", async () => {
+    const fetchMock = renderPage();
+    const user = userEvent.setup();
+
+    // The corners the wrong way round are refused, and nothing is written.
+    await user.type(await screen.findByLabelText(en.endpoints.area.west), "21.5");
+    await user.type(screen.getByLabelText(en.endpoints.area.south), "49.0");
+    await user.type(screen.getByLabelText(en.endpoints.area.east), "19.0");
+    await user.type(screen.getByLabelText(en.endpoints.area.north), "48.5");
+    await user.click(screen.getByRole("button", { name: en.endpoints.area.set }));
+    expect(await screen.findByText(en.endpoints.area.fault.order)).toBeInTheDocument();
+    expect(screen.getByLabelText(en.endpoints.filter.geoQ)).toHaveValue("");
+
+    // Corrected, the box becomes the four parts a gateway can read, closed and counter-clockwise.
+    await user.clear(screen.getByLabelText(en.endpoints.area.east));
+    await user.type(screen.getByLabelText(en.endpoints.area.east), "22.0");
+    await user.clear(screen.getByLabelText(en.endpoints.area.north));
+    await user.type(screen.getByLabelText(en.endpoints.area.north), "49.5");
+    await user.click(screen.getByRole("button", { name: en.endpoints.area.set }));
+
+    expect(screen.getByLabelText(en.endpoints.filter.geoQ)).toHaveValue(
+      "georel=within;geometry=Polygon;coordinates=[[[21.5,49],[22,49],[22,49.5],[21.5,49.5],[21.5,49]]];geoproperty=location",
+    );
+    // A written area is a proposal like any other, and the field's own check no longer objects.
+    await user.click(screen.getByRole("button", { name: en.endpoints.page.filterPropose }));
+    await waitFor(async () => {
+      expect(await sentTo(fetchMock, "/projections/ovzdusie-open")).toHaveLength(2);
+    });
+    const [, real] = await sentTo(fetchMock, "/projections/ovzdusie-open");
+    expect(real.body.spec?.filter?.geoQ).toContain("georel=within");
+  });
+
   it("says what a red check found and proposes nothing", async () => {
     const fetchMock = renderPage({ check: { ok: false, message: "scopeQ is not a scope path" } });
     const user = userEvent.setup();

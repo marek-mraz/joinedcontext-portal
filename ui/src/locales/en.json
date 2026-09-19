@@ -518,6 +518,21 @@
       "counting": "Counting what the filter matches...",
       "failed": "The matching entities could not be counted: {reason}",
       "unavailable": "The count is read through the endpoint, so it is available once the endpoint is Live and publishes a type."
+    },
+    "area": {
+      "title": "Set the area from a box",
+      "west": "West",
+      "south": "South",
+      "east": "East",
+      "north": "North",
+      "property": "Geometry attribute",
+      "set": "Use this area",
+      "hint": "The four corners become the area the endpoint publishes, and replace the one it has. Drawing a shape on a map is done in the entity grid.",
+      "fault": {
+        "numbers": "All four corners are numbers, in degrees.",
+        "range": "Longitude is between -180 and 180, latitude between -90 and 90.",
+        "order": "West is left of east and south is below north."
+      }
     }
   },
   "datasources": {

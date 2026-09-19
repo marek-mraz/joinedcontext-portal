@@ -518,6 +518,21 @@
       "counting": "Počítam, čomu filter odpovedá...",
       "failed": "Odpovedajúce entity sa nepodarilo spočítať: {reason}",
       "unavailable": "Počet sa číta cez endpoint, takže je dostupný až keď je endpoint Live a zverejňuje typ."
+    },
+    "area": {
+      "title": "Nastaviť územie podľa obdľžnika",
+      "west": "Západ",
+      "south": "Juh",
+      "east": "Východ",
+      "north": "Sever",
+      "property": "Atribút s geometriou",
+      "set": "Použiť toto územie",
+      "hint": "Štyri rohy sa stanú územím, ktoré endpoint zverejňuje, a nahradia to doterajšie. Kresliť tvar na mape sa dá v tabuĺke entít.",
+      "fault": {
+        "numbers": "Všetky štyri rohy sú čísla v stupňoch.",
+        "range": "Zemepisná dĺžka je medzi -180 a 180, šírka medzi -90 a 90.",
+        "order": "Západ je vľavo od východu a juh pod severom."
+      }
     }
   },
   "datasources": {

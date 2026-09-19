@@ -518,6 +518,21 @@
       "counting": "Es wird gezählt, was der Filter trifft...",
       "failed": "Die passenden Entitäten konnten nicht gezählt werden: {reason}",
       "unavailable": "Der Zählwert wird über den Endpunkt gelesen, also erst wenn er Live ist und einen Typ veröffentlicht."
+    },
+    "area": {
+      "title": "Gebiet aus einem Rechteck setzen",
+      "west": "West",
+      "south": "Süd",
+      "east": "Ost",
+      "north": "Nord",
+      "property": "Attribut mit der Geometrie",
+      "set": "Dieses Gebiet verwenden",
+      "hint": "Die vier Ecken werden zum Gebiet, das der Endpunkt veröffentlicht, und ersetzen das bisherige. Eine Form zeichnet man im Entitätenraster.",
+      "fault": {
+        "numbers": "Alle vier Ecken sind Zahlen in Grad.",
+        "range": "Längengrad liegt zwischen -180 und 180, Breitengrad zwischen -90 und 90.",
+        "order": "West liegt links von Ost und Süd unter Nord."
+      }
     }
   },
   "datasources": {

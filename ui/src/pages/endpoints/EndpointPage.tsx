@@ -28,7 +28,7 @@ import {
 import { spaceOf } from "../../components/endpoints/sharing";
 import { CopyUrlButton } from "../../routes/EndpointsPage";
 import { Alert, Badge, Button, Field, Input, PageHeader, Select, SourceLink } from "../../components/ui";
-import { andQ, queryFromFilters } from "@joinedcontext/sdk";
+import { andQ, areaQuery, queryFromFilters, ringOfBounds } from "@joinedcontext/sdk";
 import type { FilterOp } from "@joinedcontext/sdk";
 
 /**
@@ -558,6 +558,7 @@ function FilterForm({
         ))}
       </div>
       <MatchCount slug={slug} type={classesOf(projection)[0]} q={draft.q ?? ""} live={live} />
+      <AreaFromBox onSet={(geoQ) => setDraft({ ...draft, geoQ })} />
       <ConditionBuilder
         attributes={slotsOf(projection)}
         onAdd={(term) =>
@@ -692,6 +693,110 @@ export function filterFault(key: string, value: string): "scopePath" | "geoParts
     return ["georel", "geometry", "coordinates"].every((part) => parts.has(part)) ? undefined : "geoParts";
   }
   return undefined;
+}
+
+/** `geoQ` as the manifest holds it: the parts of a geo query joined with `;` (MP-01, CIM 009 4.10). */
+export function geoQueryString(query: {
+  georel: string;
+  geometry: string;
+  coordinates: string;
+  geoproperty: string;
+}): string {
+  return [
+    `georel=${query.georel}`,
+    `geometry=${query.geometry}`,
+    `coordinates=${query.coordinates}`,
+    `geoproperty=${query.geoproperty}`,
+  ].join(";");
+}
+
+/** What is wrong with a box a person typed, or `undefined`. */
+export function boxFault(box: Record<string, string>): "numbers" | "range" | "order" | undefined {
+  const values = ["west", "south", "east", "north"].map((key) => Number(box[key]));
+  if (values.some((value) => !Number.isFinite(value)) || ["west", "south", "east", "north"].some((k) => (box[k] ?? "").trim() === "")) {
+    return "numbers";
+  }
+  const [west, south, east, north] = values;
+  if (Math.abs(west) > 180 || Math.abs(east) > 180 || Math.abs(south) > 90 || Math.abs(north) > 90) {
+    return "range";
+  }
+  return west < east && south < north ? undefined : "order";
+}
+
+/**
+ * An area from a bounding box (T-2283, UI-72).
+ *
+ * The owner asked to share only what lies in one area. Typing a geo query by hand means writing
+ * `georel`, `geometry`, a JSON ring and `geoproperty` without a mistake; four numbers cannot be written
+ * wrong in a way that reaches the manifest, because the ring, the rounding and the length limit of
+ * `coordinates` are the SDK's own (`ringOfBounds`, `areaQuery`) — the same code the grid's map uses, so a
+ * shape too long for a URL is shortened in one place and said so once (UI-67).
+ *
+ * Drawing the shape on a map is the grid's job and stays there; this is the part a settings page can do
+ * honestly without a map.
+ */
+function AreaFromBox({ onSet }: { onSet: (geoQ: string) => void }): JSX.Element {
+  const { t } = useTranslation();
+  const [box, setBox] = useState<Record<string, string>>({ west: "", south: "", east: "", north: "" });
+  const [property, setProperty] = useState("location");
+  const [shown, setShown] = useState(false);
+  const fault = boxFault(box);
+
+  const apply = () => {
+    setShown(true);
+    if (fault || property.trim() === "") {
+      return;
+    }
+    const query = areaQuery({
+      geoproperty: property.trim(),
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          ringOfBounds(Number(box.west), Number(box.south), Number(box.east), Number(box.north)),
+        ],
+      },
+    });
+    if (!query) {
+      return;
+    }
+    setShown(false);
+    onSet(geoQueryString(query));
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3">
+      <p className="text-caption font-medium text-fg-muted">{t("endpoints.area.title")}</p>
+      <div className="flex flex-wrap items-end gap-2">
+        {(["west", "south", "east", "north"] as const).map((corner) => (
+          <Field key={corner} id={`area-${corner}`} label={t(`endpoints.area.${corner}`)} className="w-28">
+            <Input
+              id={`area-${corner}`}
+              inputMode="decimal"
+              value={box[corner] ?? ""}
+              aria-invalid={shown && fault ? true : undefined}
+              onChange={(event) => setBox({ ...box, [corner]: event.target.value })}
+            />
+          </Field>
+        ))}
+        <Field id="area-property" label={t("endpoints.area.property")} className="w-40">
+          <Input
+            id="area-property"
+            value={property}
+            onChange={(event) => setProperty(event.target.value)}
+          />
+        </Field>
+        <Button type="button" variant="secondary" onClick={apply}>
+          {t("endpoints.area.set")}
+        </Button>
+      </div>
+      {shown && fault ? (
+        <p role="alert" className="text-caption text-danger">
+          {t(`endpoints.area.fault.${fault}`)}
+        </p>
+      ) : null}
+      <p className="text-caption text-fg-muted">{t("endpoints.area.hint")}</p>
+    </div>
+  );
 }
 
 /** The operators a condition row offers, in the order a person reaches for them. */

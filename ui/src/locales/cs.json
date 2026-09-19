@@ -518,6 +518,21 @@
       "counting": "Počítám, čemu filtr odpovídá...",
       "failed": "Odpovídající entity se nepodařilo spočítat: {reason}",
       "unavailable": "Počet se čte přes endpoint, takže je dostupný teprve když je endpoint Live a zveřejňuje typ."
+    },
+    "area": {
+      "title": "Nastavit území podle obdélníku",
+      "west": "Západ",
+      "south": "Jih",
+      "east": "Východ",
+      "north": "Sever",
+      "property": "Atribut s geometrií",
+      "set": "Použít toto území",
+      "hint": "Čtyři rohy se stanou územím, které endpoint zveřejňuje, a nahradí dosavadní. Kreslit tvar na mapě lze v tabulce entit.",
+      "fault": {
+        "numbers": "Všechny čtyři rohy jsou čísla ve stupních.",
+        "range": "Zeměpisná délka je mezi -180 a 180, šířka mezi -90 a 90.",
+        "order": "Západ je vlevo od východu a jih pod severem."
+      }
     }
   },
   "datasources": {
