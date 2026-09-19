@@ -140,3 +140,73 @@ test.describe("map dashboard", () => {
     expect(await axeViolations(page)).toEqual([]);
   });
 });
+
+// A `grid` widget of a page, drawn by the same component the explorer renders (T-1440; UI-71,
+// SDK-30): the manifest carries its configuration and the endpoint answers the rows.
+const WITH_GRID = {
+  ...DASHBOARD,
+  spec: {
+    ...DASHBOARD.spec,
+    pages: [
+      {
+        title: "Data",
+        layout: "grid-2x2",
+        widgets: [
+          {
+            widgetType: "grid",
+            endpointRef: "public-air",
+            entityType: "AirQualityObserved",
+            grid: { columns: [{ attr: "pm10", format: "number" }], pageSize: 25 },
+          },
+        ],
+      },
+    ],
+  },
+};
+
+const STATIONS = [
+  {
+    id: "urn:ngsi-ld:AirQualityObserved:bb:ovzdusie:001",
+    type: "AirQualityObserved",
+    pm10: { type: "Property", value: 42, unitCode: "GQ", observedAt: "2026-09-19T08:00:00Z" },
+  },
+];
+
+test.describe("a grid widget of a dashboard", () => {
+  test("draws the endpoint's entities from the manifest's own configuration", async ({ page }) => {
+    const reads: string[] = [];
+    await page.route("**/api/endpoint/**", (route) => {
+      const url = new URL(route.request().url());
+      reads.push(`${url.pathname}${url.search}`);
+      return route.fulfill({
+        contentType: "application/json",
+        headers: { "NGSILD-Results-Count": "1" },
+        body: JSON.stringify(STATIONS),
+      });
+    });
+    await page.route("**/api/v1/**", (route) => {
+      const path = new URL(route.request().url()).pathname;
+      const json = (body: unknown) =>
+        route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
+      const list = (items: unknown[]) => ({
+        apiVersion: "joinedcontext.com/v1alpha1",
+        kind: "List",
+        items,
+      });
+      if (path.endsWith("/auth/me")) return json(IDENTITY);
+      if (path.endsWith("/dashboards")) return json(list([WITH_GRID]));
+      if (path.endsWith("/endpoints")) return json(list([ENDPOINT]));
+      return json(list([]));
+    });
+
+    await page.goto("/projects/banskabystrica/dashboards?lang=en");
+
+    await expect(page.getByRole("grid")).toBeVisible();
+    await expect(page.getByText("42 GQ")).toBeVisible();
+    // The widget's own endpoint and type, never another's: the slug is the endpoint it names.
+    expect(reads.some((read) => read.startsWith(`/api/endpoint/${SLUG}/ngsi-ld/v1/entities?`))).toBe(
+      true,
+    );
+    expect(reads.some((read) => read.includes("type=AirQualityObserved"))).toBe(true);
+  });
+});
