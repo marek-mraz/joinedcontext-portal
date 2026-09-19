@@ -496,6 +496,17 @@
       "publication": "Published as open data",
       "notSet": "not set",
       "filterPropose": "Propose this filter"
+    },
+    "condition": {
+      "title": "Add a condition",
+      "attribute": "Attribute",
+      "operator": "Condition",
+      "value": "Value",
+      "add": "Add to the query",
+      "noAttributes": "the projection names no attribute",
+      "needsAttribute": "Pick the attribute the condition is about.",
+      "needsValue": "Type the value the condition compares with.",
+      "hint": "A condition joins the query with “and”: every condition has to hold, so the query can only narrow."
     }
   },
   "datasources": {
@@ -1456,7 +1467,11 @@
       "between": "between",
       "isEmpty": "is empty",
       "present": "has a value",
-      "pattern": "matches"
+      "pattern": "matches",
+      "gt": "is greater than",
+      "gte": "is at least",
+      "lt": "is less than",
+      "lte": "is at most"
     },
     "value": "Value",
     "upperValue": "Upper value",

@@ -277,6 +277,56 @@ describe("the endpoint's own settings page", () => {
     expect(real.body.spec?.filter).toEqual({ q: "pm10>30" });
   });
 
+  it("builds a condition instead of asking a person to type NGSI-LD (T-2283)", async () => {
+    const fetchMock = renderPage();
+    const user = userEvent.setup();
+
+    // The attributes offered are the ones the projection publishes.
+    const attribute = await screen.findByLabelText(en.endpoints.condition.attribute);
+    expect([...(attribute as HTMLSelectElement).options].map((option) => option.value)).toEqual(["pm10"]);
+
+    await user.selectOptions(screen.getByLabelText(en.endpoints.condition.operator), "gt");
+    await user.type(screen.getByLabelText(en.endpoints.condition.value), "50");
+    await user.click(screen.getByRole("button", { name: en.endpoints.condition.add }));
+
+    // Appended to what was there, with `;`, which is what the gateway reads as "and": the stored query
+    // is never rewritten from a guess, so a filter nobody could parse cannot be lost.
+    expect(screen.getByLabelText(en.endpoints.filter.q)).toHaveValue("pm10>30;pm10>50");
+
+    await user.click(screen.getByRole("button", { name: en.endpoints.page.filterPropose }));
+    await waitFor(async () => {
+      expect(await sentTo(fetchMock, "/projections/ovzdusie-open")).toHaveLength(2);
+    });
+    const [, real] = await sentTo(fetchMock, "/projections/ovzdusie-open");
+    expect(real.body.spec?.filter?.q).toBe("pm10>30;pm10>50");
+  });
+
+  it("refuses a condition with no value at the field, and adds nothing", async () => {
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: en.endpoints.condition.add }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(en.endpoints.condition.needsValue);
+    expect(screen.getByLabelText(en.endpoints.filter.q)).toHaveValue("pm10>30");
+    // Nothing to propose either: the query is what it was.
+    expect(screen.getByRole("button", { name: en.endpoints.page.filterPropose })).toBeDisabled();
+  });
+
+  it("quotes a value that is not a number, so a typed word cannot break the query", async () => {
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText(en.endpoints.condition.value), 'Kamppi "1"');
+    await user.click(screen.getByRole("button", { name: en.endpoints.condition.add }));
+
+    // The value is quoted and its own quotes escaped, by the SDK's compiler, so a typed word cannot
+    // end the literal early and change what the query means.
+    expect(screen.getByLabelText(en.endpoints.filter.q)).toHaveValue(
+      `pm10>30;pm10=="Kamppi \\"1\\""`,
+    );
+  });
+
   it("says what a red check found and proposes nothing", async () => {
     const fetchMock = renderPage({ check: { ok: false, message: "scopeQ is not a scope path" } });
     const user = userEvent.setup();

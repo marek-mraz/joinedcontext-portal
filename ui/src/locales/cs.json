@@ -496,6 +496,17 @@
       "publication": "Zveřejněno jako otevřená data",
       "notSet": "nenastaveno",
       "filterPropose": "Navrhnout tento filtr"
+    },
+    "condition": {
+      "title": "Přidat podmínku",
+      "attribute": "Atribut",
+      "operator": "Podmínka",
+      "value": "Hodnota",
+      "add": "Přidat do dotazu",
+      "noAttributes": "projekce neuvádí žádný atribut",
+      "needsAttribute": "Vyberte atribut, o kterém podmínka hovoří.",
+      "needsValue": "Napište hodnotu, s níž se podmínka porovnává.",
+      "hint": "Podmínka se připojí k dotazu spojkou „a“: platit musí každá, takže dotaz se může jen zúžit."
     }
   },
   "datasources": {
@@ -1456,7 +1467,11 @@
       "between": "mezi",
       "isEmpty": "je prázdné",
       "present": "má hodnotu",
-      "pattern": "odpovídá"
+      "pattern": "odpovídá",
+      "gt": "je větší než",
+      "gte": "je alespoň",
+      "lt": "je menší než",
+      "lte": "je nejvýše"
     },
     "value": "Hodnota",
     "upperValue": "Horní hodnota",

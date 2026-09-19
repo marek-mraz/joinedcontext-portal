@@ -27,7 +27,9 @@ import {
 } from "../../components/endpoints/links";
 import { spaceOf } from "../../components/endpoints/sharing";
 import { CopyUrlButton } from "../../routes/EndpointsPage";
-import { Alert, Badge, Button, Field, Input, PageHeader, SourceLink } from "../../components/ui";
+import { Alert, Badge, Button, Field, Input, PageHeader, Select, SourceLink } from "../../components/ui";
+import { andQ, queryFromFilters } from "@joinedcontext/sdk";
+import type { FilterOp } from "@joinedcontext/sdk";
 
 /**
  * One endpoint, the whole window (T-2281, EP-51, UI-26, UI-61).
@@ -539,12 +541,143 @@ function FilterForm({
           </Field>
         ))}
       </div>
+      <ConditionBuilder
+        attributes={slotsOf(projection)}
+        onAdd={(term) =>
+          setDraft({ ...draft, q: andQ(draft.q, term) ?? "" })
+        }
+      />
       <PermissionGuard project={project} kind="ModelProjection" verb="propose">
         <Button type="submit" disabled={untouched || propose.isPending}>
           {t("endpoints.page.filterPropose")}
         </Button>
       </PermissionGuard>
     </form>
+  );
+}
+
+/** The operators a condition row offers, in the order a person reaches for them. */
+const CONDITION_OPS: FilterOp[] = [
+  "equals",
+  "notEquals",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "contains",
+  "present",
+  "empty",
+];
+
+/** The attributes a projection publishes, once, in order: what a condition can name. */
+export function slotsOf(projection: Manifest): string[] {
+  const classes = (projection.spec as { classes?: Array<{ slots?: string[] }> }).classes ?? [];
+  const seen = new Set<string>();
+  for (const klass of classes) {
+    for (const slot of klass.slots ?? []) {
+      if (slot) {
+        seen.add(slot);
+      }
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * One condition, built instead of typed (T-2283, the owner's `age>30`).
+ *
+ * It **appends** to the query rather than replacing it: an existing `q` was written by somebody, may
+ * use more of NGSI-LD §4.9 than these three boxes can say, and rewriting it from a parse that got it
+ * wrong would silently change what a million entities' worth of endpoint publishes. Appending with
+ * `;` is what the gateway does with two conditions, and it can only narrow.
+ *
+ * The term itself is compiled by the SDK's own compiler (`queryFromFilters`), which is what the entity
+ * grid's filter row uses: one place quotes a value, escapes a pattern's metacharacters and decides
+ * whether a literal is bare or quoted (UI-66, EP-07).
+ */
+function ConditionBuilder({
+  attributes,
+  onAdd,
+}: {
+  attributes: string[];
+  onAdd: (term: string) => void;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const [attr, setAttr] = useState(attributes[0] ?? "");
+  const [op, setOp] = useState<FilterOp>("equals");
+  const [value, setValue] = useState("");
+  const [invalid, setInvalid] = useState<string | null>(null);
+  const needsValue = op !== "present" && op !== "empty";
+
+  const add = () => {
+    if (!attr) {
+      setInvalid(t("endpoints.condition.needsAttribute"));
+      return;
+    }
+    if (needsValue && value.trim() === "") {
+      setInvalid(t("endpoints.condition.needsValue"));
+      return;
+    }
+    const { q } = queryFromFilters(
+      [{ key: attr, attr, kind: "text" }],
+      { [attr]: { op, value: value.trim() } },
+    );
+    if (!q) {
+      setInvalid(t("endpoints.condition.needsValue"));
+      return;
+    }
+    setInvalid(null);
+    setValue("");
+    onAdd(q);
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3">
+      <p className="text-caption font-medium text-fg-muted">{t("endpoints.condition.title")}</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field id="condition-attr" label={t("endpoints.condition.attribute")} className="min-w-40">
+          <Select id="condition-attr" value={attr} onChange={(event) => setAttr(event.target.value)}>
+            {attributes.length === 0 ? <option value="">{t("endpoints.condition.noAttributes")}</option> : null}
+            {attributes.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field id="condition-op" label={t("endpoints.condition.operator")} className="min-w-36">
+          <Select
+            id="condition-op"
+            value={op}
+            onChange={(event) => setOp(event.target.value as FilterOp)}
+          >
+            {CONDITION_OPS.map((candidate) => (
+              <option key={candidate} value={candidate}>
+                {t(`entityGrid.ops.${candidate === "empty" ? "isEmpty" : candidate}`)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {needsValue ? (
+          <Field id="condition-value" label={t("endpoints.condition.value")} className="min-w-40">
+            <Input
+              id="condition-value"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </Field>
+        ) : null}
+        <Button type="button" variant="secondary" onClick={add}>
+          {t("endpoints.condition.add")}
+        </Button>
+      </div>
+      {invalid ? (
+        <p role="alert" className="text-caption text-danger">
+          {invalid}
+        </p>
+      ) : null}
+      <p className="text-caption text-fg-muted">{t("endpoints.condition.hint")}</p>
+    </div>
   );
 }
 

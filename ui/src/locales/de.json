@@ -496,6 +496,17 @@
       "publication": "Als offene Daten veröffentlicht",
       "notSet": "nicht gesetzt",
       "filterPropose": "Diesen Filter vorschlagen"
+    },
+    "condition": {
+      "title": "Bedingung hinzufügen",
+      "attribute": "Attribut",
+      "operator": "Bedingung",
+      "value": "Wert",
+      "add": "Zur Abfrage hinzufügen",
+      "noAttributes": "die Projektion nennt kein Attribut",
+      "needsAttribute": "Wählen Sie das Attribut, um das es geht.",
+      "needsValue": "Geben Sie den Wert an, mit dem verglichen wird.",
+      "hint": "Eine Bedingung wird mit „und“ an die Abfrage gehängt: jede muss gelten, die Abfrage kann also nur verengen."
     }
   },
   "datasources": {
@@ -1456,7 +1467,11 @@
       "between": "zwischen",
       "isEmpty": "ist leer",
       "present": "hat einen Wert",
-      "pattern": "passt auf"
+      "pattern": "passt auf",
+      "gt": "ist größer als",
+      "gte": "ist mindestens",
+      "lt": "ist kleiner als",
+      "lte": "ist höchstens"
     },
     "value": "Wert",
     "upperValue": "Oberer Wert",
