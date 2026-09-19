@@ -1209,6 +1209,53 @@ pub async fn record_check(
     }
 }
 
+/// The same for a check the platform refused, except that it writes no draft of its own.
+///
+/// A red verdict reaches the draft the person is working in, and nothing more: the manifest a check
+/// rejected is not stored anywhere by this path. A refusal can be about a credential typed into the
+/// manifest (T-2238, T-2239), and keeping that manifest because its check failed would put the
+/// value the refusal exists to stop into the draft store (T-2234).
+pub async fn record_refused_check(
+    state: &AppState,
+    project: &str,
+    manifest: &Value,
+    verdict: &Verdict,
+) {
+    let Some(own) = own_draft(manifest) else {
+        return;
+    };
+    let _ = draft_store(state)
+        .set_verdict(project, &own.kind, &own.name, verdict.clone())
+        .await;
+}
+
+/// A check that rejected the manifest, as the red verdict that says why (T-2234).
+///
+/// One shape for one outcome, wherever a check is run: the operation the form calls, the one the
+/// assistant calls and the plain REST door all answer this. Anything that is not a judgement about
+/// the manifest — the caller, a project that is not there, a broken forge — stays the error it was.
+async fn refused_check_output(
+    state: &AppState,
+    project: &str,
+    manifest: &Value,
+    error: OpError,
+) -> Result<Value, OpError> {
+    let OpError::Api(api) = &error else {
+        return Err(error);
+    };
+    let Some(refused) = crate::api::dry_run::refused_check(api, manifest) else {
+        return Err(error);
+    };
+    let verdict = refused
+        .verdict
+        .clone()
+        .expect("refused_check sets a verdict");
+    record_refused_check(state, project, manifest, &verdict).await;
+    let mut out = serde_json::to_value(&refused)?;
+    out["verdict"] = serde_json::to_value(&verdict)?;
+    Ok(out)
+}
+
 /// A bundle has no kind and name of its own, so its check is held under this kind and the
 /// caller's name: one checked import per person and project (T-1460).
 const IMPORT_CHECK_KIND: &str = "ImportBundle";
@@ -1648,13 +1695,24 @@ fn core_operations() -> Vec<Operation> {
                         OpError::InvalidInput { path, message }
                     })?;
                     let (manifest, draft_ref) = resolve_manifest_input(state, project, &input).await?;
-                    let res = dry_run::execute_dry_run(
+                    let answer = dry_run::execute_dry_run(
                         &caller.identity,
                         state,
                         project,
                         manifest.clone(),
                     )
-                    .await?;
+                    .await;
+                    // A check that rejects the manifest answers the red verdict that says why, and
+                    // not an error the caller has to read a second way (T-2234): this is the check
+                    // every form and the assistant run. The red verdict reaches a draft that is
+                    // already there and writes none of its own, because what was refused can be a
+                    // credential typed into the manifest (T-2238).
+                    let res = match answer {
+                        Ok(res) => res,
+                        Err(err) => {
+                            return refused_check_output(state, project, &manifest, err.into()).await
+                        }
+                    };
                     let ok = res.valid;
                     let mut findings = Vec::new();
                     if !ok {
@@ -1887,8 +1945,15 @@ fn core_operations() -> Vec<Operation> {
                 Box::pin(async move {
                     let input: ManifestInput = parse_input(val)?;
                     let (manifest, draft_ref) = resolve_manifest_input(state, project, &input).await?;
-                    let mut out =
-                        mutate_manifest(caller, state, project, "datasources", manifest.clone(), true, false).await?;
+                    let mut out = match mutate_manifest(caller, state, project, "datasources", manifest.clone(), true, false).await {
+                        Ok(out) => out,
+                        // The same refusal a `DataSource` used to answer as a 4xx: a probe that
+                        // failed was always a red verdict, a manifest the door rejected never was
+                        // (T-2234).
+                        Err(error) => {
+                            return refused_check_output(state, project, &manifest, error).await
+                        }
+                    };
                     let verdict = datasource_verdict(&out, &manifest);
                     if let Some(d) = &draft_ref {
                         record_verdict(caller, state, project, d, &manifest, &verdict).await;

@@ -44,6 +44,15 @@ async fn tree(server: &MockServer, git_ref: &str, entries: &[(&str, &str)]) {
         .await;
 }
 
+/// The head commit of a branch, as `GET /branches/{branch}` answers it.
+async fn branch(server: &MockServer, name: &str, head: &str) {
+    Mock::given(method("GET"))
+        .and(path(format!("{REPO}/branches/{name}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "commit": { "id": head } })))
+        .mount(server)
+        .await;
+}
+
 async fn file(server: &MockServer, git_ref: &str, file_path: &str, content: &str) {
     Mock::given(method("GET"))
         .and(path(format!("{REPO}/contents/{file_path}")))
@@ -82,16 +91,20 @@ async fn world(open: bool, branch_exists: bool) -> (MockServer, AppState) {
         &[(a, "a1"), (b, "b1"), (gone, "g1"), ("README.md", "r1")],
     )
     .await;
+    // A branch whose name has a slash is read the way real Gitea serves it: the head commit from
+    // `branches/{branch}`, then the tree by that sha. Gitea answers 404 for
+    // `git/trees/workspace/bikes-v2`, so a stub on that path proves nothing (T-2266).
     if branch_exists {
+        branch(&server, "workspace/bikes-v2", "ws1").await;
         tree(
             &server,
-            "workspace/bikes-v2",
+            "ws1",
             &[(a, "a2"), (b, "b1"), (c, "c1"), ("README.md", "r2")],
         )
         .await;
     } else {
         Mock::given(method("GET"))
-            .and(path(format!("{REPO}/git/trees/workspace/bikes-v2")))
+            .and(path(format!("{REPO}/branches/workspace/bikes-v2")))
             .respond_with(
                 ResponseTemplate::new(404).set_body_json(json!({ "message": "not found" })),
             )

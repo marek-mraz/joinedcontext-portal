@@ -35,6 +35,15 @@ fn state_with(gitea: &MockServer) -> AppState {
         ORG_NAMESPACE,
         json!({ "rules": [{ "kinds": ["App"], "verbs": ["propose"] }] }),
     ));
+    // The space the app's `dataNeeds` names: a manifest naming a resource that is not in the
+    // project is refused before the lane is judged at all (MF-13, T-2268), and this project really
+    // does hold it.
+    state.mirror.upsert(envelope(
+        "ContextSpace",
+        "ovzdusie",
+        "ovzdusie",
+        json!({ "dataModelRef": "air" }),
+    ));
     for (who, role) in [("builder", "app-builder"), ("jana", "app-editor")] {
         state.mirror.upsert(envelope(
             "RoleBinding",

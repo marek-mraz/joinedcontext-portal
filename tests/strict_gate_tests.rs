@@ -804,12 +804,11 @@ async fn a_changed_or_refused_manifest_is_not_proposed_on_an_earlier_check() {
 
     let mut invalid = space("water", true);
     invalid["spec"]["isSandbox"] = json!("not a flag");
-    let (status, _) = rest(&app, "POST", &format!("{uri}?dryRun=All"), &invalid).await;
-    assert_eq!(
-        status,
-        StatusCode::BAD_REQUEST,
-        "the check refuses the manifest itself"
-    );
+    let (status, refused) = rest(&app, "POST", &format!("{uri}?dryRun=All"), &invalid).await;
+    // The check refuses the manifest itself, as the red verdict that says why (T-2234), so the
+    // gate below has no green verdict to find.
+    assert_eq!(status, StatusCode::OK, "{refused}");
+    assert_eq!(refused["verdict"]["ok"], false, "{refused}");
     let (status, body) = rest(&app, "POST", uri, &invalid).await;
     assert_eq!(
         status,
@@ -1040,6 +1039,22 @@ async fn rest_door_with_a_draft_reaches_the_check_and_the_gate() {
 
     // AG-77, T-0842: a kind without a propose operation of its own goes the same way. The form
     // of a Dashboard sends its draft to the collection route and gets a Change, not a 400.
+    // The endpoint its widget reads is in the project, because a dashboard drawing one that is not
+    // there is refused by the check (MF-13, T-2268).
+    state.mirror.upsert(
+        serde_json::from_value(json!({
+            "apiVersion": API_VERSION,
+            "kind": "Endpoint",
+            "metadata": { "name": "bikes", "namespace": "ovzdusie" },
+            "spec": {
+                "contextSpaceRef": "ovzdusie",
+                "slug": "zt4qm7ge2xdv6ksb3ncf5arw2y",
+                "audience": "project-list",
+                "enabledRepresentations": ["ngsi-ld"]
+            }
+        }))
+        .expect("an envelope"),
+    );
     let dashboard = json!({
         "apiVersion": API_VERSION,
         "kind": "Dashboard",

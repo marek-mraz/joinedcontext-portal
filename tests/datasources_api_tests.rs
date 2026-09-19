@@ -330,20 +330,23 @@ async fn a_token_pasted_into_a_secret_name_is_refused_and_never_echoed() {
         .await
         .expect("response");
 
+    // A check that rejects the manifest answers the red verdict that says why (T-2234); what must
+    // never happen is a check that passes this manifest.
+    assert_eq!(response.status(), StatusCode::OK);
+    let answer: Value = body_of(response).await;
     assert_eq!(
-        response.status(),
-        StatusCode::BAD_REQUEST,
-        "a dry run that answers green here is a token on its way to Git"
+        answer["verdict"]["ok"],
+        Value::Bool(false),
+        "a check that answers green here is a token on its way to Git: {answer}"
     );
-    let problem: ProblemDetails = body_of(response).await;
-    let detail = problem.detail.unwrap_or_default();
+    let said = answer["verdict"]["findings"].to_string();
     assert!(
-        detail.contains("passwordRef"),
-        "the refusal names the field: {detail}"
+        said.contains("passwordRef"),
+        "the refusal names the field: {said}"
     );
     assert!(
-        !detail.contains(token),
-        "the refusal repeats the credential: {detail}"
+        !said.contains(token),
+        "the refusal repeats the credential: {said}"
     );
 }
 
@@ -381,11 +384,10 @@ async fn an_access_token_in_a_runner_input_is_refused_by_its_key() {
         .await
         .expect("response");
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let detail = body_of::<ProblemDetails>(response)
-        .await
-        .detail
-        .unwrap_or_default();
+    assert_eq!(response.status(), StatusCode::OK);
+    let answer: Value = body_of(response).await;
+    assert_eq!(answer["verdict"]["ok"], Value::Bool(false), "{answer}");
+    let detail = answer["verdict"]["findings"].to_string();
     assert!(
         detail.contains("access_token"),
         "the refusal names the key so the author knows what to reference: {detail}"

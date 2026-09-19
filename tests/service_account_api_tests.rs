@@ -412,7 +412,14 @@ async fn an_account_whose_client_id_another_project_derives_is_refused_at_check(
     };
 
     let refused = check("helsinki-kpi", account("helsinki-kpi", "writer")).await;
-    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.text);
+    // A check that rejects the manifest answers the red verdict that says why (T-2234); PF-59 is
+    // the point of the case, and the holder must not be named whatever shape the refusal takes.
+    assert_eq!(refused.status, StatusCode::OK, "{}", refused.text);
+    assert!(
+        refused.text.contains("\"ok\":false"),
+        "the check refuses it: {}",
+        refused.text
+    );
     assert!(
         refused.text.contains("helsinki-kpi-writer"),
         "{}",

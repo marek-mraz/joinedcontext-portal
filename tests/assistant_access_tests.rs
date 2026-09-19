@@ -1012,7 +1012,11 @@ async fn a_profile_naming_an_operation_the_portal_does_not_register_is_refused_o
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body = String::from_utf8_lossy(&bytes);
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    // A check that rejects the manifest answers the red verdict that says why (T-2234), and what
+    // matters here is that the profile is refused and told which name it was.
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let answer: serde_json::Value = serde_json::from_str(&body).expect("the check answers json");
+    assert_eq!(answer["verdict"]["ok"], json!(false), "{body}");
     assert!(
         body.contains("jc_launch_rockets") && body.contains("MF-40"),
         "{body}"

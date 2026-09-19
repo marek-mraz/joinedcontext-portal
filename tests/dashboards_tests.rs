@@ -93,11 +93,39 @@ fn manifest(env: &ResourceEnvelope) -> Value {
     serde_json::to_value(env).expect("json")
 }
 
+/// The check of one manifest (`?dryRun=All`), which is where a person meets this rule.
 async fn put(
     config: &Config,
     envelopes: Vec<ResourceEnvelope>,
     plural: &str,
     body: &Value,
+) -> (StatusCode, String) {
+    write(config, envelopes, plural, body, true).await
+}
+
+/// The same manifest proposed for real, to prove the rule is not only in the check.
+async fn propose(
+    config: &Config,
+    envelopes: Vec<ResourceEnvelope>,
+    plural: &str,
+    body: &Value,
+) -> (StatusCode, String) {
+    write(config, envelopes, plural, body, false).await
+}
+
+/// A red verdict's findings as one string, for a check that refused the manifest (T-2234).
+fn findings(body: &str) -> String {
+    let answer: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    assert_eq!(answer["verdict"]["ok"], false, "{body}");
+    answer["verdict"]["findings"].to_string()
+}
+
+async fn write(
+    config: &Config,
+    envelopes: Vec<ResourceEnvelope>,
+    plural: &str,
+    body: &Value,
+    dry_run: bool,
 ) -> (StatusCode, String) {
     let state = AppState::new(config.clone(), None);
     for env in envelopes {
@@ -109,7 +137,8 @@ async fn put(
             Request::builder()
                 .method("PUT")
                 .uri(format!(
-                    "/api/v1/projects/{PROJECT}/{plural}/{name}?dryRun=All"
+                    "/api/v1/projects/{PROJECT}/{plural}/{name}{}",
+                    if dry_run { "?dryRun=All" } else { "" }
                 ))
                 .header(header::COOKIE, cookies(config))
                 .header(CSRF_HEADER, CSRF)
@@ -152,11 +181,24 @@ async fn a_public_dashboard_on_a_private_endpoint_is_refused_with_the_reason() {
         &dashboard("public", &["stations"]),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    // A check that rejects the manifest answers the red verdict that says why (T-2234).
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let said = findings(&body);
     assert!(
-        body.contains("stations reads air whose audience is organization"),
-        "{body}"
+        said.contains("stations reads air whose audience is organization"),
+        "{said}"
     );
+    assert!(said.contains("UI-19"), "{said}");
+
+    // And the rule is the door's, not the check's: proposing it for real is refused too.
+    let (status, body) = propose(
+        &config,
+        vec![endpoint("air", "organization"), layer("stations", "air")],
+        "dashboards",
+        &dashboard("public", &["stations"]),
+    )
+    .await;
+    assert!(status.is_client_error(), "{status} {body}");
     assert!(body.contains("UI-19"), "{body}");
 
     // The same dashboard kept inside the project reads whatever it likes.
@@ -191,8 +233,8 @@ async fn a_layer_of_a_public_dashboard_cannot_move_to_a_private_endpoint() {
         &manifest(&moved),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body.contains("public dashboard air"), "{body}");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(findings(&body).contains("public dashboard air"), "{body}");
 
     // And the endpoint it reads cannot leave the public audience either.
     let (status, body) = put(
@@ -206,6 +248,6 @@ async fn a_layer_of_a_public_dashboard_cannot_move_to_a_private_endpoint() {
         &manifest(&endpoint("air", "organization")),
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(body.contains("public dashboard air"), "{body}");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(findings(&body).contains("public dashboard air"), "{body}");
 }

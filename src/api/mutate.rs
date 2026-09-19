@@ -463,7 +463,10 @@ async fn propose_checked(
                     .verdict
                     .clone()
                     .expect("refused_check sets a verdict");
-                record_check_as(user, front, state, project, &manifest, &verdict).await;
+                // The red verdict reaches the draft the person is working in and writes none of its
+                // own: what this check refused can be a credential typed into the manifest, and a
+                // draft created to hold it would store the value the refusal exists to stop.
+                crate::ops::record_refused_check(state, project, &manifest, &verdict).await;
                 refused.verdict = Some(verdict);
                 return Ok((StatusCode::OK, Json(refused)).into_response());
             }

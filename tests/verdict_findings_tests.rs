@@ -58,9 +58,15 @@ fn session_cookie(config: &Config) -> String {
 
 /// One check of `manifest` under `plural`, as the form runs it: `?dryRun=All`, this person's session.
 async fn check(plural: &str, manifest: Value) -> (StatusCode, Value) {
+    let (status, body, _) = check_on(plural, manifest).await;
+    (status, body)
+}
+
+/// The same, keeping the state, so what the check left behind can be read back.
+async fn check_on(plural: &str, manifest: Value) -> (StatusCode, Value, AppState) {
     let config = Config::for_tests();
     let state = AppState::new(config.clone(), None).with_mirror(Arc::new(Mirror::new()));
-    let app = server::app(state);
+    let app = server::app(state.clone());
     let response = app
         .oneshot(
             Request::builder()
@@ -77,7 +83,7 @@ async fn check(plural: &str, manifest: Value) -> (StatusCode, Value) {
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    (status, body)
+    (status, body, state)
 }
 
 #[tokio::test]
@@ -210,4 +216,52 @@ async fn a_refusal_that_is_not_about_the_manifest_stays_an_error() {
 
     assert!(status.is_client_error(), "{status} {body}");
     assert!(body["verdict"].is_null(), "{body}");
+}
+
+#[tokio::test]
+async fn a_refused_check_writes_no_draft_of_its_own() {
+    // The refusal can be about what the manifest holds — a credential typed into a `secretRef`
+    // name is refused by the door (T-2238) — so a draft created to carry the refused manifest
+    // would store the value the refusal exists to stop. The red verdict reaches a draft that is
+    // already there and nothing else is written.
+    let token = "glpat-not-a-real-token-abcdefghij";
+    let (status, body, state) = check_on(
+        "datasources",
+        json!({
+            "apiVersion": API_VERSION,
+            "kind": "DataSource",
+            "metadata": { "name": "aq-feed", "namespace": "ovzdusie" },
+            "spec": {
+                "type": "mqtt",
+                "mqtt": {
+                    "urls": ["tls://mqtt.banskabystrica.sk:8883"],
+                    "topics": ["sensors/aq/+/reading"],
+                    "passwordRef": { "name": token, "key": "password" }
+                }
+            },
+            "draft": { "kind": "DataSource", "name": "aq-feed" }
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"]["ok"], false, "{body}");
+    let said = body["verdict"]["findings"].to_string();
+    assert!(
+        said.contains("passwordRef"),
+        "the finding names the field: {said}"
+    );
+    assert!(
+        !said.contains(token),
+        "the finding repeats the credential: {said}"
+    );
+
+    let drafts = joinedcontext_portal::ops::draft_store(&state)
+        .list("ovzdusie")
+        .await
+        .expect("the drafts list");
+    assert!(
+        drafts.is_empty(),
+        "a refused check created a draft holding the manifest it refused: {drafts:?}"
+    );
 }

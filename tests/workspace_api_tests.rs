@@ -54,6 +54,15 @@ async fn tree(server: &MockServer, git_ref: &str, entries: &[(&str, &str)]) {
         .await;
 }
 
+/// The head commit of a branch, as `GET /branches/{branch}` answers it.
+async fn branch(server: &MockServer, name: &str, head: &str) {
+    Mock::given(method("GET"))
+        .and(path(format!("{REPO}/branches/{name}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "commit": { "id": head } })))
+        .mount(server)
+        .await;
+}
+
 async fn file(server: &MockServer, git_ref: &str, content: &str) {
     Mock::given(method("GET"))
         .and(path(format!("{REPO}/contents/{AIR}")))
@@ -121,7 +130,10 @@ async fn opened(state: &AppState) {
 
 /// The workspace changed `air`'s ttlDays to 20; main is `main_air`.
 async fn changed(server: &MockServer, main_air: &str, main_sha: &str) {
-    tree(server, "workspace/air-v2", &[(AIR, "s-ours")]).await;
+    // The copy's branch is read as real Gitea serves a slashed ref: the head commit from
+    // `branches/{branch}`, then the tree by that sha (T-2266).
+    branch(server, "workspace/air-v2", "ws1").await;
+    tree(server, "ws1", &[(AIR, "s-ours")]).await;
     tree(server, "base1", &[(AIR, "s-base")]).await;
     tree(server, "main", &[(AIR, main_sha)]).await;
     file(server, "workspace/air-v2", &space("en", 12)).await;
@@ -439,7 +451,8 @@ async fn bringing_back_is_refused_with_a_conflict_or_nothing_changed() {
 
     let (server, state) = world().await;
     opened(&state).await;
-    tree(&server, "workspace/air-v2", &[(AIR, "s-base")]).await;
+    branch(&server, "workspace/air-v2", "ws1").await;
+    tree(&server, "ws1", &[(AIR, "s-base")]).await;
     tree(&server, "base1", &[(AIR, "s-base")]).await;
     tree(&server, "main", &[(AIR, "s-base")]).await;
     let answer = send(
