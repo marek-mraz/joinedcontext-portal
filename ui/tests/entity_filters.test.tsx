@@ -140,10 +140,15 @@ describe("filters from the model", () => {
   });
 });
 
+/** The URL of one call: the page sends a `Request`, the SDK grid's transport a path (T-1432). */
+function urlOf(input: unknown): URL {
+  const raw = typeof input === "string" ? input : (input as Request).url;
+  return new URL(raw, window.location.origin);
+}
+
 function renderExplore(model: Manifest = MODEL) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
-    const request = input as Request;
-    const url = new URL(request.url);
+    const url = urlOf(input);
     const json = (body: unknown, headers: Record<string, string> = {}) =>
       Promise.resolve(
         new Response(JSON.stringify(body), {
@@ -181,7 +186,7 @@ function renderExplore(model: Manifest = MODEL) {
 
 const gatewayUrls = (fetchMock: ReturnType<typeof vi.fn>) =>
   fetchMock.mock.calls
-    .map((call) => new URL((call[0] as Request).url))
+    .map((call) => urlOf(call[0]))
     .filter((url) => url.pathname.includes("/ngsi-ld/v1/entities"));
 
 describe("data explorer (UI-33)", () => {
@@ -203,7 +208,8 @@ describe("data explorer (UI-33)", () => {
 
     // The whole type first: two rows and the broker's count.
     expect(await screen.findByText(ROWS[1].id)).toBeInTheDocument();
-    expect(screen.getByText("2 entities")).toBeInTheDocument();
+    // The endpoint's own count, as the grid's footer says it (R22).
+    expect(screen.getByText(`2 ${en.entityGrid.matching}`)).toBeInTheDocument();
 
     // A row from the model: pm10 is a float, so the value is a number input and > is offered.
     await userEvent.click(screen.getByRole("button", { name: en.entities.addFilter }));
@@ -217,7 +223,7 @@ describe("data explorer (UI-33)", () => {
     expect(last.pathname).toContain("/api/endpoint/k7m2qz4tv6xh3n5jb2ryd3wcfa/");
     expect(last.searchParams.get("q")).toBe("pm10>20");
     expect(last.searchParams.get("count")).toBe("true");
-    expect(screen.getByText("1 entities")).toBeInTheDocument();
+    expect(screen.getByText(`1 ${en.entityGrid.matching}`)).toBeInTheDocument();
 
     // A q typed by hand outside the simple grammar shows as text, no rows.
     await userEvent.clear(screen.getByLabelText(en.entities.q));
@@ -228,7 +234,11 @@ describe("data explorer (UI-33)", () => {
     await userEvent.click(await screen.findByRole("button", { name: ROWS[1].id }));
     const detail = await screen.findByTestId("explore-entity");
     await within(detail).findByText(/observedAt/);
-    expect(gatewayUrls(fetchMock).at(-1)!.pathname).toContain(encodeURIComponent(ROWS[1].id));
+    // The entity was read by its id through the same endpoint; the grid's own list read may be the
+    // last call of all, so what matters is that this one happened at all.
+    expect(
+      gatewayUrls(fetchMock).some((url) => url.pathname.includes(encodeURIComponent(ROWS[1].id))),
+    ).toBe(true);
   });
 
   it("generates the rows of a model the repository holds as a file (T-0797)", async () => {
@@ -242,7 +252,7 @@ describe("data explorer (UI-33)", () => {
     await waitFor(() => expect(screen.getByLabelText(en.entities.value)).toHaveAttribute("type", "number"));
     expect(
       fetchMock.mock.calls.some((call) =>
-        new URL((call[0] as Request).url).pathname.endsWith("/datamodels/bb-air-quality/source"),
+        urlOf(call[0]).pathname.endsWith("/datamodels/bb-air-quality/source"),
       ),
     ).toBe(true);
   });
