@@ -472,10 +472,13 @@ describe("EntityGrid", () => {
       );
       await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
       fireEvent.click(screen.getByRole("button", { name: DEFAULT_LABELS.next }));
-      await waitFor(() => expect(screen.getByText("Kallio")).toBeInTheDocument());
 
-      const last = pages.at(-1)!;
-      expect(last).toEqual({ ids: [bikeEntities[1].id], offset: 1 });
+      // Waited on for its own sake, not for the row to paint (T-2275): the text and the handover are
+      // two effects of one render, so asserting after the text can read the call before it happened.
+      // This still fails if the handover never comes — `waitFor` ends in the assertion's own failure.
+      await waitFor(() =>
+        expect(pages.at(-1)).toEqual({ ids: [bikeEntities[1].id], offset: 1 }),
+      );
     });
   });
 });
