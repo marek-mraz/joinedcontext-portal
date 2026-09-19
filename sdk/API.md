@@ -146,6 +146,36 @@ function cellText(cell: RichCell | RichCell[] | undefined): string
 ```
 The rich cell model: a multi-instance attribute (several `datasetId`s) is an array; `raw` is the entity as received, so an edit never drops a member the grid does not show.
 
+### The grid and the map together (UI-72, UI-66, UI-67)
+```ts
+function GridMap(props: GridMapProps): JSX.Element          // the panel `config.map.enabled` mounts
+function mapAttrOf(rows: RichRow[], named?: string): string | null
+function geometryOfRow(row: RichRow, attr: string): Geometry | null
+function featuresOfRows(rows, attr, edits?): GeoFeature[]   // pending edits included
+function rowsOffTheMap(rows, attr, edits?): string[]         // the rows with no geometry
+function diffGeometry(before: Geometry | null, after: Geometry | null): GeometryDiff
+function summaryOf(before, after, labels: GridMapLabels): string   // "Point moved 38 m"
+function metresBetween(a: Position, b: Position): number
+function verticesOf(g: Geometry | null): Position[]
+function areaQuery(area: GeoArea | null, maxChars?): GeoQuery | null
+function ringOf(g: Geometry): Position[] | null
+function ringOfBounds(west, south, east, north): Position[]
+function decimate(ring: Position[], maxChars: number): { ring: Position[]; simplified: boolean }
+const MAX_COORDINATES_CHARS = 1800
+const DEFAULT_GRID_MAP_LABELS: GridMapLabels
+```
+The map is a second view of the same page, never a second query. `config.map` turns it on
+(`{ enabled, attr?, position? }`); the attribute is the one it names or the page's first geometry,
+and a type with none gets no panel and no action. A click on a shape moves the grid's active cell to
+that row (`setActive`), and the active row's shape is drawn chosen — one selection, both ways. In
+edit mode the active row's geometry is edited in `GeoEditor` with every other row behind it to draw
+against; what comes back joins the grid's pending edits, is reviewed as "Point moved 38 m" or
+"Polygon reshaped: 2 vertices added, area +4 %", and is applied by the same `applyChanges` as any
+cell — as a **GeoProperty**, because writing a geometry as a Property would change what the
+attribute is at the broker. `setArea` holds the drawn rectangle, which `areaQuery` turns into
+`georel=within` + `geometry` + `coordinates` + `geoproperty`; the ring is rounded to six decimals and
+then evenly decimated to fit the URL, and the panel says so when the filter is no longer the shape.
+
 ### Geometry: view and edit (UI-72, SDK-29)
 ```ts
 function GeoView(props: { value, selectedId?, onSelect?, accent?, basemap?, label? }): JSX.Element

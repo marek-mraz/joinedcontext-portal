@@ -13,7 +13,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useTranslation } from "react-i18next";
 import { EntityGrid, DEFAULT_LABELS, originTransport, sourceFor } from "@joinedcontext/sdk";
-import type { EntityGridProps, GridLabels, GridSource, GridState, ResolvedGridConfig } from "@joinedcontext/sdk";
+import type { EntityGridProps, GeoLabels, GridLabels, GridMapLabels, GridSource, GridState, ResolvedGridConfig } from "@joinedcontext/sdk";
 
 /** Where the layout a person set is kept, per project and per type. */
 function layoutKey(project: string, type: string): string {
@@ -125,6 +125,53 @@ export function gridLabels(t: (key: string) => string): GridLabels {
   };
 }
 
+/** The geometry editor's words, for the editor the map panel opens (UI-72, T-1442). */
+export function geoEditorLabels(t: (key: string) => string): GeoLabels {
+  return {
+    tools: t("entityGrid.geo.tools"),
+    select: t("entityGrid.geo.select"),
+    undo: t("entityGrid.geo.undo"),
+    redo: t("entityGrid.geo.redo"),
+    remove: t("entityGrid.geo.remove"),
+    removeShape: t("entityGrid.geo.removeShape"),
+    point: t("entityGrid.geo.point"),
+    longitude: t("entityGrid.geo.longitude"),
+    latitude: t("entityGrid.geo.latitude"),
+    noGeometry: t("entityGrid.geo.noGeometry"),
+    paste: t("entityGrid.geo.paste"),
+    take: t("entityGrid.geo.take"),
+    upload: t("entityGrid.geo.upload"),
+    notJson: t("entityGrid.geo.notJson"),
+    tooLarge: t("entityGrid.geo.tooLarge"),
+    modes: {
+      point: t("entityGrid.geo.modes.point"),
+      linestring: t("entityGrid.geo.modes.linestring"),
+      polygon: t("entityGrid.geo.modes.polygon"),
+      rectangle: t("entityGrid.geo.modes.rectangle"),
+      circle: t("entityGrid.geo.modes.circle"),
+      freehand: t("entityGrid.geo.modes.freehand"),
+    },
+  };
+}
+
+/** The map panel's words, in the person's language (UI-72). */
+export function gridMapLabels(t: (key: string) => string): GridMapLabels {
+  return {
+    panel: t("entityGrid.map.panel"),
+    offTheMap: t("entityGrid.map.offTheMap"),
+    drawArea: t("entityGrid.map.drawArea"),
+    clearArea: t("entityGrid.map.clearArea"),
+    areaAsked: t("entityGrid.map.areaAsked"),
+    areaSimplified: t("entityGrid.map.areaSimplified"),
+    editGeometry: t("entityGrid.map.editGeometry"),
+    moved: t("entityGrid.map.moved"),
+    reshaped: t("entityGrid.map.reshaped"),
+    replaced: t("entityGrid.map.replaced"),
+    noGeometry: t("entityGrid.map.noGeometry"),
+    viewerCannotEdit: t("entityGrid.map.viewerCannotEdit"),
+  };
+}
+
 export interface PortalEntityGridProps extends Omit<EntityGridProps, "labels" | "source" | "state" | "onStateChange"> {
   /** The project whose layout this is, so two projects do not share one person's columns. */
   project: string;
@@ -142,6 +189,8 @@ export function PortalEntityGrid({ project, config, source, ...rest }: PortalEnt
   // `t` changes identity on a language change, which is what rebuilds the labels; the language
   // itself is read below, for the source's own locale.
   const labels = useMemo(() => gridLabels(t), [t]);
+  const mapLabels = useMemo(() => gridMapLabels(t), [t]);
+  const geoLabels = useMemo(() => geoEditorLabels(t), [t]);
 
   const built = useMemo(() => {
     if (source) {
@@ -172,6 +221,10 @@ export function PortalEntityGrid({ project, config, source, ...rest }: PortalEnt
       config={config}
       source={built}
       labels={labels}
+      // The map's own strings. No `mapEngine`: `GeoEditor`'s own default imports Terra Draw when a
+      // map loads, so a page whose config asks for no map never downloads the library at all.
+      mapLabels={mapLabels}
+      geoLabels={geoLabels}
       // Only the layout is controlled from here: the offset, the filters and the edits stay the
       // grid's own, so nothing a person is in the middle of survives a reload it should not.
       state={layout}

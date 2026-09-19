@@ -50,6 +50,16 @@ export interface EntityGridProps extends UseEntityGridOptions {
   classNames?: Partial<Record<"root" | "table" | "header" | "row" | "cell" | "pager", string>>;
 }
 
+/** Whether a pending value is a geometry, so a geo cell stays a geo cell while it is changed. */
+function isGeometry(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { type?: unknown }).type === "string" &&
+    (value as { coordinates?: unknown }).coordinates !== undefined
+  );
+}
+
 export function EntityGrid(props: EntityGridProps): React.JSX.Element {
   const {
     renderers,
@@ -191,6 +201,20 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
     if (column.attr && editable(column)) {
       const pending = state.edits[row.id]?.[column.attr];
       const one = Array.isArray(cell) ? cell[0] : cell;
+      // A geometry is not typed over. Its editor is the map panel, and a text box here would put
+      // `[object Object]` in front of a person and write that string back as the value (T-1443).
+      // The cell still says what it holds and marks a pending change, so the table stays the
+      // record of what will be sent.
+      if (one?.kind === "geo" || (pending !== undefined && isGeometry(pending))) {
+        const geometry = (pending ?? one?.value) as { type?: unknown } | undefined;
+        const kind = typeof geometry?.type === "string" ? geometry.type : labels.empty;
+        return (
+          <span className={`jc-grid-geo-cell${pending !== undefined ? " jc-grid-cell--changed" : ""}`}>
+            {kind}
+            {pending !== undefined ? " *" : ""}
+          </span>
+        );
+      }
       // The value itself, not the text the cell shows: a person edits `5`, not `5 C62` — the unit
       // is what the value is measured in and is kept, never typed over.
       const own = one?.kind === "relationship" ? one.object : one?.value;

@@ -251,3 +251,42 @@ describe("edit mode", () => {
     await waitFor(() => expect(reads.count).toBeGreaterThan(before));
   });
 });
+
+describe("a geometry cell in edit mode (T-1443, UI-72)", () => {
+  const withGeometry = [
+    {
+      id: "urn:ngsi-ld:BikeHireDockingStation:hel:helsinki:001",
+      type: "BikeHireDockingStation",
+      name: { type: "Property", value: "Kamppi" },
+      location: { type: "GeoProperty", value: { type: "Point", coordinates: [24.931, 60.169] } },
+    },
+  ];
+
+  function geoConfig() {
+    const parsed = parseGridConfig({
+      source: { kind: "fixture", name: "test" },
+      type: "BikeHireDockingStation",
+      columns: [{ attr: "name", label: "Name" }, { attr: "location", label: "Location" }],
+      mode: "edit",
+      editableAttrs: ["name", "location"],
+      pageSize: 10,
+    });
+    expect(parsed.findings, JSON.stringify(parsed.findings)).toEqual([]);
+    return parsed.config!;
+  }
+
+  function source() {
+    const inner = fixtureSource(withGeometry);
+    return { ...inner, patch: async () => {} };
+  }
+
+  it("offers no text box over a geometry, because a text box would show and write [object Object]", async () => {
+    render(<EntityGrid config={geoConfig()} source={source()} />);
+    await waitFor(() => expect(screen.getByDisplayValue("Kamppi")).toBeInTheDocument());
+    // The scalar column opens; the geometry column does not.
+    expect(screen.queryByRole("textbox", { name: /Location/ })).toBeNull();
+    expect(screen.queryByDisplayValue("[object Object]")).toBeNull();
+    // The cell still says what it holds, so the table stays the record of the row.
+    expect(screen.getByText("Point")).toBeInTheDocument();
+  });
+});

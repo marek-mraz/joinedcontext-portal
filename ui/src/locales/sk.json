@@ -1435,7 +1435,46 @@
     "observedKeep": "ponechať, kedy bola hodnota pozorovaná",
     "observedNow": "tieto hodnoty boli pozorované teraz",
     "applying": "Uplatňujem…",
-    "refusedHere": "odmietnuté"
+    "refusedHere": "odmietnuté",
+    "map": {
+      "panel": "Mapa",
+      "offTheMap": "nie je na mape",
+      "drawArea": "Nakresliť oblasť",
+      "clearArea": "Zrušiť oblasť",
+      "areaAsked": "Filtrované na nakreslenú oblasť",
+      "areaSimplified": "Filter je zjednodušený obrys toho, čo ste nakreslili",
+      "editGeometry": "Upraviť geometriu",
+      "moved": "posunutý o",
+      "reshaped": "zmenený",
+      "replaced": "vymenený",
+      "noGeometry": "Tento riadok ešte nemá geometriu",
+      "viewerCannotEdit": "Na mapu sa môžete pozerať, meniť ju nie"
+    },
+    "geo": {
+      "tools": "Nástroje kreslenia",
+      "select": "Vybrať",
+      "undo": "Späť",
+      "redo": "Znova",
+      "remove": "Odstrániť",
+      "removeShape": "Zmazať útvar",
+      "point": "Bod",
+      "longitude": "Zemepisná dĺžka",
+      "latitude": "Zemepisná šírka",
+      "noGeometry": "Bez geometrie",
+      "paste": "Vložte geometriu, Feature alebo FeatureCollection",
+      "take": "Prevziať",
+      "upload": "Nahrať súbor GeoJSON",
+      "notJson": "to nie je JSON",
+      "tooLarge": "ten súbor je väčší ako 1 MB",
+      "modes": {
+        "point": "Bod",
+        "linestring": "Líniu",
+        "polygon": "Plochu",
+        "rectangle": "Obdĺžnik",
+        "circle": "Kruh",
+        "freehand": "Voľnou rukou"
+      }
+    }
   },
   "explore": {
     "title": "Prehliadať dáta",

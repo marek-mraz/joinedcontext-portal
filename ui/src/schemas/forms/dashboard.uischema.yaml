@@ -272,6 +272,25 @@ spec:
         sk: "Koľko miesta zaberá riadok: úsporne pre viac riadkov, pohodlne pre viac miesta."
         cs: "Kolik místa zabírá řádek: úsporně pro více řádků, pohodlně pro více místa."
         de: "Wie viel Raum eine Zeile nimmt: kompakt für mehr Zeilen, bequem für mehr Platz."
+    pages[].widgets[].grid.map.enabled:
+      help:
+        en: Whether a map is shown beside the rows. Off when left out, and never shown for a type with no geometry.
+        sk: Či sa vedľa riadkov zobrazí mapa. Bez zadania vypnutá a nikdy pre typ bez geometrie.
+        cs: Zda se vedle řádků zobrazí mapa. Bez zadání vypnutá a nikdy pro typ bez geometrie.
+        de: Ob neben den Zeilen eine Karte erscheint. Ohne Angabe aus, und nie bei einem Typ ohne Geometrie.
+    pages[].widgets[].grid.map.attr:
+      placeholder: location
+      help:
+        en: Which geometry attribute the map draws. The type's first one when left out.
+        sk: Ktorý geometrický atribút mapa kreslí. Bez zadania prvý atribút typu.
+        cs: Který geometrický atribut mapa kreslí. Bez zadání první atribut typu.
+        de: Welches Geometrie-Attribut die Karte zeichnet. Ohne Angabe das erste des Typs.
+    pages[].widgets[].grid.map.position:
+      help:
+        en: Where the map sits, beside the rows or under them. Beside them when left out, and under them on a narrow screen either way.
+        sk: Kde mapa sedí, vedľa riadkov alebo pod nimi. Bez zadania vedľa a na úzkej obrazovke tak či tak pod nimi.
+        cs: Kde mapa sedí, vedle řádků nebo pod nimi. Bez zadání vedle a na úzké obrazovce tak či tak pod nimi.
+        de: Wo die Karte sitzt, neben den Zeilen oder darunter. Ohne Angabe daneben, auf schmalem Bildschirm ohnehin darunter.
     pages[].widgets[].grid.rowActions:
       placeholder: [open]
       help:

@@ -1435,7 +1435,46 @@
     "observedKeep": "beibehalten, wann jeder Wert beobachtet wurde",
     "observedNow": "diese Werte wurden jetzt beobachtet",
     "applying": "Wird angewendet…",
-    "refusedHere": "abgelehnt"
+    "refusedHere": "abgelehnt",
+    "map": {
+      "panel": "Karte",
+      "offTheMap": "nicht auf der Karte",
+      "drawArea": "Bereich zeichnen",
+      "clearArea": "Bereich entfernen",
+      "areaAsked": "Auf den gezeichneten Bereich gefiltert",
+      "areaSimplified": "Der Filter ist ein vereinfachter Umriss des Gezeichneten",
+      "editGeometry": "Geometrie bearbeiten",
+      "moved": "verschoben um",
+      "reshaped": "geändert",
+      "replaced": "ersetzt",
+      "noGeometry": "Diese Zeile hat noch keine Geometrie",
+      "viewerCannotEdit": "Sie dürfen diese Karte ansehen, nicht ändern"
+    },
+    "geo": {
+      "tools": "Zeichenwerkzeuge",
+      "select": "Auswählen",
+      "undo": "Zurück",
+      "redo": "Wiederholen",
+      "remove": "Entfernen",
+      "removeShape": "Form löschen",
+      "point": "Punkt",
+      "longitude": "Längengrad",
+      "latitude": "Breitengrad",
+      "noGeometry": "Keine Geometrie",
+      "paste": "Geometrie, Feature oder FeatureCollection einfügen",
+      "take": "Übernehmen",
+      "upload": "GeoJSON-Datei hochladen",
+      "notJson": "das ist kein JSON",
+      "tooLarge": "diese Datei ist größer als 1 MB",
+      "modes": {
+        "point": "Punkt",
+        "linestring": "Linie",
+        "polygon": "Fläche",
+        "rectangle": "Rechteck",
+        "circle": "Kreis",
+        "freehand": "Freihand"
+      }
+    }
   },
   "explore": {
     "title": "Daten erkunden",

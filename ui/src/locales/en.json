@@ -1435,7 +1435,46 @@
     "observedKeep": "keep when each value was observed",
     "observedNow": "these values were observed now",
     "applying": "Applying…",
-    "refusedHere": "refused"
+    "refusedHere": "refused",
+    "map": {
+      "panel": "Map",
+      "offTheMap": "not on the map",
+      "drawArea": "Draw area",
+      "clearArea": "Clear area",
+      "areaAsked": "Filtered to the drawn area",
+      "areaSimplified": "The filter is a simplified outline of what you drew",
+      "editGeometry": "Edit geometry",
+      "moved": "moved",
+      "reshaped": "reshaped",
+      "replaced": "replaced",
+      "noGeometry": "This row has no geometry yet",
+      "viewerCannotEdit": "You may look at this map, not change it"
+    },
+    "geo": {
+      "tools": "Drawing tools",
+      "select": "Select",
+      "undo": "Undo",
+      "redo": "Redo",
+      "remove": "Remove",
+      "removeShape": "Delete the shape",
+      "point": "Point",
+      "longitude": "Longitude",
+      "latitude": "Latitude",
+      "noGeometry": "No geometry",
+      "paste": "Paste a geometry, a Feature or a FeatureCollection",
+      "take": "Take it",
+      "upload": "Upload a GeoJSON file",
+      "notJson": "that is not JSON",
+      "tooLarge": "that file is larger than 1 MB",
+      "modes": {
+        "point": "Point",
+        "linestring": "Line",
+        "polygon": "Area",
+        "rectangle": "Rectangle",
+        "circle": "Circle",
+        "freehand": "Freehand"
+      }
+    }
   },
   "explore": {
     "title": "Explore data",
