@@ -4613,7 +4613,10 @@ export interface operations {
     };
     list_drafts: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The copy the draft belongs to (CC-76) */
+                workspace?: string;
+            };
             header?: never;
             path: {
                 /** @description Project name */
@@ -4704,7 +4707,10 @@ export interface operations {
     };
     get_draft: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The copy the draft belongs to (CC-76) */
+                workspace?: string;
+            };
             header?: never;
             path: {
                 /** @description Project name */
@@ -4758,7 +4764,10 @@ export interface operations {
     };
     put_draft: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The copy the draft belongs to (CC-76) */
+                workspace?: string;
+            };
             header?: never;
             path: {
                 /** @description Project name */
@@ -4843,7 +4852,10 @@ export interface operations {
     };
     drop_draft: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The copy the draft belongs to (CC-76) */
+                workspace?: string;
+            };
             header?: never;
             path: {
                 /** @description Project name */

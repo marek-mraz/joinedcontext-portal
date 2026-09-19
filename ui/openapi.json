@@ -2643,6 +2643,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "description": "The copy the draft belongs to (CC-76)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2769,6 +2778,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "description": "The copy the draft belongs to (CC-76)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2843,6 +2861,15 @@
             "in": "path",
             "description": "Draft name",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "description": "The copy the draft belongs to (CC-76)",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -2960,6 +2987,15 @@
             "in": "path",
             "description": "Draft name",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "description": "The copy the draft belongs to (CC-76)",
+            "required": false,
             "schema": {
               "type": "string"
             }
