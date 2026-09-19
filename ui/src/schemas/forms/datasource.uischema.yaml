@@ -6,6 +6,24 @@ metadata:
   name: datasource
 spec:
   for: DataSource
+  about:
+    en: >-
+      A data source is where the platform fetches from: a feed, a broker, an API. It brings
+      nothing in by itself — a pipeline reads it and writes into a space — so all it needs is the
+      address, how to reach it and, where the source asks for one, the name of a stored secret.
+    sk: >-
+      Dátový zdroj je miesto, odkiaľ platforma číta: kanál, broker, API. Sám nič neprinesie —
+      číta ho pipeline a zapisuje do priestoru — takže potrebuje len adresu, spôsob prístupu a,
+      ak to zdroj žiada, názov uloženého tajomstva.
+    cs: >-
+      Datový zdroj je místo, odkud platforma čte: kanál, broker, API. Sám nic nepřinese — čte jej
+      pipeline a zapisuje do prostoru — takže potřebuje jen adresu, způsob přístupu a, pokud to
+      zdroj žádá, název uloženého tajemství.
+    de: >-
+      Eine Datenquelle ist der Ort, von dem die Plattform abruft: ein Feed, ein Broker, eine API.
+      Sie bringt allein nichts herein — eine Pipeline liest sie und schreibt in einen Raum —, also
+      braucht sie nur die Adresse, den Zugang und, wo die Quelle es verlangt, den Namen eines
+      hinterlegten Secrets.
   # The form shows one connection at a time, the one the person picked; the others are
   # arranged here all the same and passed over while they are not on the form.
   variants: [mqtt, http, webSocket, gtfsRt]

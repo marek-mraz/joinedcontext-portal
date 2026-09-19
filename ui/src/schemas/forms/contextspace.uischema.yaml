@@ -6,6 +6,25 @@ metadata:
   name: contextspace
 spec:
   for: ContextSpace
+  about:
+    en: >-
+      A context space is where this project's entities live: the stations, sensors, vehicles or
+      buildings themselves, all of one data model. Give it a short name and pick the model its
+      entities follow; what goes in comes from a pipeline, and what comes out goes through an
+      endpoint.
+    sk: >-
+      Kontextový priestor je miesto, kde žijú entity tohto projektu: samotné stanice, senzory,
+      vozidlá či budovy, všetky podľa jedného dátového modelu. Dajte mu krátky názov a vyberte
+      model, ktorý jeho entity dodržiavajú; dovnútra sa dostanú cez pipeline, von cez endpoint.
+    cs: >-
+      Kontextový prostor je místo, kde žijí entity tohoto projektu: samotné stanice, senzory,
+      vozidla či budovy, všechny podle jednoho datového modelu. Dejte mu krátký název a vyberte
+      model, který jeho entity dodržují; dovnitř se dostanou přes pipeline, ven přes endpoint.
+    de: >-
+      Ein Kontextraum ist der Ort, an dem die Entitäten dieses Projekts leben: die Stationen,
+      Sensoren, Fahrzeuge oder Gebäude selbst, alle nach einem Datenmodell. Geben Sie ihm einen
+      kurzen Namen und wählen Sie das Modell; hinein kommt es über eine Pipeline, hinaus über
+      einen Endpunkt.
   order: [name, title, dataModelRef, defaultLocale, isSandbox, ttlDays]
   groups:
     - title:

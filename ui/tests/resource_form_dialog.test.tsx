@@ -189,6 +189,21 @@ describe("a manifest form", () => {
     expect(screen.getByLabelText(/Commit message/)).toBeTruthy();
   });
 
+  /**
+   * UI-02, T-1608: the dialog opens with what the kind is for, taken from the kind's own
+   * arrangement, and the shipped arrangements carry it for every kind with a form.
+   */
+  it("opens with what the kind is for, before any field", async () => {
+    stubFetch([ENDPOINT_FORM]);
+    renderDialog("Endpoint");
+
+    const about = await screen.findByTestId("form-about");
+    expect(about.textContent ?? "").toContain("endpoint is the door");
+    // It stands above the fields, so it is read before anything is typed.
+    const name = screen.getByLabelText(/^Name/);
+    expect(about.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("says so when a manifest asks for something the form cannot do", async () => {
     stubFetch([
       {

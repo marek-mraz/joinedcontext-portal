@@ -6,6 +6,23 @@ metadata:
   name: endpoint
 spec:
   for: Endpoint
+  about:
+    en: >-
+      An endpoint is the door through which other people read a context space: one address, the
+      formats you allow and the limits you set. Pick the space it serves and who may read it —
+      nothing is published until a person approves the change.
+    sk: >-
+      Endpoint sú dvere, ktorými iní ľudia čítajú kontextový priestor: jedna adresa, formáty,
+      ktoré povolíte, a limity, ktoré nastavíte. Vyberte priestor, ktorý obsluhuje, a kto ho smie
+      čítať — nič sa nezverejní, kým zmenu niekto neschváli.
+    cs: >-
+      Endpoint jsou dveře, kterými ostatní lidé čtou kontextový prostor: jedna adresa, formáty,
+      které povolíte, a limity, které nastavíte. Vyberte prostor, který obsluhuje, a kdo jej smí
+      číst — nic se nezveřejní, dokud změnu někdo neschválí.
+    de: >-
+      Ein Endpunkt ist die Tür, durch die andere einen Kontextraum lesen: eine Adresse, die
+      Formate, die Sie erlauben, und die Grenzen, die Sie setzen. Wählen Sie den Raum und wer
+      lesen darf — veröffentlicht wird erst, wenn eine Person die Änderung genehmigt.
   order:
     [
       contextSpaceRef,

@@ -6,6 +6,23 @@ metadata:
   name: dashboard
 spec:
   for: Dashboard
+  about:
+    en: >-
+      A dashboard is a page of maps and numbers built from endpoints this project can already
+      read. Give it a name and a title people recognise, say who may open it, and add the layers
+      and widgets that draw the data.
+    sk: >-
+      Nástenka je stránka s mapami a číslami, postavená z endpointov, ktoré tento projekt už vie
+      čítať. Dajte jej názov a titul, ktorý ľudia poznajú, povedzte, kto ju smie otvoriť, a pridajte
+      vrstvy a prvky, ktoré údaje vykreslia.
+    cs: >-
+      Nástěnka je stránka s mapami a čísly, postavená z endpointů, které tento projekt už umí
+      čist. Dejte jí název a titul, který lidé poznají, řekněte, kdo ji smí otevřít, a přidejte
+      vrstvy a prvky, které data vykreslí.
+    de: >-
+      Ein Dashboard ist eine Seite aus Karten und Zahlen, gebaut aus Endpunkten, die dieses
+      Projekt schon lesen kann. Geben Sie ihm einen Namen und einen Titel, den Menschen
+      wiedererkennen, sagen Sie, wer es öffnen darf, und fügen Sie die Ebenen und Elemente hinzu.
   order: [name, title, visibility, pages]
   groups:
     - title:

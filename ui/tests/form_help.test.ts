@@ -258,6 +258,39 @@ describe("the help and the example beside every form field", () => {
     });
   }
 
+  /**
+   * UI-02, T-1608: the form says what its kind is for before it asks anything. A person who opened
+   * the Layer form without knowing what a layer is has nowhere else to read it.
+   */
+  it("says what every kind is for, in all four locales, in two sentences", () => {
+    for (const kind of Object.keys(FORMS)) {
+      const manifest = manifestFor(kind);
+      for (const locale of LOCALES) {
+        const about = localized(manifest.spec.about, locale);
+        expect(about, `${kind} says what it is for in ${locale}`).toBeTruthy();
+        expect(
+          (about ?? "").length,
+          `${kind} in ${locale} is a paragraph, not a label`,
+        ).toBeGreaterThan(80);
+        // Two or three sentences: the person reads this standing in a dialog, not in a manual.
+        const sentences = (about ?? "")
+          .split(/[.!?](\s|$)/)
+          .filter((part) => part.trim().length > 2);
+        expect(
+          sentences.length,
+          `${kind} in ${locale} is ${sentences.length} sentences`,
+        ).toBeLessThanOrEqual(3);
+      }
+      const written = new Set(
+        LOCALES.map((locale) => localized(manifest.spec.about, locale)),
+      );
+      expect(
+        written.size,
+        `${kind} is translated, not copied`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it("names every shipped arrangement after the kind it arranges, lowercased (MF-02)", () => {
     for (const manifest of shippedForms) {
       expect(manifest.kind).toBe("UiSchema");

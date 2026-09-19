@@ -63,6 +63,11 @@ export interface UiSchemaSpec {
   /** The kind whose form this arranges. */
   for: string;
   /**
+   * What the kind is for, in two sentences, shown at the top of the form before it asks anything
+   * (Architecture/09 section 2): what it does for the person, and what it needs from them.
+   */
+  about?: LanguageMap;
+  /**
    * Top-level fields of which the form renders one at a time: a data source's `mqtt`, `http`,
    * `webSocket`, `gtfsRt`, a sync source's `git`, `bundle`, `platformApi`. One manifest arranges
    * every branch, so the ones the person did not pick are absent from the schema in front of them
@@ -97,6 +102,8 @@ export interface ArrangeOptions {
 /** What one arrangement produced, and what it could not use. */
 export interface Arranged {
   uiSchema: UiSchema;
+  /** What the kind is for, in the caller's locale, when the manifest says. */
+  about?: string;
   /** Everything the manifest asked for that this form cannot do, each in one clause. */
   problems: string[];
 }
@@ -273,7 +280,7 @@ export function arrange(manifest: UiSchemaManifest, options: ArrangeOptions = {}
     uiSchema["ui:options"] = { ...(uiSchema["ui:options"] as object | undefined), groups };
   }
 
-  return { uiSchema, problems };
+  return { uiSchema, about: localized(spec.about, options.locale), problems };
 }
 
 /**

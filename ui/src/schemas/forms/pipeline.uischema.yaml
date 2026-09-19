@@ -6,6 +6,25 @@ metadata:
   name: pipeline
 spec:
   for: Pipeline
+  about:
+    en: >-
+      A pipeline is what brings data in and keeps it fresh: it reads one source, maps each record
+      onto the entities of your data model and writes them through an endpoint. Say what it reads,
+      how often, and where it writes; the mapping itself is written and tested here before anyone
+      sees it.
+    sk: >-
+      Pipeline je to, čo privádza údaje a drží ich svieže: číta jeden zdroj, mapuje každý záznam
+      na entity vášho dátového modelu a zapisuje ich cez endpoint. Povedzte, čo číta, ako často a
+      kam zapisuje; samotné mapovanie sa tu napíše a otestuje, než ho niekto uvidí.
+    cs: >-
+      Pipeline je to, co přivádí data a drží je svěží: čte jeden zdroj, mapuje každý záznam na
+      entity vašeho datového modelu a zapisuje je přes endpoint. Řekněte, co čte, jak často a kam
+      zapisuje; samotné mapování se zde napíše a otestuje, než je někdo uvidí.
+    de: >-
+      Eine Pipeline holt die Daten herein und hält sie frisch: sie liest eine Quelle, bildet jeden
+      Datensatz auf die Entitäten Ihres Datenmodells ab und schreibt sie über einen Endpunkt. Sagen
+      Sie, was sie liest, wie oft und wohin sie schreibt; das Mapping selbst wird hier geschrieben
+      und getestet.
   order:
     [
       name,

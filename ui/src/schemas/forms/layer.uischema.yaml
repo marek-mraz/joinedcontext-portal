@@ -6,6 +6,23 @@ metadata:
   name: layer
 spec:
   for: Layer
+  about:
+    en: >-
+      A layer is one kind of thing drawn on a dashboard's map: the bike stations, the buses, the
+      air quality. Pick the endpoint it reads and the entity type it draws, then how it should look
+      and, if you want, which entities to leave out.
+    sk: >-
+      Vrstva je jeden druh vecí vykreslený na mape nástenky: stanice bicyklov, autobusy, kvalita
+      vzduchu. Vyberte endpoint, z ktorého čita, a typ entity, ktorý vykresľuje, potom ako má
+      vyzerať a prípadne ktoré entity vynechať.
+    cs: >-
+      Vrstva je jeden druh věcí vykreslený na mapě nástěnky: stanice kol, autobusy, kvalita
+      vzduchu. Vyberte endpoint, z něhož čte, a typ entity, který vykresluje, potom jak má vypadat
+      a případně které entity vynechat.
+    de: >-
+      Eine Ebene ist eine Art von Dingen auf der Karte eines Dashboards: die Fahrradstationen, die
+      Busse, die Luftqualität. Wählen Sie den Endpunkt, aus dem sie liest, und den Entitätstyp, den
+      sie zeichnet, dann das Aussehen und, wenn Sie mögen, welche Entitäten wegfallen.
   order:
     [
       name,

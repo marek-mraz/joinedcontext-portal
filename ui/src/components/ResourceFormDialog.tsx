@@ -195,7 +195,12 @@ export function ResourceFormDialog<T>({
     // about a field it arranges would appear and disappear again.
     const answered = !forms.isPending;
     if (!manifest) {
-      return { uiSchema: undefined, problems: answered ? indexed.problems : [], advancedFields: false };
+      return {
+        uiSchema: undefined,
+        about: undefined,
+        problems: answered ? indexed.problems : [],
+        advancedFields: false,
+      };
     }
     const result = arrange(manifest, {
       locale: i18n.language,
@@ -206,6 +211,7 @@ export function ResourceFormDialog<T>({
     const advancedFields = Object.values(manifest.spec.fields ?? {}).some((field) => field.advanced === true);
     return {
       uiSchema: result.uiSchema,
+      about: result.about,
       problems: answered ? [...indexed.problems, ...result.problems] : [],
       advancedFields,
     };
@@ -709,6 +715,17 @@ export function ResourceFormDialog<T>({
       closeLabel={t("form.cancel")}
     >
       <div className="flex flex-col gap-4">
+        {/*
+          What the kind is for, before the form asks anything (UI-02, T-1608): two sentences from
+          the kind's own arrangement, in the person's language. A person who opened this dialog
+          without knowing what a Layer or a SyncSource is reads it here and nowhere else.
+        */}
+        {arranged?.about ? (
+          <p data-testid="form-about" className="text-body text-fg-muted">
+            {arranged.about}
+          </p>
+        ) : null}
+
         {conflict ? (
           <Alert role="alert" tone="warning">
             {conflict}

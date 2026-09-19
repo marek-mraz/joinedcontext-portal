@@ -6,6 +6,24 @@ metadata:
   name: syncsource
 spec:
   for: SyncSource
+  about:
+    en: >-
+      A sync source keeps this project in step with somewhere else: a Git repository, a published
+      bundle or another joinedcontext instance. Say where to read from and how often; what it
+      brings is proposed as a change a person decides, unless you say otherwise.
+    sk: >-
+      Zdroj synchronizácie drží tento projekt v súlade s niečím iným: s Git repozitárom,
+      zverejneným balíkom alebo inou instanciou joinedcontext. Povedzte, odkiaľ čítať a ako často;
+      čo prinesie, sa podá ako zmena, o ktorej rozhodne človek, ak nepoviete inak.
+    cs: >-
+      Zdroj synchronizace drží tento projekt v souladu s něčím jiným: s Git repozitářem,
+      zveřejněným balíkem nebo jinou instancí joinedcontext. Řekněte, odkud čist a jak často; co
+      přinese, se podá jako změna, o které rozhodne člověk, pokud neřeknete jinak.
+    de: >-
+      Eine Synchronisationsquelle hält dieses Projekt mit etwas anderem im Gleichschritt: einem
+      Git-Repository, einem veröffentlichten Bundle oder einer anderen joinedcontext-Instanz. Sagen
+      Sie, woher und wie oft gelesen wird; was sie bringt, wird als Änderung vorgeschlagen, über
+      die eine Person entscheidet.
   # The form shows one origin at a time, the one the person picked; the others are
   # arranged here all the same and passed over while they are not on the form.
   variants: [git, bundle, platformApi]
