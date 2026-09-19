@@ -20,10 +20,13 @@ import { createRoot } from "react-dom/client";
 import { createElement as h, useState } from "react";
 import { GeoEditor } from "../../src/geo/GeoEditor";
 
+// One editor, the type chosen by the address: a station is a Point, a district is a Polygon, and
+// the "done when" of T-1442 is both of them out of the same component.
 function Harness() {
   const [value, setValue] = useState(null);
+  const allowed = location.hash === "#point" ? ["Point"] : ["Polygon"];
   return h("div", null,
-    h(GeoEditor, { value, onChange: setValue, allowed: ["Polygon"] }),
+    h(GeoEditor, { value, onChange: setValue, allowed }),
     h("pre", { "data-testid": "saved" }, value ? JSON.stringify(value) : ""),
   );
 }
@@ -69,10 +72,8 @@ test.beforeAll(async () => {
   );
 });
 
-test("a polygon is drawn, a vertex is dragged, a vertex is removed, and what is saved is RFC 7946", async ({
-  page,
-}) => {
-  const problems: string[] = [];
+/** The built page, served from memory: no server, no network, no basemap. */
+async function serve(page: import("@playwright/test").Page, problems: string[]): Promise<void> {
   page.on("pageerror", (error) => problems.push(error.message));
   await page.route(`${PAGE}**`, (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -85,7 +86,25 @@ test("a polygon is drawn, a vertex is dragged, a vertex is removed, and what is 
       body,
     });
   });
-  await page.goto(PAGE);
+}
+
+/** The map is up and the drawing library is wired when the style holds more than its background. */
+async function drawable(page: import("@playwright/test").Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const m = (window as never as { kitGeoMap?: { getStyle(): { layers: unknown[] } } }).kitGeoMap;
+    const layers = m?.getStyle?.()?.layers?.length ?? 0;
+    // The kit's fallback style has one background layer; the rest are Terra Draw's own, so more
+    // than one means the style is up and the drawing library is wired to it.
+    return layers > 1;
+  });
+}
+
+test("a polygon is drawn, a vertex is dragged, a vertex is removed, and what is saved is RFC 7946", async ({
+  page,
+}) => {
+  const problems: string[] = [];
+  await serve(page, problems);
+  await page.goto(`${PAGE}#polygon`);
 
   const map = page.getByTestId("geo-editor-map");
   await expect(map).toBeVisible();
@@ -155,6 +174,47 @@ test("a polygon is drawn, a vertex is dragged, a vertex is removed, and what is 
   const trimmed = JSON.parse(await saved.innerText()) as typeof first;
   expect(trimmed.coordinates[0]).toHaveLength(dragged.coordinates[0].length - 1);
   expect(trimmed.coordinates[0][trimmed.coordinates[0].length - 1]).toEqual(trimmed.coordinates[0][0]);
+
+  expect(problems).toEqual([]);
+});
+
+test("a station's point is drawn and corrected by keyboard, and what is saved is RFC 7946", async ({ page }) => {
+  const problems: string[] = [];
+  await serve(page, problems);
+  await page.goto(`${PAGE}#point`);
+  const map = page.getByTestId("geo-editor-map");
+  await expect(map).toBeVisible();
+  await drawable(page);
+
+  // Only the one mode a point field allows.
+  await expect(page.getByRole("button", { name: "Point" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Area" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Point" }).click();
+  const box = (await map.boundingBox())!;
+  await page.mouse.click(box.x + 300, box.y + 250);
+
+  const saved = page.getByTestId("saved");
+  await expect(saved).toContainText('"type":"Point"');
+  const drawn = JSON.parse(await saved.innerText()) as { type: string; coordinates: number[] };
+  expect(drawn.coordinates).toHaveLength(2);
+  expect(Math.abs(drawn.coordinates[0])).toBeLessThanOrEqual(180);
+  expect(Math.abs(drawn.coordinates[1])).toBeLessThanOrEqual(90);
+
+  // The exact correction a person types when the click was a pixel off — no mouse involved.
+  const longitude = page.getByLabel("Point longitude");
+  await longitude.fill("24.9384");
+  await longitude.blur();
+  const corrected = JSON.parse(await saved.innerText()) as typeof drawn;
+  expect(corrected.coordinates[0]).toBe(24.9384);
+  expect(corrected.coordinates[1]).toBe(drawn.coordinates[1]);
+
+  // And the refusal a person sees instead of a silent write.
+  const latitude = page.getByLabel("Point latitude");
+  await latitude.fill("600");
+  await latitude.blur();
+  await expect(page.getByRole("alert")).toContainText("latitude 600 is outside ±90");
+  expect((JSON.parse(await saved.innerText()) as typeof drawn).coordinates[1]).toBe(drawn.coordinates[1]);
 
   expect(problems).toEqual([]);
 });
