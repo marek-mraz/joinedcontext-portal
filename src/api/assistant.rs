@@ -514,6 +514,11 @@ pub async fn propose_endpoint(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartConversation {
     pub message: String,
+    /// Where the person is standing when they ask (UI-61, AG-77): the form that is open, the draft
+    /// it edits and the field they were last in. Values never travel here; the assistant reads the
+    /// person's own draft with `jc_draft_get` under their own grants.
+    #[serde(default)]
+    pub form_context: Option<FormContextRequest>,
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]
@@ -521,6 +526,63 @@ pub struct StartConversation {
     /// The endpoints the person chose, zero to five, which the assistant may query (AG-75).
     #[serde(default)]
     pub endpoint_names: Vec<String>,
+}
+
+/// The form the question was asked from, as the browser sends it (API/04 §"Start or Continue").
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FormContextRequest {
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub field: Option<String>,
+}
+
+/// The longest field path a form may name: deeper than any kind has, shorter than a payload.
+const MAX_FIELD_PATH: usize = 200;
+
+/// What the request said about the open form, refused when it is not a form the Portal could have.
+///
+/// The kind must be one the platform knows, the draft name a DNS-1123 label like every manifest
+/// name (MF-02), and the field a dotted path of plain segments — `spec.source.query.q`,
+/// `spec.pages[0].layers`. A prompt is built from this, so nothing else is let through.
+fn form_context(request: &StartConversation) -> Result<oneshot::FormContext, ApiError> {
+    let Some(asked) = request.form_context.as_ref() else {
+        return Ok(oneshot::FormContext::default());
+    };
+    if let Some(kind) = &asked.kind {
+        if !crate::resource::kinds().any(|known| known.kind == kind) {
+            return Err(ApiError::BadRequest(format!(
+                "'{kind}' is not a kind this platform has, so no form of it is open"
+            )));
+        }
+    }
+    if let Some(name) = &asked.name {
+        if !crate::resource::is_dns1123(name) {
+            return Err(ApiError::BadRequest(format!(
+                "'{name}' is not a draft name (lowercase letters, digits and dashes)"
+            )));
+        }
+    }
+    if let Some(field) = &asked.field {
+        let shaped = field.len() <= MAX_FIELD_PATH
+            && !field.is_empty()
+            && field
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '[' | ']'));
+        if !shaped {
+            return Err(ApiError::BadRequest(
+                "field must be a dotted path of at most 200 characters".into(),
+            ));
+        }
+    }
+    Ok(oneshot::FormContext {
+        kind: asked.kind.clone(),
+        name: asked.name.clone(),
+        field: asked.field.clone(),
+    })
 }
 
 #[utoipa::path(
@@ -561,6 +623,8 @@ pub async fn start_conversation(
     }
     // A conversation is a run like any other and counts against the same day (PF-74, T-1403).
     crate::api::agent_runs::within_runs_per_day(&state, &project).await?;
+
+    let form = form_context(&request)?;
 
     let profile_name = request.profile.clone().unwrap_or_else(default_profile);
     let profile = Profile::load(&state.mirror, &profile_name)?;
@@ -690,8 +754,8 @@ pub async fn start_conversation(
         &user.0.identity,
         &ticket,
         &profile,
-        &settings.proxy_base,
-        settings.run_ttl_secs,
+        settings,
+        form,
     );
 
     Ok((StatusCode::ACCEPTED, Json(CreatedRun { run, ticket: None })))
@@ -829,7 +893,10 @@ pub(crate) fn declared_groups(state: &AppState, project: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{endpoint_access, field_words, org_domain, score, words};
+    use super::{
+        endpoint_access, field_words, form_context, org_domain, score, words, FormContextRequest,
+        StartConversation,
+    };
     use serde_json::json;
 
     /// T-0964: `field_words` and `ops::feed_shape::split_camel` look alike and are not the same
@@ -934,5 +1001,66 @@ mod tests {
         assert!(!shut.is_allowed());
         assert!(shut.reason.contains("does not name helsinki"));
         assert!(!endpoint_access(&json!({}), "helsinki").is_allowed());
+    }
+
+    /// T-1611, UI-61: a prompt is built from what the request says about the open form, so only a
+    /// form the Portal could actually have is let through — and never a value.
+    #[test]
+    fn a_form_context_is_a_kind_a_draft_and_a_field_path_or_it_is_refused() {
+        let asked =
+            |kind: Option<&str>, name: Option<&str>, field: Option<&str>| StartConversation {
+                message: "what goes here?".to_owned(),
+                profile: None,
+                continues: None,
+                endpoint_names: Vec::new(),
+                form_context: Some(FormContextRequest {
+                    kind: kind.map(str::to_owned),
+                    name: name.map(str::to_owned),
+                    field: field.map(str::to_owned),
+                }),
+            };
+
+        let taken = form_context(&asked(
+            Some("Pipeline"),
+            Some("citybikes-gbfs"),
+            Some("spec.source.query.q"),
+        ))
+        .expect("a pipeline form is a form");
+        assert_eq!(taken.kind.as_deref(), Some("Pipeline"));
+        assert_eq!(taken.name.as_deref(), Some("citybikes-gbfs"));
+        assert_eq!(taken.field.as_deref(), Some("spec.source.query.q"));
+
+        // An index into a list is a path a form really has.
+        assert!(form_context(&asked(
+            Some("Dashboard"),
+            None,
+            Some("spec.pages[0].layers")
+        ))
+        .is_ok());
+
+        // A kind nobody has, a name that is not a manifest name, a field carrying anything else.
+        for wrong in [
+            asked(Some("Spaceship"), None, None),
+            asked(Some("Pipeline"), Some("Citybikes GBFS"), None),
+            asked(Some("Pipeline"), None, Some("spec.q; DROP TABLE drafts")),
+            asked(Some("Pipeline"), None, Some(&"a".repeat(201))),
+            asked(Some("Pipeline"), None, Some("")),
+        ] {
+            assert!(
+                form_context(&wrong).is_err(),
+                "a form context the Portal cannot have was accepted"
+            );
+        }
+
+        // No form named itself: nothing to say, and no error either.
+        assert!(form_context(&StartConversation {
+            message: "how is the air?".to_owned(),
+            profile: None,
+            continues: None,
+            endpoint_names: Vec::new(),
+            form_context: None,
+        })
+        .expect("a question from a page is fine")
+        .is_empty());
     }
 }

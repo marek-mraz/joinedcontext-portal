@@ -498,8 +498,8 @@ pub async fn create_run(
             &user.0.identity,
             &ticket,
             &profile,
-            &settings.proxy_base,
-            settings.run_ttl_secs,
+            settings,
+            crate::agents::oneshot::FormContext::default(),
         );
         return Ok((StatusCode::ACCEPTED, Json(CreatedRun { run, ticket: None })));
     }

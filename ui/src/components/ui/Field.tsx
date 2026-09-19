@@ -14,6 +14,8 @@ export interface FieldProps {
   errors?: string[];
   /** A label-less control (a checkbox carries its own) still gets the messages. */
   hideLabel?: boolean;
+  /** One small action on the label's line, such as asking the assistant about this field. */
+  aside?: ReactNode;
   className?: string;
   children: ReactNode;
 }
@@ -40,6 +42,7 @@ export function Field({
   help,
   errors,
   hideLabel,
+  aside,
   className,
   children,
 }: FieldProps): React.JSX.Element {
@@ -51,14 +54,17 @@ export function Field({
       className={clsx("flex flex-col gap-1.5", className)}
     >
       {label && !hideLabel ? (
-        <label htmlFor={id} className="text-body font-medium text-fg">
-          {label}
-          {required ? (
-            <span aria-hidden="true" className="ml-0.5 text-danger">
-              *
-            </span>
-          ) : null}
-        </label>
+        <div className="flex items-baseline justify-between gap-2">
+          <label htmlFor={id} className="text-body font-medium text-fg">
+            {label}
+            {required ? (
+              <span aria-hidden="true" className="ml-0.5 text-danger">
+                *
+              </span>
+            ) : null}
+          </label>
+          {aside}
+        </div>
       ) : null}
       {description ? (
         <p id={ids.description} className="text-caption text-fg-muted">

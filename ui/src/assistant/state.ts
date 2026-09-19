@@ -18,6 +18,7 @@ const TRAIL_KEY = "jc.assistant.trail";
 export const TRAIL_LENGTH = 3;
 const CHANGED = "jc:assistant";
 const OPEN_REQUEST = "jc:assistant-open";
+const ASK_REQUEST = "jc:assistant-ask";
 
 export interface ActiveRun {
   project: string;
@@ -74,7 +75,9 @@ export function parseRun(raw: string | null): ActiveRun | null {
   }
   try {
     const value = JSON.parse(raw) as Partial<ActiveRun> | null;
-    return value && typeof value.project === "string" && typeof value.runId === "string"
+    return value &&
+      typeof value.project === "string" &&
+      typeof value.runId === "string"
       ? { project: value.project, runId: value.runId }
       : null;
   } catch {
@@ -102,7 +105,10 @@ export function onAssistantChange(listener: () => void): () => void {
  * it names: the dock is remounted by the route change that delivers the event, so neither can
  * live in its state.
  */
-export function rememberPrefill(route: string, prefill: Record<string, unknown>): void {
+export function rememberPrefill(
+  route: string,
+  prefill: Record<string, unknown>,
+): void {
   handPrefill(route, prefill);
   write(NOTICE_KEY, route);
   write(NOTICE_SEEN_KEY, null);
@@ -118,7 +124,10 @@ export function trail(): string[] {
 
 /** The trail with `route` on top, each page once: walking back is a short list, not a history. */
 export function pushTrail(known: string[], route: string): string[] {
-  return [route, ...known.filter((seen) => seen !== route)].slice(0, TRAIL_LENGTH);
+  return [route, ...known.filter((seen) => seen !== route)].slice(
+    0,
+    TRAIL_LENGTH,
+  );
 }
 
 /**
@@ -136,7 +145,10 @@ let handed: { route: string; prefill: Record<string, unknown> } | null = null;
 let replay: { route: string; prefill: Record<string, unknown> } | null = null;
 
 /** The form values `route`'s page takes as it mounts, left by a page or the assistant. */
-export function handPrefill(route: string, prefill: Record<string, unknown>): void {
+export function handPrefill(
+  route: string,
+  prefill: Record<string, unknown>,
+): void {
   handed = { route: route.split("?")[0], prefill };
   replay = null;
   write(PREFILL_KEY, handed);
@@ -165,8 +177,13 @@ export function settleNotice(pathname: string): void {
  * already followed never takes the person back from a page they went to since.
  */
 export function navigatedSeq(runId: string): number {
-  const value = read(NAVIGATED_KEY) as { runId?: unknown; seq?: unknown } | null;
-  return value?.runId === runId && typeof value.seq === "number" ? value.seq : 0;
+  const value = read(NAVIGATED_KEY) as {
+    runId?: unknown;
+    seq?: unknown;
+  } | null;
+  return value?.runId === runId && typeof value.seq === "number"
+    ? value.seq
+    : 0;
 }
 
 export function rememberNavigated(runId: string, seq: number): void {
@@ -187,7 +204,10 @@ export function dismissNotice(): void {
 
 /** The prefill left for this path, taken once: a second visit starts with an empty form. */
 export function takePrefill(pathname: string): Record<string, unknown> | null {
-  const value = (handed ?? read(PREFILL_KEY)) as { route?: unknown; prefill?: unknown } | null;
+  const value = (handed ?? read(PREFILL_KEY)) as {
+    route?: unknown;
+    prefill?: unknown;
+  } | null;
   if (value && value.route === pathname) {
     handed = null;
     write(PREFILL_KEY, null);
@@ -214,7 +234,9 @@ export function settlePrefill(pathname: string): void {
  * assistant left for this path when it left one; the prefill is taken once. With `name`, only a
  * request for that resource is taken, so each row of a list can ask for its own.
  */
-export function takeEditRequest(name?: string): { name: string; manifest: Record<string, unknown> | null } | null {
+export function takeEditRequest(
+  name?: string,
+): { name: string; manifest: Record<string, unknown> | null } | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -223,7 +245,8 @@ export function takeEditRequest(name?: string): { name: string; manifest: Record
     return null;
   }
   const prefill = takePrefill(window.location.pathname);
-  const named = (prefill?.metadata as { name?: unknown } | undefined)?.name === edit;
+  const named =
+    (prefill?.metadata as { name?: unknown } | undefined)?.name === edit;
   return { name: edit, manifest: named ? prefill : null };
 }
 
@@ -231,15 +254,81 @@ export function takeEditRequest(name?: string): { name: string; manifest: Record
 export type OpenIntent = "chat" | "build";
 
 export function requestOpen(intent: OpenIntent = "chat"): void {
-  window.dispatchEvent(new CustomEvent<OpenIntent>(OPEN_REQUEST, { detail: intent }));
+  window.dispatchEvent(
+    new CustomEvent<OpenIntent>(OPEN_REQUEST, { detail: intent }),
+  );
 }
 
-export function onOpenRequest(listener: (intent: OpenIntent) => void): () => void {
+export function onOpenRequest(
+  listener: (intent: OpenIntent) => void,
+): () => void {
   const handler = (event: Event) => {
-    listener((event as CustomEvent<OpenIntent>).detail === "build" ? "build" : "chat");
+    listener(
+      (event as CustomEvent<OpenIntent>).detail === "build" ? "build" : "chat",
+    );
   };
   window.addEventListener(OPEN_REQUEST, handler);
   return () => {
     window.removeEventListener(OPEN_REQUEST, handler);
+  };
+}
+
+/**
+ * The form a person is standing in, for the question they are about to ask (UI-61, T-1611).
+ *
+ * Module state, not `sessionStorage`: it lives exactly as long as the open dialog does, and a
+ * reload with no form open must not tell the assistant there is one. Values never travel — only the
+ * kind, the draft the form edits and the field the person was last in; what the form holds is the
+ * draft itself, which the assistant reads under the person's own grants.
+ */
+export interface FormContext {
+  kind?: string;
+  name?: string;
+  field?: string;
+}
+
+let openForm: FormContext | null = null;
+
+/** The open form names itself, or takes it back when it closes (`null`). */
+export function standingIn(form: FormContext | null): void {
+  openForm = form;
+}
+
+/** Which field of the open form the person is in, as they move through it. */
+export function inField(field: string | undefined): void {
+  if (openForm) {
+    openForm = { ...openForm, field };
+  }
+}
+
+/** What to send with the next question, or `undefined` when no form is open. */
+export function formContext(): FormContext | undefined {
+  if (!openForm || (!openForm.kind && !openForm.name && !openForm.field)) {
+    return undefined;
+  }
+  return { ...openForm };
+}
+
+/**
+ * Opens the assistant with a question already written, which the person sends (or edits) themselves
+ * — the dock never asks on its own behalf (AG-73).
+ */
+export function askAbout(question: string): void {
+  window.dispatchEvent(
+    new CustomEvent<string>(ASK_REQUEST, { detail: question }),
+  );
+  requestOpen();
+}
+
+export function onAskRequest(listener: (question: string) => void): () => void {
+  const handler = (event: Event) => {
+    const asked = (event as CustomEvent<string>).detail;
+    if (typeof asked === "string" && asked.trim() !== "") {
+      listener(asked);
+    }
+  };
+  window.addEventListener(ASK_REQUEST, handler);
+  return () => {
+    window.removeEventListener(ASK_REQUEST, handler);
   };
 }

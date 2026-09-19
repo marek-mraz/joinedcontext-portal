@@ -15,6 +15,7 @@ import { Alert, Badge, Button, Dialog, DialogClose } from "./ui";
 import type { DialogSize } from "./ui";
 import { useBranding } from "../branding";
 import { digestOf, getDraft, putDraft, subscribeDrafts } from "../api/drafts";
+import { askAbout, standingIn } from "../assistant/state";
 import type { Draft, Verdict } from "../api/drafts";
 
 // Monaco is loaded when the YAML view is opened and not before: it is the heaviest thing in
@@ -279,6 +280,18 @@ export function ResourceFormDialog<T>({
   const syncedDigestRef = useRef<string | undefined>(undefined);
 
   const activeName = draftName || extractName(formData);
+
+  // The assistant is told which form is open and which draft it edits, so a question asked from
+  // here is answered about this form (T-1611, UI-61). No values travel: the draft is where they are.
+  useEffect(() => {
+    if (!open || !kind) {
+      return;
+    }
+    standingIn({ kind, name: activeName || undefined });
+    return () => {
+      standingIn(null);
+    };
+  }, [open, kind, activeName]);
 
   const updateVerdict = (v: Verdict | null) => {
     setInternalVerdict(v);
@@ -721,6 +734,19 @@ export function ResourceFormDialog<T>({
           the kind's own arrangement, in the person's language. A person who opened this dialog
           without knowing what a Layer or a SyncSource is reads it here and nowhere else.
         */}
+        {kind ? (
+          <div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => askAbout(t("form.fillFromSentenceQuestion", { kind }))}
+            >
+              {t("form.fillFromSentence")}
+            </Button>
+          </div>
+        ) : null}
+
         {arranged?.about ? (
           <p data-testid="form-about" className="text-body text-fg-muted">
             {arranged.about}

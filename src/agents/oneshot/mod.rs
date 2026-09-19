@@ -238,6 +238,8 @@ struct Driver {
     /// How many characters of a continued conversation's transcript this run may carry
     /// (AG-68), a share of the profile's own token budget.
     transcript_budget: usize,
+    /// The form the person asked from, when they asked from one (T-1611).
+    form: FormContext,
 }
 
 /// The share of a run's token budget the prior transcript may spend, and four characters to
@@ -249,14 +251,34 @@ fn transcript_budget(max_tokens_per_run: u64) -> usize {
 
 /// Starts the pass in the background. Returns at once; the run's stream is where the outcome
 /// goes (AP-60).
+/// Where the person is standing when they ask (UI-61, AG-77, T-1611): the form that is open, the
+/// draft it edits and the field they were last in.
+///
+/// It carries no values. What the form holds is the person's own draft, which the assistant reads
+/// with `jc_draft_get` and changes with `jc_draft_put` under the caller's grants — so a secret typed
+/// into a form never travels in a prompt, and a field the caller may not read stays unread.
+#[derive(Debug, Clone, Default)]
+pub struct FormContext {
+    pub kind: Option<String>,
+    pub name: Option<String>,
+    pub field: Option<String>,
+}
+
+impl FormContext {
+    /// Nothing to say when no form named itself.
+    pub fn is_empty(&self) -> bool {
+        self.kind.is_none() && self.name.is_none() && self.field.is_none()
+    }
+}
+
 pub fn spawn(
     state: AppState,
     run: &AgentRun,
     identity: &Identity,
     ticket: &str,
     profile: &Profile,
-    proxy_base: &str,
-    ttl_secs: i64,
+    settings: &crate::config::AgentSettings,
+    form: FormContext,
 ) {
     let http = reqwest::Client::builder()
         .timeout(CALL_TIMEOUT)
@@ -273,10 +295,10 @@ pub fn spawn(
         endpoints: endpoints::of_run(run),
         allows_write: run.allows_write,
         bearer: format!("jcr_{}.{ticket}", run.id),
-        proxy_base: proxy_base.trim_end_matches('/').to_owned(),
+        proxy_base: settings.proxy_base.trim_end_matches('/').to_owned(),
         model: profile.model_name.clone(),
         provider: profile.model_provider.clone(),
-        ttl: Duration::from_secs(ttl_secs.max(1) as u64),
+        ttl: Duration::from_secs(settings.run_ttl_secs.max(1) as u64),
         passes: AtomicU32::new(0),
         schema_index: OnceLock::new(),
         joined: OnceLock::new(),
@@ -290,6 +312,7 @@ pub fn spawn(
         continues: run.continues.clone(),
         steps_per_run: profile.steps_per_run,
         transcript_budget: transcript_budget(profile.max_tokens_per_run),
+        form,
     };
     tokio::spawn(async move {
         let run_id = driver.run_id.clone();
@@ -339,6 +362,7 @@ impl Driver {
             continues: None,
             steps_per_run: 30,
             transcript_budget: transcript_budget(400_000),
+            form: FormContext::default(),
         }
     }
 }
@@ -1146,6 +1170,7 @@ mod tests {
             continues: None,
             steps_per_run: 30,
             transcript_budget: transcript_budget(400_000),
+            form: FormContext::default(),
         };
         let pack = driver
             .pack(&json!({}), &BTreeMap::new(), &[], "instruction", None, None)

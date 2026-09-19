@@ -78,7 +78,11 @@
     "restartsStream": "Diese Änderung startet den Stream auf dem Runner neu. Eine periodische Pipeline beginnt ihren Zeitplan von vorn, der nächste Lauf ist also eine ganze Periode entfernt.",
     "dns1123": "Nur Kleinbuchstaben, Ziffern und Bindestriche, beginnend mit einem Buchstaben oder einer Ziffer, höchstens 63 Zeichen.",
     "entityType": "Ein NGSI-LD-Typ: ein Großbuchstabe, dann Buchstaben und Ziffern, höchstens 64 Zeichen.",
-    "requiredCount": "{filled} von {total} Pflichtfeldern ausgefüllt"
+    "requiredCount": "{filled} von {total} Pflichtfeldern ausgefüllt",
+    "askAboutField": "Zu diesem Feld fragen",
+    "askAboutFieldQuestion": "Im {kind}-Formular: Was gehört in „{label}“, und was passiert, wenn es leer bleibt?",
+    "fillFromSentence": "Aus einem Satz ausfüllen",
+    "fillFromSentenceQuestion": "Füll das offene {kind}-Formular hieraus aus: "
   },
   "approvals": {
     "lead": "Jede Änderung am Projekt ist hier ein Vorschlag, bis eine freigebende Person sie zusammenführt.",

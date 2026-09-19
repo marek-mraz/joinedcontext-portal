@@ -439,6 +439,47 @@ impl Driver {
         Ok(prose)
     }
 
+    /// What the person is looking at, when they asked from a form (UI-61, AG-77, T-1611).
+    ///
+    /// The form is the person's own draft, so the assistant works on that draft and nothing else:
+    /// it reads it with `jc_draft_get`, and when asked to fill it in it writes the same draft with
+    /// `jc_draft_put`. The open form is watching that draft and shows what the assistant wrote, so
+    /// the person sees the fields change and decides. Nothing here is proposed.
+    fn looking_at(&self, pack: &mut String) {
+        if self.form.is_empty() {
+            return;
+        }
+        pack.push_str("\n## THE FORM THE PERSON IS LOOKING AT\n\n");
+        if let Some(kind) = &self.form.kind {
+            pack.push_str(&format!(
+                "They have the {kind} form open in front of them, in this project.\n"
+            ));
+        }
+        if let Some(name) = &self.form.name {
+            pack.push_str(&format!(
+                "It is editing the draft `{name}`. Read it with `jc_draft_get` before you say \
+                 anything about what it holds, and never guess its values.\n"
+            ));
+        }
+        if let Some(field) = &self.form.field {
+            pack.push_str(&format!(
+                "The field they were last in is `{field}`. A question like \"what goes here?\" or \
+                 \"what is this?\" is about that field: answer in two sentences a person filling \
+                 the form can use — what it is for, what happens if it is left empty, and one value \
+                 that would work — and never in the words of the specification.\n"
+            ));
+        }
+        if self.form.name.is_some() {
+            pack.push_str(
+                "\nAsked to fill the form in, or to change what it holds, from a sentence: write \
+                 that same draft with `jc_draft_put`, carrying the whole manifest with your values \
+                 merged into what it already has. The form is watching the draft and shows what you \
+                 wrote, the person reads it and proposes it themselves. Never propose it, never open \
+                 a Change, and never write a different draft than the one named here.\n",
+            );
+        }
+    }
+
     pub(super) fn conversation_pack(
         &self,
         conversation: &[(String, String)],
@@ -460,6 +501,7 @@ impl Driver {
             pack.push_str(&serde_json::to_string_pretty(catalog).unwrap_or_default());
             pack.push_str("\n```\n\n");
         }
+        self.looking_at(&mut pack);
         pack.push_str(WHERE_THE_ANSWERS_LIVE.trim_start());
         pack.push('\n');
         pack.push_str(&format!(
@@ -1308,6 +1350,8 @@ fn prior_transcript(events: Vec<AgentRunEvent>, budget_chars: usize) -> Vec<(Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::oneshot::FormContext;
+    use crate::state::AppState;
     use serde_json::json;
 
     fn event(kind: &str, payload: Value) -> AgentRunEvent {
@@ -1322,6 +1366,42 @@ mod tests {
 
     fn asked(text: &str) -> AgentRunEvent {
         event("message", json!({ "text": text, "sentBy": "demo.steward" }))
+    }
+
+    /// T-1611, UI-61: a question asked from a form is answered about that form — the kind, the
+    /// draft it edits and the field the person was in — and filling it in writes that same draft.
+    #[test]
+    fn the_pack_says_which_form_the_person_is_looking_at() {
+        let state = AppState::new(crate::config::Config::for_tests(), None);
+        let mut driver = Driver::for_tests(state, "helsinki");
+        driver.form = FormContext {
+            kind: Some("Pipeline".to_owned()),
+            name: Some("citybikes-gbfs".to_owned()),
+            field: Some("spec.source.query.q".to_owned()),
+        };
+        let mut pack = String::new();
+        driver.looking_at(&mut pack);
+
+        assert!(pack.contains("THE FORM THE PERSON IS LOOKING AT"), "{pack}");
+        assert!(pack.contains("Pipeline form"), "{pack}");
+        assert!(pack.contains("`citybikes-gbfs`"), "{pack}");
+        assert!(pack.contains("`spec.source.query.q`"), "{pack}");
+        // Read the draft, write the same draft, propose nothing (AG-77).
+        assert!(pack.contains("jc_draft_get"), "{pack}");
+        assert!(pack.contains("jc_draft_put"), "{pack}");
+        assert!(pack.contains("Never propose it"), "{pack}");
+        // And the values are never in the prompt: the draft is where they live.
+        assert!(!pack.contains("availableBikeNumber"), "{pack}");
+    }
+
+    /// A question asked from no form says nothing about forms: the section is absent, not empty.
+    #[test]
+    fn the_pack_says_nothing_about_a_form_when_the_person_is_on_a_page() {
+        let state = AppState::new(crate::config::Config::for_tests(), None);
+        let driver = Driver::for_tests(state, "helsinki");
+        let mut pack = String::new();
+        driver.looking_at(&mut pack);
+        assert_eq!(pack, "");
     }
 
     /// T-1603, AG-64: the question a person asks about the project names the operation that

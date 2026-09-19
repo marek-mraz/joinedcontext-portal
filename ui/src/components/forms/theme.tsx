@@ -36,6 +36,7 @@ import type {
 import { clsx } from "clsx";
 import { useTranslation } from "react-i18next";
 import { Button, CONTROL, Field, Icon, Select, Textarea } from "../ui";
+import { askAbout, formContext, inField } from "../../assistant/state";
 
 /** What the form renders beside its submit: a cancel, a secondary action. */
 export const FormActionsContext = createContext<ReactNode>(null);
@@ -129,8 +130,35 @@ function Input(
   );
 }
 
+/**
+ * The one action beside a field's label: ask the assistant about this field (T-1611, UI-61).
+ *
+ * Offered only inside a form that named itself to the assistant, and it writes the question into the
+ * composer rather than sending it — the person sends it, and the dock never asks on its own behalf
+ * (AG-73). The path of the field travels with it, never the value.
+ */
+function AskAboutField({ path, label }: { path: string; label: string }): React.JSX.Element | null {
+  const { t } = useTranslation();
+  const open = formContext();
+  if (!open?.kind || path === "" || label === "") {
+    return null;
+  }
+  return (
+    <button
+      type="button"
+      className="focus-ring rounded text-caption text-fg-muted underline decoration-dotted hover:text-fg"
+      onClick={() => {
+        inField(path);
+        askAbout(t("form.askAboutFieldQuestion", { kind: open.kind, label }));
+      }}
+    >
+      {t("form.askAboutField")}
+    </button>
+  );
+}
+
 export function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
-  const { id, label, children, rawErrors, rawDescription, description, rawHelp, displayLabel, required, hidden, schema } =
+  const { id, label, children, rawErrors, rawDescription, description, rawHelp, displayLabel, required, hidden, schema, fieldPathId } =
     props;
 
   if (hidden) {
@@ -155,10 +183,24 @@ export function FieldTemplate(props: FieldTemplateProps): React.JSX.Element {
       description={descText}
       help={forPeople === undefined || ownHeading ? rawHelp : undefined}
       errors={rawErrors}
+      aside={
+        ownHeading ? undefined : (
+          <AskAboutField path={pathOf(fieldPathId)} label={typeof label === "string" ? label : ""} />
+        )
+      }
     >
       {children}
     </Field>
   );
+}
+
+/**
+ * The field's path as a manifest writes it: `spec.` and the names rjsf walked, with an array index
+ * as rjsf numbered it. `root` itself is no field.
+ */
+function pathOf(fieldPathId: FieldTemplateProps["fieldPathId"]): string {
+  const steps = (fieldPathId?.path ?? []).map((step) => String(step)).filter((step) => step !== "root");
+  return steps.length === 0 ? "" : `spec.${steps.join(".")}`;
 }
 
 /** One visual grouping of a flat schema, as a UiSchema manifest describes it (UI-02). */

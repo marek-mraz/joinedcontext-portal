@@ -29,6 +29,8 @@ import {
   navigatedSeq,
   noticeSnapshot,
   onAssistantChange,
+  onAskRequest,
+  formContext,
   onOpenRequest,
   parseRun,
   rememberNavigated,
@@ -127,6 +129,15 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
     });
   }, []);
 
+  // A question written by a form's own action (T-1611): it lands in the composer and the person
+  // sends it. The dock never asks on the person's behalf (AG-73).
+  useEffect(() => {
+    return onAskRequest((question) => {
+      setComposerMessage(question);
+      setBuilding(false);
+    });
+  }, []);
+
   useEffect(() => {
     if (!full) {
       return;
@@ -196,8 +207,13 @@ export function AssistantDock({ project }: { project: string }): JSX.Element | n
       const created = await unwrap(
         await api.POST("/api/v1/projects/{project}/assistant/conversations", {
           params: { path: { project: activeProject } },
-          // `endpointNames` is AG-75; the generated body type catches up with the next API render.
-          body: { message: promptText, endpointNames: chosenEndpoints } as { message: string },
+          // `endpointNames` is AG-75, `formContext` is T-1611; both are ahead of the generated
+          // body type, which catches up with the next API render.
+          body: {
+            message: promptText,
+            endpointNames: chosenEndpoints,
+            formContext: formContext(),
+          } as { message: string },
         }),
       );
       rememberRun({ project: activeProject, runId: created.id });
