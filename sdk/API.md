@@ -146,6 +146,36 @@ function cellText(cell: RichCell | RichCell[] | undefined): string
 ```
 The rich cell model: a multi-instance attribute (several `datasetId`s) is an array; `raw` is the entity as received, so an edit never drops a member the grid does not show.
 
+### Geometry: view and edit (UI-72, SDK-29)
+```ts
+function GeoView(props: { value, selectedId?, onSelect?, accent?, basemap?, label? }): JSX.Element
+function GeoEditor(props: { value, onChange, allowed?, snapTo?, basemap?, engine?, label? }): JSX.Element
+function checkGeometry(raw: unknown, allowed?: GeometryType[]): { geometry: Geometry | null; findings: GeoFinding[] }
+function geometryOf(raw: unknown, allowed?: GeometryType[]): { geometry: Geometry | null; findings: GeoFinding[] }
+function rowsOf(g: Geometry | null): CoordinateRow[]            // the coordinate table's rows
+function withPosition(g: Geometry, at: number[], p: Position): Geometry
+function withoutPosition(g: Geometry, at: number[]): Geometry
+function rowLabel(at: number[]): string                          // "Point 1.3"
+function modesFor(allowed: GeometryType[]): DrawMode[]           // the toolbar
+function positionsOf(coordinates: unknown): Position[]
+function boundsOf(features: GeoFeature[]): [[number, number], [number, number]] | null
+function featuresOf(value): GeoFeature[]
+function terraDrawEngine(): Promise<DrawEngine>                  // the default, loaded on map load
+const GEOMETRY_TYPES = ["Point","LineString","Polygon","MultiPoint","MultiLineString","MultiPolygon"]
+const MAX_VERTICES = 10000
+const DRAW_MODES: DrawMode[]
+```
+`GeoView` draws a geometry, a Feature or a list of them on the kit's base map and fits to it once;
+`selectedId` thickens one shape and `onSelect` reports a click. `GeoEditor` is the same map with a
+toolbar (only the modes `allowed` permits, plus select, undo, redo and delete) **and the same
+geometry as a table of longitude/latitude inputs**, which is the keyboard path: every action of the
+map is possible from the table. A paste or an uploaded `.geojson` goes through `geometryOf`, which
+also takes a `Feature` or a `FeatureCollection` (one type becomes the `Multi-` form where `allowed`
+has it). Nothing reaches `onChange` unchecked: `checkGeometry` closes an open ring, normalises the
+winding, keeps altitudes, and refuses a bow tie, a hole outside its shell, a pair out of ±180/±90
+(saying so when the two look swapped) and more than `MAX_VERTICES` points — the findings appear on
+screen instead. Output is RFC 7946, which is what an NGSI-LD GeoProperty's `value` holds.
+
 ### Filters Logic
 ```ts
 function filterRows<T extends Row>(rows: T[], filters: FilterDef[], values: FilterValue[]): T[]

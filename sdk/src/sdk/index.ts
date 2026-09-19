@@ -43,6 +43,12 @@ export type { ConfigFinding, EntityGridConfig, GridColumn, GridSource, ResolvedG
 export { EntityCompare, DEFAULT_COMPARE_LABELS, pageSource } from "../grid/EntityCompare";
 export type { CompareLabels, EntityCompareProps } from "../grid/EntityCompare";
 export { endpointSource, fixtureSource, historyOf, idChunks, SourceError, sourceFor, spaceSource } from "../grid/source";
+export { GeoView, boundsOf, featuresOf, positionsOf } from "../geo/GeoView";
+export type { GeoFeature } from "../geo/GeoView";
+export { DRAW_MODES, GeoEditor, modesFor, rowLabel, rowsOf, terraDrawEngine, withPosition, withoutPosition } from "../geo/GeoEditor";
+export type { CoordinateRow, DrawEngine, DrawMode } from "../geo/GeoEditor";
+export { GEOMETRY_TYPES, MAX_VERTICES, checkGeometry, geometryOf } from "../geo/validate";
+export type { GeoCheck, GeoFinding, Geometry, GeometryType, Position } from "../geo/validate";
 export type { EntitySource, GridPage, GridQuery, HistoryPoint, HistoryWindow } from "../grid/source";
 export { attributesOf, cellText, projectRow, toRichCell, toRichRow } from "../grid/model";
 export type { CellKind, RichCell, RichRow } from "../grid/model";
