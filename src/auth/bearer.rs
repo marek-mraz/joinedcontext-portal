@@ -288,6 +288,217 @@ mod tests {
         encode(&header, claims, signer).unwrap()
     }
 
+    // ---------------------------------------------------------------------------------------
+    // T-2091 `refresh`: the interval, and what a failure says and to whom.
+    // ---------------------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn a_failed_fetch_starts_the_interval_so_the_next_call_does_not_hammer_the_realm() {
+        let v = verifier(); // port 9: the connection is refused at once
+        let (_signer, set) = keypair("k1");
+        assert_eq!(v.install(&set), 1);
+
+        // The first call tries and fails; it must not throw the installed keys away.
+        let first = v.refresh().await;
+        assert!(matches!(first, Err(ApiError::Unavailable(_))), "{first:?}");
+        assert!(v.key("k1").is_some(), "a failed refresh emptied the cache");
+
+        // Inside the interval the next call is a no-op that reports what is cached, however many
+        // times it is called: a route that verifies a token with an unknown kid cannot turn one
+        // request into one realm fetch each (REFRESH_INTERVAL).
+        for _ in 0..5 {
+            assert!(matches!(v.refresh().await, Ok(1)));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_refresh_failure_reaches_the_log_and_never_a_caller() {
+        // The message carries the reqwest error, which names the JWKS URL — an internal realm
+        // address. That is a log line, never a body: both callers swallow it
+        // (`src/state.rs:207` and `verify_for_audience` at bearer.rs:187, each `if let Err(err)`),
+        // and the verification itself answers a bare 401. Asserted here so a caller that starts
+        // propagating it is noticed.
+        let v = verifier();
+        let Err(ApiError::Unavailable(message)) = v.refresh().await else {
+            panic!("a refused connection should be Unavailable");
+        };
+        assert!(message.starts_with("JWKS fetch failed"));
+
+        // The door a caller actually knocks on: an unknown kid with the realm unreachable is 401
+        // with nothing about the realm in it.
+        let (signer, _set) = keypair("k1");
+        let refused = v.verify(&sign(&signer, "k1", &claims(now() + 60))).await;
+        assert!(
+            matches!(refused, Err(ApiError::Unauthorized)),
+            "{refused:?}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // T-2092 `verify_with_client`: what it accepts, what it refuses, and what it hands back.
+    // ---------------------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn the_client_comes_back_with_the_session_and_is_absent_when_the_token_has_no_azp() {
+        let v = verifier();
+        let (signer, set) = keypair("k1");
+        v.install(&set);
+
+        let (session, client) = v
+            .verify_with_client(&sign(&signer, "k1", &claims(now() + 60)))
+            .await
+            .unwrap();
+        assert_eq!(client.as_deref(), Some("apisix-gateway"));
+        assert_eq!(session.identity.username, "apisix-gateway");
+
+        // No `azp`: no client, and the name falls back to the subject rather than to nothing.
+        let mut anonymous_client = claims(now() + 60);
+        anonymous_client["azp"] = json!(null);
+        let (session, client) = v
+            .verify_with_client(&sign(&signer, "k1", &anonymous_client))
+            .await
+            .unwrap();
+        assert_eq!(client, None);
+        assert_eq!(session.identity.username, "svc:smoke");
+
+        // A person's token: the username is theirs, and the client is still named.
+        let mut human = claims(now() + 60);
+        human["preferred_username"] = json!("jana.kovacova");
+        let (session, client) = v
+            .verify_with_client(&sign(&signer, "k1", &human))
+            .await
+            .unwrap();
+        assert_eq!(session.identity.username, "jana.kovacova");
+        assert_eq!(client.as_deref(), Some("apisix-gateway"));
+    }
+
+    #[tokio::test]
+    async fn a_token_that_is_not_one_is_refused_without_a_key_lookup() {
+        let v = verifier();
+        let (_signer, set) = keypair("k1");
+        v.install(&set);
+        for token in [
+            "",
+            "   ",
+            "not.a.token",
+            "onlyonesegment",
+            "two.segments",
+            "a.b.c.d",
+            // A header that is valid base64 JSON but names no kid.
+            &jsonwebtoken::encode(
+                &Header::new(Algorithm::ES256),
+                &claims(now() + 60),
+                &keypair("k1").0,
+            )
+            .unwrap(),
+        ] {
+            assert!(
+                matches!(
+                    v.verify_with_client(token).await,
+                    Err(ApiError::Unauthorized)
+                ),
+                "{token:?} was not refused",
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_required_claim_is_refused_and_the_leeway_is_thirty_seconds() {
+        let v = verifier();
+        let (signer, set) = keypair("k1");
+        v.install(&set);
+
+        // `exp`, `iss`, `aud` and `sub` are required: a token without one of them is 401, whatever
+        // else it carries.
+        for missing in ["exp", "iss", "aud", "sub"] {
+            let mut without = claims(now() + 60);
+            without[missing] = json!(null);
+            assert!(
+                matches!(
+                    v.verify_with_client(&sign(&signer, "k1", &without)).await,
+                    Err(ApiError::Unauthorized)
+                ),
+                "a token without {missing} passed",
+            );
+        }
+
+        // `nbf` is validated: a token not yet valid is refused, and one inside the 30 s leeway is
+        // taken, because two clocks in a cluster are never the same (`validation.leeway = 30`).
+        let mut future = claims(now() + 600);
+        future["nbf"] = json!(now() + 3600);
+        assert!(matches!(
+            v.verify_with_client(&sign(&signer, "k1", &future)).await,
+            Err(ApiError::Unauthorized)
+        ));
+        let mut just_now = claims(now() + 600);
+        just_now["nbf"] = json!(now() + 10);
+        assert!(v
+            .verify_with_client(&sign(&signer, "k1", &just_now))
+            .await
+            .is_ok());
+
+        // An expiry a second inside the leeway is still taken; one well outside it is not.
+        assert!(v
+            .verify_with_client(&sign(&signer, "k1", &claims(now() - 10)))
+            .await
+            .is_ok());
+        assert!(matches!(
+            v.verify_with_client(&sign(&signer, "k1", &claims(now() - 3600)))
+                .await,
+            Err(ApiError::Unauthorized)
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_audience_list_is_read_and_a_group_keeps_no_leading_slash() {
+        let v = verifier();
+        let (signer, set) = keypair("k1");
+        v.install(&set);
+
+        // Keycloak sends `aud` as a list when a token is for more than one client: ours has to be
+        // in it, and a list that does not name it is refused.
+        let mut many = claims(now() + 60);
+        many["aud"] = json!(["context-gateway", "portal-api"]);
+        assert!(v
+            .verify_with_client(&sign(&signer, "k1", &many))
+            .await
+            .is_ok());
+        let mut others = claims(now() + 60);
+        others["aud"] = json!(["context-gateway", "portal-internal"]);
+        assert!(matches!(
+            v.verify_with_client(&sign(&signer, "k1", &others)).await,
+            Err(ApiError::Unauthorized)
+        ));
+
+        // A realm group is `/editors` on the wire and `editors` in a grant, so the slash goes.
+        let mut grouped = claims(now() + 60);
+        grouped["groups"] = json!(["/editors", "nested/one", "/a/b"]);
+        let (session, _) = v
+            .verify_with_client(&sign(&signer, "k1", &grouped))
+            .await
+            .unwrap();
+        assert_eq!(
+            session.identity.groups,
+            vec!["editors", "nested/one", "a/b"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_verified_bearer_carries_no_id_token_and_no_refresh_token() {
+        // A bearer caller has nothing to log out of and nothing to refresh with; a session that
+        // carried either would hand a script a credential it never presented (AG-59).
+        let v = verifier();
+        let (signer, set) = keypair("k1");
+        v.install(&set);
+        let (session, _) = v
+            .verify_with_client(&sign(&signer, "k1", &claims(now() + 60)))
+            .await
+            .unwrap();
+        assert!(session.id_token.is_empty());
+        assert_eq!(session.refresh_token, None);
+        assert_eq!(session.access_expires_at, session.expires_at);
+    }
+
     #[tokio::test]
     async fn a_valid_es256_token_yields_the_service_identity() {
         let v = verifier();
