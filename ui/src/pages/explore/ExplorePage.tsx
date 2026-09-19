@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -68,7 +68,10 @@ export function ExplorePage({
   const endpoints = useProjectList(project, "endpoints");
   const models = useProjectList(project, "datamodels");
 
-  const [space, setSpace] = useState<string>(initialSpace ?? "");
+  // `null` is "nobody has chosen a space yet", which is not the same as the empty choice: a person
+  // who picks "—" keeps it, while an arrival that named only an endpoint takes that endpoint's own
+  // space below.
+  const [chosenSpace, setSpace] = useState<string | null>(initialSpace ?? null);
   const [endpointChoice, setEndpointChoice] = useState<string>(initialEndpoint ?? "");
   const [query, setQuery] = useState<EntityQuery>(
     initialType ? { type: initialType, q: initialQ } : {},
@@ -81,23 +84,16 @@ export function ExplorePage({
   const [generation, setGeneration] = useState(0);
   const queryClient = useQueryClient();
 
-  const spaceEndpoints = (endpoints.data ?? []).filter((e) => spaceOf(e) === space);
   /**
-   * The `entities` hand-off names the endpoint and not its space (UI-59), and the page reads the
-   * endpoint only inside a space: without this the grid would open on nothing. The space is known
-   * once the endpoints have loaded, and only while the hand-off's endpoint is still the chosen one
-   * — a person who clears the space keeps it cleared.
+   * The `entities` hand-off names the endpoint and not its space (UI-59), and the page reads an
+   * endpoint only inside a space: without this the grid would open on nothing. The endpoint's own
+   * space is known once the endpoints have loaded, so it is derived rather than assigned.
    */
-  useEffect(() => {
-    if (space || !initialEndpoint || endpointChoice !== initialEndpoint) {
-      return;
-    }
-    const handed = (endpoints.data ?? []).find((e) => e.metadata.name === initialEndpoint);
-    const its = handed ? spaceOf(handed) : undefined;
-    if (its) {
-      setSpace(its);
-    }
-  }, [space, endpointChoice, initialEndpoint, endpoints.data]);
+  const handedSpace = (endpoints.data ?? []).find(
+    (e) => e.metadata.name === initialEndpoint,
+  );
+  const space = chosenSpace ?? (handedSpace ? spaceOf(handedSpace) : "");
+  const spaceEndpoints = (endpoints.data ?? []).filter((e) => spaceOf(e) === space);
   const endpoint =
     spaceEndpoints.find((e) => e.metadata.name === endpointChoice) ??
     pickReadEndpoint(spaceEndpoints);
