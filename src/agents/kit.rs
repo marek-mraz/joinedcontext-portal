@@ -137,6 +137,128 @@ pub struct Sort {
     pub dir: SortDir,
 }
 
+/// One column of a `grid` view (SDK-30, UI-71).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GridColumn {
+    /// The attribute shown, which has to be one the source asked for.
+    pub attr: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    /// Which of the value's metadata columns start open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show: Option<GridColumnShow>,
+    /// Whether this column takes a correction, in `mode: edit`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<GridFormat>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GridColumnShow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_at: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_id: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum GridFormat {
+    Text,
+    Number,
+    Date,
+    Link,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum GridMode {
+    View,
+    Edit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum GridDensity {
+    Compact,
+    Comfortable,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GridHistory {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_points: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GridFilters {
+    /// The columns whose filter row is offered; every filterable one when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed: Option<Vec<String>>,
+    /// What the grid asks the endpoint for before anyone filters on screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<GridPreset>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GridPreset {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attrs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_pattern: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_q: Option<String>,
+}
+
+/// The configuration of a `grid` view: `EntityGridConfig` of the SDK without the two fields the
+/// application decides for it (SDK-30). It reads through the app's own endpoint and shows the type
+/// of the view's source, so a spec can neither point the grid at another endpoint nor at another
+/// type; everything else — the columns, the page size, the filters, the edit — is the spec's.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct GridConfig {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<GridColumn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_timestamps: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filters: Option<GridFilters>,
+    /// Entities per page, 1 to 1000; 50 when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<GridMode>,
+    /// The attributes a correction may be typed into, which `mode: edit` requires.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub editable_attrs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<GridHistory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density: Option<GridDensity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub row_actions: Vec<String>,
+}
+
 /// One card of the dashboard. Views are drawn in order; `stats`, `map`, `table` and `form` take
 /// the whole width, the others share a row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -224,6 +346,22 @@ pub enum View {
         page: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fields: Option<Vec<String>>,
+    },
+    /// The entity grid: the endpoint read through the grid the Portal's own explorer renders,
+    /// paged and filtered per column, with an attribute's metadata and its history, and a
+    /// correction where the endpoint's grant allows one (SDK-30, UI-71).
+    #[serde(rename = "grid")]
+    Grid {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// The page this card sits on; cards that name a page share a tab bar, cards without
+        /// one are on every page.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grid: Option<GridConfig>,
     },
     /// Every attribute of the selected entity.
     #[serde(rename = "detail")]
@@ -449,6 +587,49 @@ pub fn validate(spec: &Spec) -> Vec<String> {
             View::Detail { source, .. } => {
                 resolve(&mut errors, &path, source.as_deref());
             }
+            View::Grid { source, grid, .. } => {
+                let known = resolve(&mut errors, &path, source.as_deref());
+                let config = grid.clone().unwrap_or_default();
+                for (i, column) in config.columns.iter().enumerate() {
+                    check(
+                        &mut errors,
+                        &format!("{path}.grid.columns[{i}].attr"),
+                        &known,
+                        &column.attr,
+                    );
+                }
+                for (i, attr) in config.editable_attrs.iter().enumerate() {
+                    check(
+                        &mut errors,
+                        &format!("{path}.grid.editableAttrs[{i}]"),
+                        &known,
+                        attr,
+                    );
+                }
+                if let Some(size) = config.page_size {
+                    if !(1..=1000).contains(&size) {
+                        errors.push(format!("{path}.grid.pageSize: must be between 1 and 1000"));
+                    }
+                }
+                // The SDK's own parser says the same thing (`editableAttrs` is required in edit
+                // mode), and the model reads whichever refusal comes first: this one is the gate
+                // before a browser sees the spec at all (AG-54).
+                if config.mode == Some(GridMode::Edit) && config.editable_attrs.is_empty() {
+                    errors.push(format!(
+                        "{path}.grid.editableAttrs: must list the attributes a correction may be typed into, in mode 'edit'"
+                    ));
+                }
+                if let Some(allowed) = config.filters.as_ref().and_then(|f| f.allowed.as_ref()) {
+                    for (i, attr) in allowed.iter().enumerate() {
+                        check(
+                            &mut errors,
+                            &format!("{path}.grid.filters.allowed[{i}]"),
+                            &known,
+                            attr,
+                        );
+                    }
+                }
+            }
         }
     }
     errors
@@ -462,6 +643,7 @@ impl View {
             | View::Table { page, .. }
             | View::Chart { page, .. }
             | View::Form { page, .. }
+            | View::Grid { page, .. }
             | View::Detail { page, .. } => page.as_deref(),
         }
     }
@@ -627,8 +809,10 @@ mod tests {
     fn the_example_the_bundle_ships_with_parses_clean() {
         let spec = parse(EXAMPLE).expect("the example is valid");
         assert_eq!(spec.title, "Helsinki city bikes");
-        assert_eq!(spec.views.len(), 5);
+        assert_eq!(spec.views.len(), 6);
         assert_eq!(spec.filters.len(), 3);
+        // The last one is the grid, which the example ships so the bundle renders one (T-1440).
+        assert!(matches!(spec.views[5], View::Grid { .. }));
     }
 
     #[test]
@@ -663,7 +847,7 @@ mod tests {
     #[test]
     fn the_schema_names_every_view_kind_and_refuses_unknown_fields() {
         let schema = schema_json();
-        for kind in ["stats", "map", "table", "chart", "detail", "form"] {
+        for kind in ["stats", "map", "table", "chart", "detail", "form", "grid"] {
             assert!(
                 schema.contains(&format!("\"{kind}\"")),
                 "{kind} missing from the schema"
@@ -773,5 +957,49 @@ mod tests {
         };
         let html = document("Title", "slug", &spec, None, None, &bundle, Some(url));
         assert!(html.contains(&format!("\"basemap\":\"{url}\"")));
+    }
+
+    /// SDK-30, UI-71: a grid view carries the grid's own configuration, and every attribute it
+    /// names is one the source asked the endpoint for — the gate before a browser sees the spec.
+    #[test]
+    fn a_grid_view_is_checked_against_its_source_and_its_own_rules() {
+        let good = r#"[{"kind":"grid","grid":{"columns":[{"attr":"a","format":"number"}],
+            "pageSize":25,"history":{"enabled":true}}}]"#;
+        let spec = parse(&format!(
+            r#"{{"title":"x","sources":[{{"name":"s","type":"T","attrs":["a"]}}],"views":{good}}}"#
+        ))
+        .expect("a grid view");
+        assert!(matches!(spec.views[0], View::Grid { .. }));
+
+        // A column nobody asked for, a page size out of bounds, an edit with nothing editable and
+        // a field of the grid's own configuration that does not exist.
+        for (views, expected) in [
+            (
+                r#"[{"kind":"grid","grid":{"columns":[{"attr":"ghost"}]}}]"#,
+                "views[0].grid.columns[0].attr: 'ghost' is not among the source's attributes",
+            ),
+            (
+                r#"[{"kind":"grid","grid":{"pageSize":5000}}]"#,
+                "views[0].grid.pageSize: must be between 1 and 1000",
+            ),
+            (
+                r#"[{"kind":"grid","grid":{"mode":"edit"}}]"#,
+                "views[0].grid.editableAttrs: must list the attributes a correction may be typed into, in mode 'edit'",
+            ),
+        ] {
+            let errors = parse(&format!(
+                r#"{{"title":"x","sources":[{{"name":"s","type":"T","attrs":["a"]}}],"views":{views}}}"#
+            ))
+            .expect_err("a refusal");
+            assert!(errors.iter().any(|e| e == expected), "{errors:?}");
+        }
+
+        // The endpoint and the type are the application's, never the spec's (SDK-30).
+        let errors = parse(
+            r#"{"title":"x","sources":[{"name":"s","type":"T","attrs":["a"]}],
+               "views":[{"kind":"grid","grid":{"source":{"kind":"endpoint","slug":"another"}}}]}"#,
+        )
+        .expect_err("a refusal");
+        assert!(errors[0].contains("unknown field `source`"), "{errors:?}");
     }
 }

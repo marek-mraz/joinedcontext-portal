@@ -5,6 +5,9 @@
  * exactly what is wrong instead of rendering nothing when it is handed one anyway.
  */
 
+import { parseGridConfig } from "./grid/config";
+import type { EntityGridConfig } from "./grid/config";
+
 export type Agg = "count" | "sum" | "avg" | "min" | "max";
 
 export interface Source {
@@ -47,7 +50,15 @@ export type View =
   | (Card & { kind: "chart"; type: "bar" | "line" | "pie"; x: string; y: string; agg?: Agg; top?: number })
   | (Card & { kind: "detail" })
   /** A window over the selected entity with one input per field; a save changes the rows on screen. */
-  | (Card & { kind: "form"; fields?: string[] });
+  | (Card & { kind: "form"; fields?: string[] })
+  /**
+   * The entity grid (SDK-30, UI-71): the same component the Portal's explorer renders, configured
+   * by the same object. Unlike every other view it reads the endpoint itself — it pages, filters
+   * per column, shows an attribute's metadata and its history, and takes a correction where the
+   * grant allows one — so `grid` is its configuration and `source`/`type` are never part of it:
+   * the app reads through its own endpoint and the view's source names the type.
+   */
+  | (Card & { kind: "grid"; grid?: Omit<EntityGridConfig, "source" | "type"> });
 
 export interface Spec {
   title: string;
@@ -62,7 +73,7 @@ export const DEFAULT_LIMIT = 1000;
 export const MAX_LIMIT = 5000;
 const AGGS: Agg[] = ["count", "sum", "avg", "min", "max"];
 const FILTERS = ["search", "select", "range"];
-const VIEWS = ["stats", "map", "table", "chart", "detail", "form"];
+const VIEWS = ["stats", "map", "table", "chart", "detail", "form", "grid"];
 const CHARTS = ["bar", "line", "pie"];
 /** Two names every entity carries whatever the source asked for. */
 const ALWAYS = ["id", "type"];
@@ -83,6 +94,8 @@ export function parseSpec(input: unknown): { spec: Spec; errors: [] } | { spec: 
     at("sources", "must list at least one entity type");
   }
   const attrsOf = new Map<string, Set<string>>();
+  /** The entity type of each source, which a grid view is configured for. */
+  const typeOf = new Map<string, string>();
   sources.forEach((source, index) => {
     const s = (source ?? {}) as Record<string, unknown>;
     const path = `sources[${index}]`;
@@ -103,6 +116,9 @@ export function parseSpec(input: unknown): { spec: Spec; errors: [] } | { spec: 
     }
     if (typeof s.name === "string" && !attrsOf.has(s.name)) {
       attrsOf.set(s.name, new Set([...ALWAYS, ...attrs]));
+      if (typeof s.type === "string") {
+        typeOf.set(s.name, s.type);
+      }
     }
   });
   const first = sources[0] && typeof (sources[0] as Record<string, unknown>).name === "string"
@@ -201,6 +217,28 @@ export function parseSpec(input: unknown): { spec: Spec; errors: [] } | { spec: 
           at(`${path}.columns`, "must list at least one column");
         }
         columns.forEach((c, i) => check(`${path}.columns[${i}]`, known, c));
+        break;
+      }
+      case "grid": {
+        const config = (v.grid ?? {}) as Record<string, unknown>;
+        // The app reads through its own endpoint, whose slug it learns when it runs, and the
+        // view's source names the type: a spec that set either could point this grid at another
+        // endpoint's data, so both are refused here rather than quietly overwritten.
+        for (const owned of ["source", "type"]) {
+          if (config[owned] !== undefined) {
+            at(`${path}.grid.${owned}`, "is the view's own source; leave it out");
+          }
+        }
+        const { findings } = parseGridConfig({
+          ...config,
+          source: { kind: "endpoint", slug: "the-app" },
+          type: typeOf.get(typeof v.source === "string" ? v.source : first) ?? "Entity",
+        });
+        // One validator for the spec and for the Portal's own grid, so a person writing a spec by
+        // hand reads the same findings the editor shows, at the path of their own file.
+        findings
+          .filter((finding) => !["/source", "/type"].includes(finding.path))
+          .forEach((finding) => at(`${path}.grid${finding.path.replaceAll("/", ".")}`, finding.message));
         break;
       }
       case "chart":

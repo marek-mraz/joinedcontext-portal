@@ -4,7 +4,7 @@
  * loud. MapLibre needs WebGL, which jsdom has not, so the library is a double that records what
  * it was handed, as the reference app's test does.
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import example from "../spec.example.json";
 
@@ -57,7 +57,10 @@ afterEach(() => {
 describe("App", () => {
   it("reads the endpoint, counts, filters, selects, and hands the map its points", async () => {
     render(<App slug="demo" spec={spec} />);
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("3 entities"));
+    // The header's own counter: the grid view of the example also renders a `status`, so the role
+    // alone is ambiguous since T-1440.
+    const counter = () => document.querySelector(".status") as HTMLElement;
+    await waitFor(() => expect(counter()).toHaveTextContent("3 entities"));
     expect(calls[0]).toContain("/api/endpoint/demo/ngsi-ld/v1/entities?type=BikeHireDockingStation");
     // The tiles: count and sum over every row.
     expect(screen.getByText("Stations").previousSibling).toHaveTextContent("3");
@@ -69,9 +72,10 @@ describe("App", () => {
     expect(collection.features).toHaveLength(3);
     // A select narrows tiles and table together.
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "closed" } });
-    expect(screen.getByRole("status")).toHaveTextContent("1 of 3 entities");
+    expect(counter()).toHaveTextContent("1 of 3 entities");
     expect(screen.getByText("Stations").previousSibling).toHaveTextContent("1");
-    expect(screen.getAllByRole("row")).toHaveLength(2);
+    // The `table` view's own rows: the grid view of the example is a `role="grid"` of its own.
+    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
     // A row click fills the detail.
     fireEvent.click(screen.getByText("Kapteeninpuistikko"));
     expect(screen.getByText(":003", { exact: false })).toBeInTheDocument();

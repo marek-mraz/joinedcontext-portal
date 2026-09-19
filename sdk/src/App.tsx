@@ -7,6 +7,7 @@ import { download, toCsv, toGeoJson, toPdf, toPng } from "./artifact";
 import { Chart } from "./views/Chart";
 import { Detail } from "./views/Detail";
 import { Form } from "./views/Form";
+import { GridView } from "./views/GridView";
 import { MapView } from "./views/MapView";
 import { Stats } from "./views/Stats";
 import { Table } from "./views/Table";
@@ -156,6 +157,7 @@ function ViewCard({
   basemap,
   filters,
   filterState,
+  inlineRows,
 }: {
   view: View;
   spec: Spec;
@@ -171,6 +173,8 @@ function ViewCard({
   basemap?: string;
   filters: Filter[];
   filterState: FilterState;
+  /** The entities the Portal inlined for a preview, for the one view that would otherwise fetch. */
+  inlineRows?: Record<string, unknown>[];
 }) {
   const cardRef = useRef<HTMLElement>(null);
   const source = sourceOf(spec, view);
@@ -197,6 +201,10 @@ function ViewCard({
         return <Chart rows={rows} x={view.x} y={view.y} agg={view.agg} top={view.top} type={view.type} accent={accent} />;
       case "detail":
         return <Detail row={rows.find((r) => r.id === selected) ?? null} attrs={source.attrs} />;
+      case "grid":
+        // The grid reads the endpoint for itself, so it takes the slug and the type rather than
+        // the rows this app loaded; in a preview it renders the entities the Portal inlined.
+        return <GridView slug={slug} type={source.type} config={view.grid} inline={inlineRows} />;
       case "form":
         return (
           <>
@@ -423,6 +431,7 @@ export function App({
             basemap={basemap}
             filters={filters}
             filterState={state}
+            inlineRows={inline?.[sourceOf(spec, view).name] as Record<string, unknown>[] | undefined}
           />
         ))}
       </main>
