@@ -302,6 +302,65 @@ function SpaceData({
   );
 }
 
+/**
+ * What one endpoint answers, folded into one line (T-2280, UI-26, EP-51).
+ *
+ * Every representation on its own line made two endpoints fill the screen, and a column that tall
+ * cannot be read down — which is the only reason to put audience and state in a table at all. The
+ * summary names the first two and counts the rest; opening it shows each representation where it can
+ * be clicked, and the documents that belong to the endpoint beside them. `<details>` rather than a
+ * menu of our own, because the browser already gives it a keyboard, a role and a state a screen
+ * reader announces.
+ */
+function Representations({
+  slug,
+  representations,
+}: {
+  slug: string;
+  representations: string[];
+}): JSX.Element {
+  const { t } = useTranslation();
+  const named = representations.slice(0, 2);
+  const rest = representations.length - named.length;
+  const link = (rep: string) =>
+    slug && REPRESENTATION_PATHS[rep] ? (
+      <EndpointLink href={endpointUrl(slug, REPRESENTATION_PATHS[rep])}>{rep}</EndpointLink>
+    ) : (
+      <Badge mono>{rep}</Badge>
+    );
+
+  if (representations.length === 0 && !slug) {
+    return <span className="text-sm text-surface-fg/60">{t("endpoints.field.noRepresentations")}</span>;
+  }
+
+  return (
+    <details className="group">
+      <summary className="focus-ring cursor-pointer list-none text-sm">
+        <span className="font-mono">{named.join(", ")}</span>
+        {rest > 0 ? (
+          <span className="ml-1 text-surface-fg/70">{t("endpoints.field.more", { count: rest })}</span>
+        ) : null}
+      </summary>
+      <ul className="mt-1 flex flex-wrap gap-1">
+        {representations.map((rep) => (
+          <li key={rep}>{link(rep)}</li>
+        ))}
+      </ul>
+      {slug ? (
+        <ul className="mt-1 flex flex-wrap gap-1">
+          {ENDPOINT_LINKS.map((entry) => (
+            <li key={entry.key}>
+              <EndpointLink href={endpointUrl(slug, entry.path)}>
+                {t(`endpoints.link.${entry.key}`)}
+              </EndpointLink>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </details>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
   return (
     <section className="space-y-2">
@@ -473,32 +532,10 @@ export function SpaceInside({ project, name }: { project: string; name: string }
                       <SharedWithBadge endpoint={endpoint} />
                     </TableCell>
                     <TableCell>
-                      <ul className="flex flex-wrap gap-1">
-                        {(spec.enabledRepresentations ?? []).map((rep) => (
-                          <li key={rep}>
-                            {endpointSlug && REPRESENTATION_PATHS[rep] ? (
-                              <EndpointLink
-                                href={endpointUrl(endpointSlug, REPRESENTATION_PATHS[rep])}
-                              >
-                                {rep}
-                              </EndpointLink>
-                            ) : (
-                              <Badge mono>{rep}</Badge>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                      {endpointSlug ? (
-                        <ul className="mt-1 flex flex-wrap gap-1">
-                          {ENDPOINT_LINKS.map((link) => (
-                            <li key={link.key}>
-                              <EndpointLink href={endpointUrl(endpointSlug, link.path)}>
-                                {t(`endpoints.link.${link.key}`)}
-                              </EndpointLink>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
+                      <Representations
+                        slug={endpointSlug}
+                        representations={spec.enabledRepresentations ?? []}
+                      />
                     </TableCell>
                     <TableCell>
                       <EndpointLink href={catalogueUrl(endpoint.metadata.name)}>

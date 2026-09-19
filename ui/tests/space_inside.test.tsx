@@ -62,7 +62,19 @@ const ENDPOINTS = list([
       contextSpaceRef: "ovzdusie",
       slug: SLUG,
       audience: "public",
-      enabledRepresentations: ["ngsi-ld", "geojson"],
+      enabledRepresentations: [
+        "ngsi-ld",
+        "geojson",
+        "csv",
+        "xlsx",
+        "zip",
+        "mcp",
+        "linkml",
+        "jsonschema",
+        "sensorthings",
+        "ogc-features",
+        "dcat",
+      ],
       policyRef: "urn:ngsi-ld:Policy:banskabystrica.sk:ovzdusie:public-air-quality",
     }),
     status: { phase: "Live" },
@@ -320,5 +332,26 @@ describe("the space's own data", () => {
     renderInside({ status: 200, count: 0 }, { status: 200, rows: [] });
 
     expect(await screen.findByText(en.spaces.inside.dataEmpty)).toBeInTheDocument();
+  });
+
+  it("folds an endpoint's representations into one line with a true count (T-2280)", async () => {
+    renderInside({ status: 200, count: 1 });
+
+    const endpointRow = (await screen.findByText("public-air")).closest("tr") as HTMLElement;
+    const folded = within(endpointRow).getByText(/ngsi-ld, geojson/);
+    // Eleven served, two named: the count is what is left, never a fixed number.
+    expect(within(endpointRow).getByText("+9 more")).toBeInTheDocument();
+    // One line, and everything still reachable: a `details` is closed but its content is in the page
+    // and its summary takes the keyboard on its own.
+    const disclosure = folded.closest("details") as HTMLDetailsElement;
+    expect(disclosure).toBeTruthy();
+    expect(disclosure.open).toBe(false);
+    expect(within(endpointRow).getByRole("link", { name: "csv" })).toBeInTheDocument();
+    expect(within(endpointRow).getByRole("link", { name: en.endpoints.link.access })).toBeInTheDocument();
+
+    // The count is arithmetic, not a constant: eleven served minus the two named. An endpoint with
+    // two or fewer therefore shows no count at all, which is the same branch (`rest > 0`).
+    expect(within(endpointRow).getByText("ngsi-ld, geojson")).toBeInTheDocument();
+    expect(within(endpointRow).queryByText("+11 more")).toBeNull();
   });
 });

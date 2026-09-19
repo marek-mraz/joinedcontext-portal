@@ -357,6 +357,8 @@
       "slug": "Slug",
       "audience": "Publikum",
       "representations": "Reprezentácie",
+      "more": "+{count} ďalších",
+      "noRepresentations": "žiadne reprezentácie",
       "phase": "Stav",
       "allowedProjects": "Povolené projekty",
       "rateLimits": "Obmedzenie požiadaviek",

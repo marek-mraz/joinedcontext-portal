@@ -358,6 +358,8 @@
       "publicUrl": "Public address",
       "audience": "Audience",
       "representations": "Representations",
+      "more": "+{count} more",
+      "noRepresentations": "no representations",
       "phase": "State",
       "allowedProjects": "Allowed projects",
       "rateLimits": "Rate limit",

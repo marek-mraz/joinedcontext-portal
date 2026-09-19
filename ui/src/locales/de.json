@@ -339,6 +339,8 @@
       "publicUrl": "Public address",
       "audience": "Zielgruppe",
       "representations": "Repräsentationen",
+      "more": "+{count} weitere",
+      "noRepresentations": "keine Repräsentationen",
       "phase": "Zustand",
       "allowedProjects": "Zugelassene Projekte",
       "rateLimits": "Ratenbegrenzung",
