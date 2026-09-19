@@ -219,6 +219,152 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // ---------------------------------------------------------------------------------------
+    // T-2106 `from_mr_str`, T-2107 `with_merge_request`, T-2108 `Change::new`.
+    //
+    // The contract that matters: a change's `name` reaches a URL path
+    // (`/api/v1/projects/{project}/changes/{name}`), so **whatever string a forge hands us, the name
+    // is `chg-` and eight lowercase hex digits** — never a traversal, a space, or anything a path
+    // would have to escape. And the same merge request always derives the same name, or a change
+    // would be a new one on every poll.
+    // ---------------------------------------------------------------------------------------
+
+    fn pending_status() -> ChangeStatus {
+        ChangeStatus::new(
+            Lane::Green,
+            ChangePhase::PendingApproval,
+            PlanSummary::new(1, 0, 0),
+        )
+    }
+
+    /// `chg-` and lowercase hex, inside a DNS-1123 label: what a name has to be to sit in a URL
+    /// path. Not exactly eight digits, because `{:08x}` is a *minimum* width — a merge request
+    /// number above `0xffff_ffff` writes more (`u64::MAX` gives `chg-ffffffffffffffff`). Harmless
+    /// for a path, and no forge counts that high, so it is a line in chyby.md, not a task.
+    fn is_change_name(name: &str) -> bool {
+        let Some(digits) = name.strip_prefix("chg-") else {
+            return false;
+        };
+        !digits.is_empty()
+            && digits.len() <= 16
+            && name.len() <= 63
+            && digits
+                .chars()
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+    }
+
+    #[test]
+    fn a_change_name_is_chg_and_hex_whatever_the_forge_said() {
+        for mr in [
+            "17",
+            "0",
+            "18446744073709551615", // u64::MAX parses
+            "18446744073709551616", // one past it does not, so it hashes
+            "-1",
+            "1.5",
+            " 17 ",
+            "https://gitea.example/org/repo/pulls/17",
+            "https://gitea.example/org/repo/pulls/17/", // trailing slash: no last segment
+            "https://gitea.example/org/repo/pulls/../../etc/passwd",
+            "../../../etc/passwd",
+            "%2e%2e%2f%2e%2e%2f",
+            "chg-deadbeef",
+            "..",
+            "/",
+            "",
+            "   ",
+            "a b\tc\r\n",
+            "\u{0000}17",
+            "pulls/17?x=1#y",
+            "ПР-17",
+            "17\u{200b}", // a zero-width space is not a digit
+            &"9".repeat(4096),
+        ] {
+            let meta = ChangeMeta::from_mr_str(mr, "helsinki");
+            assert!(
+                is_change_name(&meta.name),
+                "{mr:?} produced {:?}",
+                meta.name
+            );
+            assert_eq!(meta.namespace, "helsinki");
+        }
+    }
+
+    #[test]
+    fn the_same_merge_request_always_derives_the_same_name_and_the_number_wins() {
+        // Deterministic: the poller derives the name again on every read, and a change that renamed
+        // itself would be a new change each time.
+        for mr in [
+            "17",
+            "https://gitea.example/org/repo/pulls/17",
+            "not-a-number",
+        ] {
+            assert_eq!(
+                ChangeMeta::from_mr_str(mr, "helsinki").name,
+                ChangeMeta::from_mr_str(mr, "helsinki").name,
+            );
+        }
+        // A URL and the bare number are the same merge request, and the number is what names it.
+        assert_eq!(
+            ChangeMeta::from_mr_str("https://gitea.example/org/repo/pulls/17", "helsinki").name,
+            ChangeMeta::from_merge_request(17, "helsinki").name,
+        );
+        assert_eq!(
+            ChangeMeta::from_merge_request(17, "helsinki").name,
+            "chg-00000011"
+        );
+        // Two merge requests are two changes.
+        assert_ne!(
+            ChangeMeta::from_mr_str("17", "helsinki").name,
+            ChangeMeta::from_mr_str("18", "helsinki").name,
+        );
+        // The namespace is carried, never folded into the name: the same MR number in two projects
+        // is two changes, told apart by where they live.
+        let a = ChangeMeta::from_mr_str("17", "helsinki");
+        let b = ChangeMeta::from_mr_str("17", "banskabystrica");
+        assert_eq!(a.name, b.name);
+        assert_ne!(a.namespace, b.namespace);
+    }
+
+    #[test]
+    fn a_merge_request_is_recorded_as_it_came_and_replaces_the_one_before_it() {
+        // `with_merge_request` is a builder on the status: the value is what the forge said (a URL or
+        // a number), kept for the link back, while the *name* is the derived one above. Setting it
+        // twice keeps the last, so a re-poll cannot leave two.
+        let status = pending_status()
+            .with_merge_request("https://gitea.example/org/repo/pulls/17")
+            .with_merge_request("https://gitea.example/org/repo/pulls/18");
+        assert_eq!(
+            status.merge_request.as_deref(),
+            Some("https://gitea.example/org/repo/pulls/18"),
+        );
+        // An empty string is still a value, not an absence: a caller that has no merge request does
+        // not call this, and a `Some("")` that came back from a forge is visible rather than hidden.
+        assert_eq!(
+            pending_status()
+                .with_merge_request("")
+                .merge_request
+                .as_deref(),
+            Some(""),
+        );
+        assert_eq!(pending_status().merge_request, None);
+    }
+
+    #[test]
+    fn a_change_carries_its_own_api_version_and_kind_and_nothing_of_the_caller() {
+        let change = Change::new(ChangeMeta::from_mr_str("17", "helsinki"), pending_status());
+        assert_eq!(change.api_version, API_VERSION);
+        assert_eq!(change.kind, Change::KIND);
+        assert_eq!(change.metadata.name, "chg-00000011");
+
+        // Serialized, it is the envelope the API documents: camelCase, the kind spelled out, and no
+        // field a client would have to guess at.
+        let json = serde_json::to_value(&change).expect("serialize");
+        assert_eq!(json["apiVersion"], API_VERSION);
+        assert_eq!(json["kind"], "Change");
+        assert_eq!(json["metadata"]["namespace"], "helsinki");
+    }
+
     #[test]
     fn deletions_always_land_in_red_lane() {
         let empty_spec = json!({});
