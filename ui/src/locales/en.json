@@ -494,7 +494,8 @@
       "maxBytes": "At most {count} bytes in a file",
       "noFileLimits": "The platform's own file limits apply.",
       "publication": "Published as open data",
-      "notSet": "not set"
+      "notSet": "not set",
+      "filterPropose": "Propose this filter"
     }
   },
   "datasources": {

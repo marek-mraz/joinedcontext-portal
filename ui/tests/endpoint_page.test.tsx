@@ -84,7 +84,7 @@ const PERMITTED = {
     {
       role: "endpoint-editor",
       binding: "editors",
-      rule: { kinds: ["Endpoint"], verbs: ["propose", "delete"] },
+      rule: { kinds: ["Endpoint", "ModelProjection"], verbs: ["propose", "delete"] },
     },
   ],
 };
@@ -92,14 +92,42 @@ const PERMITTED = {
 /** A viewer: they read everything and propose nothing (UI-44). */
 const VIEWER = { project: PROJECT, bootstrap: false, grants: [] };
 
+/**
+ * The calls one path received, with the query and the body as they went (T-2281). The API client
+ * sends a `Request`, whose body is only readable as a promise, so this is awaited.
+ */
+async function sentTo(fetchMock: ReturnType<typeof vi.fn>, path: string) {
+  const calls = fetchMock.mock.calls.map(([input, init]) => ({
+    url: new URL(input instanceof Request ? input.url : String(input), window.location.origin),
+    text:
+      input instanceof Request
+        ? input.clone().text()
+        : Promise.resolve(String((init as RequestInit | undefined)?.body ?? "{}")),
+  }));
+  return Promise.all(
+    calls
+      .filter((call) => call.url.pathname.endsWith(path))
+      .map(async (call) => ({
+        url: call.url,
+        body: JSON.parse((await call.text) || "{}") as {
+          spec?: { filter?: Record<string, string>; classes?: unknown };
+          status?: unknown;
+        },
+      })),
+  );
+}
+
 function renderPage({
   endpoint = ENDPOINT,
   projections = [PROJECTION],
   permissions = PERMITTED,
+  check = { ok: true },
 }: {
   endpoint?: unknown;
   projections?: unknown[];
   permissions?: unknown;
+  /** What the mandatory dry run answers (PF-57). */
+  check?: { ok: boolean; message?: string };
 } = {}) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
@@ -120,6 +148,16 @@ function renderPage({
     }
     if (path.endsWith(`/endpoints/${NAME}`)) {
       return endpoint === null ? json({ title: "Not Found", detail: "no such endpoint" }, 404) : json(endpoint);
+    }
+    if (path.includes("/projections/")) {
+      if (url.searchParams.get("dryRun") === "All") {
+        return json(
+          check.ok
+            ? { valid: true, verdict: { ok: true, findings: [] } }
+            : { valid: false, verdict: { ok: false, findings: [{ message: check.message }] } },
+        );
+      }
+      return json({ kind: "Change", metadata: { name: "chg-1" }, spec: {}, status: { phase: "Pending" } });
     }
     if (path.endsWith("/projections")) {
       return json(list(projections));
@@ -192,12 +230,63 @@ describe("the endpoint's own settings page", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: en.endpoints.page.filtering })).toBeInTheDocument();
-    expect(screen.getByText("pm10>30")).toBeInTheDocument();
-    expect(screen.getByText("/Banska Bystrica/Centrum")).toBeInTheDocument();
-    // Every condition says what it narrows, and an empty one says it narrows nothing.
+    expect(screen.getByLabelText(en.endpoints.filter.q)).toHaveValue("pm10>30");
+    expect(screen.getByLabelText(en.endpoints.filter.scopeQ)).toHaveValue("/Banska Bystrica/Centrum");
+    // Every condition says what it narrows, and an empty one shows it narrows nothing.
     expect(screen.getByText(en.endpoints.filter.qHelp)).toBeInTheDocument();
-    expect(screen.getAllByText(en.endpoints.page.filterEmpty)).toHaveLength(2);
+    expect(screen.getByLabelText(en.endpoints.filter.geoQ)).toHaveValue("");
     expect(screen.getByRole("link", { name: "ovzdusie-open" })).toBeInTheDocument();
+  });
+
+  it("proposes a changed filter on the projection, checked first, and nothing else of it", async () => {
+    const fetchMock = renderPage();
+    const user = userEvent.setup();
+
+    const q = await screen.findByLabelText(en.endpoints.filter.q);
+    // Untouched, there is nothing to propose.
+    expect(screen.getByRole("button", { name: en.endpoints.page.filterPropose })).toBeDisabled();
+
+    await user.clear(q);
+    await user.type(q, "pm10>50");
+    await user.click(screen.getByRole("button", { name: en.endpoints.page.filterPropose }));
+
+    await waitFor(async () => {
+      expect(await sentTo(fetchMock, "/projections/ovzdusie-open")).toHaveLength(2);
+    });
+    const [dryRun, real] = await sentTo(fetchMock, "/projections/ovzdusie-open");
+    // The check comes first, on the same route and body, and only a green one proposes (PF-57).
+    expect(dryRun.url.searchParams.get("dryRun")).toBe("All");
+    expect(real.url.searchParams.get("dryRun")).toBeNull();
+    expect(real.body.spec?.filter).toEqual({ q: "pm10>50", scopeQ: "/Banska Bystrica/Centrum" });
+    // The rest of the projection travels as it was, and the status the platform computes does not.
+    expect(real.body.spec?.classes).toEqual(PROJECTION.spec.classes);
+    expect(real.body.status).toBeUndefined();
+  });
+
+  it("removes a condition it was asked to empty instead of storing an empty query", async () => {
+    const fetchMock = renderPage();
+    const user = userEvent.setup();
+
+    await user.clear(await screen.findByLabelText(en.endpoints.filter.scopeQ));
+    await user.click(screen.getByRole("button", { name: en.endpoints.page.filterPropose }));
+
+    await waitFor(async () => {
+      expect(await sentTo(fetchMock, "/projections/ovzdusie-open")).toHaveLength(2);
+    });
+    const [, real] = await sentTo(fetchMock, "/projections/ovzdusie-open");
+    expect(real.body.spec?.filter).toEqual({ q: "pm10>30" });
+  });
+
+  it("says what a red check found and proposes nothing", async () => {
+    const fetchMock = renderPage({ check: { ok: false, message: "scopeQ is not a scope path" } });
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText(en.endpoints.filter.scopeQ), "?");
+    await user.click(screen.getByRole("button", { name: en.endpoints.page.filterPropose }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("scopeQ is not a scope path");
+    // One call, the check; the real one never went.
+    expect(await sentTo(fetchMock, "/projections/ovzdusie-open")).toHaveLength(1);
   });
 
   it("says the whole space is published when there is no projection to filter with", async () => {
@@ -228,13 +317,15 @@ describe("the endpoint's own settings page", () => {
     renderPage({ permissions: VIEWER });
 
     expect(await screen.findByRole("heading", { name: "Air quality, open" })).toBeInTheDocument();
-    expect(screen.getByText("pm10>30")).toBeInTheDocument();
+    expect(screen.getByLabelText(en.endpoints.filter.q)).toHaveValue("pm10>30");
 
     // The guard remounts the control once the document arrives, so it is queried after the wait.
     await waitFor(() => {
       expect(screen.getByRole("button", { name: en.endpoints.page.change })).toBeDisabled();
     });
-    expect(screen.getByTitle(/does not permit/)).toBeInTheDocument();
+    // Both doors say which verb on which kind is missing: the endpoint's settings and the filter.
+    expect(screen.getByTitle(/'propose' on 'Endpoint'/)).toBeInTheDocument();
+    expect(screen.getByTitle(/'propose' on 'ModelProjection'/)).toBeInTheDocument();
   });
 
   it("keeps the rest of the actions in one menu, and a denied one with its reason", async () => {

@@ -494,7 +494,8 @@
       "maxBytes": "Najviac {count} bajtov v súbore",
       "noFileLimits": "Platia limity platformy.",
       "publication": "Zverejnené ako otvorené dáta",
-      "notSet": "nenastavené"
+      "notSet": "nenastavené",
+      "filterPropose": "Navrhnúť tento filter"
     }
   },
   "datasources": {

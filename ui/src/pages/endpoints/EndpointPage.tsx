@@ -1,10 +1,13 @@
 import { useState } from "react";
 import type { JSX, ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ApiError, api, queryKeys, unwrap, whilePending } from "../../api/client";
-import { asManifests, localized, refName } from "../../api/manifest";
+import { asManifests, isChange, localized, refName } from "../../api/manifest";
+import type { Change } from "../../api/manifest";
+import { proposeChecked } from "../../api/proposal";
+import { ChangeNotice } from "../../components/ChangeNotice";
 import type { Manifest } from "../../api/manifest";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { SaveAsResourceAction } from "../../components/SaveAsDialog";
@@ -23,7 +26,7 @@ import {
   endpointUrl,
 } from "../../components/endpoints/links";
 import { spaceOf } from "../../components/endpoints/sharing";
-import { Badge, Button, PageHeader, SourceLink } from "../../components/ui";
+import { Alert, Badge, Button, Field, Input, PageHeader, SourceLink } from "../../components/ui";
 
 /**
  * One endpoint, the whole window (T-2281, EP-51, UI-26, UI-61).
@@ -343,18 +346,7 @@ export function EndpointPage({
       <Section title={t("endpoints.page.filtering")} lead={t("endpoints.page.filteringLead")}>
         {projection ? (
           <>
-            <Facts>
-              {FILTER_KEYS.map((key) => (
-                <Fact key={key} label={t(`endpoints.filter.${key}`)}>
-                  {filterOf(projection)[key] ? (
-                    <code className="break-all font-mono text-caption">{filterOf(projection)[key]}</code>
-                  ) : (
-                    <p className="text-caption text-fg-muted">{t("endpoints.page.filterEmpty")}</p>
-                  )}
-                  <p className="mt-1 text-caption text-fg-muted">{t(`endpoints.filter.${key}Help`)}</p>
-                </Fact>
-              ))}
-            </Facts>
+            <FilterForm project={project} projection={projection} />
             <p className="text-caption text-fg-muted">
               {t("endpoints.page.filterLivesOn")}{" "}
               <Link
@@ -453,6 +445,111 @@ export function EndpointPage({
         </Section>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The filter of the named projection, editable here (T-2281, the owner's own ask), proposed like any
+ * other change.
+ *
+ * Four conditions is what the manifest holds — `q`, `scopeQ`, `geoQ`, `temporalQ` (MP-01) — and each
+ * one only ever narrows what the endpoint publishes; there is no field here that could widen a grant.
+ * An empty box removes the condition rather than storing an empty query, so "not narrowed" stays what
+ * it says. T-2283 turns these four boxes into rows a person builds without knowing NGSI-LD, with the
+ * count of what they match; the boxes are what the manifest can express today.
+ */
+function FilterForm({
+  project,
+  projection,
+}: {
+  project: string;
+  projection: Manifest;
+}): JSX.Element {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const stored = filterOf(projection);
+  const [draft, setDraft] = useState<Record<string, string>>(() =>
+    Object.fromEntries(FILTER_KEYS.map((key) => [key, stored[key] ?? ""])),
+  );
+  const [change, setChange] = useState<Change | null>(null);
+
+  const propose = useMutation({
+    mutationFn: async () => {
+      const filter = Object.fromEntries(
+        FILTER_KEYS.map((key) => [key, draft[key]?.trim() ?? ""]).filter(([, value]) => value !== ""),
+      );
+      // The status is the platform's to compute and never travels back (MF-04).
+      const rest = { ...projection };
+      delete (rest as { status?: unknown }).status;
+      const body = {
+        ...rest,
+        spec: {
+          ...(projection.spec as Record<string, unknown>),
+          ...(Object.keys(filter).length > 0 ? { filter } : {}),
+        },
+      };
+      if (Object.keys(filter).length === 0) {
+        delete (body.spec as { filter?: unknown }).filter;
+      }
+      return proposeChecked(project, "projections", body as { metadata: { name: string } }, false);
+    },
+    onSuccess: (result) => {
+      if (isChange(result)) {
+        setChange(result);
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.list(project, "projections") });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.changes(project) });
+    },
+  });
+
+  const untouched = FILTER_KEYS.every((key) => (draft[key]?.trim() ?? "") === (stored[key] ?? ""));
+  const failure =
+    propose.error instanceof ApiError
+      ? (propose.error.problem?.detail ?? propose.error.message)
+      : propose.error
+        ? t("app.error.generic")
+        : null;
+
+  if (change) {
+    return <ChangeNotice change={change} project={project} />;
+  }
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        propose.mutate();
+      }}
+    >
+      {failure ? (
+        <Alert tone="danger" role="alert">
+          {failure}
+        </Alert>
+      ) : null}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {FILTER_KEYS.map((key) => (
+          <Field
+            key={key}
+            id={`filter-${key}`}
+            label={t(`endpoints.filter.${key}`)}
+            help={t(`endpoints.filter.${key}Help`)}
+          >
+            <Input
+              id={`filter-${key}`}
+              value={draft[key] ?? ""}
+              placeholder={t("endpoints.page.filterEmpty")}
+              onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
+            />
+          </Field>
+        ))}
+      </div>
+      <PermissionGuard project={project} kind="ModelProjection" verb="propose">
+        <Button type="submit" disabled={untouched || propose.isPending}>
+          {t("endpoints.page.filterPropose")}
+        </Button>
+      </PermissionGuard>
+    </form>
   );
 }
 

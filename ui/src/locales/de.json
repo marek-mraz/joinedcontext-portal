@@ -494,7 +494,8 @@
       "maxBytes": "Höchstens {count} Bytes in einer Datei",
       "noFileLimits": "Es gelten die Dateigrenzen der Plattform.",
       "publication": "Als offene Daten veröffentlicht",
-      "notSet": "nicht gesetzt"
+      "notSet": "nicht gesetzt",
+      "filterPropose": "Diesen Filter vorschlagen"
     }
   },
   "datasources": {

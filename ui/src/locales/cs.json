@@ -494,7 +494,8 @@
       "maxBytes": "Nejvýše {count} bajtů v souboru",
       "noFileLimits": "Platí limity platformy.",
       "publication": "Zveřejněno jako otevřená data",
-      "notSet": "nenastaveno"
+      "notSet": "nenastaveno",
+      "filterPropose": "Navrhnout tento filtr"
     }
   },
   "datasources": {
