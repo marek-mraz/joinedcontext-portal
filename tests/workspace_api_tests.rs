@@ -483,6 +483,44 @@ async fn an_agent_or_an_mcp_client_never_brings_a_workspace_back() {
     assert_eq!(cmp["files"].as_array().unwrap().len(), 1);
 }
 
+/// AG-82, T-1259: the other way out of a workspace is a person's too. A discard deletes the
+/// branch and every edit on it, so an agent that could call it could throw away work nobody
+/// reviewed — and it is not even offered the tool, because `may_run` refuses it before the
+/// registry lists it.
+#[tokio::test]
+async fn an_agent_or_an_mcp_client_never_throws_a_workspace_away() {
+    let (server, state) = world().await;
+    opened(&state).await;
+    let op = ops::find("jc_workspace_discard").unwrap();
+    for via in [Via::Mcp, Via::Agent] {
+        let caller = Caller::new(steward(), via);
+        let refused = caller.may_run(op).unwrap_err();
+        assert!(
+            format!("{refused:?}").contains("AG-82"),
+            "the tool is offered to an agent: {refused:?}"
+        );
+        let err = ops::call(op, &caller, &state, PROJECT, json!({ "name": "air-v2" }))
+            .await
+            .unwrap_err();
+        assert!(format!("{err:?}").contains("AG-82"), "{err:?}");
+    }
+    assert!(
+        calls(&server, "DELETE", "/branches/workspace/air-v2")
+            .await
+            .is_empty(),
+        "the branch was deleted anyway"
+    );
+    assert!(
+        state.workspaces.get("air-v2").await.unwrap().is_some(),
+        "the record went with it"
+    );
+
+    // A person still discards it, which is what makes the refusal a rule about who and not about
+    // whether (CC-79).
+    let answer = send(&state, steward(), "DELETE", &format!("{WS}/air-v2"), None).await;
+    assert_eq!(answer.status, StatusCode::NO_CONTENT, "{}", answer.text);
+}
+
 #[tokio::test]
 async fn discarding_removes_the_branch_and_the_record() {
     let (server, state) = world().await;

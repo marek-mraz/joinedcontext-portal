@@ -123,6 +123,10 @@ pub async fn serve(config: Config) -> std::io::Result<()> {
         .await
         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
+    // A workspace outlives the Portal that made it unless something finishes its TTL: the record
+    // hides at expiry, the branch does not go by itself (CC-81, T-1260).
+    crate::ops::workspaces::spawn_reaper(state.clone());
+
     if let Some(syncer) = state.syncer.as_ref() {
         syncer.clone().spawn_periodic(state.config.sync_interval);
 

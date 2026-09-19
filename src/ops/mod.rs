@@ -130,6 +130,9 @@ impl Caller {
         if op.name == "jc_workspace_propose" {
             workspaces::refuse_agent_bring_back(self)?;
         }
+        if op.name == "jc_workspace_discard" {
+            workspaces::refuse_agent_discard(self)?;
+        }
         self.grants(op)
     }
 }

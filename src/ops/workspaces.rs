@@ -644,6 +644,87 @@ pub fn owns(workspace: &Workspace, identity: &Identity) -> bool {
     workspace.owner == identity.username || identity.email.as_deref() == Some(&workspace.owner)
 }
 
+/// Takes away what an expired workspace leaves behind (CC-81, PF-83, T-1260).
+///
+/// Expiry already hides a workspace: `live` answers `NotFound`, the listings skip it and the
+/// gateway stops being told about its preview. What it does not do is take the branch away, and a
+/// branch nobody can reach through the Portal is a copy of the configuration outliving the TTL
+/// that was set for it — which is the whole of what a TTL is for. So the expiry is finished here:
+/// the preview render is forgotten, the branch is deleted in the forge, and the record goes last.
+///
+/// The record goes last on purpose. A forge that cannot be reached leaves the record in place and
+/// the next pass tries again; a record deleted first would leave a branch nothing knows about.
+pub async fn reap_expired(state: &AppState) -> usize {
+    reap_expired_at(state, Utc::now()).await
+}
+
+/// The same, at an instant the caller names: the store reads expiry against a given `now`, so the
+/// rule is provable without a test that waits an hour.
+pub async fn reap_expired_at(state: &AppState, now: DateTime<Utc>) -> usize {
+    let expired = match state.workspaces.expired(now).await {
+        Ok(expired) => expired,
+        Err(error) => {
+            tracing::error!(%error, "the expired workspaces could not be listed");
+            return 0;
+        }
+    };
+    let mut reaped = 0;
+    for workspace in expired {
+        state.previews.forget(&workspace.name);
+        // A branch the forge no longer has is already `Ok`, so a second pass over the same record
+        // cannot stall on it.
+        if let Err(error) = forge(state) {
+            tracing::warn!(workspace = %workspace.name, %error, "an expired workspace keeps its branch");
+            continue;
+        }
+        if let Err(error) = forge(state)
+            .expect("checked above")
+            .delete_branch(&workspace.branch())
+            .await
+        {
+            tracing::warn!(workspace = %workspace.name, %error, "the branch of an expired workspace was not deleted; it is tried again next pass");
+            continue;
+        }
+        match state.workspaces.delete(&workspace.name).await {
+            Ok(_) => {
+                reaped += 1;
+                tracing::info!(
+                    workspace = %workspace.name,
+                    project = %workspace.project,
+                    "an expired workspace, its branch and its preview are gone"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(workspace = %workspace.name, %error, "the record of an expired workspace was not deleted")
+            }
+        }
+    }
+    reaped
+}
+
+/// Finishes the expiry of every workspace that has one, once a minute (CC-81).
+///
+/// On the replica that holds the reconciler lock only: two replicas deleting the same branch is
+/// harmless but the log reads as though something went wrong twice, and `leader` is what the other
+/// periodic loops of this Portal already ask.
+pub fn spawn_reaper(state: AppState) {
+    tokio::spawn(async move {
+        let mut every_minute = tokio::time::interval(std::time::Duration::from_secs(60));
+        every_minute.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            every_minute.tick().await;
+            if state
+                .syncer
+                .as_ref()
+                .is_some_and(|syncer| !syncer.is_leader())
+            {
+                continue;
+            }
+            reap_expired(&state).await;
+        }
+    });
+}
+
 fn forge(state: &AppState) -> Result<&GiteaClient, ApiError> {
     state
         .gitea
@@ -1203,12 +1284,29 @@ pub async fn update_from_main(
 /// An agent, or an MCP client a model drives, never brings a workspace back (AG-82, as AG-11
 /// for a decision): asked before anything runs, so the tool is not even offered.
 pub fn refuse_agent_bring_back(caller: &Caller) -> Result<(), OpError> {
+    refuse_agent(
+        caller,
+        "an agent never brings a workspace back; it presents the comparison and a person \
+         proposes it in the Portal or over the REST route (AG-82)",
+    )
+}
+
+/// The other end of the same decision (AG-82, T-1259): a discard deletes the branch and every
+/// edit on it, so it is the person's to make as much as the bring-back is.
+///
+/// What an agent may do with a workspace is the work: open it, edit it, compare it, run a preview
+/// against it. Both ways out of it — into a Change, or into nothing — are a person's.
+pub fn refuse_agent_discard(caller: &Caller) -> Result<(), OpError> {
+    refuse_agent(
+        caller,
+        "an agent never throws a workspace away; the branch and every edit on it go with it, so \
+         a person discards it in the Portal or over the REST route (AG-82)",
+    )
+}
+
+fn refuse_agent(caller: &Caller, why: &str) -> Result<(), OpError> {
     if matches!(caller.via, Via::Agent | Via::Mcp) {
-        return Err(OpError::Api(ApiError::Denied(
-            "an agent never brings a workspace back; it presents the comparison and a person \
-             proposes it in the Portal or over the REST route (AG-82)"
-                .into(),
-        )));
+        return Err(OpError::Api(ApiError::Denied(why.into())));
     }
     Ok(())
 }
@@ -1626,6 +1724,9 @@ pub fn operations() -> Vec<crate::ops::Operation> {
             run: |caller, state, project, val| {
                 Box::pin(async move {
                     let input: NameInput = parse_input(val)?;
+                    // Also here, not only in `may_run`: the refusal travels with the operation, so
+                    // a door that dispatches without asking the registry still refuses (AG-82).
+                    refuse_agent_discard(caller)?;
                     discard(&caller.identity, state, project, &input.name).await?;
                     Ok(json!({ "discarded": input.name }))
                 })
