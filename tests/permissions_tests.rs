@@ -61,6 +61,21 @@ fn cookies(config: &Config, identity: Identity) -> String {
     parts.join("; ")
 }
 
+/// A resource of the project the proposals in this file are about.
+///
+/// The manifests below name a space and a data source; since T-2233 the dry run resolves what a
+/// manifest names, so the project has to really hold them — a proposal that could never be applied
+/// is no test of who may propose it.
+fn in_project(kind: &str, name: &str) -> ResourceEnvelope {
+    ResourceEnvelope {
+        api_version: API_VERSION.to_owned(),
+        kind: kind.to_owned(),
+        metadata: ObjectMeta::new(name, "ovzdusie"),
+        spec: json!({}),
+        status: None,
+    }
+}
+
 fn org(kind: &str, name: &str, spec: Value) -> ResourceEnvelope {
     ResourceEnvelope {
         api_version: API_VERSION.to_owned(),
@@ -199,6 +214,8 @@ async fn a_developer_proposes_a_pipeline_but_not_a_public_endpoint() {
                 json!({ "project": "ovzdusie" }),
                 None,
             ),
+            in_project("ContextSpace", "ovzdusie"),
+            in_project("DataSource", "mqtt-mesto"),
         ]
     };
     let (status, body) = post(
