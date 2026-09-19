@@ -980,6 +980,7 @@ pub async fn import_bundle(
 
     let incoming = parse(bytes)?;
     authorize(state, identity, &project, &incoming)?;
+    well_formed(&incoming)?;
     let target = options
         .target_namespace
         .clone()
@@ -1549,6 +1550,44 @@ fn authorize(
                 effective.check(kind, jc_core::kinds::Verb::Propose, None)?;
             }
         }
+    }
+    Ok(())
+}
+
+/// The kind's own parse and invariants, for every manifest the bundle carries (T-2253, CC-08).
+///
+/// `mutate::propose_engine` asks this of a single manifest, so a form and `jc_resource_propose`
+/// refuse what `jcctl apply` would refuse on `main`. The import door asked only who may propose,
+/// and a `ModelProjection` naming `dataModelRef.version: 1.1.0` went through it into a Change on
+/// 2026-09-18: the approver read an ordinary plan, and the reconciler has refused the file on every
+/// tick since (DM-22). Checked before anything is planned, so a dry run says the same thing as the
+/// proposal, and the file it came from is named — a bundle holds many manifests.
+fn well_formed(incoming: &[Incoming]) -> Result<(), ApiError> {
+    for item in incoming {
+        let Some(envelope) = &item.envelope else {
+            continue;
+        };
+        if envelope.kind == BUNDLE_KIND {
+            continue;
+        }
+        let Some(checked) = jc_core::registry::validate_yaml(
+            &envelope.kind,
+            &serde_json::to_string(envelope)
+                .map_err(|e| ApiError::Internal(format!("manifest did not serialise: {e}")))?,
+        ) else {
+            // A kind the Portal serves and jc-core has no type for has nothing to check against.
+            continue;
+        };
+        checked.map_err(|e| {
+            let named = item
+                .path
+                .clone()
+                .unwrap_or_else(|| format!("{}/{}", envelope.kind, envelope.metadata.name));
+            ApiError::BadRequest(format!(
+                "{named}: spec is not a valid {}: {e}",
+                envelope.kind
+            ))
+        })?;
     }
     Ok(())
 }

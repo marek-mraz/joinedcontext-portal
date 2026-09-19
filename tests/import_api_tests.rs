@@ -38,8 +38,9 @@ kind: ContextSpace
 metadata:
   name: ovzdusie
   namespace: helsinki
+  title: { en: Air quality }
 spec:
-  displayName: { en: Air quality }
+  defaultLocale: en
 "#;
 
 const ENDPOINT: &str = r#"apiVersion: joinedcontext.com/v1alpha1
@@ -51,11 +52,30 @@ spec:
   contextSpaceRef: ovzdusie
   slug: mluyob4nz52lok3ssk7pgn5vwt
   audience: public
-  entitySelector:
-    ids:
-      - urn:ngsi-ld:AirQualityObserved:hel.fi:ovzdusie:sever-01
-      - urn:ngsi-ld:AirQualityObserved:tampere.fi:ilma:keskusta-01
-    idPattern: "^urn:ngsi-ld:AirQualityObserved:hel\\.fi:ovzdusie:.*$"
+  enabledRepresentations: [ngsi-ld]
+"#;
+
+/// Where an entity selector legitimately lives (R6): the Policy of the endpoint's space. The ids
+/// and the anchored pattern are what an import has to move from one organisation to another
+/// (MF-22, PF-43).
+const POLICY: &str = r#"apiVersion: joinedcontext.com/v1alpha1
+kind: Policy
+metadata:
+  name: public-air
+  namespace: helsinki
+spec:
+  contextSpaceRef: ovzdusie
+  assigner: did:web:hel.fi
+  assignee: { kind: role, id: public }
+  operations: [queryEntity, retrieveEntity]
+  information:
+    - entities:
+        - type: AirQualityObserved
+          id: urn:ngsi-ld:AirQualityObserved:hel.fi:ovzdusie:sever-01
+        - type: AirQualityObserved
+          id: urn:ngsi-ld:AirQualityObserved:tampere.fi:ilma:keskusta-01
+        - type: AirQualityObserved
+          idPattern: "^urn:ngsi-ld:AirQualityObserved:hel\\.fi:ovzdusie:.*$"
 "#;
 
 const ROLE: &str = r#"apiVersion: joinedcontext.com/v1alpha1
@@ -74,8 +94,8 @@ kind: Project
 metadata:
   name: helsinki
   namespace: org
+  title: { en: Helsinki }
 spec:
-  displayName: { en: Helsinki }
   organizationRef: hel
 "#;
 
@@ -468,16 +488,36 @@ async fn every_imported_manifest_says_where_it_came_from() {
     );
 }
 
+/// The Policy is where the entity selector lives (R6), so it is the manifest whose URNs an import
+/// has to move; the Endpoint moves its namespace and its references (T-2253 corrected the fixture:
+/// an Endpoint has no `entitySelector`, and a manifest that carries one is refused at every door).
 #[tokio::test]
 async fn the_namespace_the_typed_references_and_the_urns_all_move() {
     let server = forge().await;
-    upload(&server, vec![], &[]).await;
+    let (state, cookie) = state(&server, vec![]);
+    let (content_type, body) = multipart(
+        &archive(&[
+            ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+            ("projects/helsinki/endpoints/public-air.yaml", ENDPOINT),
+            (
+                "projects/helsinki/spaces/ovzdusie/policies/public-air.yaml",
+                POLICY,
+            ),
+        ]),
+        &[],
+    );
+    let (status, answer) = post(state, &cookie, &content_type, body).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
 
-    let endpoint = put_bodies(&server)
-        .await
-        .into_iter()
+    let written = put_bodies(&server).await;
+    let endpoint = written
+        .iter()
         .find(|body| body.contains("kind: Endpoint"))
         .expect("the endpoint was written");
+    let policy = written
+        .iter()
+        .find(|body| body.contains("kind: Policy"))
+        .expect("the policy was written");
     assert!(
         endpoint.contains(&format!("namespace: {PROJECT}")),
         "{endpoint}"
@@ -486,19 +526,19 @@ async fn the_namespace_the_typed_references_and_the_urns_all_move() {
     // the space, or the gateway refuses every write the imported endpoint selects. The space
     // segment is a ContextSpace name and keeps it.
     assert!(
-        endpoint.contains("urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:sever-01"),
-        "{endpoint}"
+        policy.contains("urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:ovzdusie:sever-01"),
+        "{policy}"
     );
     // An id in a space this bundle does not carry is another city's, and a federated
     // registration that pointed there still does (MF-22).
     assert!(
-        endpoint.contains("urn:ngsi-ld:AirQualityObserved:tampere.fi:ilma:keskusta-01"),
-        "{endpoint}"
+        policy.contains("urn:ngsi-ld:AirQualityObserved:tampere.fi:ilma:keskusta-01"),
+        "{policy}"
     );
     // An anchored idPattern is a URN prefix with the domain's dots escaped (R33, T-0826).
     assert!(
-        endpoint.contains(r"^urn:ngsi-ld:AirQualityObserved:banskabystrica\.sk:ovzdusie:.*$"),
-        "{endpoint}"
+        policy.contains(r"^urn:ngsi-ld:AirQualityObserved:banskabystrica\.sk:ovzdusie:.*$"),
+        "{policy}"
     );
     // The one place the source survives is the provenance annotation (MF-20).
     assert!(
@@ -506,6 +546,13 @@ async fn the_namespace_the_typed_references_and_the_urns_all_move() {
         "{endpoint}"
     );
     assert!(!endpoint.contains("hel.fi"), "{endpoint}");
+    assert!(
+        policy.contains(&format!("namespace: {PROJECT}")),
+        "{policy}"
+    );
+    // The policy's `assigner` still names the source organisation's DID after the move; that is
+    // today's behaviour, and T-2256 asks whether an imported grant may keep it.
+    assert!(policy.contains("did:web:hel.fi"), "{policy}");
 }
 
 #[tokio::test]
@@ -1061,8 +1108,17 @@ metadata:
   annotations:
     joinedcontext.com/image: "ghcr.io/hel/air-map@sha256:9f2b1c0d4e5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e"
 spec:
-  endpointRefs: [public-air]
+  kind: static
+  source:
+    path: apps/air-map
+  build:
+    node: "22"
+    pnpm: "9"
   visibility: project
+  dataNeeds:
+    - contextSpaceRef: ovzdusie
+      types: [AirQualityObserved]
+      operations: [queryEntity]
 "#;
     let server = forge().await;
     let (state, cookie) = state(&server, vec![]);
@@ -1506,11 +1562,20 @@ fn endpoint_only(mapping: Value) -> Vec<u8> {
     serde_json::to_vec(&json!({ "manifests": [endpoint], "spaceMapping": mapping })).expect("body")
 }
 
+/// The endpoint with the Policy that selects its entities, which is where the URNs a mapping has
+/// to move actually live (R6).
+fn endpoint_and_policy(mapping: Value) -> Vec<u8> {
+    let endpoint: Value = serde_yaml_ng::from_str(ENDPOINT).expect("the endpoint parses");
+    let policy: Value = serde_yaml_ng::from_str(POLICY).expect("the policy parses");
+    serde_json::to_vec(&json!({ "manifests": [endpoint, policy], "spaceMapping": mapping }))
+        .expect("body")
+}
+
 #[tokio::test]
 async fn an_endpoint_mapped_onto_a_space_of_the_target_keeps_its_name_and_gets_a_fresh_slug() {
     let server = forge().await;
     let (state, cookie) = state(&server, vec![TARGET_SPACE]);
-    let body = endpoint_only(json!([{ "from": "ovzdusie", "to": "air" }]));
+    let body = endpoint_and_policy(json!([{ "from": "ovzdusie", "to": "air" }]));
     let (status, answer) = post(state, &cookie, "application/json", body).await;
     assert_eq!(status, StatusCode::ACCEPTED, "{answer}");
 
@@ -1519,6 +1584,10 @@ async fn an_endpoint_mapped_onto_a_space_of_the_target_keeps_its_name_and_gets_a
         .iter()
         .find(|body| body.contains("kind: Endpoint"))
         .expect("the endpoint is written");
+    let policy = written
+        .iter()
+        .find(|body| body.contains("kind: Policy"))
+        .expect("the policy is written");
     assert!(
         endpoint.contains("name: public-air"),
         "the name is kept: {endpoint}"
@@ -1529,14 +1598,14 @@ async fn an_endpoint_mapped_onto_a_space_of_the_target_keeps_its_name_and_gets_a
         "a fresh slug: {endpoint}"
     );
     assert!(
-        endpoint.contains(
+        policy.contains(
             "urn:ngsi-ld:AirQualityObserved:banskabystrica.sk:banskabystrica-air:sever-01"
         ),
-        "its ids land on the target space: {endpoint}"
+        "its ids land on the target space: {policy}"
     );
     assert!(
-        endpoint.contains("tampere.fi:ilma"),
-        "another city's id is not ours to move: {endpoint}"
+        policy.contains("tampere.fi:ilma"),
+        "another city's id is not ours to move: {policy}"
     );
     assert!(
         !written
@@ -1620,6 +1689,97 @@ async fn a_name_taken_in_the_target_is_a_conflict_that_never_offers_a_prefixed_n
     assert!(detail.contains("public-air"), "{detail}");
     assert!(
         !detail.contains("banskabystrica-public-air") && !detail.contains("public-air-helsinki"),
+        "{detail}"
+    );
+}
+
+/// The real manifest that went through the door on dev on 2026-09-18 (T-2253): `1.1.0` where
+/// DM-22 allows only the served major.
+const BAD_PROJECTION: &str = r#"apiVersion: joinedcontext.com/v1alpha1
+kind: ModelProjection
+metadata:
+  name: helsinki-bikes-mobility
+  namespace: helsinki
+spec:
+  contextSpaceRef: ovzdusie
+  classes:
+    - name: BikeHireDockingStation
+      slots: [name, availableBikeNumber]
+  dataModelRef:
+    kind: DataModel
+    name: helsinki
+    version: 1.1.0
+"#;
+
+/// CC-08, DM-22, T-2253: a bundle's manifests meet their kind's own invariants at the door.
+///
+/// Before this, `import` asked only who may propose. A ModelProjection naming a semver
+/// `dataModelRef` was written into a Change, approved by a person reading an ordinary plan, and
+/// then refused by the reconciler on every tick for ever — the resource never existed and the
+/// catalogue showed it as restricted, which reads like a permission decision and is not one.
+#[tokio::test]
+async fn an_imported_manifest_that_fails_its_kind_is_refused_at_the_door() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let archive = archive(&[
+        ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+        (
+            "projects/helsinki/spaces/ovzdusie/projections/helsinki-bikes-mobility.yaml",
+            BAD_PROJECTION,
+        ),
+    ]);
+
+    // The dry run is the bundle's check (PF-57), and it must say the same thing as the import.
+    for uri in [
+        format!("/api/v1/projects/{PROJECT}/import?dryRun=All"),
+        format!("/api/v1/projects/{PROJECT}/import"),
+    ] {
+        let (content_type, body) = multipart(&archive, &[("dryRun", "true")]);
+        let (status, answer) = send(state.clone(), &cookie, &content_type, body, &uri).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {answer}");
+        let detail = answer["detail"].as_str().unwrap_or_default();
+        assert!(
+            detail.contains("helsinki-bikes-mobility"),
+            "the refusal names the file it came from: {detail}"
+        );
+        assert!(
+            detail.contains("dataModelRef"),
+            "and the field that is wrong: {detail}"
+        );
+    }
+    assert!(
+        written(&server).await.is_empty(),
+        "nothing of a bundle that holds a refused manifest is written"
+    );
+}
+
+/// The neighbour: the same bundle with the version DM-22 allows is imported as before.
+#[tokio::test]
+async fn a_projection_that_names_the_served_major_is_imported() {
+    let server = forge().await;
+    let (state, cookie) = state(&server, vec![]);
+    let good = BAD_PROJECTION.replace("version: 1.1.0", "version: \"1\"");
+    let (content_type, body) = multipart(
+        &archive(&[
+            ("projects/helsinki/spaces/ovzdusie/space.yaml", SPACE),
+            (
+                "projects/helsinki/spaces/ovzdusie/projections/helsinki-bikes-mobility.yaml",
+                &good,
+            ),
+        ]),
+        &[("dryRun", "true")],
+    );
+    let (status, report) = post(state, &cookie, &content_type, body).await;
+    // The kind's own validation lets it through; what answers now is the bundle's reference
+    // check, which is a different refusal and names the model rather than the field.
+    let detail = report["detail"].as_str().unwrap_or_default();
+    assert!(
+        !detail.contains("not a valid ModelProjection"),
+        "the served major is valid: {report}"
+    );
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{report}");
+    assert!(
+        detail.contains("DataModel 'helsinki' is in neither the bundle nor project"),
         "{detail}"
     );
 }
