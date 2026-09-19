@@ -2,7 +2,7 @@
 //! `crate::ops::workspaces`, which the operations of the registry and MCP call too.
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -261,10 +261,18 @@ pub async fn stop_workspace_preview(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Every running preview for the gateway, on the internal listener only (Architecture/06
-/// §7.2). Manifests hold `secretRef`s and no secret, and the NetworkPolicy admits the gateway
-/// alone to this port.
-pub async fn served_previews(State(state): State<AppState>) -> Result<Json<ServedList>, ApiError> {
+/// Every running preview for the gateway, on the internal listener only (Architecture/06 §7.2,
+/// Architecture/13 §6).
+///
+/// Manifests hold `secretRef`s and no secret, but they are a project's configuration, so the
+/// gateway's own ServiceAccount token is what opens this route (PF-46, AG-52, T-1500). The
+/// NetworkPolicy that admits the gateway to this port is the second control and not the only one:
+/// a pod that reaches the port through a policy mistake presents no such token and reads nothing.
+pub async fn served_previews(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ServedList>, ApiError> {
+    crate::auth::internal::authenticate_gateway(&state, &headers).await?;
     Ok(Json(previews::served(&state).await?))
 }
 

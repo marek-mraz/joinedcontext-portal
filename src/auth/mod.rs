@@ -10,6 +10,7 @@
 
 pub mod bearer;
 pub mod csrf;
+pub mod internal;
 pub mod oidc;
 pub mod refresh;
 pub mod session;

@@ -2357,7 +2357,7 @@ mod tests {
     ("GET", "/internal/agent-runs/{id}/inbox", "the runner's own callback, authenticated as a workload"),
     ("POST", "/internal/agent-runs/{id}/mcp", "the whole registry for one run, narrowed by its AgentProfile (AG-70) and refused an approval (AG-11)"),
     ("POST", "/internal/pipeline-tests/{id}", "the runner's own callback, authenticated as a workload"),
-    ("GET", "/internal/previews", "the gateway's read of the running previews, admitted by NetworkPolicy alone"),
+    ("GET", "/internal/previews", "the gateway's read of the running previews, authenticated as a workload"),
     ("GET", "/mcp", "the MCP door itself, which dispatches this registry"),
     ("POST", "/mcp", "the MCP door itself, which dispatches this registry"),
     ("GET", "/metrics", "the Prometheus scrape"),

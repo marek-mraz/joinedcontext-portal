@@ -163,6 +163,18 @@ impl BearerVerifier {
         &self,
         token: &str,
     ) -> Result<(Session, Option<String>), ApiError> {
+        self.verify_for_audience(token, &self.audience).await
+    }
+
+    /// [`Self::verify_with_client`] against an audience other than this verifier's own: the
+    /// internal listener takes tokens bound to `portal-internal` rather than to the Portal's API
+    /// client, and one verifier with one key cache serves both (PF-46, AG-52). The issuer, the
+    /// algorithms and the required claims are the same; only what the token must be *for* differs.
+    pub async fn verify_for_audience(
+        &self,
+        token: &str,
+        audience: &str,
+    ) -> Result<(Session, Option<String>), ApiError> {
         let header = decode_header(token).map_err(|_| ApiError::Unauthorized)?;
         if !ALGORITHMS.contains(&header.alg) {
             return Err(ApiError::Unauthorized);
@@ -183,7 +195,7 @@ impl BearerVerifier {
         // verified against an EC key or the other way round.
         let mut validation = Validation::new(header.alg);
         validation.set_issuer(&[self.issuer.as_str()]);
-        validation.set_audience(&[self.audience.as_str()]);
+        validation.set_audience(&[audience]);
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
         validation.validate_nbf = true;
         validation.leeway = 30;

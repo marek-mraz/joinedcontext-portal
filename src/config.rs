@@ -42,6 +42,11 @@ pub struct Config {
     /// `Subscription` is written (`/cs/{space}/ngsi-ld/v1/subscriptions`, T-0931). `None`
     /// leaves subscriptions read from the repository and written nowhere.
     pub gateway_url: Option<String>,
+    /// The Keycloak client the Context Gateway holds, which is the only caller `GET
+    /// /internal/previews` answers (PF-46, AG-52). `None` leaves that route refusing every call:
+    /// a Portal that was not told whose token to expect must not fall back to trusting the
+    /// NetworkPolicy alone.
+    pub gateway_client_id: Option<String>,
     /// The context broker as the Portal reaches it inside the cluster, which is where a
     /// declared `ContextSourceRegistration` is written, in the tenant of its hub space
     /// (`POST /ngsi-ld/v1/csourceRegistrations`, T-0345, SP-08). It is also the address the
@@ -129,6 +134,7 @@ impl std::fmt::Debug for Config {
             )
             .field("pipeline_runner_url", &self.pipeline_runner_url)
             .field("gateway_url", &self.gateway_url)
+            .field("gateway_client_id", &self.gateway_client_id)
             .field("broker_url", &self.broker_url)
             .field("org_domain", &self.org_domain)
             .field("pipeline_test_capture_url", &self.pipeline_test_capture_url)
@@ -820,6 +826,8 @@ impl Config {
             gitea_webhook_secret_previous,
             pipeline_runner_url,
             gateway_url,
+            gateway_client_id: lookup("JC_PORTAL_GATEWAY_CLIENT_ID")
+                .filter(|v| !v.trim().is_empty()),
             broker_url,
             org_domain: lookup("JC_PORTAL_ORG_DOMAIN").filter(|v| !v.trim().is_empty()),
             pipeline_test_capture_url,
@@ -854,6 +862,7 @@ impl Config {
             gitea_webhook_secret_previous: None,
             pipeline_runner_url: None,
             gateway_url: None,
+            gateway_client_id: None,
             broker_url: None,
             org_domain: None,
             pipeline_test_capture_url: None,
