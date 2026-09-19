@@ -225,3 +225,54 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* Edit mode (UI-67): a changed cell is marked where the person changed it, a refused row keeps
+   its reason, and the review panel sits between the grid and its pager. */
+.jc-grid-cell-input {
+  font: inherit;
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.jc-grid-cell-input:focus {
+  border-color: currentColor;
+}
+
+.jc-grid-cell-changed {
+  font-weight: 600;
+  border-bottom-style: dashed;
+  border-bottom-color: currentColor;
+}
+
+.jc-grid-tbody tr[data-refused] td {
+  outline: 1px dashed currentColor;
+  outline-offset: -1px;
+}
+
+.jc-grid-pending,
+.jc-grid-review {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+}
+
+.jc-grid-review {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.jc-grid-review table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.jc-grid-review fieldset {
+  display: flex;
+  gap: 1rem;
+  border: 0;
+  padding: 0;
+}

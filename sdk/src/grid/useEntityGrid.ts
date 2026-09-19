@@ -5,6 +5,7 @@ import type { RichRow, RichCell } from "./model";
 import { attributesOf, cellText } from "./model";
 import { andQ, opsForKind, queryFromFilters } from "./filters";
 import type { ColumnFilter, FilterColumn, FilterKind, FilterOp } from "./filters";
+import type { AttributeChange, EntityChange } from "./apply";
 
 export type MetaKey = "observedAt" | "unit" | "datasetId" | "createdAt" | "modifiedAt";
 
@@ -18,6 +19,8 @@ export interface GridState {
   filters: Record<string, ColumnFilter>;
   /** The `q` typed by hand instead of the row; `null` while the row is what asks. */
   filterText: string | null;
+  /** Cells a person changed and has not applied: entity id, then attribute (UI-67). */
+  edits: Record<string, Record<string, unknown>>;
 }
 
 export interface GridLabels {
@@ -48,6 +51,16 @@ export interface GridLabels {
   sortPage: string;
   /** What the footer calls the endpoint's own count of matching entities. */
   matching: string;
+  /** Edit mode: the cell editor, the pending list and what applying them is called (UI-67). */
+  edit: string;
+  pending: string;
+  review: string;
+  apply: string;
+  discard: string;
+  observedKeep: string;
+  observedNow: string;
+  applying: string;
+  refusedHere: string;
 }
 
 export const DEFAULT_LABELS: GridLabels = {
@@ -87,6 +100,15 @@ export const DEFAULT_LABELS: GridLabels = {
   filterRow: "Filters",
   sortPage: "Sort this page by",
   matching: "matching",
+  edit: "Edit",
+  pending: "not applied yet",
+  review: "Review the changes",
+  apply: "Apply",
+  discard: "Discard the changes",
+  observedKeep: "keep when each value was observed",
+  observedNow: "these values were observed now",
+  applying: "Applying…",
+  refusedHere: "refused",
 };
 
 export interface VisibleColumn {
@@ -122,6 +144,12 @@ export interface EntityGrid {
   setFilterText(text: string | null): void;
   /** Every column the filter row can ask about, with what it holds. */
   filterColumns: FilterColumn[];
+  /** One cell a person changed; `undefined` gives the endpoint's own value back. */
+  setEdit(id: string, attr: string, value: unknown | undefined): void;
+  /** Forgets every edit that has not been applied. */
+  clearEdits(): void;
+  /** What applying would send: one entry per entity, with what each cell held before. */
+  pendingChanges: EntityChange[];
   /** The query the filters ask for right now, as the endpoint receives it. */
   askedQuery: { q?: string; idPattern?: string };
   setOffset(offset: number): void;
@@ -290,6 +318,7 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
   const [internalSort, setInternalSort] = useState<{ attr: string; dir: "asc" | "desc" } | null>(null);
   const [internalFilters, setInternalFilters] = useState<Record<string, ColumnFilter>>({});
   const [internalFilterText, setInternalFilterText] = useState<string | null>(null);
+  const [internalEdits, setInternalEdits] = useState<Record<string, Record<string, unknown>>>({});
 
   // Controlled state: use controlled values when key present
   const offset = controlledState?.offset !== undefined ? controlledState.offset : internalOffset;
@@ -300,6 +329,7 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
   const filters = controlledState?.filters !== undefined ? controlledState.filters : internalFilters;
   const filterText =
     controlledState?.filterText !== undefined ? controlledState.filterText : internalFilterText;
+  const edits = controlledState?.edits !== undefined ? controlledState.edits : internalEdits;
 
   const [rows, setRows] = useState<RichRow[]>([]);
   const [total, setTotal] = useState<number | undefined>(undefined);
@@ -342,6 +372,30 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
     const built = queryFromFilters(filterColumns, filters);
     return filterText === null ? built : { q: filterText.trim() || undefined, idPattern: built.idPattern };
   }, [filterColumns, filters, filterText]);
+
+  /**
+   * What applying the pending cells would send: the value before, the unit it was measured in and
+   * whether the attribute is a Relationship all come from the row the person edited, so the
+   * review reads what they saw and the write keeps what it must not lose.
+   */
+  const pendingChanges = useMemo((): EntityChange[] => {
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return Object.entries(edits).map(([id, attrs]) => {
+      const row = byId.get(id);
+      const changes: AttributeChange[] = Object.entries(attrs).map(([attribute, after]) => {
+        const cell = row?.cells[attribute];
+        const one = Array.isArray(cell) ? cell[0] : cell;
+        return {
+          attribute,
+          after,
+          before: one?.kind === "relationship" ? one.object : one?.value,
+          unitCode: one?.unitCode,
+          kind: one?.kind === "relationship" ? "relationship" : "property",
+        };
+      });
+      return { id, changes };
+    });
+  }, [edits, rows]);
 
   const fetchData = useCallback(() => {
     const nonce = ++nonceRef.current;
@@ -426,32 +480,32 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
         next[attr] = [...current, meta];
       }
       if (onStateChange) {
-        onStateChange({ offset, activeCell, selected, shown: next, sort, filters, filterText });
+        onStateChange({ offset, activeCell, selected, shown: next, sort, filters, filterText, edits });
       }
       if (controlledState?.shown === undefined) {
         setInternalShown(next);
       }
     },
-    [shown, offset, activeCell, selected, sort, filters, filterText, onStateChange, controlledState],
+    [shown, offset, activeCell, selected, sort, filters, filterText, edits, onStateChange, controlledState],
   );
 
   const setOffset = useCallback(
     (newOffset: number) => {
       if (onStateChange) {
-        onStateChange({ offset: newOffset, activeCell, selected, shown, sort, filters, filterText });
+        onStateChange({ offset: newOffset, activeCell, selected, shown, sort, filters, filterText, edits });
       }
       if (controlledState?.offset === undefined) {
         setInternalOffset(newOffset);
       }
     },
-    [activeCell, selected, shown, sort, filters, filterText, onStateChange, controlledState],
+    [activeCell, selected, shown, sort, filters, filterText, edits, onStateChange, controlledState],
   );
 
   const setSort = useCallback(
     (attr: string) => {
       const next = sort?.attr === attr && sort.dir === "asc" ? { attr, dir: "desc" as const } : { attr, dir: "asc" as const };
       if (onStateChange) {
-        onStateChange({ offset, activeCell, selected, shown, sort: next, filters, filterText });
+        onStateChange({ offset, activeCell, selected, shown, sort: next, filters, filterText, edits });
       }
       if (controlledState?.sort === undefined) {
         setInternalSort(next);
@@ -473,7 +527,7 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
         next[key] = filter;
       }
       if (onStateChange) {
-        onStateChange({ offset: 0, activeCell, selected, shown, sort, filters: next, filterText });
+        onStateChange({ offset: 0, activeCell, selected, shown, sort, filters: next, filterText, edits });
       }
       if (controlledState?.filters === undefined) {
         setInternalFilters(next);
@@ -482,14 +536,51 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
         setInternalOffset(0);
       }
     },
-    [filters, filterText, activeCell, selected, shown, sort, onStateChange, controlledState],
+    [filters, filterText, edits, activeCell, selected, shown, sort, onStateChange, controlledState],
   );
+
+  /**
+   * One cell a person changed. A value equal to what the endpoint answered is not a change, so
+   * typing a value back removes it from the pending list rather than sending it again.
+   */
+  const setEdit = useCallback(
+    (id: string, attr: string, value: unknown | undefined) => {
+      const next: Record<string, Record<string, unknown>> = { ...edits };
+      const forEntity = { ...(next[id] ?? {}) };
+      if (value === undefined) {
+        delete forEntity[attr];
+      } else {
+        forEntity[attr] = value;
+      }
+      if (Object.keys(forEntity).length === 0) {
+        delete next[id];
+      } else {
+        next[id] = forEntity;
+      }
+      if (onStateChange) {
+        onStateChange({ offset, activeCell, selected, shown, sort, filters, filterText, edits: next });
+      }
+      if (controlledState?.edits === undefined) {
+        setInternalEdits(next);
+      }
+    },
+    [edits, offset, activeCell, selected, shown, sort, filters, filterText, onStateChange, controlledState],
+  );
+
+  const clearEdits = useCallback(() => {
+    if (onStateChange) {
+      onStateChange({ offset, activeCell, selected, shown, sort, filters, filterText, edits: {} });
+    }
+    if (controlledState?.edits === undefined) {
+      setInternalEdits({});
+    }
+  }, [offset, activeCell, selected, shown, sort, filters, filterText, onStateChange, controlledState]);
 
   /** The query as text: the rows compose the first version, and the person owns it from then on. */
   const setFilterText = useCallback(
     (text: string | null) => {
       if (onStateChange) {
-        onStateChange({ offset: 0, activeCell, selected, shown, sort, filters, filterText: text });
+        onStateChange({ offset: 0, activeCell, selected, shown, sort, filters, filterText: text, edits });
       }
       if (controlledState?.filterText === undefined) {
         setInternalFilterText(text);
@@ -498,7 +589,7 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
         setInternalOffset(0);
       }
     },
-    [filters, activeCell, selected, shown, sort, onStateChange, controlledState],
+    [filters, edits, activeCell, selected, shown, sort, onStateChange, controlledState],
   );
 
   const moveActive = useCallback(
@@ -542,14 +633,14 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
 
       const next = { row, col };
       if (onStateChange) {
-        onStateChange({ offset, activeCell: next, selected, shown, sort, filters, filterText });
+        onStateChange({ offset, activeCell: next, selected, shown, sort, filters, filterText, edits });
       }
       if (controlledState?.activeCell === undefined) {
         setInternalActiveCell(next);
       }
       return true;
     },
-    [activeCell, sortedRows.length, columns.length, offset, selected, shown, sort, filters, filterText, onStateChange, controlledState],
+    [activeCell, sortedRows.length, columns.length, offset, selected, shown, sort, filters, filterText, edits, onStateChange, controlledState],
   );
 
   const getGridProps = useCallback((): Record<string, unknown> => {
@@ -605,7 +696,7 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
     total,
     loading,
     error,
-    state: { offset, activeCell, selected, shown, sort, filters, filterText },
+    state: { offset, activeCell, selected, shown, sort, filters, filterText, edits },
     labels,
     cellOf,
     toggleMeta,
@@ -613,6 +704,9 @@ export function useEntityGrid(options: UseEntityGridOptions): EntityGrid {
     setFilterText,
     filterColumns,
     askedQuery,
+    setEdit,
+    clearEdits,
+    pendingChanges,
     setOffset,
     setSort,
     moveActive,

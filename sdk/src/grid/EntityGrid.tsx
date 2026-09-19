@@ -4,6 +4,8 @@ import type { MetaKey, UseEntityGridOptions, VisibleColumn } from "./useEntityGr
 import { useEntityGrid } from "./useEntityGrid";
 import { opsForKind, valuesNeeded } from "./filters";
 import type { ColumnFilter, FilterColumn } from "./filters";
+import { applyChanges, MAX_ENTITIES } from "./apply";
+import type { Observed, Refusal } from "./apply";
 import "./grid.css";
 
 export interface EntityGridProps extends UseEntityGridOptions {
@@ -27,7 +29,7 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
   } = props;
 
   const grid = useEntityGrid(hookOptions);
-  const { rows, columns, loading, error, labels, state, cellOf, toggleMeta, setOffset, setSort, setFilter, setFilterText, filterColumns, askedQuery, getGridProps, getHeaderProps, getRowProps, getCellProps } = grid;
+  const { rows, columns, loading, error, labels, state, cellOf, toggleMeta, setOffset, setSort, setFilter, setFilterText, filterColumns, askedQuery, setEdit, clearEdits, pendingChanges, reload, getGridProps, getHeaderProps, getRowProps, getCellProps } = grid;
 
   // A column offers a filter when it holds something `q` can ask about and the config allows it:
   // `filters.allowed` is the list a dashboard narrows its grid to.
@@ -43,6 +45,59 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
     return byKey;
   }, [filterColumns, allowed]);
   const asText = state.filterText !== null;
+  // Edit mode needs a place to write: without one the grid is a reader, whatever the config says.
+  // A source that takes no writes switches the feature off, whatever the config says (SDK-29).
+  const editing = hookOptions.config.mode === "edit" && Boolean(hookOptions.source.patch);
+  // Which columns open: the config's own list, which `parseGridConfig` requires in edit mode, so a
+  // grid never opens a column nobody named.
+  const editable = useMemo(() => {
+    const allowed = hookOptions.config.editableAttrs;
+    return (column: VisibleColumn): boolean =>
+      // The attribute's own column only: a metadata column shows when the value was observed or
+      // what it is measured in, and neither is corrected by typing over it.
+      editing && column.attr !== null && column.meta === null && allowed.includes(column.attr);
+  }, [editing, hookOptions.config.editableAttrs]);
+  const [open, setOpen] = useState(false);
+  const [observed, setObserved] = useState<Observed>("keep");
+  const [applying, setApplying] = useState(false);
+  const [refused, setRefused] = useState<Refusal[]>([]);
+  const refusedOf = useMemo(() => new Map(refused.map((one) => [one.id, one.detail])), [refused]);
+  const rowTitle = useCallback(
+    (id: string): string | undefined => {
+      const detail = refusedOf.get(id);
+      return detail ? `${labels.refusedHere}: ${detail}` : undefined;
+    },
+    [refusedOf, labels.refusedHere],
+  );
+
+  /**
+   * Applies the pending cells through the endpoint. What landed is forgotten and re-read, so the
+   * grid shows the endpoint's own answer; what was refused stays pending with its reason, because
+   * the person's value is the only copy of it (UI-67).
+   */
+  const apply = useCallback(async () => {
+    setApplying(true);
+    try {
+      const result = await applyChanges({
+        source: hookOptions.source,
+        entities: pendingChanges,
+        observed,
+        fallback: labels.error,
+      });
+      for (const id of result.applied) {
+        for (const attr of Object.keys(state.edits[id] ?? {})) {
+          setEdit(id, attr, undefined);
+        }
+      }
+      setRefused(result.refused);
+      if (result.refused.length === 0) {
+        setOpen(false);
+      }
+      reload();
+    } finally {
+      setApplying(false);
+    }
+  }, [hookOptions.source, pendingChanges, observed, labels.error, state.edits, setEdit, reload]);
 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -87,8 +142,29 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
       );
     }
 
+    if (column.attr && editable(column)) {
+      const pending = state.edits[row.id]?.[column.attr];
+      const one = Array.isArray(cell) ? cell[0] : cell;
+      // The value itself, not the text the cell shows: a person edits `5`, not `5 C62` — the unit
+      // is what the value is measured in and is kept, never typed over.
+      const own = one?.kind === "relationship" ? one.object : one?.value;
+      const shown = own === undefined || own === null ? "" : String(own);
+      return (
+        <EditableCell
+          label={`${labels.edit} ${column.label}`}
+          value={pending === undefined ? shown : String(pending)}
+          changed={pending !== undefined}
+          kind={typeof own === "number" ? "number" : "text"}
+          onChange={(next) => {
+            // Back to the endpoint's own value is not a change: it leaves the pending list.
+            setEdit(row.id, column.attr!, next === shown ? undefined : coerce(next, shown));
+          }}
+        />
+      );
+    }
+
     return <>{text}</>;
-  }, [cellOf, renderers, onOpenRelationship]);
+  }, [cellOf, renderers, onOpenRelationship, editable, state.edits, labels.edit, setEdit]);
 
   // Metadata menu toggle
   const toggleMenu = useCallback((attr: string) => {
@@ -116,6 +192,18 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
   return (
     <div className={rootClass} data-density={hookOptions.config.density}>
       {toolbar && <div className="jc-grid-toolbar">{toolbar}</div>}
+
+      {editing && pendingChanges.length > 0 && (
+        <div className="jc-grid-pending" role="status">
+          <span>{`${pendingChanges.length} ${labels.pending}`}</span>
+          <button type="button" onClick={() => setOpen(true)}>
+            {labels.review}
+          </button>
+          <button type="button" onClick={() => { clearEdits(); setRefused([]); }}>
+            {labels.discard}
+          </button>
+        </div>
+      )}
 
       <div className="jc-grid-scroll">
         <table
@@ -197,7 +285,15 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
           </thead>
           <tbody className={`jc-grid-tbody${classNames?.row ? ` ${classNames.row}` : ""}`}>
             {rows.map((row, rowIndex) => (
-              <tr key={row.id} className={`jc-grid-tr${classNames?.row ? ` ${classNames.row}` : ""}`} {...getRowProps(row, rowIndex)}>
+              <tr
+                key={row.id}
+                className={`jc-grid-tr${classNames?.row ? ` ${classNames.row}` : ""}`}
+                // A refused update stays visible on its own row, not only in the panel the person
+                // may have closed: the value there is still theirs and still unapplied.
+                data-refused={refusedOf.has(row.id) ? "true" : undefined}
+                title={rowTitle(row.id)}
+                {...getRowProps(row, rowIndex)}
+              >
                 {columns.map((col, colIndex) => (
                   <td
                     key={`${row.id}-${col.key}`}
@@ -221,6 +317,68 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
       {loading && <div className="jc-grid-loading">{labels.loading}</div>}
 
       {error && <div className="jc-grid-error">{labels.error}: {error}</div>}
+
+      {open && (
+        <section className="jc-grid-review" aria-label={labels.review}>
+          <table>
+            <thead>
+              <tr>
+                <th>{labels.id}</th>
+                <th>{labels.filter}</th>
+                <th>{labels.observedKeep}</th>
+                <th>{labels.apply}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingChanges.flatMap((entity) =>
+                entity.changes.map((change) => (
+                  <tr key={`${entity.id}-${change.attribute}`}>
+                    <td title={entity.id}>{entity.id}</td>
+                    <td>{change.attribute}</td>
+                    <td>{change.before === undefined ? "—" : String(change.before)}</td>
+                    <td>{String(change.after)}</td>
+                  </tr>
+                )),
+              )}
+            </tbody>
+          </table>
+          {/* What happens to `observedAt`, chosen once for the batch: a corrected value that keeps
+              the old timestamp claims to have been observed then (UI-67). */}
+          <fieldset>
+            <label>
+              <input
+                type="radio"
+                name="jc-grid-observed"
+                checked={observed === "keep"}
+                onChange={() => setObserved("keep")}
+              />
+              {labels.observedKeep}
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="jc-grid-observed"
+                checked={observed === "now"}
+                onChange={() => setObserved("now")}
+              />
+              {labels.observedNow}
+            </label>
+          </fieldset>
+          {pendingChanges.length > MAX_ENTITIES && (
+            <p className="jc-grid-error">{`${labels.error}: ${MAX_ENTITIES}`}</p>
+          )}
+          {refused.map((one) => (
+            <p key={one.id} className="jc-grid-error">{`${one.id}: ${one.detail}`}</p>
+          ))}
+          <button
+            type="button"
+            disabled={applying || pendingChanges.length > MAX_ENTITIES}
+            onClick={() => void apply()}
+          >
+            {applying ? labels.applying : labels.apply}
+          </button>
+        </section>
+      )}
 
       {filterable.size > 0 && (
         <div className="jc-grid-query">
@@ -355,5 +513,45 @@ function FilterCell({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * A value typed into a cell, in the shape the cell had: a column of numbers stays numbers, so the
+ * endpoint is not sent a string where it stored a measurement.
+ */
+function coerce(next: string, before: string): unknown {
+  if (before !== "" && Number.isFinite(Number(before)) && Number.isFinite(Number(next))) {
+    return Number(next);
+  }
+  if (next === "true" || next === "false") {
+    return next === "true";
+  }
+  return next;
+}
+
+/** One cell a person may correct: an input that says what it belongs to, marked while pending. */
+function EditableCell({
+  label,
+  value,
+  changed,
+  kind,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  changed: boolean;
+  kind: "text" | "number";
+  onChange: (next: string) => void;
+}): React.JSX.Element {
+  return (
+    <input
+      aria-label={label}
+      className={`jc-grid-cell-input${changed ? " jc-grid-cell-changed" : ""}`}
+      data-changed={changed ? "true" : undefined}
+      type={kind}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }
