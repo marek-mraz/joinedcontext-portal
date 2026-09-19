@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { axeViolations } from "./axe";
+import { greenVerdict, isCheck } from "./verdict";
 
 // `vite preview` has no portal API behind it, so the API is answered in the browser and
 // everything above it — routing, polling, the pause button — is the real thing.
@@ -52,6 +53,11 @@ async function stubApi(page: Page): Promise<{ writes: string[] }> {
 
     if (path.endsWith("/auth/me")) {
       return json(IDENTITY);
+    }
+    // Pause checks the manifest it is about to write, and a check is a dry run whatever verb it
+    // uses: a `PUT …?dryRun=All` is not a write (PF-57, T-2264).
+    if (isCheck(request.method(), request.url())) {
+      return json(greenVerdict(request.postData()));
     }
     if (request.method() !== "GET") {
       writes.push(`${request.method()} ${path} ${request.postData() ?? ""}`);
