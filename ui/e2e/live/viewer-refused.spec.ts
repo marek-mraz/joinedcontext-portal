@@ -77,8 +77,10 @@ test("a viewer is refused with a reason on every page, and at the door", async (
     for (const route of pages) {
       await page.goto(`${route}?lang=en`, { waitUntil: "networkidle" });
       // Every control that changes something, by the words the pages use for them.
+      // The verb, then a word break: a list of model classes holds buttons named
+      // `StopCommandMessage`, which is a type and not a control (found on the models page).
       const controls = page.getByRole("button", {
-        name: /^(New |Grant |Approve|Reject|Delete|Edit|Remove|Propose|Try it|Start|Stop|Bring back|Rotate|Revoke)/i,
+        name: /^(New|Grant|Approve|Reject|Delete|Edit|Remove|Propose|Try it|Start|Stop|Bring back|Rotate|Revoke)(\b|$)/i,
       });
       const count = await controls.count();
       for (let index = 0; index < count; index += 1) {

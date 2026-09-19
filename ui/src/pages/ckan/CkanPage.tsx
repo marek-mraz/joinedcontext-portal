@@ -9,6 +9,7 @@ import type { Change } from "../../api/manifest";
 import { ChangeNotice } from "../../components/ChangeNotice";
 import { DeleteResourceAction } from "../../components/DeleteResourceDialog";
 import { EditResourceAction } from "../../components/EditResourceDialog";
+import { PermissionGuard } from "../../components/ui/PermissionGuard";
 import type { components } from "../../api/schema";
 import {
   Alert,
@@ -230,9 +231,14 @@ function Instances({
           />
         </Field>
         <p className="text-sm">{t("ckan.instances.tokenHelp")}</p>
-        <Button type="submit" variant="primary" disabled={submitting}>
-          {t("ckan.instances.propose")}
-        </Button>
+        {/* The catalogue is proposed as this project's `CkanInstance`, so that is the permission
+            the control needs. Without the guard a viewer filled the form and met the 403 only
+            after pressing it (T-2243, UI-44). */}
+        <PermissionGuard project={project} kind="CkanInstance" verb="propose">
+          <Button type="submit" variant="primary" disabled={submitting}>
+            {t("ckan.instances.propose")}
+          </Button>
+        </PermissionGuard>
       </form>
     </section>
   );

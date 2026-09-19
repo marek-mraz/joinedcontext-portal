@@ -65,7 +65,7 @@ const CHANGE = {
   status: { lane: "yellow", phase: "PendingApproval", plan: { create: 1 } },
 };
 
-function renderCkan(status: unknown = STATUS) {
+function renderCkan(status: unknown = STATUS, permissions?: unknown) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const path = new URL(request.url).pathname;
@@ -87,6 +87,9 @@ function renderCkan(status: unknown = STATUS) {
     }
     if (path.endsWith("/ckan/status")) {
       return json(status);
+    }
+    if (permissions !== undefined && path.endsWith("/permissions/me")) {
+      return json(permissions);
     }
     if (request.method !== "GET") {
       return json(CHANGE, 202);
@@ -200,5 +203,47 @@ describe("ckan publishing manager", () => {
 
     expect(await screen.findByText(en.ckan.instances.empty)).toBeInTheDocument();
     expect(screen.getByText(en.ckan.publications.empty)).toBeInTheDocument();
+  });
+});
+
+/**
+ * T-2243, UI-44: the catalogue's own control carries the refusal. A viewer used to be offered
+ * `Propose catalogue`, enabled, and met the 403 only after filling the form — found by the live walk
+ * over every page (`ui/e2e/live/viewer-refused.spec.ts`).
+ */
+describe("the catalogue control carries the refusal (T-2243)", () => {
+  const VIEWER = { project: "banskabystrica", bootstrap: false, grants: [] };
+  const PUBLISHER = {
+    project: "banskabystrica",
+    bootstrap: false,
+    grants: [
+      {
+        role: "catalogue-publisher",
+        binding: "publishers",
+        rule: { kinds: ["CkanInstance"], verbs: ["propose"] },
+      },
+    ],
+  };
+
+  it("a viewer meets it disabled, with the verb and the kind in the reason", async () => {
+    renderCkan(STATUS, VIEWER);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: en.ckan.instances.propose })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      ),
+    );
+    expect(
+      screen.getAllByRole("tooltip").map((node) => node.textContent ?? ""),
+    ).toContain("Disabled: your role does not permit 'propose' on 'CkanInstance' in this project");
+  });
+
+  it("a publisher is offered it", async () => {
+    renderCkan(STATUS, PUBLISHER);
+    const control = await waitFor(() =>
+      screen.getByRole("button", { name: en.ckan.instances.propose }),
+    );
+    expect(control).not.toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryAllByRole("tooltip")).toEqual([]);
   });
 });
