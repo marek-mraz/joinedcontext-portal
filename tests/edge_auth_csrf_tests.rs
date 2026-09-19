@@ -16,7 +16,9 @@
 use axum::body::Body;
 use axum::http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode};
 use http_body_util::BodyExt;
-use joinedcontext_portal::auth::csrf::{cookie, is_allowed, new_token, removal, CSRF_HEADER};
+use joinedcontext_portal::auth::csrf::{
+    cookie, is_allowed, new_token, removal, Token, CSRF_HEADER,
+};
 use joinedcontext_portal::config::Config;
 use joinedcontext_portal::server;
 use joinedcontext_portal::state::AppState;
@@ -42,7 +44,7 @@ fn headers(cookie_value: Option<&str>, presented: Option<&str>) -> HeaderMap {
 
 #[test]
 fn the_cookie_is_readable_by_the_page_and_nothing_more() {
-    let built = cookie(new_token());
+    let built = cookie(&Token::mint());
     assert_eq!(built.http_only(), Some(false), "the page has to read it");
     assert_eq!(built.secure(), Some(true));
     assert_eq!(built.path(), Some("/"));
@@ -53,11 +55,38 @@ fn the_cookie_is_readable_by_the_page_and_nothing_more() {
     );
 }
 
-// The injection case of this family is RED and therefore lives in its own task, never on `main`:
-// `cookie` writes any token raw, so a value carrying `;` becomes a cookie attribute
-// (`jc_csrf=abc; Domain=evil.example; …`). Not reachable today — every caller mints the token with the
-// CSPRNG — so it is a latent defect of the helper's signature, written up with its red test and the fix
-// in **T-2289**.
+#[test]
+fn nothing_but_a_minted_token_can_reach_the_cookie(/* T-2289 */) {
+    // This was the family's one red case: `cookie` took a `String`, so a value carrying `;` became a
+    // cookie attribute (`jc_csrf=abc; Domain=evil.example; …`) and a CR/LF aimed at the response
+    // header. The fix is the signature — `cookie(&Token)`, and a `Token` comes from the CSPRNG — so
+    // the forged values below no longer compile, and what is left to assert is that a minted token
+    // produces the helper's own attributes and nothing else, whichever token it is.
+    for _ in 0..64 {
+        let token = Token::mint();
+        let written = cookie(&token).to_string();
+        let attributes: Vec<&str> = written.split(';').map(str::trim).skip(1).collect();
+        assert!(
+            attributes
+                .iter()
+                .all(|attribute| ["Secure", "Path=/"].contains(attribute)
+                    || attribute.starts_with("Max-Age=")
+                    || attribute.starts_with("SameSite=")
+                    || attribute.starts_with("Expires=")),
+            "a minted token produced attributes {attributes:?}",
+        );
+        assert!(
+            !written.contains('\n') && !written.contains('\r'),
+            "a minted token produced a header value carrying a newline: {written}",
+        );
+        assert!(
+            HeaderValue::from_str(&written).is_ok(),
+            "a minted token produced a value no header can carry: {written}",
+        );
+        // The value the page will echo is the one in the cookie, or the double submit cannot match.
+        assert!(written.starts_with(&format!("jc_csrf={}", token.as_str())));
+    }
+}
 
 #[test]
 fn the_removal_cookie_clears_the_same_cookie_on_the_same_path() {

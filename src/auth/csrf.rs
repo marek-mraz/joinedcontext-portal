@@ -23,14 +23,37 @@ pub fn removal() -> Cookie<'static> {
 pub const CSRF_HEADER: &str = "x-csrf-token";
 const CSRF_TTL_SECS: i64 = 12 * 60 * 60;
 
-/// Fresh token, minted with the same CSPRNG the OIDC state uses.
+/// A minted double-submit token, and the only thing `cookie` accepts (T-2289).
+///
+/// The cookie is written with the token in its value, so anything in the token is cookie syntax: a
+/// `;` ends the value and starts an attribute (`; Domain=…` widens the cookie to a sibling host,
+/// `; HttpOnly` takes the token away from the page that has to read it) and a CR/LF aims at the
+/// response header. `cookie` used to take a `String`, which invited exactly that; no caller ever
+/// passed one, because they all mint here, and this type is what keeps it that way — the value comes
+/// from the CSPRNG and nothing else can build one.
+#[derive(Clone, Debug)]
+pub struct Token(String);
+
+impl Token {
+    /// Fresh token, minted with the same CSPRNG the OIDC state uses.
+    pub fn mint() -> Self {
+        Self(CsrfToken::new_random().secret().clone())
+    }
+
+    /// The token as the page echoes it back in `X-CSRF-Token`.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Fresh token as a string, for a caller that only hands it to the page.
 pub fn new_token() -> String {
-    CsrfToken::new_random().secret().clone()
+    Token::mint().0
 }
 
 /// The cookie the UI reads; `HttpOnly` is deliberately off, `Secure` and `Lax` are not.
-pub fn cookie(token: String) -> Cookie<'static> {
-    Cookie::build((CSRF_COOKIE, token))
+pub fn cookie(token: &Token) -> Cookie<'static> {
+    Cookie::build((CSRF_COOKIE, token.0.clone()))
         .path("/")
         .http_only(false)
         .secure(true)
@@ -85,8 +108,9 @@ pub async fn require_csrf(
 
 /// Adds a CSRF cookie to a jar, returning the token that was issued.
 pub fn issue(jar: CookieJar) -> (CookieJar, String) {
-    let token = new_token();
-    (jar.add(cookie(token.clone())), token)
+    let token = Token::mint();
+    let value = token.as_str().to_owned();
+    (jar.add(cookie(&token)), value)
 }
 
 #[cfg(test)]
@@ -163,7 +187,7 @@ mod tests {
 
     #[test]
     fn cookie_is_readable_by_the_ui_but_still_secure() {
-        let c = cookie("t".into());
+        let c = cookie(&Token::mint());
         assert_eq!(c.http_only(), Some(false));
         assert_eq!(c.secure(), Some(true));
         assert_eq!(c.same_site(), Some(SameSite::Lax));
