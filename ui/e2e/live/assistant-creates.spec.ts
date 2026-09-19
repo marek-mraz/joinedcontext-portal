@@ -90,8 +90,11 @@ const CREATES: Create[] = [
   {
     what: "a pipeline",
     missing: "T-2246",
+    // Names a data source the project really has: asked for "the helsinki-bikes data source",
+    // which is an endpoint and not a source, the assistant rightly asked which source to read
+    // and the journey waited for an answer nobody was there to give (measured 2026-09-19).
     sentence: (name) =>
-      `Create a pipeline called ${name} that reads the helsinki-bikes data source and writes into the helsinki space`,
+      `Create a pipeline called ${name} that reads the hel-news-rss data source every 15 minutes and writes into the helsinki space through the helsinki-all endpoint`,
     route: /\/projects\/helsinki\/pipelines/,
     filled: (name) => [[/^(Name|Pipeline)/, name]],
   },

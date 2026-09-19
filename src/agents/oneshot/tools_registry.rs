@@ -18,8 +18,29 @@ pub(super) struct RegistryCall {
     pub arguments: Value,
 }
 
+/// An operation that opens a Change by itself, and what the conversation does instead (AG-77: the
+/// assistant opens the kind's form, or the deletion's confirmation, prefilled, and never proposes
+/// on its own). The profile names these for the runs that do propose — a workspace run brings its
+/// copy back — so they are taken away here, where the person is watching and one click away, and
+/// refused if the model asks for one anyway.
+pub(super) fn opens_a_change(name: &str) -> Option<&'static str> {
+    match name {
+        "jc_resource_delete" | "jc_project_delete" => Some(
+            "open the removal with change_resource and `delete: true`; the person types the name \
+             there and proposes it",
+        ),
+        _ if name.ends_with("_propose") => Some(
+            "draft it with change_resource — `create: true` for a resource that does not exist \
+             yet, a `patch` for one that does — and the kind's form opens filled for the person to \
+             propose",
+        ),
+        _ => None,
+    }
+}
+
 /// The operations this run may call: the profile's half and the person's half, both checked the
-/// way [`Access::check`] checks them at call time, so the list never offers what the call refuses.
+/// way [`Access::check`] checks them at call time, so the list never offers what the call refuses,
+/// and without the ones that would propose in the person's place.
 pub(super) fn offered(
     access: &Access,
     identity: &Identity,
@@ -34,6 +55,7 @@ pub(super) fn offered(
     crate::ops::listing(&caller, state, project)
         .into_iter()
         .filter(|op| crate::ops::find(&op.name).is_some_and(|operation| access.names(operation)))
+        .filter(|op| opens_a_change(&op.name).is_none())
         .collect()
 }
 
@@ -150,6 +172,20 @@ impl Driver {
     /// to the model; the `tool` event is what the person sees (AG-56).
     pub(super) async fn registry_call(&self, call: &RegistryCall) -> Result<String, String> {
         let started = std::time::Instant::now();
+        // A proposal the person never read must not reach the approval queue (AG-77): the
+        // conversation drafts, the form opens, the person proposes.
+        if let Some(instead) = opens_a_change(&call.name) {
+            let reason = format!(
+                "'{}' opens a Change of its own, which the assistant never does: {instead}",
+                call.name
+            );
+            self.event(
+                "tool",
+                failed_step(&call.name, started, &call.arguments, &reason),
+            )
+            .await?;
+            return Ok(format!("error: {reason}"));
+        }
         if let Err(reason) =
             self.access
                 .check(&call.name, &self.identity, &self.state, &self.project)
@@ -824,6 +860,55 @@ mod tests {
     fn describe_names_the_operation_it_asks_about() {
         let answer = "```json\n{ \"tool\": \"describe_tool\", \"name\": \"jc_kpi_compute\" }\n```";
         assert_eq!(describes(answer), vec!["jc_kpi_compute".to_owned()]);
+    }
+
+    /// AG-77: the assistant opens the kind's form prefilled and never proposes on its own. The
+    /// whole registry is walked, so an operation added or renamed later is classified here too
+    /// rather than quietly reaching the approval queue from the dock.
+    #[test]
+    fn every_operation_that_opens_a_change_is_kept_from_the_conversation() {
+        let opening: Vec<&str> = crate::ops::registry()
+            .iter()
+            .map(|op| op.name)
+            .filter(|name| opens_a_change(name).is_some())
+            .collect();
+        assert_eq!(
+            opening,
+            vec![
+                "jc_endpoint_propose",
+                "jc_datasource_propose",
+                "jc_pipeline_propose",
+                "jc_space_propose",
+                "jc_model_propose",
+                "jc_resource_propose",
+                "jc_resource_delete",
+                "jc_project_delete",
+                "jc_workspace_propose",
+            ],
+            "the operations the conversation may not call, in registry order"
+        );
+        // What the conversation does need: it drafts, checks and tests, and it reads.
+        for kept in [
+            "jc_draft_put",
+            "jc_manifest_dry_run",
+            "jc_datasource_check",
+            "jc_pipeline_test",
+            "jc_kpi_compute",
+            "jc_space_complete",
+            "jc_catalog_search",
+            "jc_resource_get",
+            "jc_change_list",
+            "jc_workspace_open",
+        ] {
+            assert!(
+                opens_a_change(kept).is_none(),
+                "{kept} is how the conversation works and stays offered"
+            );
+        }
+        // And the way out is named, so the refusal tells the model what to do instead.
+        assert!(opens_a_change("jc_space_propose")
+            .expect("named")
+            .contains("change_resource"));
     }
 
     #[test]

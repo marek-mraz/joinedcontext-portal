@@ -50,6 +50,46 @@ pub fn manifest(kind: &str, project: &str, name: &str, spec: Value) -> Value {
     })
 }
 
+/// The kinds one sentence creates from the chat (AG-45, UI-45): the kind's page opens on the
+/// checked draft, the form is already filled and the person proposes it. A Dashboard is created
+/// with its layers by its own step; every other kind is changed from the chat, never created,
+/// because its create needs a page of its own (a data model is drawn, a space is completed from
+/// files, an endpoint is shared, a role is granted).
+pub const CREATABLE: [&str; 3] = ["ContextSpace", "DataSource", "Pipeline"];
+
+/// The manifest of a new resource, from the fields the model sent as its `patch`: its `spec`, and
+/// `metadata.title` when the sentence named one. The kind, the name and the namespace are the
+/// platform's; a patch that carries no spec is refused in words the model can act on.
+pub fn new_manifest(
+    kind: &str,
+    namespace: &str,
+    name: &str,
+    patch: Option<&Value>,
+) -> Result<Value, String> {
+    if !CREATABLE.contains(&kind) {
+        return Err(format!(
+            "a new {kind} is not created from the chat; the kinds created here are {}",
+            CREATABLE.join(", ")
+        ));
+    }
+    let patch = patch.ok_or_else(|| {
+        format!(
+            "a new {kind} carries its fields as the patch: {{\"spec\": {{…}}}}, and its title as \
+             {{\"metadata\": {{\"title\": {{\"en\": \"…\"}}}}}}"
+        )
+    })?;
+    let manifest = patched(&manifest(kind, namespace, name, json!({})), patch)?;
+    if !manifest["spec"]
+        .as_object()
+        .is_some_and(|spec| !spec.is_empty())
+    {
+        return Err(format!(
+            "a new {kind} needs a spec; the patch carried none: {patch}"
+        ));
+    }
+    Ok(manifest)
+}
+
 /// The spec a new resource's `patch` carries: `{spec: {…}}` as a merge patch of an empty
 /// manifest, or the spec itself.
 pub fn spec_of(patch: &Value) -> Option<Value> {
@@ -175,6 +215,13 @@ fn page<'a>(kind: &str, plural: &'a str) -> &'a str {
 /// Where the person reviews the change: the kind's page with the resource's editor open
 /// (`?edit=`), or its removal dialog (`?delete=`). The endpoint form opens from the draft it is
 /// handed, as it did for `edit_endpoint`.
+/// Where the person reviews a new resource: the kind's page, which opens on the draft the
+/// conversation kept for them (`?draft=`, appended by the dock from the event's draft) and fills
+/// the form from it (AG-45, UI-45).
+pub fn create_route(project: &str, kind: &str, plural: &str) -> String {
+    format!("/projects/{project}/{}", page(kind, plural))
+}
+
 pub fn route(project: &str, kind: &str, plural: &str, name: &str, delete: bool) -> String {
     let page = page(kind, plural);
     match (kind, delete) {
@@ -339,6 +386,90 @@ mod tests {
                 true
             ),
             "/projects/helsinki/csrs?delete=zvolen"
+        );
+    }
+
+    /// AG-45: one sentence carries the name and the fields into the form, so the person types
+    /// nothing again. A new resource's page opens on the draft, not on a resource that exists.
+    #[test]
+    fn a_new_resource_carries_the_name_the_spec_and_the_title_the_sentence_gave() {
+        let space = new_manifest(
+            "ContextSpace",
+            "helsinki",
+            "ovzdusie",
+            Some(&json!({
+                "metadata": { "title": { "en": "Air quality" } },
+                "spec": { "defaultLocale": "en", "isSandbox": false }
+            })),
+        )
+        .expect("a new space");
+        assert_eq!(space["metadata"]["name"], "ovzdusie");
+        assert_eq!(space["metadata"]["namespace"], "helsinki");
+        assert_eq!(space["metadata"]["title"]["en"], "Air quality");
+        assert_eq!(space["spec"]["defaultLocale"], "en");
+        assert_eq!(space["apiVersion"], "joinedcontext.com/v1alpha1");
+
+        let source = new_manifest(
+            "DataSource",
+            "helsinki",
+            "aq-opendata",
+            Some(&json!({ "spec": { "type": "http", "http": { "url": "https://opendata.example.org/aq.json" } } })),
+        )
+        .expect("a new data source");
+        assert_eq!(
+            source["spec"]["http"]["url"],
+            "https://opendata.example.org/aq.json"
+        );
+        assert_eq!(source["metadata"]["title"], Value::Null);
+    }
+
+    #[test]
+    fn a_new_resource_without_a_spec_or_of_a_kind_with_its_own_page_is_refused_with_the_reason() {
+        let no_spec = new_manifest(
+            "Pipeline",
+            "helsinki",
+            "bikes",
+            Some(&json!({ "metadata": { "title": { "en": "Bikes" } } })),
+        )
+        .expect_err("a pipeline without a spec");
+        assert!(no_spec.contains("needs a spec"), "{no_spec}");
+
+        let nothing = new_manifest("DataSource", "helsinki", "aq", None).expect_err("no patch");
+        assert!(nothing.contains("\"spec\""), "{nothing}");
+
+        // A name the patch tries to change would be another resource; `patched` holds that line.
+        let renamed = new_manifest(
+            "ContextSpace",
+            "helsinki",
+            "ovzdusie",
+            Some(&json!({ "metadata": { "name": "other" }, "spec": { "defaultLocale": "en" } })),
+        )
+        .expect_err("a renamed space");
+        assert!(renamed.contains("metadata/name"), "{renamed}");
+
+        for kind in ["DataModel", "Endpoint", "RoleBinding", "Dashboard", "Layer"] {
+            let refused = new_manifest(kind, "helsinki", "x", Some(&json!({ "spec": { "a": 1 } })))
+                .expect_err("not created from the chat");
+            assert!(
+                refused.contains("ContextSpace, DataSource, Pipeline"),
+                "{refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_resource_opens_the_kinds_page_and_the_dock_appends_its_draft() {
+        assert_eq!(
+            create_route("helsinki", "ContextSpace", "spaces"),
+            "/projects/helsinki/spaces"
+        );
+        assert_eq!(
+            create_route("helsinki", "DataSource", "datasources"),
+            "/projects/helsinki/datasources"
+        );
+        assert_eq!(
+            create_route("helsinki", "Pipeline", "pipelines"),
+            "/projects/helsinki/pipelines"
         );
     }
 }

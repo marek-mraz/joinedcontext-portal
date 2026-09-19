@@ -64,13 +64,20 @@ function toEnvelope(project: string, form: SpaceForm) {
 }
 
 /** A draft or the YAML view read back into the form: the envelope's name, title and spec. */
-function fromEnvelope(manifest: unknown): SpaceForm {
+function fromEnvelope(manifest: unknown, locale = "en"): SpaceForm {
   const envelope = (manifest ?? {}) as { metadata?: { name?: string; title?: unknown }; spec?: object };
-  const title = envelope.metadata?.title;
+  // A manifest's title is a locale map (MF-01), and the form has one box: the box reads the box's
+  // language. ponytail: a title in several languages collapses to the one shown if the person
+  // edits it, which is what one Title box has always meant here.
+  const title = localized(
+    envelope.metadata?.title as string | Record<string, string> | undefined,
+    locale,
+    "",
+  );
   return {
     ...(envelope.spec ?? {}),
     name: envelope.metadata?.name ?? "",
-    ...(typeof title === "string" ? { title } : {}),
+    ...(title === "" ? {} : { title }),
   } as SpaceForm;
 }
 
@@ -83,7 +90,15 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
   const locale = i18n.resolvedLanguage ?? i18n.language ?? "sk";
 
   const usage = useProjectUsage(project);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // The assistant may have sent the person here with a new space already drafted (`?draft=`,
+  // AG-45, UI-45): the dialog opens on it and the form loads the draft by its name, the way the
+  // data sources and pipelines pages do.
+  const [urlDraftName] = useState(() =>
+    typeof window === "undefined"
+      ? undefined
+      : (new URLSearchParams(window.location.search).get("draft") ?? undefined),
+  );
+  const [dialogOpen, setDialogOpen] = useState(urlDraftName !== undefined);
   // The dialog is controlled: its draft, its YAML view and its check all read what it holds.
   const [form, setForm] = useState<SpaceForm | undefined>(undefined);
   const [change, setChange] = useState<Change | null>(null);
@@ -296,10 +311,11 @@ export function SpacesPage({ project }: { project: string }): JSX.Element {
         onChange={setForm}
         project={project}
         draftKind="ContextSpace"
+        draftName={urlDraftName}
         plural="spaces"
         source={{
           toManifest: (form) => toEnvelope(project, form),
-          fromManifest: fromEnvelope,
+          fromManifest: (manifest) => fromEnvelope(manifest, locale),
         }}
         submitLabel={t("spaces.propose")}
         submitting={create.isPending}

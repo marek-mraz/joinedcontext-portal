@@ -2,6 +2,14 @@
 
 use super::*;
 
+/// What the kind's page opens on: the resource a change touches (`?edit=`), or the draft of a new
+/// one, which the form loads by its name (`?draft=`, AG-45).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Opening {
+    Change,
+    Create,
+}
+
 impl Driver {
     /// Whether this run may open a change of `kind` for the person (AG-70): the profile names
     /// `jc_resource_propose` with `propose` on the kind, or shares endpoints and the kind is
@@ -154,9 +162,15 @@ impl Driver {
                 .map(Worked::Done);
         }
         if params.create {
-            return self
-                .create_dashboard(info.kind, &params, answer, input, started, last)
-                .await;
+            // A dashboard is created with the layers its pages draw; the other kinds are one
+            // manifest the person finishes in the kind's own form (AG-45).
+            return if info.kind == "Dashboard" {
+                self.create_dashboard(info.kind, &params, answer, input, started, last)
+                    .await
+            } else {
+                self.create_resource(info, &params, answer, input, started, last)
+                    .await
+            };
         }
         let name = params.name.trim();
         let Some(current) = self
@@ -265,6 +279,68 @@ impl Driver {
         let untested = info.kind == "Pipeline" && !change::reaches_the_test(&current, &manifest);
         self.open_change(
             info, name, manifest, answer, TOOL, input, started, last, route, draft, untested,
+        )
+        .await
+    }
+
+    /// A new resource of a kind whose form the person finishes (AG-45, UI-45): the manifest the
+    /// sentence described, put through the dry run every channel uses and through the same test a
+    /// change of that kind runs (a data source fetches its URL, a pipeline runs on a page of its
+    /// source), kept as the person's draft, and the kind's page opens on that draft with the form
+    /// filled. Nothing is proposed: the person reads the form and proposes it (PF-58). A name that
+    /// is taken, a missing spec and a refused check go back to the model with the reason.
+    pub(super) async fn create_resource(
+        &self,
+        info: &crate::resource::KindInfo,
+        params: &change::ChangeResource,
+        answer: &str,
+        input: Value,
+        started: std::time::Instant,
+        last: bool,
+    ) -> Result<Worked, String> {
+        const TOOL: &str = "change_resource";
+        let name = params.name.trim();
+        let home = self.home(info.kind);
+        let drafted = if self.state.mirror.get(&home, info.kind, name).is_some() {
+            Err(format!(
+                "{} '{name}' already exists; change it with a patch instead of creating it",
+                info.kind
+            ))
+        } else {
+            change::new_manifest(info.kind, &home, name, params.patch.as_ref())
+        };
+        let manifest = match drafted {
+            Ok(manifest) => manifest,
+            Err(reason) => {
+                self.event("tool", failed_step(TOOL, started, &input, &reason))
+                    .await?;
+                return self
+                    .again(
+                        last,
+                        format!("error: {reason}"),
+                        format!("The new {} could not be drafted: {reason}", info.kind),
+                    )
+                    .await;
+            }
+        };
+        let route = within(
+            change::create_route(&self.project, info.kind, info.plural),
+            self.active_workspace().await.as_deref(),
+        );
+        let draft = json!({ "kind": info.kind, "name": name });
+        self.open_change_as(
+            info,
+            name,
+            manifest,
+            answer,
+            TOOL,
+            input,
+            started,
+            last,
+            route,
+            draft,
+            false,
+            Opening::Create,
         )
         .await
     }
@@ -704,8 +780,8 @@ impl Driver {
         .await
     }
 
-    /// The patched manifest checked by the dry run every channel uses (AG-77), kept as the
-    /// person's draft and opened on the kind's page. A refused check goes back to the model.
+    /// A change of a resource that exists (AG-77): the kind's page opens on it with the manifest
+    /// as the form's values.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn open_change(
         &self,
@@ -720,6 +796,41 @@ impl Driver {
         route: String,
         draft: Value,
         untested: bool,
+    ) -> Result<Worked, String> {
+        self.open_change_as(
+            info,
+            name,
+            manifest,
+            answer,
+            tool,
+            input,
+            started,
+            last,
+            route,
+            draft,
+            untested,
+            Opening::Change,
+        )
+        .await
+    }
+
+    /// The patched manifest checked by the dry run every channel uses (AG-77), kept as the
+    /// person's draft and opened on the kind's page. A refused check goes back to the model.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn open_change_as(
+        &self,
+        info: &crate::resource::KindInfo,
+        name: &str,
+        manifest: Value,
+        answer: &str,
+        tool: &str,
+        input: Value,
+        started: std::time::Instant,
+        last: bool,
+        route: String,
+        draft: Value,
+        untested: bool,
+        opening: Opening,
     ) -> Result<Worked, String> {
         let millis = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let home = &self.home(info.kind);
@@ -848,17 +959,19 @@ impl Driver {
             prose = format!("Opened '{name}' with the change; review it and propose it.");
         }
         self.thought(&prose).await?;
-        // The endpoint form reads its own values; every other page opens on the manifest.
-        let prefill = if info.kind == "Endpoint" {
-            share::form_values(&manifest)
-        } else {
-            manifest
-        };
-        self.event(
-            "navigate",
-            json!({ "route": route, "prefill": prefill, "draft": draft }),
-        )
-        .await?;
+        // A new resource opens the page on its own draft, and the form loads that draft itself:
+        // handing the manifest over as the form's values as well would fill the form twice, the
+        // first time from a shape no form reads. The endpoint form reads its own values; every
+        // other page opens a change on the manifest.
+        let mut payload = json!({ "route": route, "draft": draft });
+        if opening == Opening::Change {
+            payload["prefill"] = if info.kind == "Endpoint" {
+                share::form_values(&manifest)
+            } else {
+                manifest
+            };
+        }
+        self.event("navigate", payload).await?;
         Ok(Worked::Done(prose))
     }
 

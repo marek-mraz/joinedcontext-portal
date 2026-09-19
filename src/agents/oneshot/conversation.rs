@@ -644,6 +644,7 @@ brings the copy back from its bar; you never bring it back and never approve it.
                 changeable = serde_json::to_string_pretty(&changeable).unwrap_or_default(),
             ));
         }
+        self.creating(&mut pack);
         let endpoint_names = self.names_of("Endpoint");
         let may_draw = ["Dashboard", "Layer"]
             .iter()
@@ -890,6 +891,103 @@ a removal of its binding with change_resource.
             );
         }
         Ok((prose, errors))
+    }
+
+    /// What one sentence creates: the kinds whose form the person finishes (AG-45, UI-45). The
+    /// section is written per kind the person may propose, with the fields that kind needs, so the
+    /// model drafts a manifest the platform's own check accepts instead of proposing in the
+    /// person's place (AG-77).
+    fn creating(&self, pack: &mut String) {
+        let creatable: Vec<&str> = change::CREATABLE
+            .iter()
+            .copied()
+            .filter(|kind| self.may_change(kind, Verb::Propose).is_ok())
+            .collect();
+        if creatable.is_empty() {
+            return;
+        }
+        let mut shapes = String::new();
+        if creatable.contains(&"ContextSpace") {
+            shapes.push_str(
+                "- **ContextSpace**: `{\"defaultLocale\": \"en\", \"isSandbox\": false}`. Nothing \
+                 else; its data models, endpoints and policies come afterwards.\n",
+            );
+        }
+        if creatable.contains(&"DataSource") {
+            shapes.push_str(
+                "- **DataSource**: `{\"type\": \"http\", \"http\": {\"url\": \"<the address>\", \
+                 \"verb\": \"GET\"}}` for a feed read over HTTP. The platform fetches that URL \
+                 once before the form opens, so a URL that answers nothing comes back to you. A \
+                 credential is never written here: a source that needs one carries a `secretRef` \
+                 and the person fills it in the form.\n",
+            );
+        }
+        let sources = self.names_of("DataSource");
+        let domain = crate::api::assistant::org_domain(&self.state, &self.project);
+        let targets: Vec<String> = self
+            .state
+            .mirror
+            .list(
+                &self.project,
+                "Endpoint",
+                &crate::store::ListOptions::default(),
+            )
+            .items
+            .iter()
+            .filter_map(|endpoint| {
+                let space = endpoint.spec["contextSpaceRef"].as_str()?;
+                Some(format!(
+                    "urn:ngsi-ld:Endpoint:{domain}:{space}:{}",
+                    endpoint.metadata.name
+                ))
+            })
+            .collect();
+        if creatable.contains(&"Pipeline") && !sources.is_empty() && !targets.is_empty() {
+            shapes.push_str(&format!(
+                "- **Pipeline**: `{{\"class\": \"auto\", \"period\": \"<how often, e.g. 5m>\", \
+                 \"source\": {{\"dataSourceRef\": {{\"kind\": \"DataSource\", \"name\": \"<one \
+                 of {sources}>\"}}}}, \"targetEndpoint\": \"<one of {targets}>\", \"compute\": \
+                 {{\"kind\": \"bloblang\", \"bloblang\": \"<the mapping>\"}}}}`. The mapping turns \
+                 one record of the source into one NGSI-LD entity whose id is \
+                 `urn:ngsi-ld:{{Type}}:{{orgDomain}}:{{space}}:{{localId}}`, as \
+                 `root = {{\"id\": \"urn:ngsi-ld:%v:%v:%v:%v\".format(\"AirQualityObserved\", \
+                 env(\"JC_ORG_DOMAIN\"), env(\"JC_SPACE\"), this.station), \"type\": \
+                 \"AirQualityObserved\", \"dateObserved\": {{\"type\": \"Property\", \"value\": \
+                 this.ts}}}}`. The platform runs the mapping on a page of the source before the \
+                 form opens, and a run that is not green comes back to you with what it saw.\n",
+                sources = sources.join(", "),
+                targets = targets.join(", "),
+            ));
+        }
+        pack.push_str(&format!(
+            r#"
+## WHEN THE PERSON ASKS FOR SOMETHING THAT DOES NOT EXIST YET
+
+"Create a context space called ovzdusie", "add a data source that reads https://…", "a pipeline
+that loads it into the space every five minutes". The kinds you create this way are {kinds}.
+Answer with one plain sentence and then ONE fenced JSON block, nothing else; `patch` carries the
+manifest's fields, and `metadata.title` its title in the language of the request:
+
+```json
+{{
+  "tool": "change_resource",
+  "kind": "<one of those kinds>",
+  "name": "<a new name: lowercase letters, digits and hyphens, at most 63>",
+  "create": true,
+  "patch": {{ "metadata": {{ "title": {{ "en": "<its title>" }} }}, "spec": {{ "<field>": "<value>" }} }}
+}}
+```
+
+{shapes}
+The platform checks the manifest, tests what that kind tests, keeps it as the person's draft and
+opens the kind's page with the form filled from it; the person reads it there and proposes it. What
+the check or the test refuses comes back to you with the reason: send the call again with the
+fields fixed. You never propose it yourself, and never with `jc_space_propose`,
+`jc_datasource_propose`, `jc_pipeline_propose` or `jc_resource_propose` — a change nobody read
+must not reach the approval queue.
+"#,
+            kinds = creatable.join(", "),
+        ));
     }
 
     /// The user message of one call: everything the model needs beyond the fixed system

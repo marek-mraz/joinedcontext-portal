@@ -73,7 +73,38 @@ function project(quota?: number) {
   };
 }
 
-function renderSpaces(options: { quota?: number; refusal?: string; listFails?: string } = { quota: 3 }) {
+/** A draft of a new space as the assistant leaves it behind (AG-45): what `?draft=` loads. */
+const ASSISTANT_DRAFT = {
+  project: "banskabystrica",
+  kind: "ContextSpace",
+  name: "kvalita-vzduchu",
+  manifest: {
+    apiVersion: "joinedcontext.com/v1alpha1",
+    kind: "ContextSpace",
+    metadata: {
+      name: "kvalita-vzduchu",
+      namespace: "banskabystrica",
+      title: { en: "Air quality, the new space" },
+    },
+    spec: { defaultLocale: "en", isSandbox: false },
+  },
+  verdict: {
+    ok: true,
+    findings: [],
+    checkedAt: "2026-09-19T00:00:00Z",
+    inputDigest: "sha256:0",
+  },
+  touchedBy: "jana.kovacova",
+  touchedKind: "assistant",
+  version: 1,
+  updatedAt: "2026-09-19T00:00:00Z",
+};
+
+function renderSpaces(
+  options: { quota?: number; refusal?: string; listFails?: string; draft?: unknown } = {
+    quota: 3,
+  },
+) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const request = input as Request;
     const path = new URL(request.url).pathname;
@@ -98,6 +129,11 @@ function renderSpaces(options: { quota?: number; refusal?: string; listFails?: s
     }
     if (path.includes("/projects/banskabystrica/projects")) {
       return json({ status: 404, title: "Resource Not Found" }, 404);
+    }
+    if (path.includes("/drafts/ContextSpace/")) {
+      return options.draft
+        ? json(options.draft)
+        : json({ status: 404, title: "Not Found" }, 404);
     }
     if (path.endsWith("/spaces")) {
       return options.listFails
@@ -338,6 +374,32 @@ describe("context spaces view", () => {
     // The message says what a name may be, rather than naming the pattern it broke (T-0960).
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(en.form.dns1123);
     expect(posts(fetchMock)).toHaveLength(0);
+  });
+
+  /**
+   * AG-45, UI-45, T-2246: one sentence in the dock drafts a space and sends the person here;
+   * the form is open and filled from that draft, so nothing is typed twice. Before this, the
+   * page ignored `?draft=` and the person met an empty list.
+   */
+  it("opens the form filled from the draft the assistant left behind", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/spaces?draft=kvalita-vzduchu");
+    renderSpaces({ quota: 3, draft: ASSISTANT_DRAFT });
+
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText(/Name/)).toHaveValue("kvalita-vzduchu"),
+    );
+    expect(within(dialog).getByLabelText(/Title/)).toHaveValue("Air quality, the new space");
+  });
+
+  it("opens no form when the draft the route names is gone", async () => {
+    window.history.pushState({}, "", "/projects/banskabystrica/spaces?draft=kvalita-vzduchu");
+    renderSpaces({ quota: 3 });
+
+    // The dialog is open — the route asked for it — and it holds no name from a draft that the
+    // Portal no longer has, so the person types their own rather than proposing someone else's.
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText(/Name/)).toHaveValue(""));
   });
 });
 
