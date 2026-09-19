@@ -2,7 +2,7 @@ import React from "react";
 import type { ReactNode } from "react";
 import Form from "@rjsf/core";
 import validator from "./validator";
-import type { RJSFValidationError } from "@rjsf/utils";
+import type { ErrorSchema, RJSFValidationError } from "@rjsf/utils";
 import { useTranslation } from "react-i18next";
 import { requiredProgress } from "./uischema";
 import type { JsonSchema, UiSchema } from "./types";
@@ -32,6 +32,13 @@ export interface SchemaFormProps<T> {
   actions?: ReactNode;
   /** Rendered under the last field, above the submit line. */
   afterFields?: ReactNode;
+  /**
+   * Errors the page found, keyed by the field they belong to: what the schema already refuses before
+   * the server is asked, and a server finding that names its own path (UI-44, UI-45, T-1491). rjsf
+   * merges them with its own, so the field carries `aria-invalid` and names the sentence in
+   * `aria-describedby` either way.
+   */
+  extraErrors?: ErrorSchema;
   onSubmit: (data: T) => void;
   onChange?: (data: T | undefined) => void;
 }
@@ -115,6 +122,7 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
     submitting,
     actions,
     afterFields,
+    extraErrors,
     onSubmit,
     onChange,
   } = props;
@@ -190,6 +198,7 @@ export function SchemaForm<T>(props: SchemaFormProps<T>): React.JSX.Element {
           formData={formData}
           disabled={disabled}
           liveValidate
+          extraErrors={extraErrors}
           showErrorList={false}
           noHtml5Validate
           transformErrors={transformErrors}

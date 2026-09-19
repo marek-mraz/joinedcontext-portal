@@ -5,6 +5,7 @@ import validator from "./forms/validator";
 import { useTranslation } from "react-i18next";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { errorMessageKey, SchemaForm } from "./forms/SchemaForm";
+import type { ErrorSchema } from "@rjsf/utils";
 import type { JsonSchema, UiSchema } from "./forms/types";
 import { portalThemeWidgets } from "./forms/theme";
 import { arrange, index, paths } from "./forms/uischema";
@@ -103,6 +104,22 @@ function extractName(form: unknown): string | undefined {
     if (typeof m.name === "string" && m.name.trim()) return m.name.trim();
   }
   return undefined;
+}
+
+/**
+ * The node of an rjsf `ErrorSchema` that marks one field, created along the way: `.spec.url`
+ * becomes `{ spec: { url: { __errors: [...] } } }`, which is what puts `aria-invalid` on the input
+ * and its sentence in `aria-describedby`.
+ */
+function atPath(root: ErrorSchema, path: string[]): string[] {
+  let node = root as Record<string, unknown>;
+  for (const segment of path.filter(Boolean)) {
+    node[segment] = (node[segment] as Record<string, unknown> | undefined) ?? {};
+    node = node[segment] as Record<string, unknown>;
+  }
+  const list = (node.__errors as string[] | undefined) ?? [];
+  node.__errors = list;
+  return list;
 }
 
 function formatAge(isoString?: string): string {
@@ -253,6 +270,8 @@ export function ResourceFormDialog<T>({
   const [text, setText] = useState("");
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [issues, setIssues] = useState<string[]>([]);
+  /** What the browser's own check refused, keyed by field, until the form changes (T-1491). */
+  const [schemaErrors, setSchemaErrors] = useState<ErrorSchema | undefined>(undefined);
   /** Whether the last check said applying this restarts the pipeline's stream (T-1056). */
   const [restartsStream, setRestartsStream] = useState(false);
 
@@ -609,6 +628,47 @@ export function ResourceFormDialog<T>({
     },
   });
 
+  /**
+   * What the schema already refuses, as sentences and as errors keyed by their own field.
+   *
+   * The check used to go straight to the server, so an untouched form was answered with the
+   * server's own wording — `invalid resource envelope: missing field name`, or a regular
+   * expression, or nothing at all — and no field was marked, which left a person and a screen
+   * reader with no idea where (T-1491, UI-44, UI-45). The browser knows this much already.
+   */
+  function schemaRefusals(form: T): { marked: ErrorSchema; sentences: string[] } | null {
+    const { errors } = validator.validateFormData(form, schema);
+    if (errors.length === 0) {
+      return null;
+    }
+    const marked: ErrorSchema = {};
+    const sentences: string[] = [];
+    for (const issue of errors) {
+      const sentence = t(errorMessageKey(issue, schema));
+      sentences.push(`${issue.property ?? ""} ${sentence}`.trim());
+      atPath(marked, (issue.property ?? "").split(".")).push(sentence);
+    }
+    return { marked, sentences };
+  }
+
+  /**
+   * A finding the server made, on the field it names: `metadata.name` is this form's `name` field
+   * (UI-45, T-1491). A finding with no path stays in the list under the verdict, where it was.
+   */
+  const findingErrors = useMemo<ErrorSchema | undefined>(() => {
+    const located = (internalVerdict?.findings ?? []).filter(
+      (finding) => finding.level === "error" && Boolean(finding.path),
+    );
+    if (located.length === 0) {
+      return undefined;
+    }
+    const marked: ErrorSchema = {};
+    for (const finding of located) {
+      atPath(marked, finding.path.replace(/^metadata\./, "").split(".")).push(finding.message);
+    }
+    return marked;
+  }, [internalVerdict]);
+
   /** The check runs on what the active view holds: the form, or the YAML read back into it. */
   function runCheck() {
     if (!canCheck) {
@@ -617,6 +677,12 @@ export function ResourceFormDialog<T>({
     const check = onCheck ?? ((form: T) => ownCheck.mutate(form));
     if (view === "form") {
       if (formData) {
+        const refused = schemaRefusals(formData);
+        setSchemaErrors(refused?.marked);
+        if (refused) {
+          // Nothing that the schema itself refuses is sent: the field carries the reason instead.
+          return;
+        }
         check(formData);
       }
       return;
@@ -624,6 +690,14 @@ export function ResourceFormDialog<T>({
     const form = readYaml();
     if (form !== null) {
       onChange?.(form);
+      const refused = schemaRefusals(form);
+      setSchemaErrors(refused?.marked);
+      if (refused) {
+        // No field to mark in the YAML view: the same sentences are listed where the document is.
+        setIssues(refused.sentences);
+        return;
+      }
+      setIssues([]);
       check(form);
     }
   }
@@ -863,8 +937,14 @@ export function ResourceFormDialog<T>({
               submitLabel={submitLabel}
               submitDisabledReason={effectiveSubmitDisabledReason}
               submitting={submitting}
+              extraErrors={schemaErrors ?? findingErrors}
               onSubmit={handleSubmit}
-              onChange={onChange}
+              onChange={(next) => {
+                // What the browser refused is about the form as it was: a keystroke makes it stale,
+                // and rjsf's own live validation takes over from here.
+                setSchemaErrors(undefined);
+                onChange?.(next);
+              }}
               afterFields={afterFields}
               actions={
                 <div className="flex flex-wrap items-center gap-2">
