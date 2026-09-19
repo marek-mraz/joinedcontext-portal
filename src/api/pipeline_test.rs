@@ -449,6 +449,32 @@ mod tests {
         assert!(text["pipeline"]["processors"][0].get("http").is_none());
     }
 
+    /// The capture route refuses a call with no bearer (T-2271), so the harness the Portal sends
+    /// must carry the runner's own credential. `harness` comes from jcctl through a **pinned tag**,
+    /// and a pin behind that change is a Portal that demands a token from a harness which sends
+    /// none: on dev every "Test mapping" answered 401 while both repositories' suites were green,
+    /// because nothing crossed the repository boundary (T-2274). This is that check. It reads the
+    /// dependency as pinned, so it goes red here the moment the two sides disagree again.
+    #[test]
+    fn the_harness_this_portal_sends_carries_the_runners_own_credential() {
+        let config = harness_for(Sample {
+            text: Some("[1]".into()),
+            url: None,
+            format: SampleFormat::Json,
+        });
+        let oauth2 = &config["output"]["http_client"]["oauth2"];
+        assert_eq!(oauth2["enabled"], true, "{config}");
+        // The runner pod's own variables, resolved by Bento where the stream runs: the Portal never
+        // holds the secret and never writes one into a harness it stores.
+        assert_eq!(oauth2["client_key"], "${JC_CLIENT_ID}");
+        assert_eq!(oauth2["client_secret"], "${JC_CLIENT_SECRET}");
+        assert_eq!(oauth2["token_url"], "${JC_TOKEN_URL}");
+        assert!(
+            !config.to_string().contains("Bearer "),
+            "no bearer belongs in a harness: {config}"
+        );
+    }
+
     #[test]
     fn a_message_that_failed_reaches_the_capture_route_as_an_envelope() {
         let config = harness_for(Sample {
