@@ -10,8 +10,18 @@ import { EntityHistory } from "./EntityHistory";
 import "./grid.css";
 
 export interface EntityGridProps extends UseEntityGridOptions {
+  /**
+   * How one column's cells are drawn, by attribute name, by cell kind, or `id` for the pinned
+   * identifier column — which is how a host makes a row open something of its own (a detail pane,
+   * a row action) without a second table of its own.
+   */
   renderers?: Record<string, (cell: RichCell | RichCell[] | undefined, row: RichRow) => React.ReactNode>;
   onOpenRelationship?: (urn: string) => void;
+  /**
+   * The page of rows as the source answered it, with the offset it starts at, for a host that
+   * exports or counts what is shown.
+   */
+  onRows?: (rows: RichRow[], offset: number) => void;
   toolbar?: React.ReactNode;
   empty?: React.ReactNode;
   className?: string;
@@ -22,6 +32,7 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
   const {
     renderers,
     onOpenRelationship,
+    onRows,
     toolbar,
     empty: emptySlot,
     className,
@@ -123,6 +134,10 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
     if (column.attr && renderers?.[column.attr]) {
       return renderers[column.attr](cell, row);
     }
+    // The identifier column carries no attribute, so a host addresses it by its key.
+    if (column.attr === null && renderers?.[column.key]) {
+      return renderers[column.key](cell, row);
+    }
     if (cell && !Array.isArray(cell) && renderers?.[cell.kind]) {
       return renderers[cell.kind](cell, row);
     }
@@ -188,6 +203,12 @@ export function EntityGrid(props: EntityGridProps): React.JSX.Element {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [openMenu]);
+
+  // What the source answered, handed to the host as it arrives: the page a person is looking at is
+  // what they mean by "this page" when they export it.
+  React.useEffect(() => {
+    onRows?.(rows, state.offset);
+  }, [rows, state.offset, onRows]);
 
   const rootClass = `jc-grid${className ? ` ${className}` : ""}${classNames?.root ? ` ${classNames.root}` : ""}`;
 

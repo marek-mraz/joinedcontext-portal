@@ -44,40 +44,81 @@ const MODELS = list([
   },
 ]);
 
+/** The model as a committed one reaches the page, inline so no fetch stands between it and the slots. */
+const BIKES_MODEL = [
+  "id: https://hel.fi/models/mobility",
+  "name: helsinki-mobility",
+  "classes:",
+  "  BikeHireDockingStation:",
+  "    slots: [id, availableBikeNumber]",
+  "slots:",
+  "  id: {}",
+  "  availableBikeNumber: { range: integer, minimum_value: 0 }",
+  "",
+].join("\n");
+
+const MODELS_INLINE = list([
+  {
+    apiVersion: "joinedcontext.com/v1alpha1",
+    kind: "DataModel",
+    metadata: { name: "helsinki-mobility", namespace: "helsinki" },
+    spec: { classes: ["BikeHireDockingStation"], linkml: BIKES_MODEL },
+  },
+]);
+
 const ROW = { id: "urn:ngsi-ld:BikeHireDockingStation:hel.fi:helsinki:001", type: "BikeHireDockingStation" };
+/** The same entity with a measured attribute: a value, what it is measured in, when it was seen. */
+const MEASURED = {
+  ...ROW,
+  availableBikeNumber: {
+    type: "Property",
+    value: 5,
+    unitCode: "C62",
+    observedAt: "2026-09-19T08:00:00Z",
+  },
+};
+
+/** The URL of one call, whichever way it was made: the grid's transport sends a string, the page a `Request`. */
+function urlOf(input: unknown): string {
+  return typeof input === "string" ? input : ((input as Request).url ?? "");
+}
 
 /** The explorer with one endpoint, one model and one row, opened on that row's detail. */
-async function openDetail(remove: () => Response, access?: unknown) {
+async function openDetail(remove: () => Response, access?: unknown, entity: unknown = ROW) {
   const calls: { method: string; url: string; csrf: string | null }[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn((input: Request) => {
-      const request = input as Request;
+    vi.fn((input: unknown, init?: RequestInit) => {
+      const url = urlOf(input);
+      const request = input instanceof Request ? input : undefined;
+      const method = request?.method ?? init?.method ?? "GET";
       calls.push({
-        method: request.method,
-        url: request.url,
-        csrf: request.headers.get("x-csrf-token"),
+        method,
+        url,
+        csrf:
+          request?.headers.get("x-csrf-token") ??
+          ((init?.headers as Record<string, string> | undefined)?.["x-csrf-token"] ?? null),
       });
-      if (request.method === "DELETE") {
+      if (method === "DELETE") {
         return Promise.resolve(remove());
       }
-      if (request.url.includes("/entities?")) {
+      if (url.includes("/entities?")) {
         return Promise.resolve(
-          new Response(JSON.stringify([ROW]), {
+          new Response(JSON.stringify([entity]), {
             status: 200,
             headers: { "Content-Type": "application/json", "NGSILD-Results-Count": "1" },
           }),
         );
       }
-      if (request.url.includes("/entities/")) {
+      if (url.includes("/entities/")) {
         return Promise.resolve(
-          new Response(JSON.stringify(ROW), {
+          new Response(JSON.stringify(entity), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           }),
         );
       }
-      if (access !== undefined && request.url.includes("/access")) {
+      if (access !== undefined && url.includes("/access")) {
         return Promise.resolve(
           new Response(JSON.stringify(access), {
             status: 200,
@@ -133,9 +174,8 @@ describe("the explorer", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: Request) => {
-        const request = input as Request;
-        if (request.url.includes("/entities?")) {
+      vi.fn((input: unknown) => {
+        if (urlOf(input).includes("/entities?")) {
           return Promise.resolve(
             new Response(JSON.stringify([ROW]), {
               status: 200,
@@ -265,6 +305,94 @@ it("disables the delete button, with a reason, when the grant allows only reads"
 });
 
 /**
+ * T-1432, UI-64: the explorer is the one entity grid of the product, so what the grid knows about
+ * a value is on the explorer too — the unit beside the number, and when it was observed, from the
+ * column's own menu. Neither was on the page's old table.
+ */
+it("shows what a value is measured in, and when it was observed", async () => {
+  await i18n.changeLanguage("en");
+  await openDetail(() => new Response("", { status: 204 }), undefined, MEASURED);
+
+  expect(screen.getByText("5 C62")).toBeInTheDocument();
+  await userEvent.click(screen.getByLabelText(`${en.entityGrid.showMetadata} availableBikeNumber`));
+  await userEvent.click(screen.getByLabelText(en.entityGrid.observedAt));
+  await waitFor(() =>
+    expect(screen.getAllByText("2026-09-19T08:00:00Z").length).toBeGreaterThan(0),
+  );
+});
+
+/**
+ * T-1432, UI-67, EP-55: a correction is offered where the endpoint's own grant names a write on
+ * this type, and nowhere else. A viewer is given no cell to type in, rather than one the gateway
+ * would refuse after the typing is lost.
+ */
+describe("correcting a value from the explorer", () => {
+  const CELL = `${en.entityGrid.edit} availableBikeNumber`;
+
+  async function openWith(actions: string[]) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(queryKeys.list("helsinki", "endpoints"), ENDPOINTS);
+    client.setQueryData(queryKeys.list("helsinki", "spaces"), SPACES);
+    // Inline LinkML: the attributes a person may correct are the model's own slots.
+    client.setQueryData(queryKeys.list("helsinki", "datamodels"), MODELS_INLINE);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: unknown) => {
+        const url = urlOf(input);
+        if (url.includes("/entities?")) {
+          return Promise.resolve(
+            new Response(JSON.stringify([MEASURED]), {
+              status: 200,
+              headers: { "Content-Type": "application/json", "NGSILD-Results-Count": "1" },
+            }),
+          );
+        }
+        if (url.includes("/access")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                subject: { type: "user", id: "someone" },
+                permissions: [{ resource: { type: "BikeHireDockingStation" }, actions, attributes: "*" }],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+    render(
+      <QueryClientProvider client={client}>
+        <I18nextProvider i18n={i18n}>
+          <ExplorePage project="helsinki" initialSpace="helsinki" initialEndpoint="helsinki-bikes" />
+        </I18nextProvider>
+      </QueryClientProvider>,
+    );
+    await userEvent.selectOptions(await screen.findByLabelText(/Entity type/i), "BikeHireDockingStation");
+    // The row is there either way; whether its cell can be typed in is what the grant decides.
+    await screen.findByRole("button", { name: MEASURED.id });
+  }
+
+  it("offers the cell to a person whose grant names a write", async () => {
+    await i18n.changeLanguage("en");
+    await openWith(["queryEntity", "updateAttrs"]);
+    const cell = await screen.findByLabelText(CELL);
+    await userEvent.clear(cell);
+    await userEvent.type(cell, "6");
+    // What applying would send is announced before anything is written.
+    expect(await screen.findByText(`1 ${en.entityGrid.pending}`)).toBeInTheDocument();
+  });
+
+  it("offers a viewer nothing to type in", async () => {
+    await i18n.changeLanguage("en");
+    await openWith(["queryEntity", "retrieveEntity"]);
+    // The value is read, with its unit, and there is no cell to type in anywhere on the page.
+    expect(screen.getByText("5 C62")).toBeInTheDocument();
+    expect(screen.queryByLabelText(CELL)).toBeNull();
+  });
+});
+
+/**
  * T-1017, UI-46: the assistant opens the explorer on the entity it found, so the detail is
  * already open when the person looks. Without it the assistant could only open the list and
  * say which row to click.
@@ -273,9 +401,9 @@ it("opens on the entity the route names", async () => {
   const calls: { method: string; url: string }[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn((input: Request) => {
-      const request = input as Request;
-      calls.push({ method: request.method, url: request.url });
+    vi.fn((input: unknown, init?: RequestInit) => {
+      const url = urlOf(input);
+      calls.push({ method: input instanceof Request ? input.method : (init?.method ?? "GET"), url });
       const json = (body: unknown) =>
         Promise.resolve(
           new Response(JSON.stringify(body), {
@@ -283,8 +411,8 @@ it("opens on the entity the route names", async () => {
             headers: { "Content-Type": "application/json" },
           }),
         );
-      if (request.url.includes("/entities/")) return json(ROW);
-      if (request.url.includes("/entities?")) return json([ROW]);
+      if (url.includes("/entities/")) return json(ROW);
+      if (url.includes("/entities?")) return json([ROW]);
       return Promise.resolve(new Response("", { status: 404 }));
     }),
   );

@@ -1,39 +1,21 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { JSX } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { parseGridConfig } from "@joinedcontext/sdk";
+import type { ResolvedGridConfig, RichRow } from "@joinedcontext/sdk";
 import { api, ApiError, queryKeys, unwrap } from "../../api/client";
 import { asManifests, localized, refName } from "../../api/manifest";
 import { AccessPanel, deniedAttributes, useAccess } from "../../components/entities/AccessPanel";
 import { EntityFilters } from "../../components/entities/EntityFilters";
-import {
-  deleteEntity,
-  fetchEntities,
-  fetchEntity,
-  filterSlotsOf,
-  useModelSource,
-} from "../../components/entities/filters";
+import { PortalEntityGrid } from "../../components/entities/PortalEntityGrid";
+import { deleteEntity, fetchEntity, filterSlotsOf, useModelSource } from "../../components/entities/filters";
 import type { EntityQuery } from "../../components/entities/filters";
-import {
-  Alert,
-  Button,
-  Dialog,
-  Field,
-  PageHeader,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableEmpty,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from "../../components/ui";
+import { Alert, Button, Dialog, Field, PageHeader, Select } from "../../components/ui";
+import { writesOf } from "../access/EffectivePermissions";
 import { entityTypesOf, pickReadEndpoint, spaceOf } from "../spaces/SpaceInside";
 
-const PAGE_SIZES = [20, 50, 100];
-/** Columns beyond this hide behind the detail pane: a wide table reads worse than a JSON. */
-const MAX_COLUMNS = 8;
+const PAGE_SIZE = 50;
 
 function useProjectList(project: string, plural: string) {
   return useQuery({
@@ -51,18 +33,13 @@ function useProjectList(project: string, plural: string) {
   });
 }
 
-function cell(value: unknown): string {
-  if (typeof value === "object" && value !== null && "value" in value) {
-    const inner = (value as { value: unknown }).value;
-    return cell(inner);
-  }
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length > 40 ? `${text.slice(0, 39)}…` : text;
-}
-
 /**
- * The data explorer (UI-33): a space, one of its endpoints, filters generated from the space's
- * DataModel, and the page of entities the endpoint returns for the signed-in user. Reads only.
+ * The data explorer (UI-33, UI-64): a space, one of its endpoints, filters generated from the
+ * space's DataModel, and the entities the endpoint returns for the signed-in user, shown in the
+ * one entity grid of the product. The page owns what is a page's business — the space and the
+ * endpoint, the type and its filters, the export of what is on screen, and the removal of one
+ * entity (UI-60) — and the grid owns the table: the columns, the metadata a person opens, the
+ * paging, the per-column filter row and the correction of a value where the grant allows one.
  */
 export function ExplorePage({
   project,
@@ -86,25 +63,34 @@ export function ExplorePage({
   const [space, setSpace] = useState<string>(initialSpace ?? "");
   const [endpointChoice, setEndpointChoice] = useState<string>(initialEndpoint ?? "");
   const [query, setQuery] = useState<EntityQuery>({});
-  const [limit, setLimit] = useState(PAGE_SIZES[0]);
-  const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(initialEntityId ?? null);
   const [removing, setRemoving] = useState(false);
+  /** The page the grid holds right now, for the export: the rows on screen and where they start. */
+  const [shown, setShown] = useState<{ rows: RichRow[]; offset: number }>({ rows: [], offset: 0 });
+  /** Bumped when an entity is removed, so the grid reads the endpoint again. */
+  const [generation, setGeneration] = useState(0);
   const queryClient = useQueryClient();
 
   const spaceEndpoints = (endpoints.data ?? []).filter((e) => spaceOf(e) === space);
   const endpoint =
     spaceEndpoints.find((e) => e.metadata.name === endpointChoice) ??
     pickReadEndpoint(spaceEndpoints);
-  const slug = typeof endpoint?.spec.slug === "string" ? (endpoint.spec.slug as string) : undefined;
+  const slug = typeof endpoint?.spec.slug === "string" ? String(endpoint.spec.slug) : undefined;
   const spaceManifest = (spaces.data ?? []).find((s) => s.metadata.name === space);
   const model = (models.data ?? []).find(
     (m) => m.metadata.name === refName(spaceManifest?.spec.dataModelRef),
   );
   const types = model ? entityTypesOf(model) : [];
-  const slots = filterSlotsOf(useModelSource(project, model), query.type);
+  // The slots and the denied list are memoized because the grid's config is built from them: a new
+  // array on every render would make the grid rebuild its source and read the endpoint again, on
+  // and on. It also stops the LinkML being parsed once per render.
+  const modelSource = useModelSource(project, model);
+  const slots = useMemo(() => filterSlotsOf(modelSource, query.type), [modelSource, query.type]);
   const access = useAccess(slug);
-  const denied = deniedAttributes(access.data, query.type, slots, t);
+  const denied = useMemo(
+    () => deniedAttributes(access.data, query.type, slots, t),
+    [access.data, query.type, slots, t],
+  );
   // UI-44, EP-55: a control the grant denies stays visible and says why, rather than working
   // until the gateway refuses it. The grant is the endpoint's own `/access` document, already
   // read above for the attributes it hides (T-1021).
@@ -115,13 +101,74 @@ export function ExplorePage({
         (entry.resource?.type === undefined || entry.resource.type === query.type) &&
         (entry.actions ?? []).some((action) => action === "deleteEntity" || action === "deleteBatch"),
     );
+  /**
+   * The attributes this person may correct in place: the model's own slots, minus what the grant
+   * hides, and only where the grant names a write on this type. Unlike the delete above, an edit
+   * cell is offered only when the grant says yes — a cell that takes a value the endpoint will
+   * refuse loses the person's typing, while a disabled button loses nothing (UI-67).
+   */
+  const editableAttrs = useMemo(() => {
+    const grants = (access.data?.permissions ?? []).filter(
+      (entry) =>
+        (entry.resource?.type === undefined || entry.resource.type === query.type) &&
+        writesOf(entry.actions ?? []).length > 0,
+    );
+    if (grants.length === 0) {
+      return [];
+    }
+    const named = new Set(grants.flatMap((entry) => (Array.isArray(entry.attributes) ? entry.attributes : [])));
+    const unlimited = grants.some((entry) => entry.attributes === "*" || entry.attributes === undefined);
+    return slots
+      .map((slot) => slot.name)
+      .filter((attr) => !denied[attr] && (unlimited || named.has(attr)));
+  }, [access.data, query.type, slots, denied]);
 
-  const page = useQuery({
-    queryKey: ["explore", slug, query, limit, offset],
-    queryFn: () => fetchEntities(slug!, query, { limit, offset, count: true }),
-    enabled: Boolean(slug && query.type),
-    placeholderData: (previous) => previous,
-  });
+  /**
+   * What the grid is told to show. The endpoint is a slug and never a URL (EP-55), and the filters
+   * the page composed from the DataModel arrive as the grid's preset, so the grid's own filter row
+   * narrows what the page already asked for rather than replacing it.
+   */
+  const config: ResolvedGridConfig | null = useMemo(() => {
+    if (!slug || !query.type) {
+      return null;
+    }
+    const parsed = parseGridConfig({
+      source: { kind: "endpoint", slug },
+      type: query.type,
+      columns: (query.attrs ?? []).map((attr) => ({ attr })),
+      filters: { preset: { q: query.q, attrs: query.attrs, scopeQ: query.scopeQ } },
+      pageSize: PAGE_SIZE,
+      history: { enabled: true },
+      ...(editableAttrs.length > 0 ? { mode: "edit" as const, editableAttrs } : {}),
+    });
+    return parsed.config ?? null;
+  }, [slug, query.type, query.q, query.attrs, query.scopeQ, editableAttrs]);
+
+  // A stable callback and the same object back when nothing moved: the grid hands its page over
+  // from an effect, so a new function or a new object on every render would read and re-render
+  // without end.
+  const onRows = useCallback((rows: RichRow[], offset: number) => {
+    setShown((previous) =>
+      previous.rows === rows && previous.offset === offset ? previous : { rows, offset },
+    );
+  }, []);
+  const renderers = useMemo(
+    () => ({
+      // The identifier opens the entity as the endpoint holds it: the whole JSON-LD, and the one
+      // place the removal of UI-60 is offered from.
+      id: (_cell: unknown, row: RichRow) => (
+        <button
+          type="button"
+          className="focus-ring font-mono text-primary underline-offset-2 hover:underline"
+          onClick={() => setSelected(row.id)}
+        >
+          {row.id}
+        </button>
+      ),
+    }),
+    [],
+  );
+
   const detail = useQuery({
     queryKey: ["explore-entity", slug, selected],
     queryFn: () => fetchEntity(slug!, selected!),
@@ -135,38 +182,31 @@ export function ExplorePage({
     onSuccess: () => {
       setRemoving(false);
       setSelected(null);
-      void queryClient.invalidateQueries({ queryKey: ["explore", slug] });
+      void queryClient.removeQueries({ queryKey: ["explore-entity", slug] });
+      // The grid holds a page that still lists the entity; a new key makes it read the endpoint
+      // again rather than show a row that is gone.
+      setGeneration((each) => each + 1);
     },
   });
   const removeFailed =
     remove.error instanceof ApiError ? remove.error.message : remove.error ? t("app.error.generic") : null;
 
-  const rows = page.data?.rows ?? [];
-  const columns =
-    query.attrs && query.attrs.length > 0
-      ? query.attrs
-      : [...new Set(rows.flatMap((row) => Object.keys(row)))]
-          .filter((key) => !["id", "type", "@context"].includes(key))
-          .slice(0, MAX_COLUMNS);
-  const count = page.data?.count;
-  const hasNext = count !== undefined ? offset + limit < count : rows.length === limit;
-
   // UI-33: the page the person is looking at, as the file they can keep. It is written from
   // the rows already in hand rather than fetched again: a second read through the endpoint
   // would be a second answer, and a person exporting "this page" means this one.
   const download = () => {
-    const file = new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" });
+    const entities = shown.rows.map((row) => row.raw);
+    const file = new Blob([JSON.stringify(entities, null, 2)], { type: "application/json" });
     const href = URL.createObjectURL(file);
     const link = document.createElement("a");
     link.href = href;
-    link.download = `${query.type}-${offset + 1}-${offset + rows.length}.json`;
+    link.download = `${query.type}-${shown.offset + 1}-${shown.offset + entities.length}.json`;
     link.click();
     URL.revokeObjectURL(href);
   };
 
   function changeQuery(next: EntityQuery) {
     setQuery(next);
-    setOffset(0);
     setSelected(null);
   }
 
@@ -203,7 +243,6 @@ export function ExplorePage({
             disabled={!space}
             onChange={(event) => {
               setEndpointChoice(event.target.value);
-              setOffset(0);
               setSelected(null);
             }}
           >
@@ -229,94 +268,19 @@ export function ExplorePage({
       ) : null}
       {space ? <AccessPanel slug={slug} type={query.type} access={access} /> : null}
 
-      {page.error ? (
-        <Alert role="alert" tone="danger">
-          {page.error instanceof ApiError ? page.error.message : t("explore.loadFailed")}
-        </Alert>
-      ) : null}
-
-      {slug && query.type ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-3 text-caption text-fg-muted">
-            <span>
-              {count !== undefined ? t("explore.count", { count }) : t("explore.countUnknown")}
-            </span>
-            <span>
-              {t("explore.page", {
-                from: offset + 1,
-                to: offset + rows.length,
-              })}
-            </span>
-            <label className="inline-flex items-center gap-1">
-              {t("explore.pageSize")}
-              <Select
-                value={String(limit)}
-                className="w-20"
-                onChange={(event) => {
-                  setLimit(Number(event.target.value));
-                  setOffset(0);
-                }}
-              >
-                {PAGE_SIZES.map((size) => (
-                  <option key={size} value={String(size)}>
-                    {size}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <Button
-              size="sm"
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - limit))}
-            >
-              {t("explore.prev")}
-            </Button>
-            <Button size="sm" disabled={!hasNext} onClick={() => setOffset(offset + limit)}>
-              {t("explore.next")}
-            </Button>
-            <Button size="sm" disabled={rows.length === 0} onClick={download}>
+      {config ? (
+        <PortalEntityGrid
+          key={`${slug}-${query.type}-${generation}`}
+          project={project}
+          config={config}
+          onRows={onRows}
+          renderers={renderers}
+          toolbar={
+            <Button size="sm" disabled={shown.rows.length === 0} onClick={download}>
               {t("explore.export")}
             </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <Table caption={t("explore.entities")}>
-              <TableHead>
-                <TableHeaderCell>id</TableHeaderCell>
-                {columns.map((column) => (
-                  <TableHeaderCell key={column}>
-                    <span className="font-mono">{column}</span>
-                  </TableHeaderCell>
-                ))}
-              </TableHead>
-              <TableBody>
-                {rows.length === 0 && !page.isPending ? (
-                  <TableEmpty columns={columns.length + 1}>{t("explore.noEntities")}</TableEmpty>
-                ) : (
-                  rows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>
-                        <button
-                          type="button"
-                          className="focus-ring font-mono text-primary underline-offset-2 hover:underline"
-                          onClick={() => setSelected(row.id)}
-                        >
-                          {row.id}
-                        </button>
-                      </TableCell>
-                      {columns.map((column) => (
-                        <TableCell key={column}>
-                          <span className="font-mono">
-                            {column in row ? cell(row[column]) : ""}
-                          </span>
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
+          }
+        />
       ) : space ? (
         <p className="text-caption text-fg-muted">{t("explore.noType")}</p>
       ) : null}

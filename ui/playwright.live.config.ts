@@ -14,6 +14,9 @@ export default defineConfig({
   timeout: 420_000,
   use: {
     baseURL: process.env.PORTAL_URL ?? "https://portal.2.28.67.127.sslip.io",
+    // Without this a click on a locator that matches nothing waits for the whole test timeout: one
+    // wrong locator cost a ten-minute run that said only "Test timeout exceeded".
+    actionTimeout: 30_000,
     trace: "retain-on-failure",
     viewport: { width: 1600, height: 1000 },
   },

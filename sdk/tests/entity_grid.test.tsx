@@ -436,4 +436,46 @@ describe("EntityGrid", () => {
       expect(screen.getByRole("button", { name: `${DEFAULT_LABELS.sortPage} Bikes` }).textContent).toContain("↑");
     });
   });
+
+  // What a host needs to build a page around the grid instead of a table of its own (T-1432): a way
+  // to make a row open something, and the page of rows it is looking at.
+  describe("what it hands the host", () => {
+    it("lets the host draw the identifier, so a row opens what the page keeps", async () => {
+      const opened: string[] = [];
+      render(
+        <EntityGrid
+          config={config}
+          source={fixtureSource(bikeEntities)}
+          renderers={{
+            id: (_cell, row) => (
+              <button type="button" onClick={() => opened.push(row.id)}>
+                {row.id}
+              </button>
+            ),
+          }}
+        />,
+      );
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole("button", { name: bikeEntities[1].id as string }));
+      expect(opened).toEqual([bikeEntities[1].id]);
+    });
+
+    it("hands over the page it shows, with the offset it starts at", async () => {
+      const pages: { ids: string[]; offset: number }[] = [];
+      render(
+        <EntityGrid
+          config={onePerPage}
+          source={fixtureSource(bikeEntities)}
+          onRows={(rows, offset) => pages.push({ ids: rows.map((row) => row.id), offset })}
+        />,
+      );
+      await waitFor(() => expect(screen.getByText("Kamppi")).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: DEFAULT_LABELS.next }));
+      await waitFor(() => expect(screen.getByText("Kallio")).toBeInTheDocument());
+
+      const last = pages.at(-1)!;
+      expect(last).toEqual({ ids: [bikeEntities[1].id], offset: 1 });
+    });
+  });
 });
